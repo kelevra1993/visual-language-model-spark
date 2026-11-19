@@ -1,7 +1,7 @@
 # Sequence classification, chapter 3: the README run of the synthetic configuration against the average pooling and
 # flatten runs at 512 pixels: the console summary, the training loss, Results.txt and its Per Class Recall table, the
-# confusion matrices and ROC curves, the probabilities of the predictions file, the sample sequences, the accuracy on
-# shorter sequences, the export with its input settings and the pitfalls of the task. The figures are made by
+# confusion matrices and ROC curves, the probabilities of the predictions file, the sample sequences, the accuracy per
+# number of frames, the export with its input settings and the pitfalls of the task. The figures are made by
 # tutorials/figures/sequence_classification, the evaluations read from the Checkpoint_Evaluation folder of the runs.
 series: sequence_classification
 series_title: "Sequence Classification (M2O)"
@@ -30,7 +30,7 @@ scenes:
     # The chapter number of the footnote, the chapter key of this storyboard
     literal_numbers: ["3"]
     narration:
-      - "This chapter reads the README run of the synthetic configuration: {{sequence_classification.run.number_iterations}} iterations at {{sequence_classification.run.image_size}} pixels, a checkpoint evaluated every {{sequence_classification.run.weight_saving_iterations}}."
+      - "This chapter reads the run of the synthetic configuration at {{sequence_classification.run.image_size}} pixels, in batches of {{sequence_classification.run.batch_size}} sequences: {{sequence_classification.run.number_iterations}} iterations, its checkpoints of iterations {{sequence_classification.evaluation.flatten_256.first_iteration}} and {{sequence_classification.evaluation.flatten_256.last_iteration}} evaluated again on the test split."
       - "Then it sets it against the same task with average pooling, which never leaves chance, and ends with the export and the pitfalls."
 
   - kind: image
@@ -43,10 +43,10 @@ scenes:
       - {box: "{{sequence_classification.console.validation_box}}", sentences: [1]}
       - {box: "{{sequence_classification.console.accuracy_box}}", sentences: [3]}
     narration:
-      - "Every {{sequence_classification.console.flatten_128.interval_iterations}} iterations, the summary gives the sequences per second, and the frames per second without the padding."
-      - "At the first interval of this run: {{sequence_classification.console.flatten_128.first_throughput}} sequences and {{sequence_classification.console.flatten_128.first_frame_throughput}} frames per second, a training loss of {{sequence_classification.console.flatten_128.first_interval_loss:.2f}}, and {{sequence_classification.console.flatten_128.validation_batches:words}} validation batches, one every {{sequence_classification.console.flatten_128.validation_ratio}} iterations."
+      - "Every {{sequence_classification.console.flatten_256.interval_iterations}} iterations, the summary gives the sequences per second, and the frames per second without the padding."
+      - "At the first interval of this run: {{sequence_classification.console.flatten_256.first_throughput}} sequences and {{sequence_classification.console.flatten_256.first_frame_throughput}} frames per second, a training loss of {{sequence_classification.console.flatten_256.first_interval_loss:.2f}}, and {{sequence_classification.console.flatten_256.validation_batches:words}} validation batches, one every {{sequence_classification.console.flatten_256.validation_ratio}} iterations."
       - "The same task at {{sequence_classification.image_sizes.average_512}} pixels ran at {{sequence_classification.console.average_512.first_throughput}} sequences per second: the frame size sets the cost of a sequence run."
-      - "This run predates the percentages, so its logged values are written here as the summary now prints them: the accuracies as percentages, their changes in percentage points from the next summary on."
+      - "The accuracies are written as percentages, followed from the next summary on by their change since the previous one."
 
   - kind: image
     title: "Flatten learns, average does not"
@@ -58,13 +58,13 @@ scenes:
     highlights:
       - {box: "{{sequence_classification.training.panel_0_box}}", sentences: [0]}
       - {box: "{{sequence_classification.training.panel_1_box}}", sentences: [1, 2]}
-    # The interval losses of the average pooling run are read with three decimals: rounded to two, their narrow band
-    # around the natural log of four (1.386) would read 1.39 to 1.39
+    # The interval losses of the average pooling run are read with four decimals, as the console prints them: rounded
+    # to two, their narrow band around the natural log of four (1.386) would lose the width the sentence describes
     exact_facts: [sequence_classification.console.average_512.minimum_interval_loss,
                   sequence_classification.console.average_512.maximum_interval_loss]
     narration:
-      - "The training loss of the flatten run falls from {{sequence_classification.training.flatten_128.first_loss:.2f}} to {{sequence_classification.training.flatten_128.last_loss:.2f}} in {{sequence_classification.training.flatten_128.iterations}} iterations."
-      - "With average pooling at {{sequence_classification.image_sizes.average_512}} pixels, it stays at the natural log of {{sequence_classification.run.number_classes:words}}, the loss of a uniform guess over {{sequence_classification.run.number_classes:words}} classes, for {{sequence_classification.training.average_512.iterations}} iterations: its interval averages never leave {{sequence_classification.console.average_512.minimum_interval_loss:.3f}} to {{sequence_classification.console.average_512.maximum_interval_loss:.3f}}."
+      - "The training loss of the flatten run falls from {{sequence_classification.training.flatten_256.first_loss:.2f}} to {{sequence_classification.training.flatten_256.smoothed_last_loss:.2f}} on the smoothed curve in {{sequence_classification.training.flatten_256.iterations}} iterations."
+      - "With average pooling at {{sequence_classification.image_sizes.average_512}} pixels, it stays at the natural log of {{sequence_classification.run.number_classes:words}}, the loss of a uniform guess over {{sequence_classification.run.number_classes:words}} classes, for {{sequence_classification.training.average_512.iterations}} iterations: its interval averages never leave {{sequence_classification.console.average_512.minimum_interval_loss:.4f}} to {{sequence_classification.console.average_512.maximum_interval_loss:.4f}}."
       - "Flatten at {{sequence_classification.image_sizes.flatten_512}} pixels stays there too after {{sequence_classification.training.flatten_512.iterations}} iterations, its {{sequence_classification.parameters.flatten_512.frame_features:,}} features per frame feeding a GRU of {{sequence_classification.parameters.flatten_512.temporal_module_millions}} million weights."
 
   - kind: code
@@ -72,17 +72,19 @@ scenes:
     code_reference: "vision_training/trainers/classification_trainer.py · ClassificationTrainer.compute_evaluation_results"
     syntax: plain
     source:
-      file: "figures:sequence_classification/listings/results_flatten_128.txt"
+      file: "figures:sequence_classification/listings/results_flatten_256.txt"
       start: "^Iteration "
       count: 16
     highlights:
       - {match: "Accuracy  |Macro F1|Macro ROC AUC", sentences: [0]}
-      - {match: "^   moving_left ", sentences: [1]}
-      - {match: "Threshold|@ P99 %|Worst F1 first", sentences: [3]}
+      - {match: "^Iteration ", sentences: [1]}
+      - {match: "^   {{sequence_classification.evaluation.flatten_256.first.wrong.true_class}} ", sentences: [2]}
+      - {match: "Threshold|@ P99 %|Worst F1 first", sentences: [4]}
     narration:
       - "The results file gets one block per evaluated checkpoint: the accuracy, the headline metric, then the balanced accuracy, the macro F1, the top-k accuracy, the macro ROC AUC and the macro average precision."
-      - "At iteration {{sequence_classification.evaluation.flatten_128.first_iteration}}, one test sequence is wrong: sequence {{sequence_classification.evaluation.flatten_128.first_wrong.number}}, a {{sequence_classification.evaluation.flatten_128.first_wrong.true_class}} shape given {{sequence_classification.evaluation.flatten_128.first_wrong.predicted_class}} at {{sequence_classification.evaluation.flatten_128.first_wrong.probability:.2f}}, hence the recall of moving left."
-      - "At iteration {{sequence_classification.checkpoints.flatten_128.iteration}}, every headline and per-class metric is {{sequence_classification.evaluation.flatten_128.accuracy.iteration_1000:percent}}."
+      - "Its first block, iteration {{sequence_classification.evaluation.flatten_256.first_iteration}}, gives an accuracy of {{sequence_classification.evaluation.flatten_256.first.accuracy:percent}}, {{sequence_classification.evaluation.flatten_256.first.wrong_count}} of the {{sequence_classification.probabilities.flatten_256.sequences}} test sequences being wrong."
+      - "The most confident mistake is sequence {{sequence_classification.evaluation.flatten_256.first.wrong.number}}, a {{sequence_classification.evaluation.flatten_256.first.wrong.true_class}} shape given {{sequence_classification.evaluation.flatten_256.first.wrong.predicted_class}} at {{sequence_classification.evaluation.flatten_256.first.wrong.probability:.2f}}."
+      - "At iteration {{sequence_classification.evaluation.flatten_256.last_iteration}}, the last evaluated checkpoint, the accuracy reaches {{sequence_classification.evaluation.flatten_256.last.accuracy:percent}}, with {{sequence_classification.evaluation.flatten_256.last.wrong_count}} sequences wrong."
       - "The per-class table is sorted by F1, worst first, with the lowest threshold keeping a precision of {{sequence_classification.run.target_precision:percent_label}} and the recall it keeps."
       - "Every rate of the report is written as a percentage."
 
@@ -91,15 +93,16 @@ scenes:
     code_reference: "vision_training/evaluation/recall_intervals.py · build_recall_interval_table"
     syntax: plain
     source:
-      file: "figures:sequence_classification/listings/results_flatten_128.txt"
+      file: "figures:sequence_classification/listings/results_flatten_256.txt"
       start: "^  Per Class Recall"
       count: 10
     highlights:
       - {match: "Lower|Clopper-Pearson", sentences: [0]}
-      - {match: "^   moving_left ", sentences: [1]}
+      - {match: "^   {{sequence_classification.evaluation.flatten_256.first.worst_recall_class}} ", sentences: [1]}
     narration:
       - "The same block ends with the Per Class Recall table: the recall of every class with its exact Clopper-Pearson {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:percent_label}} confidence interval, the test sequences being independent."
-      - "It is sorted by recall, worst first, so {{sequence_classification.evaluation.flatten_128.first_wrong.true_class}}, the class of the wrong sequence, comes first, and even a perfect recall keeps a lower bound below it, every class holding few test sequences."
+      - "It is sorted by recall, worst first, so {{sequence_classification.evaluation.flatten_256.first.worst_recall_class}} comes first at {{sequence_classification.evaluation.flatten_256.first.worst_recall:percent}}."
+      - "With {{sequence_classification.evaluation.flatten_256.first.fewest_class_sequences}} to {{sequence_classification.evaluation.flatten_256.first.most_class_sequences}} test sequences per class, the intervals stay wide: even a class with every sequence right keeps a lower bound well below its recall."
 
   - kind: image
     title: "Flatten against average"
@@ -109,8 +112,8 @@ scenes:
       - {box: "{{sequence_classification.evaluation.composite.row_1_box}}", from_sentence: 2}
     narration:
       - "The evaluation folder holds the files of the image classification without its temperature explorer: the confusion matrix, the class metrics and thresholds, the ROC and precision-recall curves, the predictions, and the sample sequences."
-      - "At iteration {{sequence_classification.checkpoints.flatten_128.iteration}}, the flatten run has a diagonal confusion matrix and a ROC AUC of {{sequence_classification.evaluation.flatten_128.macro_roc_auc.iteration_1000:percent}} for every class."
-      - "The average pooling run predicts moving down for all {{sequence_classification.probabilities.average_512.sequences}} test sequences: an accuracy of {{sequence_classification.evaluation.average_512.accuracy.iteration_2000:percent}}, the share of moving down, a balanced accuracy of {{sequence_classification.evaluation.average_512.balanced_accuracy.iteration_2000:percent}}, and ROC curves along the diagonal, a macro ROC AUC of {{sequence_classification.evaluation.average_512.macro_roc_auc.iteration_2000:percent}}."
+      - "At iteration {{sequence_classification.evaluation.flatten_256.last_iteration}}, the flatten run leaves {{sequence_classification.evaluation.flatten_256.last.wrong_count}} test sequences off the diagonal of its confusion matrix, with a macro ROC AUC of {{sequence_classification.evaluation.flatten_256.last.macro_roc_auc:percent}}."
+      - "The average pooling run predicts {{sequence_classification.probabilities.average_512.predicted_class}} for all {{sequence_classification.probabilities.average_512.sequences}} test sequences: an accuracy of {{sequence_classification.evaluation.average_512.accuracy.iteration_2000:percent}}, the share of that class, a balanced accuracy of {{sequence_classification.evaluation.average_512.balanced_accuracy.iteration_2000:percent}}, and ROC curves along the diagonal, a macro ROC AUC of {{sequence_classification.evaluation.average_512.macro_roc_auc.iteration_2000:percent}}."
       - "Like the report, these images write the accuracies, the areas under the curves and their axes as percentages."
 
   - kind: image
@@ -121,7 +124,7 @@ scenes:
       - {box: "{{sequence_classification.probabilities.panel_0_box}}", sentences: [0]}
       - {box: "{{sequence_classification.probabilities.panel_1_box}}", sentences: [1]}
     narration:
-      - "The predictions file gives every test sequence with its first and last frames and its {{sequence_classification.run.number_classes:words}} probabilities: the flatten run gives the true class more than {{sequence_classification.probabilities.threshold}} for {{sequence_classification.probabilities.flatten_128.above_0_9}} of the {{sequence_classification.probabilities.flatten_128.sequences}} sequences."
+      - "The predictions file gives every test sequence with its first and last frames and its {{sequence_classification.run.number_classes:words}} probabilities: the flatten run gives the true class more than {{sequence_classification.probabilities.threshold}} for {{sequence_classification.probabilities.flatten_256.above_0_9}} of the {{sequence_classification.probabilities.flatten_256.sequences}} sequences."
       - "With average pooling, every probability of every sequence lies between {{sequence_classification.probabilities.average_512.minimum_any:.2f}} and {{sequence_classification.probabilities.average_512.maximum_any:.2f}}: the same answer, whatever the frames."
 
   - kind: image
@@ -130,18 +133,21 @@ scenes:
     highlights:
       - {box: "{{sequence_classification.samples.row_0_image_0_box}}", sentences: [1]}
       - {box: "{{sequence_classification.samples.row_0_image_1_box}}", sentences: [1]}
+    # The probability of the flatten run is read with three decimals: rounded to two, a probability just under one
+    # would read as a certainty
+    exact_facts: [sequence_classification.samples.flatten_256.probability]
     narration:
       - "Every evaluation draws its {{sequence_classification.run.number_sample_images_words}} fixed test sequences as grids of their real frames, under the true class, the predicted one and its probability, in green when right and in red when wrong."
-      - "Here the same {{sequence_classification.samples.flatten_128.true_class}} sequence: right at {{sequence_classification.samples.flatten_128.probability:.2f}} with flatten, given {{sequence_classification.samples.average_512.predicted_class}} at {{sequence_classification.samples.average_512.probability:.2f}} with average pooling."
+      - "Here the same {{sequence_classification.samples.flatten_256.true_class}} sequence of {{sequence_classification.samples.frames:words}} frames: right at {{sequence_classification.samples.flatten_256.probability:.3f}} with flatten, given {{sequence_classification.samples.average_512.predicted_class}} at {{sequence_classification.samples.average_512.probability:.2f}} with average pooling."
 
   - kind: image
-    title: "Shorter sequences"
-    image: "figures:sequence_classification/model/truncation.png"
+    title: "Accuracy per number of frames"
+    image: "figures:sequence_classification/evaluation/accuracy_by_length.png"
     highlights:
-      - {box: "{{sequence_classification.truncation.panel_box}}", sentences: [0]}
+      - {box: "{{sequence_classification.length_accuracy.panel_box}}", sentences: [0]}
     narration:
-      - "The run only ever saw sequences of {{sequence_classification.dataset.disk_frames_words}} frames: on the first frames of the test sequences, which show less of the movement, its checkpoint reaches an accuracy of {{sequence_classification.truncation.frames_2.accuracy:percent}} with {{sequence_classification.truncation.lengths[0]:words}} frames, {{sequence_classification.truncation.frames_4.accuracy:percent}} with {{sequence_classification.truncation.lengths[2]}}, and {{sequence_classification.truncation.frames_8.accuracy:percent}} with all {{sequence_classification.dataset.disk_frames}}."
-      - "Let's consider a deployment that sends shorter sequences: the model accepts any length, but what it learnt comes from sequences of {{sequence_classification.dataset.disk_frames_words}} frames, so check those lengths against the training data."
+      - "The predictions file and the labels file together give the accuracy on the test sequences of every length: at iteration {{sequence_classification.evaluation.flatten_256.last_iteration}}, the weakest length is {{sequence_classification.length_accuracy.weakest_length:words}} frames, at {{sequence_classification.length_accuracy.weakest_accuracy:percent}} over {{sequence_classification.length_accuracy.weakest_sequences}} sequences."
+      - "Let's consider a deployment that sends longer sequences: the model accepts up to {{sequence_classification.export.maximum_frames}} frames, but what it learnt comes from sequences of {{sequence_classification.dataset.disk_minimum_frames_words}} to {{sequence_classification.dataset.disk_maximum_frames_words}} frames, so check the lengths it receives against the training data."
 
   - kind: html
     page: diagram
@@ -175,25 +181,25 @@ scenes:
     elements:
       - {type: box, box: [40, 40, 860, 230], text: "global_pooling average or max\nmotion classes at chance,\nthe loss at the natural log of {{sequence_classification.run.number_classes}}", font: diagram_text, outline: red, highlight: [0]}
       - {type: box, box: [900, 40, 1720, 230], text: "flatten at {{sequence_classification.image_sizes.flatten_512}} pixels\n{{sequence_classification.parameters.flatten_512.temporal_module_millions}} M GRU weights,\ncheckpoints of {{sequence_classification.checkpoints.flatten_512.megabytes:.0f}} MB", font: diagram_text, outline: red, highlight: [1]}
-      - {type: box, box: [40, 270, 860, 460], text: "the dataset on this machine\n{{sequence_classification.dataset.disk_frames}} frames everywhere, never padded\nolder than the variable-length generator", font: diagram_text, outline: yellow, highlight: [2]}
+      - {type: box, box: [40, 270, 860, 460], text: "lengths outside the training data\nthe export accepts up to {{sequence_classification.export.maximum_frames}} frames,\nthe run learnt from {{sequence_classification.dataset.disk_minimum_frames}} to {{sequence_classification.dataset.disk_maximum_frames}}", font: diagram_text, outline: yellow, highlight: [2]}
       - {type: box, box: [900, 270, 1720, 460], text: "TemporalModel.dropout_rate\nno effect with one GRU layer", font: diagram_text, outline: yellow, highlight: [3]}
       - {type: box, box: [40, 500, 860, 690], text: "shuffle_frames with an ordered module\na yellow warning only", font: diagram_text, outline: yellow, highlight: [3]}
       - {type: box, box: [900, 500, 1720, 690], text: "Iterations Per Epoch\ncounted before the label mapping\n(count_split_sequences)", font: diagram_text, outline: yellow, highlight: [3]}
     narration:
       - "The pitfalls of the task: average or max pooling leaves motion classes at chance, and nothing warns about it but a loss stuck at the natural log of {{sequence_classification.run.number_classes:words}}."
-      - "Flatten follows the image size: at {{sequence_classification.image_sizes.flatten_512}} pixels its GRU grows to {{sequence_classification.parameters.flatten_512.temporal_module_millions}} million weights and its checkpoint to {{sequence_classification.checkpoints.flatten_512.megabytes:.0f}} megabytes, against {{sequence_classification.checkpoints.flatten_128.megabytes:.0f}} at {{sequence_classification.image_sizes.flatten_128}} pixels, and it did not learn in {{sequence_classification.training.flatten_512.iterations}} iterations."
-      - "The data set on this machine only holds sequences of {{sequence_classification.dataset.disk_frames_words}} frames, so the README runs never padded a batch, and a data set from the current generator gives longer and slower batches."
+      - "Flatten follows the image size: at {{sequence_classification.image_sizes.flatten_512}} pixels its GRU grows to {{sequence_classification.parameters.flatten_512.temporal_module_millions}} million weights and its checkpoint to {{sequence_classification.checkpoints.flatten_512.megabytes:.0f}} megabytes, against {{sequence_classification.checkpoints.flatten_256.megabytes:.0f}} at {{sequence_classification.image_sizes.flatten_256}} pixels, and it stayed at a test accuracy of {{sequence_classification.evaluation.flatten_512.last.accuracy:percent}} after {{sequence_classification.training.flatten_512.iterations}} iterations."
+      - "The model takes up to {{sequence_classification.export.maximum_frames}} frames, but the run only learnt from {{sequence_classification.dataset.disk_minimum_frames_words}} to {{sequence_classification.dataset.disk_maximum_frames_words}}: nothing warns about a deployment sending longer sequences."
       - "The temporal dropout does nothing with one GRU layer, shuffled frames with an ordered module only print a warning, and the iterations per epoch are counted before the label mapping."
 
   - kind: summary
     title: "Recap"
     items:
       - {text: "Console: sequences and real frames per second"}
-      - {text: "Flatten at {{sequence_classification.image_sizes.flatten_128}} pixels: every metric {{sequence_classification.evaluation.flatten_128.accuracy.iteration_1000:percent}} at iteration {{sequence_classification.checkpoints.flatten_128.iteration:,}}"}
-      - {text: "Average pooling: moving_down for every sequence, loss at ln {{sequence_classification.run.number_classes}}"}
+      - {text: "Flatten at {{sequence_classification.image_sizes.flatten_256}} pixels: accuracy {{sequence_classification.evaluation.flatten_256.last.accuracy:percent}} at iteration {{sequence_classification.evaluation.flatten_256.last_iteration:,}}"}
+      - {text: "Average pooling: {{sequence_classification.probabilities.average_512.predicted_class}} for every sequence, loss at ln {{sequence_classification.run.number_classes}}"}
       - {text: "The evaluation files of CLS, one row per sequence"}
       - {text: "Export: images {{sequence_classification.export.input_shape}}, every frame real"}
       - {text: "On motion classes, the pooling decides, not the temporal module"}
     narration:
-      - "To recap: on the moving shapes the frame pooling decides everything, flatten at {{sequence_classification.image_sizes.flatten_128}} pixels learns within {{sequence_classification.evaluation.flatten_128.first_iteration}} iterations, and the evaluation reads like that of the image classification."
+      - "To recap: on the moving shapes the frame pooling decides everything, flatten at {{sequence_classification.image_sizes.flatten_256}} pixels reaches {{sequence_classification.evaluation.flatten_256.last.accuracy:percent}} in {{sequence_classification.evaluation.flatten_256.last_iteration}} iterations, and the evaluation reads like that of the image classification."
       - "The next series, sequence labelling, keeps the time axis and gives a class to every frame."

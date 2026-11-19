@@ -6,9 +6,9 @@ tutorials/tutorial_sources.yaml), the trained sequence models rebuilt on the CPU
 curves, predictions and console logs of the runs, the frames of the datasets copied into the figures folder so that the
 HTML scenes can show them, the frame vectors drawn as small heat squares, the composites of the evaluation images of
 the runs, the layout files of the animated batch scenes (animations/07_sequence_classification/frame_batches.js), and
-the probability axis of the charts drawing a rate in percent and probabilities on one scale (the truncation figure of
-this series, the frame position panel of the sequence labelling series). For a run read from the committed snapshots
-(tutorials/run_snapshots, without checkpoints), the models whose structure only is read are built from the
+the probability axis of the charts drawing a rate in percent and probabilities on one scale (the accuracy by length
+figure of this series, the frame position panel of the sequence labelling series). For a run read from the committed
+snapshots (tutorials/run_snapshots, without checkpoints), the models whose structure only is read are built from the
 configuration with random weights, and the checkpoint sizes the narration quotes are read from the listing of the
 Weights folder the snapshot holds.
 """
@@ -289,7 +289,8 @@ def write_text_lines(output_path: Path, lines: List[str]) -> None:
 def copy_frames(frame_paths: List[Path], series_folder: Path, subfolder: str, name_prefix: str) -> List[str]:
     """
     Copies frames of a dataset into the figures folder of a series, the only data folder the HTML scenes can read, and
-    gives their paths with the figures: prefix of the storyboards.
+    gives their paths with the figures: prefix of the storyboards. The copies of a previous build with the same prefix
+    are removed first, so that a sequence with fewer frames leaves no stale frame a scene could still show.
 
     Args:
         frame_paths (List[Path]): The frame files, in order.
@@ -304,6 +305,12 @@ def copy_frames(frame_paths: List[Path], series_folder: Path, subfolder: str, na
         FileNotFoundError: If a frame is missing.
     """
     (series_folder / subfolder).mkdir(parents=True, exist_ok=True)
+
+    # Copies of the previous build named after the same prefix and an index only, other prefixes left alone
+    copy_name_pattern = re.compile(pattern=rf"^{re.escape(name_prefix)}_\d+\.png$")
+    for previous_copy in (series_folder / subfolder).iterdir():
+        if copy_name_pattern.match(previous_copy.name) is not None:
+            previous_copy.unlink()
     copied_paths = []
     for frame_index, frame_path in enumerate(frame_paths):
         if not frame_path.exists():
@@ -318,7 +325,7 @@ def write_vector_square(vector: numpy.ndarray, map_shape: Tuple[int, int, int], 
                         side_pixels: int, output_path: Path) -> None:
     """
     Draws a frame vector as a small heat square, the way the animated batch scenes show the vectors of the frame
-    encoder: the vector read as the feature map it comes from (channels x height x width, a flattened 64 x 8 x 8 map,
+    encoder: the vector read as the feature map it comes from (channels x height x width, a flattened 64 x 16 x 16 map,
     or 64 x 1 x 1 for an average pooling), every channel map placed on a square mosaic of the channels, so that the
     position of the shape shows in the maps of a flattened frame. The values are coloured from the box colour at zero
     to the blue of the series at maximum_value, the zero vectors of the padding frames being plain squares.
@@ -645,10 +652,10 @@ def add_probability_axis(figure: matplotlib.figure.Figure, axes: matplotlib.axes
     """
     Adds a right vertical axis to a chart panel whose left axis writes a rate as the percentages of the reports of the
     repository ("20 %") and which also draws probabilities on the same 0 to 1 scale (the mean probability of the true
-    class next to the accuracy of the truncation figure, the mean probability of no_change next to its true share in
-    the sequence labelling series): the right axis writes that scale with the decimals every probability keeps, so that
-    every value is read in the form of its kind. It is called once the panel is drawn, and also gives the box of the
-    panel with both axes, for the highlights of the storyboards.
+    class next to the accuracy of the accuracy by length figure, the mean probability of no_change next to its true
+    share in the sequence labelling series): the right axis writes that scale with the decimals every probability
+    keeps, so that every value is read in the form of its kind. It is called once the panel is drawn, and also gives
+    the box of the panel with both axes, for the highlights of the storyboards.
 
     Args:
         figure (matplotlib.figure.Figure): The figure of the panel, drawn to measure the box.

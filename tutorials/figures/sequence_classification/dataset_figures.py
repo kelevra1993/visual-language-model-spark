@@ -2,11 +2,11 @@
 Dataset figures of the sequence classification tutorials (chapter 1), made by
 tutorials/figures/sequence_classification/figures.py from the moving shapes dataset the main run trained on (its
 training_configuration.yaml gives the split folders): the frames of the first training sequence copied for the HTML
-scene of the task, the listings of the split layout and of its labels.json entry, and the chart of the sequence lengths
-on disk against the lengths the current generator draws, with the share of padding frames each gives to batches of the
-run. Its facts are the sizes of the splits, the classes and the padding shares the narration quotes. The padding
-shares are written as the percentages of the reports of the repository ("39.56 %", ticks "20 %"), the facts keeping
-them between 0 and 1.
+scene of the task, the listings of the split layout and of its labels.json entry, and the chart of the number of frames
+of the training sequences with the share of padding frames their batches get for several batch sizes, the batch size of
+the run marked. Its facts are the sizes of the splits, the classes, the range of lengths and the padding shares the
+narration quotes. The padding shares are written as the percentages of the reports of the repository ("39.56 %", ticks
+"20 %"), the facts keeping them between 0 and 1.
 """
 
 import json
@@ -17,25 +17,29 @@ import numpy
 
 from collections import Counter
 from matplotlib import pyplot
-from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, POINTS_PER_PIXEL,
-                                                SERIES_COLOURS, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR, compute_pixel_box,
+from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH,
+                                                POINTS_PER_PIXEL, SERIES_COLOURS, SURFACE_COLOUR,
+                                                TEXT_PRIMARY_COLOUR, TEXT_SECONDARY_COLOUR, compute_pixel_box,
                                                 register_fonts, round_fact, save_figure, style_chart_panel)
 from tutorials.figures.sequence_classification.sequence_figure_utilities import (copy_frames, read_generator_setting,
                                                                                  write_text_lines)
 from vision_training.evaluation.report_formatting import format_percentage, format_percentage_tick
 
-# Sequence shown on the scene of the task, the first of the training manifest
+# Sequence shown on the scene of the task, the first of the training manifest, and its number of frames, one image
+# element per frame in the scene of 01_sequences_and_padded_batches.yaml: another number stops the build, the scene
+# being laid out again for it
 SHOWN_SEQUENCE_NAME = "train_000000"
+SHOWN_FRAME_COUNT = 9
 
-# Seed of the training split drawn again with the lengths the generator draws for the sequence classification (the
-# bounds of its main block), and the seed of the shuffle making the batches of the run
-LENGTH_DRAW_SEED = 0
+# Seed of the shuffle making the batches of the padding shares, the batch sizes of the padding panel, the batch size
+# of the run being one of them, and the smaller batch size the narration compares the run with
 BATCH_SHUFFLE_SEED = 0
+PADDING_BATCH_SIZES = [1, 2, 4, 8, 16, 32, 64]
+SMALL_PADDING_BATCH_SIZE = 8
 
 # Splits of a dataset, in the order of the manifests
 SPLIT_NAMES = ["train", "validation", "test"]
@@ -47,8 +51,8 @@ GENERATOR_TASK = "sequence_classification"
 def read_generator_frame_range() -> Tuple[int, int]:
     """
     Reads the fewest and the most frames the synthetic generator draws for a sequence of the task, the minimum_frames
-    and maximum_frames of its main block, so that the lengths chart, the animated batch and the narration follow the
-    script rather than a typed range.
+    and maximum_frames of its main block, so that the animated batch and the narration follow the script rather than a
+    typed range.
 
     Returns:
         Tuple[int, int]: The fewest and the most frames of a generated sequence.
@@ -110,26 +114,6 @@ def write_dataset_listings(output_folder: Path, train_manifest: Dict[str, Any], 
     write_text_lines(output_path=output_folder / "listings" / "labels_entry.txt", lines=manifest_lines)
 
 
-def read_single_length(lengths: List[int]) -> int:
-    """
-    Gives the number of frames shared by every sequence of the dataset on disk, which the narration quotes as the
-    length of all its sequences, and refuses a dataset of several lengths, for which that sentence would be wrong.
-
-    Args:
-        lengths (List[int]): The frames of every training sequence.
-
-    Returns:
-        int: The common number of frames.
-
-    Raises:
-        ValueError: If the sequences have different numbers of frames.
-    """
-    if len(set(lengths)) != 1:
-        raise ValueError(f"The training sequences have {sorted(set(lengths))} frames, while the storyboards of the "
-                         f"series say they all have the same number: update their narration.")
-    return lengths[0]
-
-
 def compute_padding_share(lengths: List[int], batch_size: int, seed: int) -> float:
     """
     Gives the share of padding frames in the batches of a split, the sequences shuffled once like the dataset does
@@ -137,7 +121,7 @@ def compute_padding_share(lengths: List[int], batch_size: int, seed: int) -> flo
 
     Args:
         lengths (List[int]): The frames of every sequence of the split.
-        batch_size (int): The batch size of the run.
+        batch_size (int): The number of sequences per batch.
         seed (int): The seed of the shuffle.
 
     Returns:
@@ -152,20 +136,18 @@ def compute_padding_share(lengths: List[int], batch_size: int, seed: int) -> flo
     return 1.0 - sum(shuffled_lengths) / padded_frames
 
 
-def draw_lengths_figure(output_path: Path, disk_lengths: List[int], generator_lengths: List[int],
-                        generator_frame_range: Tuple[int, int], padding_shares: Dict[str, float],
+def draw_lengths_figure(output_path: Path, disk_lengths: List[int], padding_shares: Dict[int, float],
                         batch_size: int) -> Dict[str, Any]:
     """
-    Draws the lengths chart: the number of training sequences of every length on disk and as the current generator
-    draws them, and the share of padding frames in the batches of the run for both, and gives the boxes of its panels.
+    Draws the lengths chart: the number of training sequences of every number of frames, and the share of padding
+    frames in the batches of the training split for every batch size of PADDING_BATCH_SIZES, the batch size of the run
+    in the colour of the series and the others dimmed; gives the boxes of its panels.
 
     Args:
         output_path (Path): The PNG file.
-        disk_lengths (List[int]): The frames of every training sequence on disk.
-        generator_lengths (List[int]): The frames of every training sequence drawn like the generator.
-        generator_frame_range (Tuple[int, int]): The fewest and the most frames the generator draws.
-        padding_shares (Dict[str, float]): The padding share of the batches, 'disk' and 'generator'.
-        batch_size (int): The batch size of the run, written on the padding panel.
+        disk_lengths (List[int]): The frames of every training sequence.
+        padding_shares (Dict[int, float]): The padding share of the batches for every batch size.
+        batch_size (int): The batch size of the run, whose bar is highlighted.
 
     Returns:
         Dict[str, Any]: The pixel boxes of the panels, named lengths.*.
@@ -173,55 +155,45 @@ def draw_lengths_figure(output_path: Path, disk_lengths: List[int], generator_le
     register_fonts()
     figure, (length_axes, padding_axes) = pyplot.subplots(
         nrows=1, ncols=2, figsize=(CHART_WIDTH / DOTS_PER_INCH, CHART_HEIGHT / DOTS_PER_INCH), dpi=DOTS_PER_INCH,
-        gridspec_kw={"width_ratios": [2.2, 1.0]})
+        gridspec_kw={"width_ratios": [1.5, 1.0]})
     figure.patch.set_facecolor(SURFACE_COLOUR)
-    figure.subplots_adjust(left=0.07, right=0.98, top=0.80, bottom=0.12, wspace=0.28)
+    figure.subplots_adjust(left=0.07, right=0.98, top=0.84, bottom=0.12, wspace=0.24)
 
-    # Training sequences of every length, side by side bars of the two sources, the most frequent length on disk
-    # written over its bar
-    all_lengths = list(range(min(generator_frame_range[0], min(disk_lengths)),
-                             max(generator_frame_range[1], max(disk_lengths)) + 1))
-    disk_counts, generator_counts = Counter(disk_lengths), Counter(generator_lengths)
-    disk_length = disk_counts.most_common(1)[0][0]
-    bar_width = 0.4
-    length_axes.bar(x=numpy.array(all_lengths) - bar_width / 2, height=[disk_counts[length] for length in all_lengths],
-                    width=bar_width - 0.04, color=SERIES_COLOURS[0], label="On disk")
-    length_axes.bar(x=numpy.array(all_lengths) + bar_width / 2,
-                    height=[generator_counts[length] for length in all_lengths], width=bar_width - 0.04,
-                    color=SERIES_COLOURS[1], label="Current generator")
-    style_chart_panel(axes=length_axes, title="Training sequences per number of frames", x_label="Frames",
-                      y_label="Sequences")
+    # Training sequences of every number of frames, the count written over every bar
+    all_lengths = list(range(min(disk_lengths), max(disk_lengths) + 1))
+    disk_counts = Counter(disk_lengths)
+    length_axes.bar(x=all_lengths, height=[disk_counts[length] for length in all_lengths], width=0.7,
+                    color=SERIES_COLOURS[0])
+    style_chart_panel(axes=length_axes, title=f"{len(disk_lengths):,} training sequences per number of frames",
+                      x_label="Frames of the sequence", y_label="Sequences")
     length_axes.set_xticks(ticks=all_lengths)
+    length_axes.set_ylim(bottom=0, top=max(disk_counts.values()) * 1.15)
     length_axes.grid(visible=False, axis="x")
-    length_axes.annotate(text=f"{disk_counts[disk_length]:,}", xy=(disk_length - bar_width / 2,
-                                                                   disk_counts[disk_length]), xytext=(0, 8),
-                         textcoords="offset points", ha="center", va="bottom", color=TEXT_PRIMARY_COLOUR,
-                         fontsize=18 * POINTS_PER_PIXEL)
+    for length in all_lengths:
+        length_axes.annotate(text=f"{disk_counts[length]:,}", xy=(length, disk_counts[length]), xytext=(0, 6),
+                             textcoords="offset points", ha="center", va="bottom", color=TEXT_PRIMARY_COLOUR,
+                             fontsize=16 * POINTS_PER_PIXEL)
 
-    # Padding share of the batches of the run, one bar per source with its value
-    source_names = ["On disk", "Current generator"]
-    share_values = [padding_shares["disk"], padding_shares["generator"]]
-    padding_axes.bar(x=[0, 1], height=share_values, width=0.55, color=SERIES_COLOURS[:2])
-    style_chart_panel(axes=padding_axes, title=f"Padding frames in batches of {batch_size}", x_label="",
+    # Padding share of the batches for every batch size, the batch size of the run highlighted, the value of every bar
+    # written as the percentages of the reports
+    batch_sizes = sorted(padding_shares)
+    share_values = [padding_shares[size] for size in batch_sizes]
+    bar_colours = [SERIES_COLOURS[1] if size == batch_size else TEXT_SECONDARY_COLOUR for size in batch_sizes]
+    padding_axes.bar(x=range(len(batch_sizes)), height=share_values, width=0.7, color=bar_colours)
+    style_chart_panel(axes=padding_axes, title="Padding frames per batch size", x_label="Sequences per batch",
                       y_label="Share of the frames")
-    padding_axes.set_xticks(ticks=[0, 1], labels=source_names)
-    padding_axes.set_ylim(bottom=0.0, top=0.6)
+    padding_axes.set_xticks(ticks=range(len(batch_sizes)), labels=[str(size) for size in batch_sizes])
+    padding_axes.set_ylim(bottom=0.0, top=max(0.1, max(share_values) * 1.2))
     padding_axes.grid(visible=False, axis="x")
-    # Shares written as the percentages of the reports, the value of every bar being the fact the narration quotes
     padding_axes.yaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick))
     for bar_index, share_value in enumerate(share_values):
-        padding_axes.annotate(text=format_percentage(value=round_fact(value=share_value)), xy=(bar_index, share_value),
-                              xytext=(0, 8), textcoords="offset points", ha="center", va="bottom",
-                              color=TEXT_PRIMARY_COLOUR, fontsize=20 * POINTS_PER_PIXEL)
+        padding_axes.annotate(text=format_percentage(value=round_fact(value=share_value)),
+                              xy=(bar_index, share_value), xytext=(0, 6), textcoords="offset points", ha="center",
+                              va="bottom", color=TEXT_PRIMARY_COLOUR, fontsize=15 * POINTS_PER_PIXEL)
 
-    # Legend of the two sources above the panels
-    legend_handles = [Line2D(xdata=[0], ydata=[0], color=SERIES_COLOURS[0], linewidth=10 * POINTS_PER_PIXEL),
-                      Line2D(xdata=[0], ydata=[0], color=SERIES_COLOURS[1], linewidth=10 * POINTS_PER_PIXEL)]
-    figure.legend(handles=legend_handles, labels=["On disk (synthetic_moving_shapes/train)",
-                                                  f"Drawn like the current generator ({generator_frame_range[0]} "
-                                                  f"to {generator_frame_range[1]} frames)"],
-                  loc="center left", bbox_to_anchor=(0.05, 0.93), ncols=2, frameon=False,
-                  labelcolor=TEXT_PRIMARY_COLOUR, fontsize=18 * POINTS_PER_PIXEL, handlelength=1.2)
+    # Note of the highlighted batch size above the panels
+    figure.text(x=0.98, y=0.95, s=f"Highlighted: the batch size of the run, {batch_size} sequences", ha="right",
+                va="center", color=TEXT_SECONDARY_COLOUR, fontsize=17 * POINTS_PER_PIXEL)
     save_figure(figure=figure, output_path=output_path)
     facts = {"lengths.length_panel_box": compute_pixel_box(figure=figure, axes=length_axes, with_labels=True,
                                                            margin=6),
@@ -234,8 +206,9 @@ def draw_lengths_figure(output_path: Path, disk_lengths: List[int], generator_le
 def make_dataset_figures(output_folder: Path, train_folder: Path, batch_size: int) -> Dict[str, Any]:
     """
     Makes the dataset figures of the series from the moving shapes dataset of the main run, and gives their facts:
-    the sequences, frames and class counts of every split, the frames of the sequences on disk, the class of the shown
-    sequence, the mean length drawn like the generator and the padding shares of the batches.
+    the sequences, frames and class counts of every split, the class names in the order of their indices, the range
+    of frames of the sequences on disk and of the generator, the class and frames of the shown sequence and the
+    padding shares of the batches.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -244,54 +217,71 @@ def make_dataset_figures(output_folder: Path, train_folder: Path, batch_size: in
 
     Returns:
         Dict[str, Any]: The facts, named dataset.* and lengths.*.
+
+    Raises:
+        ValueError: If the shown sequence does not have the frames its scene lays out, or the batch size of the run is
+            not one of the padding panel.
     """
     dataset_folder = train_folder.parent
     manifests = {split_name: read_manifest(split_folder=dataset_folder / split_name) for split_name in SPLIT_NAMES}
     label_mapping = json.loads((dataset_folder / "label_mapping.json").read_text(encoding="utf-8"))
     category_names = {category["id"]: category["name"] for category in manifests["train"]["categories"]}
 
-    # Frames of the shown sequence, copied for the HTML scene, and the listings of the split and its manifest
+    # Frames of the shown sequence, copied for the HTML scene, whose image elements expect SHOWN_FRAME_COUNT frames
     shown_sequence = next(sequence for sequence in manifests["train"]["sequences"]
                           if sequence["name"] == SHOWN_SEQUENCE_NAME)
+    if len(shown_sequence["frames"]) != SHOWN_FRAME_COUNT:
+        raise ValueError(f"The shown sequence {SHOWN_SEQUENCE_NAME} has {len(shown_sequence['frames'])} frames, while "
+                         f"the scene of the task lays out {SHOWN_FRAME_COUNT}: lay out the image elements of "
+                         f"01_sequences_and_padded_batches.yaml again and update SHOWN_FRAME_COUNT.")
     copy_frames(frame_paths=[train_folder / "data" / frame for frame in shown_sequence["frames"]],
                 series_folder=output_folder, subfolder="frames", name_prefix=SHOWN_SEQUENCE_NAME)
     write_dataset_listings(output_folder=output_folder, train_manifest=manifests["train"],
                            label_mapping=label_mapping)
 
-    # Lengths on disk, lengths drawn like the generator (one draw per sequence of the training split), padding shares
+    # Lengths of the training sequences and the padding share of their batches for every batch size
     disk_lengths = [len(sequence["frames"]) for sequence in manifests["train"]["sequences"]]
-    generator_frame_range = read_generator_frame_range()
-    random_generator = numpy.random.default_rng(seed=LENGTH_DRAW_SEED)
-    generator_lengths = [int(random_generator.integers(low=generator_frame_range[0],
-                                                       high=generator_frame_range[1] + 1)) for _ in disk_lengths]
-    padding_shares = {"disk": compute_padding_share(lengths=disk_lengths, batch_size=batch_size,
-                                                    seed=BATCH_SHUFFLE_SEED),
-                      "generator": compute_padding_share(lengths=generator_lengths, batch_size=batch_size,
-                                                         seed=BATCH_SHUFFLE_SEED)}
+    if batch_size not in PADDING_BATCH_SIZES:
+        raise ValueError(f"The batch size of the run, {batch_size}, is not among the batch sizes of the padding "
+                         f"panel {PADDING_BATCH_SIZES}.")
+    padding_shares = {size: compute_padding_share(lengths=disk_lengths, batch_size=size, seed=BATCH_SHUFFLE_SEED)
+                      for size in PADDING_BATCH_SIZES}
     facts = draw_lengths_figure(output_path=output_folder / "dataset" / "lengths.png", disk_lengths=disk_lengths,
-                                generator_lengths=generator_lengths, generator_frame_range=generator_frame_range,
                                 padding_shares=padding_shares, batch_size=batch_size)
 
-    # Sizes and classes of the splits, the lengths on disk and the shown sequence
+    # Sizes and classes of the splits, the lengths on disk, the range the generator draws and the shown sequence
     first_frame = cv2.imread(filename=str(train_folder / "data" / shown_sequence["frames"][0]))
     if first_frame is None:
         raise OSError(f"The frame {train_folder / 'data' / shown_sequence['frames'][0]} cannot be read.")
+    generator_frame_range = read_generator_frame_range()
+    split_lengths = [len(sequence["frames"]) for manifest in manifests.values() for sequence in manifest["sequences"]]
     facts.update({"dataset.frame_size": int(first_frame.shape[0]),
                   "dataset.category_count": len(manifests["train"]["categories"]),
                   "dataset.first_class_index": min(label_mapping.values()),
                   "dataset.last_class_index": max(label_mapping.values()),
+                  "dataset.class_names": [category_names[int(category_identifier)] for category_identifier, _ in
+                                          sorted(label_mapping.items(), key=lambda item: item[1])],
                   "dataset.generator_image_size": read_generator_setting(setting_name="image_sizes",
-                                                                         task=GENERATOR_TASK)})
+                                                                         task=GENERATOR_TASK),
+                  "dataset.generator_minimum_frames": generator_frame_range[0],
+                  "dataset.generator_maximum_frames": generator_frame_range[1]})
     facts.update({"dataset.shown_sequence": SHOWN_SEQUENCE_NAME,
                   "dataset.shown_class": category_names[shown_sequence["category_id"]],
                   "dataset.shown_frames": len(shown_sequence["frames"]),
                   "dataset.disk_lengths": sorted(set(disk_lengths)),
-                  "dataset.disk_frames": read_single_length(lengths=disk_lengths),
-                  "dataset.generator_mean_length": round_fact(value=float(numpy.mean(generator_lengths))),
-                  "dataset.generator_maximum_frames": generator_frame_range[1],
-                  "dataset.generator_minimum_frames": generator_frame_range[0],
-                  "lengths.padding_share_disk": round_fact(value=padding_shares["disk"]),
-                  "lengths.padding_share_generator": round_fact(value=padding_shares["generator"])})
+                  "dataset.disk_minimum_frames": min(split_lengths),
+                  "dataset.disk_maximum_frames": max(split_lengths),
+                  "dataset.train_mean_frames": round_fact(value=float(numpy.mean(disk_lengths)))})
+    for size, share in padding_shares.items():
+        facts[f"lengths.padding_share_batch_{size}"] = round_fact(value=share)
+    # The narration says that the smaller batch pads less than the batches of the run
+    if not (SMALL_PADDING_BATCH_SIZE < batch_size and
+            padding_shares[SMALL_PADDING_BATCH_SIZE] < padding_shares[batch_size]):
+        raise ValueError(f"Batches of {SMALL_PADDING_BATCH_SIZE} sequences should be smaller and pad less than the "
+                         f"batches of {batch_size} of the run, as the padding scene says.")
+    facts.update({"lengths.padding_share_run": round_fact(value=padding_shares[batch_size]),
+                  "lengths.padding_batch_small": SMALL_PADDING_BATCH_SIZE,
+                  "lengths.padding_share_batch_small": round_fact(value=padding_shares[SMALL_PADDING_BATCH_SIZE])})
     for split_name, manifest in manifests.items():
         class_counts = Counter(category_names[sequence["category_id"]] for sequence in manifest["sequences"])
         facts[f"dataset.{split_name}_sequences"] = len(manifest["sequences"])

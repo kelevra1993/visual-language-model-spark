@@ -1,10 +1,10 @@
 """
 Animated padded batch of the sequence classification tutorials (chapters 1 and 2), made by
-tutorials/figures/sequence_classification/figures.py: four sequences drawn by the current synthetic generator of the
-repository (generate_moving_shape_sequence, with the frame size and the range of frames of the main block of the
-generator, the dataset on disk holding sequences of a single length), saved and read back as the sequence dataset reads
-them (at the frame size of the run), batched by the collate of the loaders (collate_padded_sequences) and run through
-the frame encoder of the trained flatten run on the CPU. It writes
+tutorials/figures/sequence_classification/figures.py: four sequences drawn by the synthetic generator of the repository
+(generate_moving_shape_sequence, with the frame size and the range of frames of the main block of the generator, the
+way the moving shapes dataset is written), saved and read back as the sequence dataset reads them (at the frame size of
+the run), batched by the collate of the loaders (collate_padded_sequences) and run through the frame encoder of the
+trained flatten run on the CPU. It writes
 the frames, the frame vectors drawn as heat squares and the layout file of animations/07_sequence_classification/
 frame_batches.js, whose phases are the samples, the padded batch, its mask, the real frames gathered for the backbone,
 their vectors and the vectors scattered back; its facts are the real lengths and shapes the narration quotes. The
@@ -32,14 +32,9 @@ from vision_training.data.synthetic.create_synthetic_dataset import (MOVEMENT_CA
 from vision_training.models.sequence.frame_encoder import encode_frames
 from vision_training.models.task_model import TaskModel
 
-# Sequences of the animated batch, and the bounds of the example kept: distinct lengths, at most 10 frames so that the
-# batch fits the scene, four directions; the first seed of the generator giving such a batch is taken
-SEQUENCE_COUNT = 4
-LONGEST_SHOWN_FRAMES = 10
-MAXIMUM_SEED = 2000
-
 # Layout of the scene in pixels of its content area: the batch grid of frames, the row of the gathered real frames
 # under it and the mask on the right, every frame and vector drawn as a square tile
+CONTENT_WIDTH = 1760
 GRID_LEFT = 330
 GRID_TOP = 96
 TILE_SIDE = 72
@@ -51,6 +46,14 @@ MASK_LEFT = 1300
 MASK_SIDE = 36
 MASK_STRIDE = 40
 GATHER_DELAY_SECONDS = 0.03
+
+# Sequences of the animated batch, and the bounds of the example kept: distinct lengths, at most 10 frames so that the
+# batch fits the grid, at most the real frames the row of the gathered frames holds inside the content area, four
+# directions; the first seed of the generator giving such a batch is taken
+SEQUENCE_COUNT = 4
+LONGEST_SHOWN_FRAMES = 10
+MOST_GATHERED_FRAMES = (CONTENT_WIDTH - GRID_LEFT - GATHER_SIDE) // GATHER_STRIDE + 1
+MAXIMUM_SEED = 2000
 
 # Phases of the layout in their order, the scenes starting each of them with one of their sentences
 LAYOUT_PHASES = ["sequences", "padded", "mask", "gather", "encode", "scatter"]
@@ -64,8 +67,8 @@ def draw_example_sequences(output_folder: Path) -> Dict[str, Any]:
     Draws the sequences of the example batch with the generator of the repository, the same calls as one chunk of
     generate_sequence_chunk (the number of frames, then the sequence, from one random generator), with the frame size
     and the range of frames of the main block of the generator, from the first seed giving distinct lengths of at most
-    LONGEST_SHOWN_FRAMES frames and four directions, and saves their frames with save_frames, the way the dataset is
-    written.
+    LONGEST_SHOWN_FRAMES frames, at most MOST_GATHERED_FRAMES frames in all and four directions, and saves their
+    frames with save_frames, the way the dataset is written.
 
     Args:
         output_folder (Path): The folder receiving the frame folders of the sequences.
@@ -91,11 +94,12 @@ def draw_example_sequences(output_folder: Path) -> Dict[str, Any]:
         lengths = [len(sequence["frames"]) for sequence in sequences]
         categories = [sequence["category_identifier"] for sequence in sequences]
         if len(set(lengths)) == SEQUENCE_COUNT and max(lengths) <= LONGEST_SHOWN_FRAMES and \
-                len(set(categories)) == SEQUENCE_COUNT:
+                sum(lengths) <= MOST_GATHERED_FRAMES and len(set(categories)) == SEQUENCE_COUNT:
             break
     else:
         raise RuntimeError(f"No seed below {MAXIMUM_SEED} gives {SEQUENCE_COUNT} sequences of distinct lengths of at "
-                           f"most {LONGEST_SHOWN_FRAMES} frames and distinct directions.")
+                           f"most {LONGEST_SHOWN_FRAMES} frames, {MOST_GATHERED_FRAMES} in all, and distinct "
+                           f"directions.")
 
     # Frames saved like the generator saves them, every sequence in its own folder
     output_folder.mkdir(parents=True, exist_ok=True)
@@ -238,12 +242,12 @@ def make_batch_animation(output_folder: Path, model: TaskModel, label_dictionary
     Makes the frames, vector squares and layout file of the animated padded batch, and gives its facts: the seed and
     lengths of the sequences, the shapes of the batch, of its mask, of the gathered frames after every backbone block
     and of the frame vectors, the largest value on the padding vectors (zero), and the predictions of the trained run
-    on these sequences of the current generator. Without the trained weights (a build from the committed snapshots),
-    the committed outputs of the family are restored and their facts reused instead.
+    on these sequences of the generator. Without the trained weights (a build from the committed snapshots), the
+    committed outputs of the family are restored and their facts reused instead.
 
     Args:
         output_folder (Path): The figures folder of the series.
-        model (TaskModel): The trained flatten run at 128 pixels, on the CPU (its structure only without the
+        model (TaskModel): The trained flatten run at 256 pixels, on the CPU (its structure only without the
             checkpoint).
         label_dictionary (Dict[int, int]): The class index of every category of the run.
         image_size (int): The frame size of the run, 'Data.image_settings.size'.

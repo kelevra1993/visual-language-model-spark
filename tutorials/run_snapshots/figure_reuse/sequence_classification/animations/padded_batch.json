@@ -220,12 +220,13 @@
    }
   },
   {
-   "image": "../batch/frame_0_03.png",
-   "second_image": "../batch/vector_0_03.png",
+   "image": null,
+   "second_image": "../batch/vector_zero.png",
    "fill": "black",
    "outline": "border",
+   "label": "pad",
    "states": {
-    "sequences": {
+    "padded": {
      "box": [
       576,
       96,
@@ -236,24 +237,12 @@
     },
     "gather": {
      "box": [
-      462,
-      556,
-      40,
-      40
+      576,
+      96,
+      72,
+      72
      ],
-     "opacity": 1.0,
-     "delay": 0.09
-    },
-    "encode": {
-     "box": [
-      462,
-      556,
-      40,
-      40
-     ],
-     "opacity": 1.0,
-     "face": 1,
-     "delay": 0.09
+     "opacity": 0.3
     },
     "scatter": {
      "box": [
@@ -263,14 +252,13 @@
       72
      ],
      "opacity": 1.0,
-     "face": 1,
-     "delay": 0.09
+     "face": 1
     }
    }
   },
   {
    "image": null,
-   "fill": "aqua",
+   "fill": "box",
    "outline": "border",
    "states": {
     "mask": {
@@ -285,12 +273,13 @@
    }
   },
   {
-   "image": "../batch/frame_0_04.png",
-   "second_image": "../batch/vector_0_04.png",
+   "image": null,
+   "second_image": "../batch/vector_zero.png",
    "fill": "black",
    "outline": "border",
+   "label": "pad",
    "states": {
-    "sequences": {
+    "padded": {
      "box": [
       658,
       96,
@@ -301,24 +290,12 @@
     },
     "gather": {
      "box": [
-      506,
-      556,
-      40,
-      40
+      658,
+      96,
+      72,
+      72
      ],
-     "opacity": 1.0,
-     "delay": 0.12
-    },
-    "encode": {
-     "box": [
-      506,
-      556,
-      40,
-      40
-     ],
-     "opacity": 1.0,
-     "face": 1,
-     "delay": 0.12
+     "opacity": 0.3
     },
     "scatter": {
      "box": [
@@ -328,14 +305,13 @@
       72
      ],
      "opacity": 1.0,
-     "face": 1,
-     "delay": 0.12
+     "face": 1
     }
    }
   },
   {
    "image": null,
-   "fill": "aqua",
+   "fill": "box",
    "outline": "border",
    "states": {
     "mask": {
@@ -350,12 +326,13 @@
    }
   },
   {
-   "image": "../batch/frame_0_05.png",
-   "second_image": "../batch/vector_0_05.png",
+   "image": null,
+   "second_image": "../batch/vector_zero.png",
    "fill": "black",
    "outline": "border",
+   "label": "pad",
    "states": {
-    "sequences": {
+    "padded": {
      "box": [
       740,
       96,
@@ -366,24 +343,12 @@
     },
     "gather": {
      "box": [
-      550,
-      556,
-      40,
-      40
+      740,
+      96,
+      72,
+      72
      ],
-     "opacity": 1.0,
-     "delay": 0.15
-    },
-    "encode": {
-     "box": [
-      550,
-      556,
-      40,
-      40
-     ],
-     "opacity": 1.0,
-     "face": 1,
-     "delay": 0.15
+     "opacity": 0.3
     },
     "scatter": {
      "box": [
@@ -393,14 +358,13 @@
       72
      ],
      "opacity": 1.0,
-     "face": 1,
-     "delay": 0.15
+     "face": 1
     }
    }
   },
   {
    "image": null,
-   "fill": "aqua",
+   "fill": "box",
    "outline": "border",
    "states": {
     "mask": {
@@ -415,12 +379,13 @@
    }
   },
   {
-   "image": "../batch/frame_0_06.png",
-   "second_image": "../batch/vector_0_06.png",
+   "image": null,
+   "second_image": "../batch/vector_zero.png",
    "fill": "black",
    "outline": "border",
+   "label": "pad",
    "states": {
-    "sequences": {
+    "padded": {
      "box": [
       822,
       96,
@@ -431,24 +396,12 @@
     },
     "gather": {
      "box": [
-      594,
-      556,
-      40,
-      40
+      822,
+      96,
+      72,
+      72
      ],
-     "opacity": 1.0,
-     "delay": 0.18
-    },
-    "encode": {
-     "box": [
-      594,
-      556,
-      40,
-      40
-     ],
-     "opacity": 1.0,
-     "face": 1,
-     "delay": 0.18
+     "opacity": 0.3
     },
     "scatter": {
      "box": [
@@ -458,14 +411,13 @@
       72
      ],
      "opacity": 1.0,
-     "face": 1,
-     "delay": 0.18
+     "face": 1
     }
    }
   },
   {
    "image": null,
-   "fill": "aqua",
+   "fill": "box",
    "outline": "border",
    "states": {
     "mask": {
@@ -602,24 +554,24 @@
     },
     "gather": {
      "box": [
-      638,
+      462,
       556,
       40,
       40
      ],
      "opacity": 1.0,
-     "delay": 0.21
+     "delay": 0.09
     },
     "encode": {
      "box": [
-      638,
+      462,
       556,
       40,
       40
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.21
+     "delay": 0.09
     },
     "scatter": {
      "box": [
@@ -630,7 +582,7 @@
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.21
+     "delay": 0.09
     }
    }
   },
@@ -667,24 +619,24 @@
     },
     "gather": {
      "box": [
-      682,
+      506,
       556,
       40,
       40
      ],
      "opacity": 1.0,
-     "delay": 0.24
+     "delay": 0.12
     },
     "encode": {
      "box": [
-      682,
+      506,
       556,
       40,
       40
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.24
+     "delay": 0.12
     },
     "scatter": {
      "box": [
@@ -695,7 +647,7 @@
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.24
+     "delay": 0.12
     }
    }
   },
@@ -732,24 +684,24 @@
     },
     "gather": {
      "box": [
-      726,
+      550,
       556,
       40,
       40
      ],
      "opacity": 1.0,
-     "delay": 0.27
+     "delay": 0.15
     },
     "encode": {
      "box": [
-      726,
+      550,
       556,
       40,
       40
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.27
+     "delay": 0.15
     },
     "scatter": {
      "box": [
@@ -760,7 +712,7 @@
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.27
+     "delay": 0.15
     }
    }
   },
@@ -797,24 +749,24 @@
     },
     "gather": {
      "box": [
-      770,
+      594,
       556,
       40,
       40
      ],
      "opacity": 1.0,
-     "delay": 0.3
+     "delay": 0.18
     },
     "encode": {
      "box": [
-      770,
+      594,
       556,
       40,
       40
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.3
+     "delay": 0.18
     },
     "scatter": {
      "box": [
@@ -825,7 +777,7 @@
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.3
+     "delay": 0.18
     }
    }
   },
@@ -862,24 +814,24 @@
     },
     "gather": {
      "box": [
-      814,
+      638,
       556,
       40,
       40
      ],
      "opacity": 1.0,
-     "delay": 0.33
+     "delay": 0.21
     },
     "encode": {
      "box": [
-      814,
+      638,
       556,
       40,
       40
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.33
+     "delay": 0.21
     },
     "scatter": {
      "box": [
@@ -890,7 +842,7 @@
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.33
+     "delay": 0.21
     }
    }
   },
@@ -927,24 +879,24 @@
     },
     "gather": {
      "box": [
-      858,
+      682,
       556,
       40,
       40
      ],
      "opacity": 1.0,
-     "delay": 0.36
+     "delay": 0.24
     },
     "encode": {
      "box": [
-      858,
+      682,
       556,
       40,
       40
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.36
+     "delay": 0.24
     },
     "scatter": {
      "box": [
@@ -955,7 +907,7 @@
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.36
+     "delay": 0.24
     }
    }
   },
@@ -992,24 +944,24 @@
     },
     "gather": {
      "box": [
-      902,
+      726,
       556,
       40,
       40
      ],
      "opacity": 1.0,
-     "delay": 0.39
+     "delay": 0.27
     },
     "encode": {
      "box": [
-      902,
+      726,
       556,
       40,
       40
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.39
+     "delay": 0.27
     },
     "scatter": {
      "box": [
@@ -1020,7 +972,7 @@
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.39
+     "delay": 0.27
     }
    }
   },
@@ -1057,24 +1009,24 @@
     },
     "gather": {
      "box": [
-      946,
+      770,
       556,
       40,
       40
      ],
      "opacity": 1.0,
-     "delay": 0.42
+     "delay": 0.3
     },
     "encode": {
      "box": [
-      946,
+      770,
       556,
       40,
       40
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.42
+     "delay": 0.3
     },
     "scatter": {
      "box": [
@@ -1085,7 +1037,7 @@
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.42
+     "delay": 0.3
     }
    }
   },
@@ -1122,24 +1074,24 @@
     },
     "gather": {
      "box": [
-      990,
+      814,
       556,
       40,
       40
      ],
      "opacity": 1.0,
-     "delay": 0.45
+     "delay": 0.33
     },
     "encode": {
      "box": [
-      990,
+      814,
       556,
       40,
       40
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.45
+     "delay": 0.33
     },
     "scatter": {
      "box": [
@@ -1150,7 +1102,7 @@
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.45
+     "delay": 0.33
     }
    }
   },
@@ -1187,24 +1139,24 @@
     },
     "gather": {
      "box": [
-      1034,
+      858,
       556,
       40,
       40
      ],
      "opacity": 1.0,
-     "delay": 0.48
+     "delay": 0.36
     },
     "encode": {
      "box": [
-      1034,
+      858,
       556,
       40,
       40
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.48
+     "delay": 0.36
     },
     "scatter": {
      "box": [
@@ -1215,7 +1167,7 @@
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.48
+     "delay": 0.36
     }
    }
   },
@@ -1252,24 +1204,24 @@
     },
     "gather": {
      "box": [
-      1078,
+      902,
       556,
       40,
       40
      ],
      "opacity": 1.0,
-     "delay": 0.51
+     "delay": 0.39
     },
     "encode": {
      "box": [
-      1078,
+      902,
       556,
       40,
       40
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.51
+     "delay": 0.39
     },
     "scatter": {
      "box": [
@@ -1280,7 +1232,7 @@
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.51
+     "delay": 0.39
     }
    }
   },
@@ -1317,24 +1269,24 @@
     },
     "gather": {
      "box": [
-      1122,
+      946,
       556,
       40,
       40
      ],
      "opacity": 1.0,
-     "delay": 0.54
+     "delay": 0.42
     },
     "encode": {
      "box": [
-      1122,
+      946,
       556,
       40,
       40
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.54
+     "delay": 0.42
     },
     "scatter": {
      "box": [
@@ -1345,7 +1297,7 @@
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.54
+     "delay": 0.42
     }
    }
   },
@@ -1382,24 +1334,24 @@
     },
     "gather": {
      "box": [
-      1166,
+      990,
       556,
       40,
       40
      ],
      "opacity": 1.0,
-     "delay": 0.57
+     "delay": 0.45
     },
     "encode": {
      "box": [
-      1166,
+      990,
       556,
       40,
       40
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.57
+     "delay": 0.45
     },
     "scatter": {
      "box": [
@@ -1410,7 +1362,7 @@
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.57
+     "delay": 0.45
     }
    }
   },
@@ -1431,13 +1383,12 @@
    }
   },
   {
-   "image": null,
-   "second_image": "../batch/vector_zero.png",
+   "image": "../batch/frame_2_04.png",
+   "second_image": "../batch/vector_2_04.png",
    "fill": "black",
    "outline": "border",
-   "label": "pad",
    "states": {
-    "padded": {
+    "sequences": {
      "box": [
       658,
       260,
@@ -1448,12 +1399,24 @@
     },
     "gather": {
      "box": [
-      658,
-      260,
-      72,
-      72
+      1034,
+      556,
+      40,
+      40
      ],
-     "opacity": 0.3
+     "opacity": 1.0,
+     "delay": 0.48
+    },
+    "encode": {
+     "box": [
+      1034,
+      556,
+      40,
+      40
+     ],
+     "opacity": 1.0,
+     "face": 1,
+     "delay": 0.48
     },
     "scatter": {
      "box": [
@@ -1463,13 +1426,14 @@
       72
      ],
      "opacity": 1.0,
-     "face": 1
+     "face": 1,
+     "delay": 0.48
     }
    }
   },
   {
    "image": null,
-   "fill": "box",
+   "fill": "aqua",
    "outline": "border",
    "states": {
     "mask": {
@@ -1712,24 +1676,24 @@
     },
     "gather": {
      "box": [
-      1210,
+      1078,
       556,
       40,
       40
      ],
      "opacity": 1.0,
-     "delay": 0.6
+     "delay": 0.51
     },
     "encode": {
      "box": [
-      1210,
+      1078,
       556,
       40,
       40
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.6
+     "delay": 0.51
     },
     "scatter": {
      "box": [
@@ -1740,7 +1704,7 @@
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.6
+     "delay": 0.51
     }
    }
   },
@@ -1777,24 +1741,24 @@
     },
     "gather": {
      "box": [
-      1254,
+      1122,
       556,
       40,
       40
      ],
      "opacity": 1.0,
-     "delay": 0.63
+     "delay": 0.54
     },
     "encode": {
      "box": [
-      1254,
+      1122,
       556,
       40,
       40
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.63
+     "delay": 0.54
     },
     "scatter": {
      "box": [
@@ -1805,7 +1769,7 @@
      ],
      "opacity": 1.0,
      "face": 1,
-     "delay": 0.63
+     "delay": 0.54
     }
    }
   },
@@ -1826,12 +1790,13 @@
    }
   },
   {
-   "image": "../batch/frame_3_02.png",
-   "second_image": "../batch/vector_3_02.png",
+   "image": null,
+   "second_image": "../batch/vector_zero.png",
    "fill": "black",
    "outline": "border",
+   "label": "pad",
    "states": {
-    "sequences": {
+    "padded": {
      "box": [
       494,
       342,
@@ -1842,24 +1807,12 @@
     },
     "gather": {
      "box": [
-      1298,
-      556,
-      40,
-      40
+      494,
+      342,
+      72,
+      72
      ],
-     "opacity": 1.0,
-     "delay": 0.66
-    },
-    "encode": {
-     "box": [
-      1298,
-      556,
-      40,
-      40
-     ],
-     "opacity": 1.0,
-     "face": 1,
-     "delay": 0.66
+     "opacity": 0.3
     },
     "scatter": {
      "box": [
@@ -1869,14 +1822,13 @@
       72
      ],
      "opacity": 1.0,
-     "face": 1,
-     "delay": 0.66
+     "face": 1
     }
    }
   },
   {
    "image": null,
-   "fill": "aqua",
+   "fill": "box",
    "outline": "border",
    "states": {
     "mask": {
@@ -2211,7 +2163,7 @@
  ],
  "texts": [
   {
-   "text": "moving_up\n7 frames",
+   "text": "moving_left\n3 frames",
    "position": [
     302,
     132
@@ -2229,9 +2181,9 @@
    ]
   },
   {
-   "text": "[7, 3, 128, 128]",
+   "text": "[3, 3, 256, 256]",
    "position": [
-    908,
+    580,
     132
    ],
    "anchor": "lm",
@@ -2242,7 +2194,7 @@
    ]
   },
   {
-   "text": "moving_right\n9 frames",
+   "text": "moving_up\n9 frames",
    "position": [
     302,
     214
@@ -2260,7 +2212,7 @@
    ]
   },
   {
-   "text": "[9, 3, 128, 128]",
+   "text": "[9, 3, 256, 256]",
    "position": [
     1072,
     214
@@ -2273,7 +2225,7 @@
    ]
   },
   {
-   "text": "moving_down\n4 frames",
+   "text": "moving_right\n5 frames",
    "position": [
     302,
     296
@@ -2291,9 +2243,9 @@
    ]
   },
   {
-   "text": "[4, 3, 128, 128]",
+   "text": "[5, 3, 256, 256]",
    "position": [
-    662,
+    744,
     296
    ],
    "anchor": "lm",
@@ -2304,7 +2256,7 @@
    ]
   },
   {
-   "text": "moving_left\n3 frames",
+   "text": "moving_down\n2 frames",
    "position": [
     302,
     378
@@ -2322,9 +2274,9 @@
    ]
   },
   {
-   "text": "[3, 3, 128, 128]",
+   "text": "[2, 3, 256, 256]",
    "position": [
-    580,
+    498,
     378
    ],
    "anchor": "lm",
@@ -2335,7 +2287,7 @@
    ]
   },
   {
-   "text": "images [4, 9, 3, 128, 128] uint8",
+   "text": "images [4, 9, 3, 256, 256] uint8",
    "position": [
     318,
     40
@@ -2351,7 +2303,7 @@
    ]
   },
   {
-   "text": "frame_features [4, 9, 4096], zeros on the padding",
+   "text": "frame_features [4, 9, 16384], zeros on the padding",
    "position": [
     318,
     40
@@ -2380,7 +2332,7 @@
    ]
   },
   {
-   "text": "input_tensor[sequence_mask]  [23, 3, 128, 128]",
+   "text": "input_tensor[sequence_mask]  [19, 3, 256, 256]",
    "position": [
     330,
     512
@@ -2393,7 +2345,7 @@
    ]
   },
   {
-   "text": "backbone  [23, 16, 64, 64]  [23, 32, 32, 32]  [23, 32, 16, 16]  [23, 64, 8, 8]  [23, 64, 8, 8]",
+   "text": "backbone  [19, 16, 128, 128]  [19, 32, 64, 64]  [19, 32, 32, 32]  [19, 64, 16, 16]  [19, 64, 16, 16]",
    "position": [
     330,
     512
@@ -2406,7 +2358,7 @@
    ]
   },
   {
-   "text": "flatten  [23, 4096]: one vector per real frame",
+   "text": "flatten  [19, 16384]: one vector per real frame",
    "position": [
     330,
     618
