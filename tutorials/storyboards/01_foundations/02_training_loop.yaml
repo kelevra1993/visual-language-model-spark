@@ -125,7 +125,7 @@ scenes:
     narration:
       - "Here are the curves of the classification run, every iteration faint and smoothed as TensorBoard does: the loss of the training batches falls from {{foundations.training_curves.train_total_loss.first:.2f}} to about {{foundations.training_curves.train_total_loss.smoothed_last:.2f}}."
       - "The validation curve follows it with spikes: one validation batch at a time is a noisy estimate, so read its smoothed trend rather than its points."
-      - "The accuracy of the batches climbs to about {{foundations.training_curves.train_accuracy.smoothed_last:percent}}, and the dots are the evaluations on the whole test split: {{foundations.training_curves.test_accuracy.iteration_500:percent}}, {{foundations.training_curves.test_accuracy.iteration_1000:percent}} and {{foundations.training_curves.test_accuracy.iteration_1500:percent}}."
+      - "The accuracy of the batches climbs to about {{foundations.training_curves.train_accuracy.smoothed_last:percent}}, and the dots are the evaluations on the whole test split: {{foundations.training_curves.test_accuracy.iteration_500:percent}}, {{foundations.training_curves.test_accuracy.iteration_1000:percent}}, {{foundations.training_curves.test_accuracy.iteration_1500:percent}} and {{foundations.training_curves.test_accuracy.iteration_2000:percent}}."
       - "The batch curves tell whether the training learns; a model is judged by the test evaluations, which come with every evaluation checkpoint."
 
   - kind: terminal

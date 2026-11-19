@@ -111,7 +111,7 @@ scenes:
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/classification/configuration_synthetic_shapes.yaml\""}
     narration:
       - "uv sync installs the environment pinned by the lock file, and every script then runs as a module from the repository root."
-      - "Say you want to try a task before any data is at hand: the synthetic data set script draws a shapes data set for it in a few minutes; like almost every script but the training, it is set in its main block."
+      - "Say you want to try a task before any data is at hand: the synthetic data set script draws a shapes data set for it, with nothing to download; like almost every script but the training, it is set in its main block."
       - "The training takes a single argument, the path of its configuration file, and that file alone defines the run."
 
   # The header of the Dockerfile lists its stages and its build and run commands, so that the excerpt follows the file
@@ -164,40 +164,45 @@ scenes:
     title: "The run name"
     code_reference: "vision_training/configuration_processing/run_name.py · build_run_name"
     elements:
-      - {type: text, position: [269, 110], font: code_text, segments: [{text: "{{foundations.listings.run_name_sections[0]}}", highlight: [1]}, {text: "_", colour: dim}, {text: "{{foundations.listings.run_name_sections[1]}}", highlight: [1]}, {text: "_", colour: dim}, {text: "{{foundations.listings.run_name_sections[2]}}", highlight: [2]}, {text: "_", colour: dim}, {text: "{{foundations.listings.run_name_sections[3]}}", highlight: [3]}, {text: "_", colour: dim}, {text: "{{foundations.listings.run_name_sections[4]}}", highlight: [3]}]}
-      - {type: arrow, points: [[293, 130], [158, 240]], appear: 1}
-      - {type: box, box: [0, 245, 316, 445], text: "{{foundations.listings.run_name_sections[0]}}\n\ntask:\nclassification", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
-      - {type: arrow, points: [[410, 130], [519, 240]], appear: 1}
-      - {type: box, box: [361, 245, 677, 445], text: "{{foundations.listings.run_name_sections[1]}}\n\ninput normalization,\nkept aspect ratio,\n{{foundations.listings.input_size}} pixel images", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
-      - {type: arrow, points: [[825, 130], [880, 240]], appear: 2}
-      - {type: box, box: [722, 245, 1038, 445], text: "{{foundations.listings.run_name_backbone_modules}}-B...\n\nsqueeze-and-excitation,\nresidual shortcuts,\nbatch normalization,\nlayers x filters per block", font: diagram_small, outline: magenta, appear: 2, highlight: [2]}
-      - {type: arrow, points: [[1295, 130], [1241, 240]], appear: 3}
-      - {type: box, box: [1083, 245, 1399, 445], text: "{{foundations.listings.run_name_sections[3]}}\n\nflatten pooling,\n{{foundations.run.hidden_units}} hidden units,\nlayer normalization,\nbalanced class weights", font: diagram_small, outline: violet, appear: 3, highlight: [3]}
-      - {type: arrow, points: [[1467, 130], [1602, 240]], appear: 3}
-      - {type: box, box: [1444, 245, 1760, 445], text: "{{foundations.listings.run_name_sections[4]}}\n\nmulti-class output,\n{{foundations.run.class_count}} classes", font: diagram_small, outline: aqua, appear: 3, highlight: [3]}
+      # The run name centred, its arrows leaving from the middle of each section (a character of code_text being about
+      # 15.4 pixels wide), so a run of another name needs their x moved
+      - {type: text, position: [232, 110], font: code_text, segments: [{text: "{{foundations.listings.run_name_sections[0]}}", highlight: [1]}, {text: "_", colour: dim}, {text: "{{foundations.listings.run_name_sections[1]}}", highlight: [1]}, {text: "_", colour: dim}, {text: "{{foundations.listings.run_name_sections[2]}}", highlight: [2]}, {text: "_", colour: dim}, {text: "{{foundations.listings.run_name_sections[3]}}", highlight: [3]}, {text: "_", colour: dim}, {text: "{{foundations.listings.run_name_sections[4]}}", highlight: [3]}]}
+      - {type: arrow, points: [[255, 130], [158, 240]], appear: 1}
+      - {type: box, box: [0, 245, 316, 475], text: "{{foundations.listings.run_name_sections[0]}}\n\ntask:\nclassification", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[371, 130], [519, 240]], appear: 1}
+      - {type: box, box: [361, 245, 677, 475], text: "{{foundations.listings.run_name_sections[1]}}\n\ninput normalization,\nkept aspect ratio,\n{{foundations.listings.input_size}} pixel images", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[811, 130], [880, 240]], appear: 2}
+      - {type: box, box: [722, 245, 1038, 475], text: "{{foundations.listings.run_name_backbone_modules}}-B...-{{foundations.listings.run_name_backbone_transfer}}\n\nsqueeze-and-excitation,\nresidual shortcuts,\nbatch normalization,\nlayers x filters per block,\npre-trained weights", font: diagram_small, outline: magenta, appear: 2, highlight: [2]}
+      - {type: arrow, points: [[1304, 130], [1241, 240]], appear: 3}
+      - {type: box, box: [1083, 245, 1399, 475], text: "{{foundations.listings.run_name_sections[3]}}\n\nflatten pooling,\n{{foundations.run.hidden_units}} hidden units,\nlayer normalization,\nbalanced class weights", font: diagram_small, outline: violet, appear: 3, highlight: [3]}
+      - {type: arrow, points: [[1482, 130], [1602, 240]], appear: 3}
+      - {type: box, box: [1444, 245, 1760, 475], text: "{{foundations.listings.run_name_sections[4]}}\n\nmulti-class output,\n{{foundations.run.class_count}} classes", font: diagram_small, outline: aqua, appear: 3, highlight: [3]}
       - {type: box, box: [130, 520, 1630, 700], text: "No token: batch size, learning rate and its schedule, augmentation, dropout,\nmoving average of the weights\nrun_name_suffix: \"v1\"  →  <run name>_v1, a new run of the same settings", font: diagram_text, outline: yellow, appear: 4, highlight: [4]}
     narration:
       - "The run folder is named after the settings that shape the model, so that the same settings resume in the same folder and changed ones start a new run."
       - "Here: the task, then the input, normalized, with its aspect ratio kept, at {{foundations.listings.input_size}} pixels."
-      - "Then the backbone, with squeeze and excitation, residual shortcuts and batch normalization, and the layers by channels of its {{foundations.listings.block_count:words}} blocks."
+      - "Then the backbone, with squeeze and excitation, residual shortcuts and batch normalization, the layers by channels of its {{foundations.listings.block_count:words}} blocks, and PT, since it starts from the weights of a pre-trained run."
       - "Then the head: flattened features, a hidden layer of {{foundations.run.hidden_units}} units with layer normalization, balanced class weights, and {{foundations.run.class_count:words}} classes."
       - "Settings that may change when a run resumes, like the learning rate, the augmentation or the moving average, leave no token; should you need a second run of the same settings, a run name suffix starts it."
 
   - kind: image
     title: "What the launch prints"
     image: "repository:README/experiment_launch_information.png"
+    # Boxes measured on the 1300 x 592 capture, every console line 20 pixels high from y 16: the run name, the folders
+    # and files, the pre-trained backbone block, the splits, the epoch length, then the batch size to the schedule
     views:
-      - {box: [0, 40, 940, 205], from_sentence: 0}
-      - {box: [0, 180, 700, 280], from_sentence: 1}
-      - {box: [0, 270, 620, 500], from_sentence: 2}
+      - {box: [0, 40, 960, 300], from_sentence: 0}
+      - {box: [0, 280, 700, 380], from_sentence: 1}
+      - {box: [0, 362, 620, 592], from_sentence: 2}
     highlights:
-      - {box: [10, 77, 915, 95], sentences: [0]}
-      - {box: [10, 97, 915, 195], sentences: [0]}
-      - {box: [10, 197, 600, 255], sentences: [1]}
-      - {box: [10, 257, 330, 275], sentences: [1]}
-      - {box: [10, 277, 520, 415], sentences: [2]}
+      - {box: [10, 77, 950, 95], sentences: [0]}
+      - {box: [10, 97, 950, 195], sentences: [0]}
+      - {box: [10, 197, 610, 295], sentences: [0]}
+      - {box: [10, 297, 600, 355], sentences: [1]}
+      - {box: [10, 357, 330, 375], sentences: [1]}
+      - {box: [10, 377, 520, 495], sentences: [2]}
     narration:
-      - "At launch, the trainer prints the run name, then its folders and files as clickable links."
+      - "At launch, the trainer prints the run name, then its folders and files as clickable links, and the pre-trained backbone the run starts from."
       - "Then every split with its images and categories, and the length of one epoch in iterations, the only place where epochs appear."
       - "Then the training settings: the batch size, the iterations, how often checkpoints are saved and evaluated, the learning rate and the optimizer."
 
@@ -208,25 +213,30 @@ scenes:
     # The three splits of every run: training, validation and test
     literal_numbers: [three]
     elements:
+      # The tree of the run folder in the small monospace font, its 27 lines (the input samples, the evaluation summary
+      # and curves included) taller than the card in the larger one
       - type: listing
-        box: [40, 22, 1040, 720]
-        font: diagram_monospace
+        box: [40, 6, 1040, 740]
+        font: diagram_monospace_small
         source: {file: "figures:foundations/listings/run_folder_tree.txt"}
         highlights:
           - {match: "training_configuration.yaml|data.json|label_dictionary.json", sentences: [0]}
-          - {match: "Weights/|model_\\d+\\.pt|full-checkpoint", sentences: [1]}
-          - {match: "Tensorboard/|Train/|Validation/|Test/|Results.txt|mlflow_run.json", sentences: [2]}
-          - {match: "Evaluation/", sentences: [3]}
-      - {type: text, position: [1100, 60], text: "Every evaluated checkpoint", font: diagram_bold, appear: 3}
+          - {match: "Input_Samples/|samples.json", sentences: [1]}
+          - {match: "Weights/|model_\\d+\\.pt|full-checkpoint", sentences: [2]}
+          # The split folders of Tensorboard/ left out, Test/ and Validation/ being also lines of Input_Samples/
+          - {match: "Tensorboard/|Results.txt|evaluation_curves.png|evaluation_summary.csv|mlflow_run.json", sentences: [3]}
+          - {match: "Evaluation/", sentences: [4]}
+      - {type: text, position: [1100, 60], text: "Every evaluated checkpoint", font: diagram_bold, appear: 4}
       - type: listing
         box: [1100, 120, 1720, 420]
         font: diagram_monospace
-        appear: 3
+        appear: 4
         source: {file: "figures:foundations/listings/evaluation_folder_tree.txt"}
     narration:
       - "Everything a run writes stays in its folder: the copy of its configuration, the record of its data with the classes counted in every split, and the class index of every category."
+      - "Before its first iteration, a launch also draws the first {{constant:vision_training/trainers/input_samples.py#NUMBER_INPUT_SAMPLES:words}} samples of every split as the network receives them, the training ones augmented, so that its inputs can be checked without a display."
       - "Then the checkpoints of every saved iteration, each holding the weights, the optimizer state and the classes."
-      - "Then the TensorBoard logs of the three splits, the report of every evaluated checkpoint in the results file, and the MLflow run when tracking is on."
+      - "Then the TensorBoard logs of the three splits, the report of every evaluated checkpoint in the results file, the test scores of every evaluation in a summary table and a curve, and the MLflow run when tracking is on."
       - "And for every evaluated checkpoint, a folder with the metrics, curves, predictions and sample images of the test split; every task writes its own files there."
 
   - kind: image

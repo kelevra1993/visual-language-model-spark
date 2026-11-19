@@ -108,7 +108,7 @@ scenes:
       # The types switched on, every type being one line of the file, so that the highlight follows the switches
       - {match: "activated: True, probability", sentences: [2]}
     narration:
-      - "Picture synthetic shapes always drawn centred and in the same light: augmentation changes the training images at random, so that the model learns the shapes rather than one framing or one colour."
+      - "Picture parcels always photographed centred and under the same lamp: augmentation changes the training images at random, so that the model learns the objects rather than one framing or one light."
       - "Its probability is the share of the training images augmented at all; each of the {{foundations.data.type_count}} types then has its own switch and its own probability."
       - "The classification configuration switches on {{foundations.data.activated_type_count}} of them; the others stay listed and off, every key of the section being required."
 
@@ -234,21 +234,23 @@ scenes:
     title: "Checking the inputs"
     code_reference: "vision_training/trainers/base_trainer.py · BaseTrainer.show_input_samples"
     image: "repository:README/input_viewer.png"
-    # The brightness shift written by the viewer on the screenshot README/input_viewer.png
-    literal_numbers: [seventeen]
+    # The brightness shift written by the viewer on the screenshot README/input_viewer.png, +16.4 levels
+    literal_numbers: [sixteen]
     views:
       - {box: [0, 0, 3056, 512], from_sentence: 0}
       - {box: [40, 0, 1480, 512], from_sentence: 1}
       - {box: [1580, 0, 3020, 512], from_sentence: 2}
+    # Boxes measured on the 3056 x 512 screenshot: the augmentation block of the training panel, its geometric line
+    # (none) and its photometric line, then the augmentation line and the key line of the validation panel
     highlights:
-      - {box: [552, 176, 1362, 365], sentences: [0]}
-      - {box: [565, 241, 825, 273], sentences: [1]}
-      - {box: [565, 306, 1362, 365], sentences: [1]}
-      - {box: [2092, 172, 2556, 206], sentences: [2]}
-      - {box: [2092, 452, 2600, 484], sentences: [2]}
+      - {box: [560, 183, 1339, 366], sentences: [0]}
+      - {box: [560, 214, 686, 272], sentences: [1]}
+      - {box: [571, 308, 1339, 366], sentences: [1]}
+      - {box: [2100, 181, 2541, 214], sentences: [2]}
+      - {box: [2101, 450, 2587, 481], sentences: [2]}
     narration:
       - "To check them, set view input images in the diagnosis modes and launch: a window shows every training image as the network receives it, with the types drawn and their values."
-      - "This pentagon was mirrored, and its brightness raised by seventeen levels with a lower saturation."
+      - "This hollow kite drew no geometric type, and its brightness was raised by about sixteen levels, with a lower contrast and saturation."
       - "The validation images are shown unchanged; space shows the next images, and enter stops without training and without creating the run folder, so set it back to false to train."
 
   - kind: summary

@@ -50,6 +50,12 @@ CONFIGURATION_BACKUP_PATTERN = re.compile(pattern=r"training_configuration_befor
 RUN_NAME_BACKBONE_SECTION = 2
 RUN_NAME_BLOCKS_TOKEN_PATTERN = re.compile(pattern=r"B\d+x\d+(?:\.\d+x\d+)*")
 
+# Tokens of the backbone section after its blocks token that the run name scene describes: PT, the backbone started
+# from the weights of a pre-trained run, neither frozen (FRZ) nor with its normalization fixed (FBN), as the
+# classification run of tutorial_sources.yaml starts from a shape pre-trained backbone (build_pretrained_tokens of
+# run_name.py)
+RUN_NAME_BACKBONE_TRANSFER_TOKENS = ["PT"]
+
 # Listing of the real run folder committed in the snapshot of the run (the folder_listing entry of snapshot_files.yaml
 # of this folder), read instead of the folder for a run read from the snapshots, whose checkpoints, large records and
 # evaluation files are not committed
@@ -454,9 +460,9 @@ def make_listings(output_folder: Path, run_folder: Path, data_configuration_path
     Returns:
         Dict[str, Any]: The facts: the number of checkpoints and evaluations of the run, the parameters of its model,
             the schedule of its training (batch size, summaries, checkpoints, evaluations, validation, iterations),
-            the hidden units and classes of its head, the sections of its run name, the facts of its backbone blocks
-            and data pipeline (describe_backbone_blocks, describe_data_pipeline) and those of the repository
-            (describe_repository).
+            the hidden units and classes of its head, the sections of its run name (with the module and transfer tokens
+            of its backbone section), the facts of its backbone blocks and data pipeline (describe_backbone_blocks,
+            describe_data_pipeline) and those of the repository (describe_repository).
     """
     listings_folder = output_folder / "listings"
     listings_folder.mkdir(parents=True, exist_ok=True)
@@ -508,10 +514,19 @@ def make_listings(output_folder: Path, run_folder: Path, data_configuration_path
     if not block_token_indices:
         raise ValueError(f"The section {run_name_sections[RUN_NAME_BACKBONE_SECTION]} of the run name of {run_folder} "
                          f"has no B<layers>x<filters> token.")
+
+    # Transfer tokens after the blocks token, those the run name scene and its narration describe
+    transfer_tokens = backbone_tokens[block_token_indices[0] + 1:]
+    if transfer_tokens != RUN_NAME_BACKBONE_TRANSFER_TOKENS:
+        raise ValueError(f"The backbone section of the run name of {run_folder} ends with the tokens {transfer_tokens} "
+                         f"after its blocks, while the run name scene of the first foundations chapter describes "
+                         f"{RUN_NAME_BACKBONE_TRANSFER_TOKENS} (a backbone started from pre-trained weights, neither "
+                         f"frozen nor with its normalization fixed): update the scene and this constant.")
     return {**backbone_facts, **data_facts, **repository_facts,
             "listings.checkpoint_count": len(checkpoint_names), "listings.evaluation_count": len(evaluation_names),
             "listings.run_name": run_folder.name, "listings.run_name_sections": run_name_sections,
             "listings.run_name_backbone_modules": "-".join(backbone_tokens[:block_token_indices[0]]),
+            "listings.run_name_backbone_transfer": "-".join(transfer_tokens),
             "listings.last_evaluation": evaluation_names[-1],
             "listings.last_checkpoint": checkpoint_names[-1] if checkpoint_names else None,
             "listings.parameter_count": sum(parameter.numel() for parameter in model.parameters()),
