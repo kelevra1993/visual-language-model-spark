@@ -3,14 +3,14 @@ Sources shared by the figure families of the object detection and instance segme
 (tutorials/figures/object_detection/figures.py and tutorials/figures/instance_segmentation/figures.py): the trained
 models of the DET and INS runs of tutorials/tutorial_sources.yaml rebuilt on the CPU from their run folders, the same
 models built untrained from their saved configuration for the facts of the architecture (no checkpoint needed, so that
-those facts also come out of the run snapshots of tutorials/run_snapshots), the test
-image both series follow (test_014285.png, six shapes of the synthetic shapes test split, one of the eight sample
-images of both runs) with its objects read from the test labels.json, the TensorBoard scalars, the blocks of
-Results.txt (their table values read whether the report wrote the rates as percentages, "78.64 %", or with the
-decimals of the reports written before, "0.7864"), the folder of the evaluations made again with the current code
-(EVALUATION_FOLDER_NAME), the console logs of the runs stripped of their terminal codes, and
-the drawing of boxes and listings in the palette of the videos. Both runs train on the same instance segmentation data
-set, so that the two series show the same image and objects.
+those facts also come out of the run snapshots of tutorials/run_snapshots), the test image both series follow
+(SAMPLE_IMAGE_NAME, five shapes of the first 5,000 images of the synthetic shapes test split, one of the eight sample
+images of both runs) with its objects read from the test labels.json, the TensorBoard scalars, the blocks of Results.txt
+(their table values read whether the report wrote the rates as percentages, "78.64 %", or with the decimals of the
+reports written before, "0.7864"), the folder of the evaluations made again with the current code
+(EVALUATION_FOLDER_NAME), the console logs of the runs stripped of their terminal codes, and the drawing of boxes and
+listings in the palette of the videos. Both runs train on the same instance segmentation data set, so that the two
+series show the same image and objects.
 """
 
 import functools
@@ -36,15 +36,24 @@ from vision_training.models.model_registry import MODEL_DTYPE, TASK_MODEL_CLASSE
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.checkpointing import get_checkpoint_path
 
-# Test image followed by both series: a triangle, a star, a parallelogram, a small and a large nonagon and a square,
-# drawn in the sample images of every evaluation of both runs
-SAMPLE_IMAGE_NAME = "test_014285.png"
+# Test image followed by both series, the first of the eight sample images of every evaluation of both runs (both
+# evaluate the first 5,000 test images, test_5000), chosen by its content (check it again after the data set is
+# generated again): five shapes of five classes on a flat background, a large triangle cut by the bottom border, an L
+# shape near the centre, a hollow rectangle with a hollow pentagon just under it and a small hollow semicircle; the
+# hollow pentagon (best anchor IoU 0.49) and the hollow semicircle (0.37) stay under the foreground threshold of the
+# anchors of both runs, which gives the anchor scenes of the detection series two objects matched by the fallback of
+# the assignment; the instance segmentation figures check the properties their chapters narrate (every object found,
+# one object found twice, a proposal of IoU from 0.5 to 0.7 for the mask target, no detection at the first evaluation).
+# It is also the image of the first annotation of the test manifest, which the first instance segmentation chapter
+# decodes
+SAMPLE_IMAGE_NAME = "test_000000.png"
 
-# Checkpoint whose trained weights the instance segmentation figures run, the last one of the INS run (resumed from
-# 2000 to 5000 iterations), and the evaluated checkpoints whose sample images are compared; the object detection figures
-# read those of the DET run from its saved configuration (find_run_iterations of object_detection/figures.py)
-CHECKPOINT_ITERATION = 5000
-SAMPLE_ITERATIONS = [1000, 2000, 5000]
+# Checkpoint whose trained weights the instance segmentation figures run, the last one of the INS run (planned for
+# 10,000 iterations, stopped after the evaluation of 6000), and the evaluated checkpoints whose sample images are
+# compared; the object detection figures read those of the DET run from its saved configuration (find_run_iterations
+# of object_detection/figures.py)
+CHECKPOINT_ITERATION = 6000
+SAMPLE_ITERATIONS = [1000, 3000, 6000]
 
 # Folder of the last checkpoint of both runs evaluated again with the current code by
 # scripts/evaluation/evaluate_checkpoint.py, whose Results.txt tables, class metrics and thresholds, confusion matrix
@@ -112,7 +121,7 @@ def read_image_annotations(test_folder: Path, image_name: str) -> Tuple[Dict[str
 
     Args:
         test_folder (Path): The test split.
-        image_name (str): The file name of the image, e.g. "test_014285.png".
+        image_name (str): The file name of the image, e.g. "test_000000.png".
 
     Returns:
         Tuple[Dict[str, Any], List[Dict[str, Any]]]: The image entry and its annotations.
@@ -132,7 +141,7 @@ def read_image_annotations(test_folder: Path, image_name: str) -> Tuple[Dict[str
 def read_category_names(test_folder: Path) -> Dict[int, str]:
     """
     Gives the name of every category of the test split, the category identifiers being the class indices of the
-    identity label mapping of the synthetic shapes (1 to 20, the background being 0).
+    identity label mapping of the synthetic shapes (1 to 35, the background being 0).
 
     Args:
         test_folder (Path): The test split.

@@ -4,284 +4,228 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 3730,
+      "snapshot_bytes": 7018,
       "snapshot_path": "datasets/instance_segmentation_data/synthetic_shapes/test/data/test_000000.png",
-      "snapshot_sha256": "83db33699fb98d67b9077de0af352a9e788618a1b6cfc742fee98e0d46cd67c2",
-      "source_bytes": 3730,
+      "snapshot_sha256": "61958509d860bac631553a83aa8859b15d9ee9dc98b98288fadd9ecbd4774ab4",
+      "source_bytes": 7018,
       "source_kind": "dataset",
       "source_path": "instance_segmentation_data/synthetic_shapes/test/data/test_000000.png",
-      "source_sha256": "83db33699fb98d67b9077de0af352a9e788618a1b6cfc742fee98e0d46cd67c2"
-    },
-    {
-      "options": {},
-      "reduction": "copy",
-      "snapshot_bytes": 8080,
-      "snapshot_path": "datasets/instance_segmentation_data/synthetic_shapes/test/data/test_014285.png",
-      "snapshot_sha256": "a004d1b4e7272e3bb2b11b6d01000f32e7feb5947b3e544b93ab6414496433b3",
-      "source_bytes": 8080,
-      "source_kind": "dataset",
-      "source_path": "instance_segmentation_data/synthetic_shapes/test/data/test_014285.png",
-      "source_sha256": "a004d1b4e7272e3bb2b11b6d01000f32e7feb5947b3e544b93ab6414496433b3"
+      "source_sha256": "61958509d860bac631553a83aa8859b15d9ee9dc98b98288fadd9ecbd4774ab4"
     },
     {
       "options": {
         "images": [
-          "test_000000.png",
-          "test_014285.png"
+          "test_000000.png"
         ]
       },
       "reduction": "manifest_subset",
-      "snapshot_bytes": 2897437,
-      "snapshot_path": "datasets/instance_segmentation_data/synthetic_shapes/test/labels.json",
-      "snapshot_sha256": "f7a8423c97502fdb17f9bbfc9e04ca61787b198e6758810d1273aec56a32a5ff",
-      "source_bytes": 80972478,
+      "snapshot_bytes": 991350,
+      "snapshot_path": "datasets/instance_segmentation_data/synthetic_shapes/test_5000/labels.json",
+      "snapshot_sha256": "86d9e7476aecc5fb5f038372dc99c68f0285fb5f41a18c10e0fe67df6414db66",
+      "source_bytes": 15555665,
       "source_kind": "dataset",
-      "source_path": "instance_segmentation_data/synthetic_shapes/test/labels.json",
-      "source_sha256": "313be07f3a539266819f08e30be3ee784dfe2b0b59c17c240a2206fbbe3f7830"
+      "source_path": "instance_segmentation_data/synthetic_shapes/test_5000/labels.json",
+      "source_sha256": "b384ccde5f061ef1717ffd201ebdef572b807db91ca3b817e3579f9b15cb684b"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 20331,
+      "snapshot_bytes": 20523,
       "snapshot_path": "figure_reuse/instance_segmentation/masks/decoded_annotation.png",
-      "snapshot_sha256": "0c04ec3c64ccb5d8416f35f64beae045b52591eae3afa2cb0b4d77e2f5f4436f",
-      "source_bytes": 20331,
+      "snapshot_sha256": "2609c94782dc9be529dec1e9e328eaf5e624e984b16f39ebc790d987c885497d",
+      "source_bytes": 20523,
       "source_kind": "figures",
       "source_path": "masks/decoded_annotation.png",
-      "source_sha256": "0c04ec3c64ccb5d8416f35f64beae045b52591eae3afa2cb0b4d77e2f5f4436f"
+      "source_sha256": "2609c94782dc9be529dec1e9e328eaf5e624e984b16f39ebc790d987c885497d"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 3089,
+      "snapshot_bytes": 6472,
       "snapshot_path": "figure_reuse/instance_segmentation/masks/mask_facts.json",
-      "snapshot_sha256": "5f208dc3c73dfe454e93fc5805800302f5f751b9f3409f8ce9e33d6401dd61ad",
-      "source_bytes": 3089,
+      "snapshot_sha256": "d96760a6ad1a115ae21895b7a1cb5a0d2226c100c7ad2a6e4dcda126583678dd",
+      "source_bytes": 6472,
       "source_kind": "figures",
       "source_path": "masks/mask_facts.json",
-      "source_sha256": "5f208dc3c73dfe454e93fc5805800302f5f751b9f3409f8ce9e33d6401dd61ad"
+      "source_sha256": "d96760a6ad1a115ae21895b7a1cb5a0d2226c100c7ad2a6e4dcda126583678dd"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 26659,
+      "snapshot_bytes": 25604,
       "snapshot_path": "figure_reuse/instance_segmentation/masks/mask_target.png",
-      "snapshot_sha256": "21ea9cadcc83ac880219926ebb333a4823b18e16ba064b316dfa97125ca3c223",
-      "source_bytes": 26659,
+      "snapshot_sha256": "d324c52c97d38d798261bf90ca579a9f35ee1a4a64f38ad23cbbd3feaac0b107",
+      "source_bytes": 25604,
       "source_kind": "figures",
       "source_path": "masks/mask_target.png",
-      "source_sha256": "21ea9cadcc83ac880219926ebb333a4823b18e16ba064b316dfa97125ca3c223"
+      "source_sha256": "d324c52c97d38d798261bf90ca579a9f35ee1a4a64f38ad23cbbd3feaac0b107"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 50688,
+      "snapshot_bytes": 56565,
       "snapshot_path": "figure_reuse/instance_segmentation/masks/pasted_masks.png",
-      "snapshot_sha256": "76d4486d5add6ed6f9a0e96ba1bea8ca0c2b45a733f68e8cf550513e18a013fb",
-      "source_bytes": 50688,
+      "snapshot_sha256": "618369b5fc3ce311229caa3acf7ab64918707eedad0dc978171b23fd59ea4983",
+      "source_bytes": 56565,
       "source_kind": "figures",
       "source_path": "masks/pasted_masks.png",
-      "source_sha256": "76d4486d5add6ed6f9a0e96ba1bea8ca0c2b45a733f68e8cf550513e18a013fb"
+      "source_sha256": "618369b5fc3ce311229caa3acf7ab64918707eedad0dc978171b23fd59ea4983"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 35585,
+      "snapshot_bytes": 40285,
       "snapshot_path": "figure_reuse/instance_segmentation/masks/predicted_masks.png",
-      "snapshot_sha256": "935fd2b2985edfd7017c4b847351a54a20c2bed3d5f64eb44b8132f07ea399a8",
-      "source_bytes": 35585,
+      "snapshot_sha256": "2f8ddf139dbf4097c0b98a3b9ed38c07e1570907186bdf2f3dcf250c5b818a0a",
+      "source_bytes": 40285,
       "source_kind": "figures",
       "source_path": "masks/predicted_masks.png",
-      "source_sha256": "935fd2b2985edfd7017c4b847351a54a20c2bed3d5f64eb44b8132f07ea399a8"
+      "source_sha256": "2f8ddf139dbf4097c0b98a3b9ed38c07e1570907186bdf2f3dcf250c5b818a0a"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 7287,
-      "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/Checkpoint_Evaluation/Iteration_5000/class_metrics.csv",
-      "snapshot_sha256": "00fada592ad176a963482036535c4a616639622f6b683cfae9f8d05db44c7a01",
-      "source_bytes": 7287,
+      "snapshot_bytes": 12070,
+      "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/Checkpoint_Evaluation/Iteration_6000/class_metrics.csv",
+      "snapshot_sha256": "77e648be73e3491fe032dc0782b1587266f788373191f38f0e17cb54491d5b26",
+      "source_bytes": 12070,
       "source_kind": "run",
-      "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/Checkpoint_Evaluation/Iteration_5000/class_metrics.csv",
-      "source_sha256": "00fada592ad176a963482036535c4a616639622f6b683cfae9f8d05db44c7a01"
+      "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/Checkpoint_Evaluation/Iteration_6000/class_metrics.csv",
+      "source_sha256": "77e648be73e3491fe032dc0782b1587266f788373191f38f0e17cb54491d5b26"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 320,
-      "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/Checkpoint_Evaluation/Iteration_5000/proposal_recall.csv",
-      "snapshot_sha256": "cb33074720d09d9f5f7b20db18b93876a918824ad5784f35340ed7991480e8a6",
-      "source_bytes": 320,
+      "snapshot_bytes": 360,
+      "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/Checkpoint_Evaluation/Iteration_6000/proposal_recall.csv",
+      "snapshot_sha256": "e828dbeb23ac2cc2859d59b88da289f70c1b021ae4bfc8f44edb47937fbf04b2",
+      "source_bytes": 360,
       "source_kind": "run",
-      "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/Checkpoint_Evaluation/Iteration_5000/proposal_recall.csv",
-      "source_sha256": "cb33074720d09d9f5f7b20db18b93876a918824ad5784f35340ed7991480e8a6"
+      "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/Checkpoint_Evaluation/Iteration_6000/proposal_recall.csv",
+      "source_sha256": "e828dbeb23ac2cc2859d59b88da289f70c1b021ae4bfc8f44edb47937fbf04b2"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 31007,
-      "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/Checkpoint_Evaluation/Results.txt",
-      "snapshot_sha256": "08f5efcfb2f4c47a08537fdb0046cf23a616eecd924ed4f0d85535ad46363732",
-      "source_bytes": 31007,
+      "snapshot_bytes": 44103,
+      "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/Checkpoint_Evaluation/Results.txt",
+      "snapshot_sha256": "f959969a1729a6c81169ae2f35cec6757dd5a446ccc013b9526e4ee9498202bc",
+      "source_bytes": 44103,
       "source_kind": "run",
-      "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/Checkpoint_Evaluation/Results.txt",
-      "source_sha256": "08f5efcfb2f4c47a08537fdb0046cf23a616eecd924ed4f0d85535ad46363732"
+      "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/Checkpoint_Evaluation/Results.txt",
+      "source_sha256": "f959969a1729a6c81169ae2f35cec6757dd5a446ccc013b9526e4ee9498202bc"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 50597,
-      "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/Evaluation/Iteration_1000/Samples/test_014285.png",
-      "snapshot_sha256": "4c2fc19a573de4d5a9ae91ad311241e77c69fbcf4bb8fd42d572e186ffe4fcbb",
-      "source_bytes": 50597,
+      "snapshot_bytes": 48904,
+      "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/Evaluation/Iteration_1000/Samples/test_000000.png",
+      "snapshot_sha256": "b88da4b873e94d4bab11c167503c010bfba2bf426fd55c1bba8a53d12ecf6b07",
+      "source_bytes": 48904,
       "source_kind": "run",
-      "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/Evaluation/Iteration_1000/Samples/test_014285.png",
-      "source_sha256": "4c2fc19a573de4d5a9ae91ad311241e77c69fbcf4bb8fd42d572e186ffe4fcbb"
+      "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/Evaluation/Iteration_1000/Samples/test_000000.png",
+      "source_sha256": "b88da4b873e94d4bab11c167503c010bfba2bf426fd55c1bba8a53d12ecf6b07"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 54324,
-      "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/Evaluation/Iteration_2000/Samples/test_014285.png",
-      "snapshot_sha256": "3f746bbe1c2e06c3e3dad890bd7ea4753d23d4fd52dd738208793fe0ba229de2",
-      "source_bytes": 54324,
+      "snapshot_bytes": 65636,
+      "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/Evaluation/Iteration_3000/Samples/test_000000.png",
+      "snapshot_sha256": "2f9e5c3989cdc7ef50890e62f5357b8705da2f2fc5a7d99fb2befa2ca9ea2f80",
+      "source_bytes": 65636,
       "source_kind": "run",
-      "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/Evaluation/Iteration_2000/Samples/test_014285.png",
-      "source_sha256": "3f746bbe1c2e06c3e3dad890bd7ea4753d23d4fd52dd738208793fe0ba229de2"
+      "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/Evaluation/Iteration_3000/Samples/test_000000.png",
+      "source_sha256": "2f9e5c3989cdc7ef50890e62f5357b8705da2f2fc5a7d99fb2befa2ca9ea2f80"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 65613,
-      "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/Evaluation/Iteration_5000/Samples/test_014285.png",
-      "snapshot_sha256": "08e1532f1d27447fbc0a6edfd9bc80764963cda897b78f3e8a0a4d5b97244148",
-      "source_bytes": 65613,
+      "snapshot_bytes": 66000,
+      "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/Evaluation/Iteration_6000/Samples/test_000000.png",
+      "snapshot_sha256": "41636df659a0e7457ee138ec6f7868299450ab1fcd328cc4d2e6600fb2417dd9",
+      "source_bytes": 66000,
       "source_kind": "run",
-      "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/Evaluation/Iteration_5000/Samples/test_014285.png",
-      "source_sha256": "08e1532f1d27447fbc0a6edfd9bc80764963cda897b78f3e8a0a4d5b97244148"
+      "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/Evaluation/Iteration_6000/Samples/test_000000.png",
+      "source_sha256": "41636df659a0e7457ee138ec6f7868299450ab1fcd328cc4d2e6600fb2417dd9"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 81741,
-      "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/Results.txt",
-      "snapshot_sha256": "2d4bc6b94f36decc7ea7cae12bfdf3575035a863d00cba9f0484af09a6cb45cc",
-      "source_bytes": 81741,
+      "snapshot_bytes": 264635,
+      "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/Results.txt",
+      "snapshot_sha256": "53f88c249eebc802707e30ab563803afce9c8c3d7d2ec6921afa43347a4e686f",
+      "source_bytes": 264635,
       "source_kind": "run",
-      "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/Results.txt",
-      "source_sha256": "2d4bc6b94f36decc7ea7cae12bfdf3575035a863d00cba9f0484af09a6cb45cc"
+      "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/Results.txt",
+      "source_sha256": "53f88c249eebc802707e30ab563803afce9c8c3d7d2ec6921afa43347a4e686f"
     },
     {
       "options": {},
       "reduction": "tensorboard_scalars",
-      "snapshot_bytes": 14928,
-      "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/Tensorboard/Test/events.out.tfevents.1792717549.spark-c6e9.1914424.1",
-      "snapshot_sha256": "72d3f0c6abc2a069928b7798287423aa3faecf31c1241ccfe3986d90fce0e7f0",
-      "source_bytes": 545283,
+      "snapshot_bytes": 57190,
+      "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/Tensorboard/Test/events.out.tfevents.1795100039.spark-c6e9.3196990.1",
+      "snapshot_sha256": "f6de84214ba501d74e57b5777cbe15b4b2800c0f90700aaf8e75ed19473b82cf",
+      "source_bytes": 4444892,
       "source_kind": "run",
-      "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/Tensorboard/Test/events.out.tfevents.1792717549.spark-c6e9.1914424.1",
-      "source_sha256": "51b1db07b5f2d7b821402081435089ad7a29b4aeedaeaa07abb9e7e4d8ad61fd"
+      "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/Tensorboard/Test/events.out.tfevents.1795100039.spark-c6e9.3196990.1",
+      "source_sha256": "a402bacb17283b7dd62534f2edd52a0a983897a08182fc57d4b586d1ebe7d1a0"
     },
     {
       "options": {},
       "reduction": "tensorboard_scalars",
-      "snapshot_bytes": 14928,
-      "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/Tensorboard/Test/events.out.tfevents.1792732011.spark-c6e9.3391919.1",
-      "snapshot_sha256": "435597645c548733dfcc430a3b16c09fa72b56ef3ed8bcb39911a3529149db57",
-      "source_bytes": 625193,
+      "snapshot_bytes": 57190,
+      "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/Tensorboard/Test_EMA/events.out.tfevents.1795100167.spark-c6e9.3196990.2",
+      "snapshot_sha256": "210ea193139f8908beaddbd99acb3b951204e39ff3793c1c0a63adf14eea85ab",
+      "source_bytes": 4326706,
       "source_kind": "run",
-      "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/Tensorboard/Test/events.out.tfevents.1792732011.spark-c6e9.3391919.1",
-      "source_sha256": "d19fbdf411b385af11ce0b0fe1969bdc71cce4e122d67ffc9b6b813dde8e60e2"
+      "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/Tensorboard/Test_EMA/events.out.tfevents.1795100167.spark-c6e9.3196990.2",
+      "source_sha256": "542f1ca6313aa76eb1d937752406ce41d83ea433ec9d8c79d89cf7ee28bbce1e"
     },
     {
       "options": {},
       "reduction": "tensorboard_scalars",
-      "snapshot_bytes": 14928,
-      "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/Tensorboard/Test_EMA/events.out.tfevents.1792718649.spark-c6e9.1914424.2",
-      "snapshot_sha256": "130df2454c9e3b384dd7fb5304f30514f39be0587e0c3eea276e85dc5ab3b00a",
-      "source_bytes": 537140,
+      "snapshot_bytes": 2422442,
+      "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/Tensorboard/Train/events.out.tfevents.1795098843.spark-c6e9.3196990.0",
+      "snapshot_sha256": "2a45acb2b4e0d2eda787f360b7b0086e203bd4cfa85db4a7297cec086bb8488a",
+      "source_bytes": 2422442,
       "source_kind": "run",
-      "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/Tensorboard/Test_EMA/events.out.tfevents.1792718649.spark-c6e9.1914424.2",
-      "source_sha256": "8b9c958e783260b3a5e4ad6c09ac12b1715620aea5a88e10275ca698a06095c5"
-    },
-    {
-      "options": {},
-      "reduction": "tensorboard_scalars",
-      "snapshot_bytes": 14928,
-      "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/Tensorboard/Test_EMA/events.out.tfevents.1792734286.spark-c6e9.3391919.2",
-      "snapshot_sha256": "2703ce1eacd6cbce47e5647f004b5b02f35f64f1177204f7d175f1564bbba7e0",
-      "source_bytes": 607824,
-      "source_kind": "run",
-      "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/Tensorboard/Test_EMA/events.out.tfevents.1792734286.spark-c6e9.3391919.2",
-      "source_sha256": "d329e85a1cb0df775f97246aef41f99d77d06c5fd550b19c740e964b3e0ed8ed"
-    },
-    {
-      "options": {},
-      "reduction": "tensorboard_scalars",
-      "snapshot_bytes": 801199,
-      "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/Tensorboard/Train/events.out.tfevents.1792715998.spark-c6e9.1914424.0",
-      "snapshot_sha256": "2115f9eba421c6cda1274656d49d69d28bc0e27af0fde448fe2eb6e1d5192aec",
-      "source_bytes": 801199,
-      "source_kind": "run",
-      "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/Tensorboard/Train/events.out.tfevents.1792715998.spark-c6e9.1914424.0",
-      "source_sha256": "2115f9eba421c6cda1274656d49d69d28bc0e27af0fde448fe2eb6e1d5192aec"
-    },
-    {
-      "options": {},
-      "reduction": "tensorboard_scalars",
-      "snapshot_bytes": 1203088,
-      "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/Tensorboard/Train/events.out.tfevents.1792728903.spark-c6e9.3391919.0",
-      "snapshot_sha256": "4a85df86368cb2ab9113e314cf7706e156dd859fa3df0fb99bfafcdc995cdd60",
-      "source_bytes": 1203088,
-      "source_kind": "run",
-      "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/Tensorboard/Train/events.out.tfevents.1792728903.spark-c6e9.3391919.0",
-      "source_sha256": "4a85df86368cb2ab9113e314cf7706e156dd859fa3df0fb99bfafcdc995cdd60"
+      "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/Tensorboard/Train/events.out.tfevents.1795098843.spark-c6e9.3196990.0",
+      "source_sha256": "2a45acb2b4e0d2eda787f360b7b0086e203bd4cfa85db4a7297cec086bb8488a"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 285,
-      "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/label_dictionary.json",
-      "snapshot_sha256": "ad35c57e1589ec3e2621ceee4a2d37a943a58662fd217e0431d626c5d51a3de2",
-      "source_bytes": 285,
+      "snapshot_bytes": 495,
+      "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/label_dictionary.json",
+      "snapshot_sha256": "81836303a1fdae50fe17dcc7544e6c32d40e1b0b5e0826ef856af55b49470a80",
+      "source_bytes": 495,
       "source_kind": "run",
-      "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/label_dictionary.json",
-      "source_sha256": "ad35c57e1589ec3e2621ceee4a2d37a943a58662fd217e0431d626c5d51a3de2"
+      "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/label_dictionary.json",
+      "source_sha256": "81836303a1fdae50fe17dcc7544e6c32d40e1b0b5e0826ef856af55b49470a80"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 10070,
-      "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/training_configuration.yaml",
-      "snapshot_sha256": "1efd14d94bee09387e52e34e5bf66a3e446e9c750705c5c51dc4ee12cbe31fa6",
-      "source_bytes": 10070,
+      "snapshot_bytes": 26736,
+      "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/training_configuration.yaml",
+      "snapshot_sha256": "cbfa4500a4cb5c06aa27f69d62353dd8f849946669552f16c20d5506d22572e2",
+      "source_bytes": 26736,
       "source_kind": "run",
-      "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/training_configuration.yaml",
-      "source_sha256": "1efd14d94bee09387e52e34e5bf66a3e446e9c750705c5c51dc4ee12cbe31fa6"
+      "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/training_configuration.yaml",
+      "source_sha256": "cbfa4500a4cb5c06aa27f69d62353dd8f849946669552f16c20d5506d22572e2"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 230139,
+      "snapshot_bytes": 538181,
       "snapshot_path": "readme_screenshots/instance_segmentation.log",
-      "snapshot_sha256": "6993110f4b098148a51aae250550497f528547e108eeee4cec267863af5de177",
-      "source_bytes": 230139,
+      "snapshot_sha256": "88a06b11684603002cf147ba744f247b96eee3059bd4b3b97efb22d0d57eb8e5",
+      "source_bytes": 538181,
       "source_kind": "run",
       "source_path": "readme_screenshots/instance_segmentation.log",
-      "source_sha256": "6993110f4b098148a51aae250550497f528547e108eeee4cec267863af5de177"
-    },
-    {
-      "options": {},
-      "reduction": "copy",
-      "snapshot_bytes": 230872,
-      "snapshot_path": "readme_screenshots/instance_segmentation_extended.log",
-      "snapshot_sha256": "aaec67f3d379c1cfad28bb63a233eeef147725594f5c20a68d3a74d281bb355c",
-      "source_bytes": 230872,
-      "source_kind": "run",
-      "source_path": "readme_screenshots/instance_segmentation_extended.log",
-      "source_sha256": "aaec67f3d379c1cfad28bb63a233eeef147725594f5c20a68d3a74d281bb355c"
+      "source_sha256": "88a06b11684603002cf147ba744f247b96eee3059bd4b3b97efb22d0d57eb8e5"
     }
   ],
   "series": "instance_segmentation",
-  "snapshot_bytes": 5871853
+  "snapshot_bytes": 4751759
 }

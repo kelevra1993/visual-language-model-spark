@@ -16,11 +16,12 @@ import numpy
 from matplotlib import pyplot
 from matplotlib.ticker import FuncFormatter
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from tutorials.figures.figure_utilities import (DOTS_PER_INCH, POINTS_PER_PIXEL, SERIES_COLOURS,
                                                 TEXT_SECONDARY_COLOUR, compute_pixel_box, register_fonts, round_fact,
                                                 save_figure, style_chart_panel)
+from tutorials.figures.instance_segmentation.mask_figures import describe_class_name
 from tutorials.figures.object_detection.detection_sources import (extract_table, parse_table_rows,
                                                                   read_results_block, write_listing)
 from tutorials.figures.object_detection.evaluation_figures import convert_report_value, read_class_metrics
@@ -39,36 +40,80 @@ SIZE_AXIS_STEP = 1000
 CHART_WIDTH = 1720
 CHART_HEIGHT = 700
 
+# Prefix of the names of the hollow shapes of the synthetic data, and the pointed shape the chapter names, whose class
+# claims check_class_claims verifies
+HOLLOW_PREFIX = "hollow_"
+POINTED_CLASS_NAME = "star"
+
+
+def check_class_claims(rows: List[Dict[str, Any]]) -> None:
+    """
+    Checks the claims the chapter on scoring masks makes about the classes, so that a run trained again stops the build
+    instead of being described wrongly: at an IoU of 0.75 the class losing most on its masks is a hollow shape, every
+    hollow shape loses and the star loses; at 0.95 the class gaining most on its masks is a filled shape, and more
+    filled shapes gain than lose.
+
+    Args:
+        rows (List[Dict[str, Any]]): The rows of class_metrics.csv, sorted by the mask minus box AP@0.75.
+
+    Raises:
+        ValueError: If one of the claims does not hold.
+    """
+    hollow_rows = [row for row in rows if row["class"].startswith(HOLLOW_PREFIX)]
+    filled_rows = [row for row in rows if not row["class"].startswith(HOLLOW_PREFIX)]
+    star_rows = [row for row in rows if row["class"] == POINTED_CLASS_NAME]
+    largest_gain_row = max(rows, key=lambda row: row["mask_average_precision_95"] - row["average_precision_95"])
+    gaining_filled = sum(row["mask_average_precision_95"] > row["average_precision_95"] for row in filled_rows)
+    problems = []
+    if not rows[0]["class"].startswith(HOLLOW_PREFIX):
+        problems.append(f"the largest mask loss at 0.75 is the {rows[0]['class']}, not a hollow shape")
+    if any(row["mask_average_precision_75"] >= row["average_precision_75"] for row in hollow_rows):
+        problems.append("a hollow shape does not lose on its masks at 0.75")
+    if len(star_rows) != 1 or star_rows[0]["mask_average_precision_75"] >= star_rows[0]["average_precision_75"]:
+        problems.append(f"the {POINTED_CLASS_NAME} does not lose on its masks at 0.75")
+    if largest_gain_row["class"].startswith(HOLLOW_PREFIX) or (largest_gain_row["mask_average_precision_95"]
+                                                                <= largest_gain_row["average_precision_95"]):
+        problems.append(f"the largest mask gain at 0.95 is not a filled shape gaining ({largest_gain_row['class']})")
+    if 2 * gaining_filled <= len(filled_rows):
+        problems.append(f"only {gaining_filled} of the {len(filled_rows)} filled shapes gain on their masks at 0.95")
+    if problems:
+        raise ValueError("The class claims of the chapter on scoring masks do not hold: " + "; ".join(problems) + ".")
+
 
 def draw_mask_box_figure(evaluation_folder: Path, output_path: Path) -> Dict[str, Any]:
     """
     Draws the AP@0.75 of every class on the masks next to the AP@0.75 of the boxes of the same detections, the classes
-    sorted by the difference, the masks losing most first, and gives the values of the classes the narration quotes.
+    sorted by the difference, the masks losing most first, and gives the values of the classes the narration quotes,
+    the class losing most at 0.75 and the class gaining most at 0.95 named by their role, after checking the claims the
+    chapter makes about them (check_class_claims).
 
     Args:
         evaluation_folder (Path): The evaluation folder of the last checkpoint of the INS run.
         output_path (Path): The PNG file of the figure.
 
     Returns:
-        Dict[str, Any]: The box and mask AP of every class at 0.5, 0.75 and 0.95, and the box of the chart, named
-            classes.*.
+        Dict[str, Any]: The box and mask AP of every class at 0.5, 0.75 and 0.95, those of the classes named by their
+            role, and the box of the chart, named classes.*.
     """
     rows = read_class_metrics(evaluation_folder=evaluation_folder)
     differences = [row["mask_average_precision_75"] - row["average_precision_75"] for row in rows]
-    order = numpy.argsort(a=differences)
+    order = numpy.argsort(a=differences, kind="stable")
     rows = [rows[index] for index in order]
+    check_class_claims(rows=rows)
 
     # Pairs of bars, the masks then the boxes, for every class
     register_fonts()
     figure, axes = pyplot.subplots(figsize=(CHART_WIDTH / DOTS_PER_INCH, CHART_HEIGHT / DOTS_PER_INCH))
-    # Left margin leaving room for the percentage ticks and the name of the axis on their left
-    figure.subplots_adjust(left=0.07, right=0.99, top=0.88, bottom=0.25)
+    # Left margin leaving room for the percentage ticks and the name of the axis on their left, bottom margin for the
+    # slanted names of the classes
+    figure.subplots_adjust(left=0.065, right=0.995, top=0.9, bottom=0.27)
     positions = numpy.arange(len(rows))
     axes.bar(x=positions - 0.2, height=[row["mask_average_precision_75"] for row in rows], width=0.4,
              color=SERIES_COLOURS[3], label="mask AP@0.75")
     axes.bar(x=positions + 0.2, height=[row["average_precision_75"] for row in rows], width=0.4,
              color=SERIES_COLOURS[0], label="box AP@0.75")
-    axes.set_xticks(ticks=positions, labels=[row["class"] for row in rows], rotation=45, ha="right")
+    axes.set_xticks(ticks=positions, labels=[describe_class_name(class_name=row["class"]) for row in rows], rotation=50,
+                    ha="right", rotation_mode="anchor", fontsize=15 * POINTS_PER_PIXEL)
     style_chart_panel(axes=axes, title="AP@0.75 of every class, masks against the boxes of the same detections",
                       x_label="", y_label="AP@0.75")
     axes.set_ylim(bottom=0, top=1.0)
@@ -78,7 +123,16 @@ def draw_mask_box_figure(evaluation_folder: Path, output_path: Path) -> Dict[str
     axes.legend(loc="upper right", frameon=False, labelcolor=TEXT_SECONDARY_COLOUR, fontsize=18 * POINTS_PER_PIXEL)
     figure.canvas.draw()
     facts = {"classes.figure_box": compute_pixel_box(figure=figure, axes=axes, with_labels=True, margin=8),
-             "classes.largest_loss_name": rows[0]["class"]}
+             "classes.largest_loss_name": rows[0]["class"], "classes.count": len(rows)}
+
+    # Classes named by their role: the largest mask loss at 0.75 and the largest mask gain at 0.95, as said aloud
+    largest_gain_row = max(rows, key=lambda row: row["mask_average_precision_95"] - row["average_precision_95"])
+    for role, row in [("largest_loss", rows[0]), ("largest_gain_95", largest_gain_row)]:
+        facts.update({f"classes.{role}.name_text": describe_class_name(class_name=row["class"]),
+                      f"classes.{role}.mask_ap_75": round_fact(value=row["mask_average_precision_75"]),
+                      f"classes.{role}.box_ap_75": round_fact(value=row["average_precision_75"]),
+                      f"classes.{role}.mask_ap_95": round_fact(value=row["mask_average_precision_95"]),
+                      f"classes.{role}.box_ap_95": round_fact(value=row["average_precision_95"])})
     for row in rows:
         for column, name in [("average_precision_50", "box_ap_50"), ("average_precision_75", "box_ap_75"),
                              ("average_precision_95", "box_ap_95"), ("mask_average_precision_50", "mask_ap_50"),

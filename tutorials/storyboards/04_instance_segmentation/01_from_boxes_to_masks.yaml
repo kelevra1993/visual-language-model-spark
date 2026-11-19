@@ -33,13 +33,16 @@ scenes:
   - kind: image
     title: "What the instance segmenter returns"
     code_reference: "vision_training/trainers/instance_segmentation_trainer.py · InstanceSegmentationTrainer.get_sample_masks"
-    image: "runs:readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20/Evaluation/Iteration_5000/Samples/test_014285.png"
+    # The sample of SAMPLE_IMAGE_NAME at CHECKPOINT_ITERATION (detection_sources.py) of the INS run of
+    # tutorial_sources.yaml, typed out since image paths take no placeholders (run.name and run.sample_image_name in
+    # the facts)
+    image: "runs:readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/Evaluation/Iteration_6000/Samples/test_000000.png"
     highlights:
       - {box: [0, 24, 512, 536], sentences: [0]}
       - {box: [516, 24, 1028, 536], sentences: [1]}
     narration:
       - "The test image of the detection series, in a sample of the mask run: the ground truth masks and boxes on the left."
-      - "On the right, the {{instance_segmentation.predictions.detection_count}} detections of iteration {{instance_segmentation.run.checkpoint_iteration}} above {{instance_segmentation.run.score_threshold}}, each with its mask filled in the color of its class; both nonagons are missed, and the square is found twice, once as a rectangle."
+      - "On the right, the {{instance_segmentation.predictions.detection_count}} detections of iteration {{instance_segmentation.run.checkpoint_iteration}} above {{instance_segmentation.run.score_threshold}}, each with its mask filled in the color of its class: all {{instance_segmentation.predictions.object_count:words}} shapes are found, the {{instance_segmentation.predictions.duplicate.object_text}} twice, once as a {{instance_segmentation.predictions.duplicate.wrong_name_text}}."
 
   - kind: html
     page: diagram
@@ -49,10 +52,11 @@ scenes:
     literal_numbers: ["two-stage"]
     elements:
       - {type: box, box: [20, 60, 1740, 220], fill: null, outline: border, highlight: [4]}
-      - {type: text, position: [50, 80], text: "the two-stage detector of the object detection series", font: diagram_bold, colour: dim}
-      - {type: text, position: [50, 125], text: "backbone · blocks {{instance_segmentation.geometry.level_names}} · region proposals · proposal filter · RoI heads · post-processing", font: diagram_text, colour: dim}
+      - {type: text, position: [50, 72], text: "the two-stage detector of the object detection series", font: diagram_bold, colour: dim}
+      - {type: text, position: [50, 112], text: "backbone · blocks {{instance_segmentation.geometry.level_names}} · region proposals · proposal filter · RoI heads · post-processing", font: diagram_text, colour: dim}
       # The settings of the shared detector that the instance segmentation configurations keep apart from the detection
-      - {type: text, position: [50, 172], text: "neck, proposal selection, NMS criterion · instance segmentation: {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Neck.type}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#RegionProposal.proposal_selection}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Detector.nms_criterion}} · object detection: {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Neck.type}}, {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.proposal_selection}}, {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.nms_criterion}}", font: diagram_small, appear: 4, highlight: [4]}
+      - {type: text, position: [50, 150], text: "neck, proposal selection, NMS criterion · instance segmentation: {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Neck.type}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#RegionProposal.proposal_selection}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Detector.nms_criterion}} · object detection: {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Neck.type}}, {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.proposal_selection}}, {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.nms_criterion}}", font: diagram_small, appear: 4, highlight: [4]}
+      - {type: text, position: [50, 180], text: "run shown: {{instance_segmentation.run.neck_type}}, {{instance_segmentation.run.proposal_selection}}, {{instance_segmentation.run.nms_criterion}}", font: diagram_small, appear: 4, highlight: [0, 4]}
       - {type: arrow, points: [[400, 220], [400, 300]], colour: blue, appear: 1}
       - {type: box, box: [130, 305, 670, 425], text: "training: the positive sampled proposals\nwith their level and matched object", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
       - {type: arrow, points: [[1360, 220], [1360, 300]], colour: violet, appear: 2}
@@ -66,11 +70,11 @@ scenes:
       - {type: text, position: [1250, 650], text: "final_detection_masks [B, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}]", font: diagram_monospace_small, appear: 2}
       - {type: text, position: [880, 600], text: "[R, {{instance_segmentation.model.number_classes}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}] logits", font: diagram_monospace_small, anchor: ma, appear: 3}
     narration:
-      - "The segmenter is the detector of the object detection series, plus one mask head per detection level, in the style of Mask R-CNN; the run shown has no neck."
+      - "The segmenter is the detector of the object detection series, plus one mask head per detection level, in the style of Mask R-CNN; the run shown puts a feature pyramid neck on its levels."
       - "In training, every level runs its mask head on its own positive sampled proposals, which gives the mask loss."
       - "In evaluation, the mask heads run on the final boxes refined by the detection heads, each at the level of its proposal, which gives {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections:words}} masks of {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}} by {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}} per image."
       - "A head predicts one mask per class, and only the channel of the ground truth class, or of the detected class, is used."
-      - "Its configurations keep their own neck, proposal selection and final suppression criterion, written here next to those of the detection configurations, which ship the winners of the detection benchmark."
+      - "Its configurations keep their own neck, proposal selection and final suppression criterion, written here next to those of the detection configurations, which ship the winners of the detection benchmark; the run shown took those winners."
 
   - kind: html
     page: diagram
@@ -91,9 +95,9 @@ scenes:
       - {type: box, box: [1060, 400, 1740, 520], text: "box = tight box of the mask\nat the network resolution", font: diagram_small, outline: violet, appear: 3, highlight: [3]}
       - {type: box, box: [1060, 550, 1740, 670], text: "mask emptied by the resize:\nobject dropped with its box", font: diagram_small, outline: red, appear: 4, highlight: [4]}
     narration:
-      - "This task reads the segmentation of every annotation: polygons, or a run length encoding, uncompressed as a list as here, or compressed as a string."
-      - "The counts alternate background and object runs, column by column from the top left pixel: {{instance_segmentation.annotation.run_length_values}} values summing to the {{instance_segmentation.annotation.run_length_sum:,}} pixels of the image."
-      - "The loader decodes them at the network resolution, here the {{instance_segmentation.annotation.category}} of the first test image, {{instance_segmentation.annotation.mask_pixels:,}} pixels."
+      - "This task reads the segmentation of every annotation: polygons, or a run length encoding, uncompressed as a list, or compressed as a string as here."
+      - "Decoded, the string gives the counts, background and object runs in turn, column by column from the top left pixel: {{instance_segmentation.annotation.run_length_values}} values summing to the {{instance_segmentation.annotation.run_length_sum:,}} pixels of the image."
+      - "The loader decodes them at the network resolution, here the {{instance_segmentation.annotation.category_text}} of the first test image, {{instance_segmentation.annotation.mask_pixels:,}} pixels."
       - "Suppose your annotations come without boxes: the box field is not read anyway, every box being the tight box of the mask at the network resolution, so that boxes and masks always agree."
       - "An object whose mask vanishes once resized is removed with its box, except in the evaluation at the original resolution."
 
@@ -152,22 +156,23 @@ scenes:
       - {type: box, box: [40, 330, 240, 430], text: "boxes\n[R, 5]", font: diagram_small, outline: yellow}
       - {type: arrow, points: [[190, 165], [285, 245]]}
       - {type: arrow, points: [[240, 380], [285, 300]]}
-      - {type: box, box: [290, 205, 560, 345], text: "ROI Align {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#DetectionLevels.5.mask_head.roi_align_pool_size}} × {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#DetectionLevels.5.mask_head.roi_align_pool_size}}\nscale of the level\naligned", font: diagram_small, outline: aqua, highlight: [0]}
+      - {type: box, box: [290, 205, 560, 345], text: "ROI Align {{instance_segmentation.geometry.pool_size}} × {{instance_segmentation.geometry.pool_size}}\nscale of the level\naligned", font: diagram_small, outline: aqua, highlight: [0]}
       - {type: arrow, points: [[560, 275], [615, 275]]}
-      - {type: cuboid, box: [620, 235, 700, 315], depth: 26, fill: aqua, label: "[R, {{instance_segmentation.geometry.first_level_channels}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#DetectionLevels.5.mask_head.roi_align_pool_size}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#DetectionLevels.5.mask_head.roi_align_pool_size}}]"}
+      - {type: cuboid, box: [620, 235, 700, 315], depth: 26, fill: aqua, label: "[R, {{instance_segmentation.geometry.first_level_channels}}, {{instance_segmentation.geometry.pool_size}}, {{instance_segmentation.geometry.pool_size}}]"}
       - {type: arrow, points: [[730, 275], [785, 275]], appear: 1}
-      - {type: box, box: [790, 205, 1060, 345], text: "ConvolutionBlock\n{{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#DetectionLevels.5.mask_head.convolutions}}\nresidual · BN", font: diagram_small, outline: magenta, appear: 1, highlight: [1]}
-      - {type: arrow, points: [[1060, 275], [1115, 275]], appear: 1}
-      - {type: box, box: [1120, 205, 1390, 345], text: "ConvTranspose2d\n{{instance_segmentation.geometry.upsampling_kernel}} × {{instance_segmentation.geometry.upsampling_kernel}}, stride {{instance_segmentation.geometry.upsampling_stride}}\nReLU", font: diagram_small, outline: magenta, appear: 1, highlight: [1]}
-      - {type: arrow, points: [[1390, 275], [1445, 275]], appear: 2}
-      - {type: box, box: [1450, 205, 1730, 345], text: "{{instance_segmentation.geometry.predictor_kernel}} × {{instance_segmentation.geometry.predictor_kernel}} conv\n{{instance_segmentation.model.number_classes}} channels", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
-      - {type: text, position: [1590, 370], text: "[R, {{instance_segmentation.model.number_classes}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}]", font: diagram_monospace_small, anchor: ma, appear: 2}
-      - {type: text, position: [1255, 370], text: "[R, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#DetectionLevels.5.mask_head.convolutions[1]}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}]", font: diagram_monospace_small, anchor: ma, appear: 1}
-      - {type: text, position: [40, 540], text: "{{instance_segmentation.model.mask_level_parameters:,}} parameters per level · {{instance_segmentation.model.mask_parameters:,}} for the {{instance_segmentation.geometry.level_count:words}}\nmodel: {{instance_segmentation.model.total_parameters:,}} parameters, the detector {{instance_segmentation.model.detector_parameters:,}}", font: diagram_text, appear: 3}
+      - {type: box, box: [790, 205, 1060, 345], text: "ConvolutionBlock\n{{instance_segmentation.geometry.convolutions_text}}\nresidual · BN", font: diagram_small, outline: magenta, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[1060, 275], [1115, 275]], appear: 2}
+      - {type: box, box: [1120, 205, 1390, 345], text: "ConvTranspose2d\n{{instance_segmentation.geometry.upsampling_kernel}} × {{instance_segmentation.geometry.upsampling_kernel}}, stride {{instance_segmentation.geometry.upsampling_stride}}\nReLU", font: diagram_small, outline: magenta, appear: 2, highlight: [2]}
+      - {type: arrow, points: [[1390, 275], [1445, 275]], appear: 3}
+      - {type: box, box: [1450, 205, 1730, 345], text: "{{instance_segmentation.geometry.predictor_kernel}} × {{instance_segmentation.geometry.predictor_kernel}} conv\n{{instance_segmentation.model.number_classes}} channels", font: diagram_small, outline: violet, appear: 3, highlight: [3]}
+      - {type: text, position: [1590, 370], text: "[R, {{instance_segmentation.model.number_classes}}, {{instance_segmentation.geometry.mask_size}}, {{instance_segmentation.geometry.mask_size}}]", font: diagram_monospace_small, anchor: ma, appear: 3}
+      - {type: text, position: [1255, 370], text: "[R, {{instance_segmentation.geometry.convolution_channels}}, {{instance_segmentation.geometry.mask_size}}, {{instance_segmentation.geometry.mask_size}}]", font: diagram_monospace_small, anchor: ma, appear: 2}
+      - {type: text, position: [40, 540], text: "{{instance_segmentation.model.mask_level_parameters:,}} parameters per level · {{instance_segmentation.model.mask_parameters:,}} for the {{instance_segmentation.geometry.level_count:words}}\nmodel: {{instance_segmentation.model.total_parameters:,}} parameters, the detector {{instance_segmentation.model.detector_parameters:,}}", font: diagram_text, appear: 4}
     narration:
-      - "A mask head pools every box from the feature map of its level with ROI Align, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#DetectionLevels.5.mask_head.roi_align_pool_size}} by {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#DetectionLevels.5.mask_head.roi_align_pool_size}}, in half-pixel mode, at the spatial scale of the level, like the detection heads."
-      - "A convolution block of {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#DetectionLevels.5.mask_head.convolutions[0]:words}} layers of {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#DetectionLevels.5.mask_head.convolutions[1]}} channels with residual shortcuts processes it, and one transposed convolution of {{instance_segmentation.geometry.upsampling_kernel}} by {{instance_segmentation.geometry.upsampling_kernel}} and stride {{instance_segmentation.geometry.upsampling_stride}} with a rectified linear unit doubles it to {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}} by {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}."
-      - "A {{instance_segmentation.geometry.predictor_kernel}} by {{instance_segmentation.geometry.predictor_kernel}} convolution gives one map of scores per class, background included: {{instance_segmentation.model.number_classes}} channels of {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}} by {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}} for every box."
+      - "A mask head pools every box from the feature map of its level with ROI Align, {{instance_segmentation.geometry.pool_size}} by {{instance_segmentation.geometry.pool_size}}, in half-pixel mode, at the spatial scale of the level, like the detection heads."
+      - "In the run shown, a convolution block of {{instance_segmentation.geometry.convolution_layers:words}} layers of {{instance_segmentation.geometry.convolution_channels}} channels with residual shortcuts processes it, the head size the instance segmentation benchmark kept."
+      - "One transposed convolution of {{instance_segmentation.geometry.upsampling_kernel}} by {{instance_segmentation.geometry.upsampling_kernel}} and stride {{instance_segmentation.geometry.upsampling_stride}} with a rectified linear unit then doubles it to {{instance_segmentation.geometry.mask_size}} by {{instance_segmentation.geometry.mask_size}}."
+      - "A {{instance_segmentation.geometry.predictor_kernel}} by {{instance_segmentation.geometry.predictor_kernel}} convolution gives one map of scores per class, background included: {{instance_segmentation.model.number_classes}} channels of {{instance_segmentation.geometry.mask_size}} by {{instance_segmentation.geometry.mask_size}} for every box."
       - "Each head has {{instance_segmentation.model.mask_level_parameters:,}} parameters, {{instance_segmentation.model.mask_parameters:,}} for the {{instance_segmentation.geometry.level_count:words}} levels, on top of the {{instance_segmentation.model.detector_parameters:,}} of the detector."
 
   - kind: image
@@ -181,7 +186,7 @@ scenes:
       - {box: "{{instance_segmentation.target.panel_2_box}}", sentences: [1]}
       - {box: "{{instance_segmentation.target.panel_3_box}}", sentences: [2]}
     narration:
-      - "The masks are learned on the positive sampled proposals only, the ground truth proposals included, every level on the positives of its own level; here a real proposal around the star, at an overlap of {{instance_segmentation.target.proposal_iou:.2f}}."
+      - "The masks are learned on the positive sampled proposals only, the ground truth proposals included, every level on the positives of its own level; here a real proposal around the {{instance_segmentation.target.object_text}}, at an overlap of {{instance_segmentation.target.proposal_iou:.2f}}."
       - "Its target is the matched ground truth mask cropped to the proposal and resized by ROI Align on the full-size mask, at a scale of one."
       - "Cut at 0.5, the target is the part of the object inside the proposal, in the frame of the proposal, where the head predicts it: {{instance_segmentation.target.foreground_pixels}} of the {{instance_segmentation.geometry.mask_pixels:,}} pixels."
 
@@ -214,14 +219,14 @@ scenes:
           - "masks predicted on the refined boxes"
       - heading: "Different here"
         lines:
-          - "run without neck: strides {{instance_segmentation.geometry.strides_text}}, not 4 to 32"
+          - "feature pyramid of the run: strides {{instance_segmentation.geometry.strides_text}}, not 4 to 32"
           - "one mask head per level, not shared"
           - "full-size ground truth masks, no mini masks"
           - "ground truth boxes added to the proposals"
           - "unscaled box targets, smooth L1 beta {{instance_segmentation.geometry.box_loss_beta}}"
     narration:
       - "The mask branch is the design of that reference: ROI Align of 14, small convolutions, a transposed convolution to 28, one sigmoid mask per class, the loss on the ground truth class, and masks on the refined boxes."
-      - "What feeds it differs: no feature pyramid in the run shown, so the masks are taken from strides of {{instance_segmentation.geometry.strides_text}}, one head per level, full-size ground truth masks, and the box choices of the detector."
+      - "What feeds it differs: the feature pyramid of the run shown gives the masks strides of {{instance_segmentation.geometry.strides_text}}, coarser than the 4 to 32 of the reference, with one head per level, full-size ground truth masks, and the box choices of the detector."
 
   - kind: image
     title: "The mask loss of the run"
@@ -233,8 +238,8 @@ scenes:
       - {box: "{{instance_segmentation.losses.panel_1_box}}", sentences: [1]}
       - {box: "{{instance_segmentation.losses.panel_2_box}}", sentences: [0]}
     narration:
-      - "In the run, the mask loss starts at {{instance_segmentation.losses.mask.first:.2f}}, the logarithm of two of logits at zero, and reaches {{instance_segmentation.losses.mask.last:.2f}} after {{instance_segmentation.losses.iterations:,}} iterations."
-      - "It falls with the four losses of the detector; the console adds its moving average, {{instance_segmentation.console.1000.mask_loss:.2f}} after {{instance_segmentation.console.first_iteration:words}} iterations and {{instance_segmentation.console.5000.mask_loss:.2f}} after {{instance_segmentation.console.last_iteration:words}}."
+      - "In the run, the mask loss starts at {{instance_segmentation.losses.mask.first:.2f}}, the logarithm of two of logits at zero, and reaches {{instance_segmentation.losses.mask.last:.2f}} by the end of the run."
+      - "It falls with the four losses of the detector; the console adds its moving average, {{instance_segmentation.console.1000.mask_loss:.2f}} after {{instance_segmentation.console.first_iteration:words}} iterations and {{instance_segmentation.console.6000.mask_loss:.2f}} after {{instance_segmentation.console.last_iteration:words}}."
 
   - kind: terminal
     title: "Generate, train, evaluate"
@@ -242,14 +247,14 @@ scenes:
     lines:
       - {role: comment, text: "# The same data set as the detection: task = \"instance_segmentation\" in the main block"}
       - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset"}
-      - {role: comment, text: "# {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#ExperimentConfiguration.number_iterations}} iterations as shipped, resumed to {{instance_segmentation.losses.iterations}} for this run"}
+      - {role: comment, text: "# {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#ExperimentConfiguration.number_iterations}} iterations as shipped; run shown: mask heads {{instance_segmentation.geometry.convolutions_text}}, anchors {{instance_segmentation.run.smallest_anchor}} to {{instance_segmentation.run.largest_anchor}}"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml\""}
       - {role: comment, text: "# A checkpoint evaluated again: run_name, iteration ... in the main block"}
       - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
     narration:
-      - "The task trains on the data set of the detection, whose generator now compresses the run length encoding of every visible part; the data set of the run, made earlier, holds lists."
-      - "Should you need harder images, adding instance segmentation to the hard object tasks of the main block draws those of the detection benchmark, with the mask of every visible part."
-      - "Its synthetic configuration stops at {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#ExperimentConfiguration.number_iterations:words}} iterations; the run shown was resumed to {{instance_segmentation.losses.iterations:words}}, and the evaluation script evaluates any checkpoint again."
+      - "The task trains on the data set of the detection, whose generator writes the visible part of every object as a compressed run length encoding."
+      - "Its synthetic configuration trains {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#ExperimentConfiguration.number_iterations:words}} iterations; the run shown took the winners of the detection benchmark and mask heads of {{instance_segmentation.geometry.convolution_layers:words}} convolutions of {{instance_segmentation.geometry.convolution_channels}} channels, with anchors from {{instance_segmentation.run.smallest_anchor}} to {{instance_segmentation.run.largest_anchor}} pixels."
+      - "Planned for {{instance_segmentation.run.planned_iterations:words}} iterations, it was stopped after its evaluation at {{instance_segmentation.run.checkpoint_iteration:words}}, and the evaluation script evaluates any checkpoint again."
 
   - kind: summary
     title: "Recap"
@@ -258,7 +263,7 @@ scenes:
     items:
       - {text: "The detector of DET, plus one mask head per level"}
       - {text: "Segmentations: polygons or RLE; box = tight box of the mask"}
-      - {text: "Mask head: ROI Align {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#DetectionLevels.5.mask_head.roi_align_pool_size}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#DetectionLevels.5.mask_head.convolutions[0]}} convolutions, transposed convolution to {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}, {{instance_segmentation.model.number_classes}} masks"}
+      - {text: "Mask head of the run: ROI Align {{instance_segmentation.geometry.pool_size}}, {{instance_segmentation.geometry.convolution_layers}} convolutions, transposed convolution to {{instance_segmentation.geometry.mask_size}}, {{instance_segmentation.model.number_classes}} masks"}
       - {text: "Targets: the matched mask cropped to the positive proposal, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}} × {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}, at 0.5"}
       - {text: "BCE on the ground truth class channel, float32"}
       - {text: "+{{instance_segmentation.model.mask_parameters:,}} parameters for the {{instance_segmentation.geometry.level_count:words}} mask heads"}
