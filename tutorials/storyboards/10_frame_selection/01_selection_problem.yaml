@@ -1,5 +1,6 @@
 # Frame selection, chapter 1: what the task is for and when to choose it, its synthetic data (the largest copy of
-# every wanted shape among smaller copies and other shapes), the labels, the mapping and the check of the frames per
+# every wanted shape among smaller copies and other shapes, textured or low contrast backgrounds, shapes cut by the
+# border), the labels, the mapping and the check of the frames per
 # class, the Selection settings, the frame selector with the shapes and parameters of the trained README run, its run
 # name and the commands of a run. Coordinates of the html scenes are in pixels of the content area (1760 x 740, origin at
 # its top left corner); the figures named figures:frame_selection/... are made by tutorials/figures/frame_selection from
@@ -37,7 +38,7 @@ scenes:
     literal_numbers: ["0"]
     elements:
       # The test sequence of the next scene and the network giving one probability vector per frame
-      - {type: text, position: [40, 75], text: "test_000057", font: diagram_monospace, anchor: lm}
+      - {type: text, position: [40, 75], text: "{{frame_selection.dataset.strip_sequence}}", font: diagram_monospace, anchor: lm}
       - {type: text, position: [330, 75], text: "{{frame_selection.dataset.strip_frame_count}} frames, 0 to {{frame_selection.dataset.strip_last_frame_index}}", font: diagram_small, colour: dim, anchor: lm}
       - {type: box, box: [40, 130, 1720, 230], text: "network of the sequence labelling: probabilities [T, {{frame_selection.dataset.class_count}}] over unselected, circle, triangle, star", font: diagram_text, outline: blue, highlight: [0]}
       - {type: arrow, points: [[880, 230], [880, 295]], appear: 1}
@@ -59,18 +60,23 @@ scenes:
     title: "The synthetic selected shapes"
     code_reference: "vision_training/data/synthetic/create_synthetic_dataset.py · generate_selection_sequence"
     image: "figures:frame_selection/dataset/sequence_strip.png"
+    # The textured background, the largest triangle cut by the border and the several stars are the content of the
+    # strip sequence (STRIP_SEQUENCE_NAME of tutorials/figures/frame_selection/dataset_figures.py): check these
+    # sentences again when it changes
     views:
       - {box: "{{frame_selection.dataset.strip_first_row_box}}", from_sentence: 2}
       - {box: [0, 0, 1720, 700], from_sentence: 3}
     highlights:
       - {box: "{{frame_selection.dataset.strip_circle_box}}", sentences: [1]}
-      - {box: "{{frame_selection.dataset.strip_triangle_box}}", sentences: [1]}
+      - {box: "{{frame_selection.dataset.strip_triangle_box}}", sentences: [1, 4]}
       - {box: "{{frame_selection.dataset.strip_star_box}}", sentences: [1]}
     narration:
-      - "The synthetic data set, synthetic selected shapes, holds {{frame_selection.dataset.training_sequences:,}} training, {{frame_selection.dataset.validation_sequences}} validation and {{frame_selection.dataset.test_sequences}} test sequences of {{frame_selection.dataset.minimum_frames}} to {{frame_selection.dataset.maximum_frames}} frames of {{frame_selection.dataset.image_size}} pixels, one shape per frame, in a background and a color shared by the sequence."
+      - "The synthetic data set, synthetic selected shapes, holds {{frame_selection.dataset.training_sequences:,}} training, {{frame_selection.dataset.validation_sequences}} validation and {{frame_selection.dataset.test_sequences}} test sequences of {{frame_selection.dataset.minimum_frames}} to {{frame_selection.dataset.maximum_frames}} frames of {{frame_selection.dataset.image_size}} pixels, one shape per frame, over a background and in a color shared by the sequence."
       - "In every sequence, the largest circle, the largest triangle and the largest star are the {{frame_selection.dataset.wanted_class_count:words}} frames to select, outlined here."
       - "The other frames show a smaller copy of a wanted shape, at most {{constant:vision_training/data/synthetic/create_synthetic_dataset.py#SELECTION_SMALLER_SIZE_RATIO:percent_label}} of its size and {{constant:vision_training/data/synthetic/create_synthetic_dataset.py#SELECTION_SMALLER_AREA_RATIO:percent_label}} of its area, or a square, a rectangle or a plus sign."
-      - "Picture a sequence with several triangles: whether one is to be selected depends on the other triangles of its sequence, so the model must compare the frames, which come in random order."
+      - "{{constant:vision_training/data/synthetic/create_synthetic_dataset.py#TEXTURED_BACKGROUND_PROBABILITY:percent_label}} of the sequences have a textured background, like this one, and {{constant:vision_training/data/synthetic/create_synthetic_dataset.py#LOW_CONTRAST_PROBABILITY:percent_label}} of the others a shape color close to their flat background."
+      - "A shape may be cut by the frame border but keeps at least {{constant:vision_training/data/synthetic/create_synthetic_dataset.py#SHAPE_MINIMUM_VISIBLE_FRACTION:percent_label}} of its pixels, so that the largest copy still shows the most."
+      - "Picture a sequence with several stars, like this one: whether one is to be selected depends on the other stars of its sequence, so the model must compare the frames, which come in random order."
       - "Each training sequence holds one frame of each wanted class: {{frame_selection.dataset.circle_training_frames:,}} frames each, against {{frame_selection.dataset.unselected_training_frames:,}} unselected ones, {{frame_selection.dataset.unselected_share:percent}} of the {{frame_selection.dataset.training_frames:,}} frames."
 
   - kind: html

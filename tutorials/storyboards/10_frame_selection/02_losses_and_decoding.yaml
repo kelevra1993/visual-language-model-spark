@@ -1,7 +1,8 @@
 # Frame selection, chapter 2: the per-frame loss and the selection loss, the two softmaxes on the real logits of a test
 # sequence, the training curves against the losses of equal logits, the Hungarian assignment animated on the real
-# gains of the same sequence (a wrong triangle pick of iteration 1000), its code, and the greedy rule against it on the
-# example of documentation/reference/tasks_reference.md. The matrix scenes use the page
+# gains of the same sequence (a confident wrong pick of iteration 1000, MATRIX_SEQUENCE_NAME of the selection figures,
+# its class and column given by the matrix.wrong_* facts), its code, the greedy rule against it on the example of
+# documentation/reference/tasks_reference.md, and the two decodings compared on the run. The matrix scenes use the page
 # animations/10_frame_selection/frame_matrix.html, fed with the matrices written by tutorials/figures/frame_selection
 # (the checkpoint of iteration 1000 run on the CPU) and decoded by the code of the repository; coordinates are in
 # pixels of the content area (1760 x 740).
@@ -65,46 +66,44 @@ scenes:
       states:
         - sentence: 0
           values: probabilities
-          title: "test_000052 · iteration {{frame_selection.picks.iteration}} · softmax of every frame"
+          title: "{{frame_selection.matrix.sequence_name}} · iteration {{frame_selection.picks.iteration}} · softmax of every frame"
           show_true: true
-          bands: [{row: "{{frame_selection.matrix.true_triangle_frame}}", colour: yellow}]
+          bands: [{row: "{{frame_selection.matrix.wrong_true_frame}}", colour: yellow}]
           notes:
             - {text: "Per-frame softmax: every row sums to 1", font: diagram_bold}
             - {text: "the probabilities the decoding reads", colour: dim}
             - {text: "dashed: the true frames of the wanted classes", colour: dim}
         - sentence: 1
           values: selection
-          title: "test_000052 · iteration {{frame_selection.picks.iteration}} · softmax of every class column"
+          title: "{{frame_selection.matrix.sequence_name}} · iteration {{frame_selection.picks.iteration}} · softmax of every class column"
           hide_columns: [0]
           dim_columns: [0]
           show_true: true
-          bands: [{column: 2, colour: yellow}]
+          bands: [{column: "{{frame_selection.matrix.wrong_column}}", colour: yellow}]
           notes:
             - {text: "Selection softmax: every wanted class", font: diagram_bold}
             - {text: "column sums to 1 over the {{frame_selection.matrix.frame_count}} real frames", font: diagram_bold}
             - {text: "the unselected class takes no part", colour: dim}
         - sentence: 2
           values: selection
-          title: "test_000052 · iteration {{frame_selection.picks.iteration}} · softmax of every class column"
+          title: "{{frame_selection.matrix.sequence_name}} · iteration {{frame_selection.picks.iteration}} · softmax of every class column"
           hide_columns: [0]
           dim_columns: [0]
           show_true: true
-          bands: [{column: 2, colour: yellow}]
+          bands: [{column: "{{frame_selection.matrix.wrong_column}}", colour: yellow}]
           note_stagger: 0.6
           notes:
-            - {text: "triangle column:", font: diagram_bold}
-            - {text: "frame {{frame_selection.matrix.triangle_pick}} takes {{frame_selection.matrix.chosen_triangle_selection_share:.3f}}"}
-            - {text: "the true frame {{frame_selection.matrix.true_triangle_frame}} only {{frame_selection.matrix.true_triangle_selection_share:.3f}}"}
-            - {text: "selection loss of the class: −ln {{frame_selection.matrix.true_triangle_selection_share:.3f}} = {{frame_selection.matrix.true_triangle_selection_loss:.2f}}", colour: accent}
+            - {text: "{{frame_selection.matrix.wrong_class}} column:", font: diagram_bold}
+            - {text: "frame {{frame_selection.matrix.wrong_pick}} takes {{frame_selection.matrix.wrong_pick_selection_share:.3f}}"}
+            - {text: "the true frame {{frame_selection.matrix.wrong_true_frame}} only {{frame_selection.matrix.wrong_true_selection_share:.3f}}"}
+            - {text: "selection loss of the class: −ln {{frame_selection.matrix.wrong_true_selection_share:.3f}} = {{frame_selection.matrix.wrong_true_selection_loss:.2f}}", colour: accent}
     narration:
       - "On the real logits of test sequence {{frame_selection.matrix.sequence_number}} at iteration {{frame_selection.picks.iteration}}, the per-frame softmax normalizes every row over the {{frame_selection.dataset.class_count:words}} classes: the probabilities the decoding reads."
       - "The selection softmax normalizes every wanted class column over the {{frame_selection.matrix.frame_count:words}} frames of the sequence instead."
-      - "In the triangle column, frame {{frame_selection.matrix.triangle_pick}} takes {{frame_selection.matrix.chosen_triangle_selection_share:.2f}} of the mass and the true frame {{frame_selection.matrix.true_triangle_frame}} only {{frame_selection.matrix.true_triangle_selection_share:.2f}}: the selection loss pushes the true frame above every other frame of its sequence, the comparison the decoding makes."
+      - "In the {{frame_selection.matrix.wrong_class}} column, frame {{frame_selection.matrix.wrong_pick}} takes {{frame_selection.matrix.wrong_pick_selection_share:.2f}} of the mass and the true frame {{frame_selection.matrix.wrong_true_frame}} only {{frame_selection.matrix.wrong_true_selection_share:.2f}}: the selection loss pushes the true frame above every other frame of its sequence, the comparison the decoding makes."
 
   - kind: image
     title: "The training curves"
-    # "A few hundred iterations": the span over which both losses fall, not a value
-    literal_numbers: ["hundred"]
     image: "figures:frame_selection/training/training_curves_axes.png"
     overlay: "figures:frame_selection/training/training_curves.png"
     reveals:
@@ -112,13 +111,14 @@ scenes:
       - {region: "{{frame_selection.training.accuracy_reveal_region}}", sentence: 3}
     highlights:
       - {box: "{{frame_selection.training.loss_panel_box}}", sentences: [0, 1, 2]}
-      - {box: "{{frame_selection.training.accuracy_panel_box}}", sentences: [3]}
+      - {box: "{{frame_selection.training.accuracy_panel_box}}", sentences: [3, 4]}
     narration:
       - "Imagine a model giving the same logit to every frame: it scores the log of T on a sequence of T frames, {{frame_selection.dataset.mean_log_length:.2f}} on average over the training sequences."
       - "The first selection loss of the README run is {{frame_selection.training.train_selection_loss.first:.2f}}, close to that line, and its first per-frame loss {{frame_selection.training.train_classification_loss.first:.2f}}, near the log of {{frame_selection.dataset.class_count:words}}."
-      - "Both fall within a few hundred iterations, on a logarithmic axis: by iteration {{frame_selection.training.fact_iterations[2]}}, the smoothed selection loss is {{frame_selection.training.train_selection_loss.smoothed_at_1000:.2f}} and the per-frame loss {{frame_selection.training.train_classification_loss.smoothed_at_1000:.2f}}."
-      - "The frame accuracy starts at {{frame_selection.training.train_accuracy.first:percent}}, about the share of unselected frames, and reaches {{frame_selection.training.train_accuracy.last:percent}}."
-      - "The synthetic task is easy: it is solved long before the end of the run, which the third chapter turns into a pitfall."
+      - "On a logarithmic axis, both keep falling over the whole run: the smoothed selection loss is {{frame_selection.training.train_selection_loss.smoothed_at_1000:.2f}} at iteration {{frame_selection.training.fact_iterations[2]}} and {{frame_selection.training.train_selection_loss.smoothed_at_2000:.2f}} at iteration {{frame_selection.training.fact_iterations[3]}}, the per-frame loss {{frame_selection.training.train_classification_loss.smoothed_at_1000:.2f}} and {{frame_selection.training.train_classification_loss.smoothed_at_2000:.2f}}."
+      - "The frame accuracy of the first batch is {{frame_selection.training.train_accuracy.first:percent}}, far below the share of unselected frames, {{frame_selection.dataset.unselected_share:percent}}, the dashed line."
+      - "The smoothed curve is at {{frame_selection.training.train_accuracy.smoothed_at_100:percent}} by iteration {{frame_selection.training.fact_iterations[0]}}, and the last batch reaches {{frame_selection.training.train_accuracy.last:percent}}."
+      - "The test evaluations read in the third chapter give a Hungarian selection accuracy of {{frame_selection.evaluation.hungarian_selection_accuracy:percent}} at iteration {{frame_selection.evaluation.listed_iteration}}, and {{frame_selection.evaluation.iteration_2000.hungarian_selection_accuracy:percent}} at iteration {{frame_selection.evaluation.last_iteration}}."
 
   - kind: html
     page: 10_frame_selection/frame_matrix
@@ -132,14 +132,14 @@ scenes:
       states:
         - sentence: 0
           values: probabilities
-          title: "test_000052 · iteration {{frame_selection.picks.iteration}} · probabilities"
+          title: "{{frame_selection.matrix.sequence_name}} · iteration {{frame_selection.picks.iteration}} · probabilities"
           show_true: true
           notes:
             - {text: "Probabilities of every frame", font: diagram_bold}
             - {text: "dashed: the true frames", colour: dim}
         - sentence: 1
           values: gains
-          title: "test_000052 · iteration {{frame_selection.picks.iteration}} · gains"
+          title: "{{frame_selection.matrix.sequence_name}} · iteration {{frame_selection.picks.iteration}} · gains"
           hide_columns: [0]
           dim_columns: [0]
           show_true: true
@@ -148,7 +148,7 @@ scenes:
             - {text: "what frame f adds when taken from unselected", colour: dim}
         - sentence: 2
           values: gains
-          title: "test_000052 · iteration {{frame_selection.picks.iteration}} · gains"
+          title: "{{frame_selection.matrix.sequence_name}} · iteration {{frame_selection.picks.iteration}} · gains"
           hide_columns: [0]
           dim_columns: [0]
           show_true: true
@@ -158,7 +158,7 @@ scenes:
             - {text: "here {{frame_selection.run.frames_per_class}}: one frame per column", colour: dim}
         - sentence: 3
           values: gains
-          title: "test_000052 · iteration {{frame_selection.picks.iteration}} · gains"
+          title: "{{frame_selection.matrix.sequence_name}} · iteration {{frame_selection.picks.iteration}} · gains"
           hide_columns: [0]
           dim_columns: [0]
           show_true: true
@@ -171,35 +171,36 @@ scenes:
             - {text: "the largest total gain", colour: dim}
         - sentence: 4
           values: gains
-          title: "test_000052 · iteration {{frame_selection.picks.iteration}} · gains"
+          title: "{{frame_selection.matrix.sequence_name}} · iteration {{frame_selection.picks.iteration}} · gains"
           hide_columns: [0]
           dim_columns: [0]
           show_true: true
           picks: [hungarian]
-          bands: [{column: 2, colour: yellow}]
+          bands: [{column: "{{frame_selection.matrix.wrong_column}}", colour: yellow}]
           note_stagger: 0.7
           notes:
-            - {text: "circle ← frame {{frame_selection.matrix.circle_pick}}, star ← frame {{frame_selection.matrix.star_pick}}", font: diagram_bold}
-            - {text: "triangle ← frame {{frame_selection.matrix.triangle_pick}}, gain {{frame_selection.matrix.triangle_pick_gain:+.2f}}", colour: accent}
-            - {text: "true frame {{frame_selection.matrix.true_triangle_frame}}, gain {{frame_selection.matrix.true_triangle_gain:+.2f}}"}
+            - {text: "{{frame_selection.matrix.right_classes[0]}} ← frame {{frame_selection.matrix.right_picks[0]}}, {{frame_selection.matrix.right_classes[1]}} ← frame {{frame_selection.matrix.right_picks[1]}}", font: diagram_bold}
+            - {text: "{{frame_selection.matrix.wrong_class}} ← frame {{frame_selection.matrix.wrong_pick}}, gain {{frame_selection.matrix.wrong_pick_gain:+.2f}}", colour: accent}
+            - {text: "true frame {{frame_selection.matrix.wrong_true_frame}}, gain {{frame_selection.matrix.wrong_true_gain:+.2f}}"}
         - sentence: 5
           values: gains
-          title: "test_000052 · iteration {{frame_selection.picks.iteration}} · gains"
+          title: "{{frame_selection.matrix.sequence_name}} · iteration {{frame_selection.picks.iteration}} · gains"
           hide_columns: [0]
           dim_columns: [0]
           show_true: true
           picks: [hungarian]
-          bands: [{column: 2, colour: red}]
+          bands: [{column: "{{frame_selection.matrix.wrong_column}}", colour: red}]
           notes:
             - {text: "A wrong pick of iteration {{frame_selection.picks.iteration}}:", font: diagram_bold}
-            - {text: "{{frame_selection.decodings.iteration_1000_hungarian_wrong}} in {{frame_selection.decodings.iteration_1000_rows}} choices, all {{frame_selection.decodings.iteration_1000_hungarian_wrong}} triangles", colour: accent}
+            - {text: "{{frame_selection.decodings.iteration_1000_hungarian_wrong}} in {{frame_selection.decodings.iteration_1000_rows}} choices", colour: accent}
+            - {text: "{{frame_selection.decodings.iteration_1000_hungarian_wrong_triangle}} triangles, {{frame_selection.decodings.iteration_1000_hungarian_wrong_star}} stars, {{frame_selection.decodings.iteration_1000_hungarian_wrong_circle}} circles", colour: accent}
     narration:
       - "The decoding turns the probabilities of a sequence into the chosen frames: here test sequence {{frame_selection.matrix.sequence_number}} at iteration {{frame_selection.picks.iteration}}, its true frames dashed."
       - "The Hungarian decoding scores every frame for every wanted class by its gain, the log probability of the class minus the log probability of unselected: what the frame adds when it is taken from the unselected class."
       - "With more than one frame per class, every class column is repeated that many times, so that the assignment picks exactly that count."
       - "scipy's linear sum assignment then picks one frame per column, every frame at most once, with the largest total gain: the most probable labeling of the whole sequence in which every class holds its frames."
-      - "Here circle takes frame {{frame_selection.matrix.circle_pick}} and star frame {{frame_selection.matrix.star_pick}}; for triangle, frame {{frame_selection.matrix.triangle_pick}} at {{frame_selection.matrix.triangle_pick_gain:.2f}} beats the true frame {{frame_selection.matrix.true_triangle_frame}} at {{frame_selection.matrix.true_triangle_gain:.2f}}."
-      - "That is one of the {{frame_selection.decodings.iteration_1000_hungarian_wrong:words}} wrong picks of iteration {{frame_selection.picks.iteration}}, and all {{frame_selection.decodings.iteration_1000_hungarian_wrong:words}} are triangles."
+      - "Here {{frame_selection.matrix.right_classes[0]}} takes frame {{frame_selection.matrix.right_picks[0]}} and {{frame_selection.matrix.right_classes[1]}} frame {{frame_selection.matrix.right_picks[1]}}; for {{frame_selection.matrix.wrong_class}}, frame {{frame_selection.matrix.wrong_pick}} at {{frame_selection.matrix.wrong_pick_gain:.2f}} beats the true frame {{frame_selection.matrix.wrong_true_frame}} at {{frame_selection.matrix.wrong_true_gain:.2f}}."
+      - "That is one of the {{frame_selection.decodings.iteration_1000_hungarian_wrong:words}} wrong picks of iteration {{frame_selection.picks.iteration}}: {{frame_selection.decodings.iteration_1000_hungarian_wrong_triangle:words}} triangles, {{frame_selection.decodings.iteration_1000_hungarian_wrong_star:words}} stars and {{frame_selection.decodings.iteration_1000_hungarian_wrong_circle:words}} circles."
 
   - kind: code
     title: "The assignment in code"
@@ -295,11 +296,12 @@ scenes:
     elements:
       - {type: box, box: [40, 60, 1720, 200], text: "Hungarian: the most probable labelling of the whole sequence,\nnot the largest number of right frames", font: diagram_text, outline: violet, highlight: [0]}
       - {type: box, box: [40, 260, 1720, 420], text: "Workflow document, 20 test sequences, checkpoint of iteration 3:\ntriangle 3 true frames with greedy, 1 with Hungarian", font: diagram_text, outline: yellow, appear: 1, highlight: [1]}
-      - {type: box, box: [40, 480, 1720, 640], text: "README run, iteration {{frame_selection.picks.iteration}}: {{frame_selection.decodings.iteration_1000_differing}} of the {{frame_selection.decodings.iteration_1000_rows}} rows of selections.csv differ\nbetween the decodings, both wrong on the same {{frame_selection.decodings.iteration_1000_hungarian_wrong}}", font: diagram_text, outline: aqua, appear: 2, highlight: [2]}
+      - {type: box, box: [40, 480, 1720, 640], text: "README run, {{frame_selection.decodings.iteration_1000_rows}} rows of selections.csv: the decodings differ on {{frame_selection.decodings.iteration_1000_differing}} at iteration {{frame_selection.picks.iteration}}\n(wrong: Hungarian {{frame_selection.decodings.iteration_1000_hungarian_wrong}}, greedy {{frame_selection.decodings.iteration_1000_greedy_wrong}}), on {{frame_selection.decodings.iteration_2000_differing}} at iteration {{frame_selection.evaluation.last_iteration}} (wrong: {{frame_selection.decodings.iteration_2000_hungarian_wrong}} and {{frame_selection.decodings.iteration_2000_greedy_wrong}})", font: diagram_text, outline: aqua, appear: 2, highlight: [2, 3]}
     narration:
       - "So the Hungarian assignment maximizes the probability of the labeling, not the number of right frames."
       - "On the 20 test sequences of the workflow document, the checkpoint of iteration three finds three true triangle frames with greedy, and one with Hungarian."
-      - "With a trained model the two agree: on the {{frame_selection.decodings.iteration_1000_rows}} rows of the selections file of iteration {{frame_selection.picks.iteration}}, {{frame_selection.decodings.iteration_1000_differing}} differ, both decodings wrong on the same {{frame_selection.decodings.iteration_1000_hungarian_wrong}}."
+      - "On the {{frame_selection.decodings.iteration_1000_rows}} rows of the selections file of the README run, the two decodings differ on {{frame_selection.decodings.iteration_1000_differing:words}} at iteration {{frame_selection.picks.iteration}}: Hungarian is wrong on {{frame_selection.decodings.iteration_1000_hungarian_wrong}} and greedy on {{frame_selection.decodings.iteration_1000_greedy_wrong}}."
+      - "At iteration {{frame_selection.evaluation.last_iteration}}, they differ on {{frame_selection.decodings.iteration_2000_differing:words}}: Hungarian is wrong on {{frame_selection.decodings.iteration_2000_hungarian_wrong}} and greedy on {{frame_selection.decodings.iteration_2000_greedy_wrong}}."
 
   - kind: summary
     title: "Recap"

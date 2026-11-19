@@ -28,9 +28,10 @@ from tutorials.figures.sequence_labelling.sequence_utilities import (build_test_
 from tutorial_builder.layout import ACCENT_COLOUR, DIM_TEXT_COLOUR, NAMED_COLOURS, TEXT_COLOUR
 from vision_training.data.sequence.sequence_dataset import SequenceDataset
 
-# Test sequence drawn frame by frame: twelve frames, the largest circle, star and triangle among smaller copies and
-# other shapes
-STRIP_SEQUENCE_NAME = "test_000057"
+# Test sequence drawn frame by frame, chosen by its content (check it again after the data set is generated again):
+# twelve frames on a textured background, the largest triangle (frame 5, cut by the left border), star (8) and circle
+# (10) among smaller stars and circles, a rectangle and two plus signs
+STRIP_SEQUENCE_NAME = "test_000050"
 
 # Size of the thumbnails of the sequence strip and frames per row
 STRIP_FRAME_SIZE = 210
@@ -58,9 +59,17 @@ def draw_sequence_strip(dataset: SequenceDataset, output_path: Path) -> Dict[str
 
     Returns:
         Dict[str, Any]: The facts of the strip, named dataset.strip_*.
+
+    Raises:
+        ValueError: If the sequence does not fill two rows of STRIP_COLUMNS frames, the scene showing its first row
+            alone before the whole strip.
     """
     batch = collate_named_sequences(dataset=dataset, sequence_names=[STRIP_SEQUENCE_NAME])
     frame_labels = batch["labels"][0].tolist()
+    if not STRIP_COLUMNS < len(frame_labels) <= 2 * STRIP_COLUMNS:
+        raise ValueError(f"The strip sequence {STRIP_SEQUENCE_NAME} has {len(frame_labels)} frames, but the strip "
+                         f"expects {STRIP_COLUMNS + 1} to {2 * STRIP_COLUMNS} frames on two rows: choose another "
+                         f"STRIP_SEQUENCE_NAME.")
     fonts = load_thumbnail_fonts(caption_size=22)
     unselected_class_index = dataset.unselected_class_index
 

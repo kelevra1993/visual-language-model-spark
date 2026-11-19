@@ -202,13 +202,13 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 5464,
+      "snapshot_bytes": 20213,
       "snapshot_path": "readme_screenshots/SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1/training_configuration.yaml",
-      "snapshot_sha256": "e5a57381a6c7ae134c819b1f9aded676e00752f0ef095c22ce7bec15dbd02b72",
-      "source_bytes": 5464,
+      "snapshot_sha256": "e39753fe9471ce11d39c9555cd031c839eee86a2f431d59ae6171163c116e520",
+      "source_bytes": 20213,
       "source_kind": "run",
       "source_path": "readme_screenshots/SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1/training_configuration.yaml",
-      "source_sha256": "e5a57381a6c7ae134c819b1f9aded676e00752f0ef095c22ce7bec15dbd02b72"
+      "source_sha256": "e39753fe9471ce11d39c9555cd031c839eee86a2f431d59ae6171163c116e520"
     },
     {
       "options": {},
@@ -267,5 +267,5 @@
     }
   ],
   "series": "recipes",
-  "snapshot_bytes": 304253
+  "snapshot_bytes": 319002
 }
