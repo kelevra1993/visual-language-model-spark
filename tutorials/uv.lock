@@ -496,8 +496,8 @@ wheels = [
 
 [[package]]
 name = "tutorial-video-builder"
-version = "1.3.0"
-source = { git = "ssh://git@github.com/kelevra1993/tutorial-video-builder.git?tag=v1.3.0#8b69f00f7a7f20abfcbb2421baa30ede64be4ec9" }
+version = "1.3.1"
+source = { git = "ssh://git@github.com/kelevra1993/tutorial-video-builder.git?tag=v1.3.1#efdf0f04fbd0711daac79061880beaa4b8c4d4d7" }
 dependencies = [
     { name = "faster-whisper" },
     { name = "imageio-ffmpeg" },
@@ -526,4 +526,4 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "tutorial-video-builder", git = "ssh://git@github.com/kelevra1993/tutorial-video-builder.git?tag=v1.3.0" }]
+requires-dist = [{ name = "tutorial-video-builder", git = "ssh://git@github.com/kelevra1993/tutorial-video-builder.git?tag=v1.3.1" }]
