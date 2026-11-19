@@ -1,8 +1,9 @@
 # Sequence labelling, chapter 1: what the task is for and when to choose it, its synthetic data (frames redrawn at
-# every change), the labels and mapping files, the class balance and the position prior, the padded batches and the
-# data settings, and the commands of a run. Coordinates of the html scenes are in pixels of the content area (1760 x
-# 740, origin at its top left corner); the figures named figures:sequence_labelling/... are made by
-# tutorials/figures/sequence_labelling from the sequence labelling run of tutorials/tutorial_sources.yaml.
+# every change in the data set of the run, shapes kept and moved by the generator of the repository), the labels and
+# mapping files, the class balance and the position prior, the padded batches and the data settings, and the commands
+# of a run. Coordinates of the html scenes are in pixels of the content area (1760 x 740, origin at its top left
+# corner); the figures named figures:sequence_labelling/... are made by tutorials/figures/sequence_labelling from the
+# sequence labelling run of tutorials/tutorial_sources.yaml.
 series: sequence_labelling
 series_title: "Sequence Labelling (M2M)"
 chapter: 1
@@ -85,10 +86,11 @@ scenes:
     narration:
       - "The synthetic data set of the task, synthetic changing shapes, holds {{sequence_labelling.dataset.training_sequences:,}} training sequences of {{sequence_labelling.dataset.minimum_sequence_frames:words}} to {{sequence_labelling.dataset.maximum_sequence_frames}} frames of {{sequence_labelling.dataset.frame_size}} pixels, every frame showing {{constant:vision_training/data/synthetic/create_synthetic_dataset.py#LABELLING_MINIMUM_OBJECTS:words}} to {{sequence_labelling.generator.maximum_objects:words}} shapes of {{sequence_labelling.dataset.shape_class_count}} classes."
       - "From the second frame on, a shape of a random class appears, one of the shapes disappears, or nothing changes, with the same probability among the changes the number of shapes allows."
-      - "And every frame draws all its shapes again, with a new size, color, rotation and position: a change is told only by comparing the classes of the shapes with the previous frame."
+      - "In the data set of this run, generated in October, every frame draws all its shapes again, with a new size, color, rotation and position: a change is told only by comparing the classes of the shapes with the previous frame."
       - "Here, frame zero shows one star and frame one two of them: frame one is appearing star."
       - "Frame two shows a third star, and frame three still three stars but no rectangle: disappearing rectangle."
       - "That gives {{sequence_labelling.dataset.class_count}} classes: no change, always the label of the first frame, then appearing and disappearing for each of the {{sequence_labelling.dataset.shape_class_count}} shape classes."
+      - "The generator of the repository keeps the size, color and rotation of every shape instead and moves it from frame to frame, over a textured background in {{constant:vision_training/data/synthetic/create_synthetic_dataset.py#TEXTURED_BACKGROUND_PROBABILITY:percent_label}} of the sequences; the run of this series was not trained on such a data set."
 
   - kind: html
     page: diagram

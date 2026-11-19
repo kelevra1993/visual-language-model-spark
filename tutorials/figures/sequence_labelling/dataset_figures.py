@@ -11,7 +11,8 @@ main block (split sizes, shapes per frame, size and seed of the test subset) and
 repository are facts too, so that the narration quoting them follows the code. The shares of the class balance are
 written as the percentages of the reports of the repository ("46.82 %", ticks "20 %"), the facts keeping them between 0
 and 1. A build from the committed snapshots (tutorials/run_snapshots, without the training labels.json) reuses the
-committed class balance and listings.
+committed class balance and listings, and so does a build from the real run once its dataset folder was generated
+again after the training, its test sequences being read from the committed dataset files (reads_committed_dataset).
 """
 
 import json
@@ -29,14 +30,15 @@ from typing import Any, Dict, List
 from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, MONOSPACE_FONT_FAMILY,
                                                 POINTS_PER_PIXEL, SERIES_COLOURS, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR,
                                                 TEXT_SECONDARY_COLOUR, compute_pixel_box, format_thousands,
-                                                is_snapshot_folder, register_fonts, restore_committed_figures,
+                                                register_fonts, restore_committed_figures,
                                                 round_fact, save_figure, style_chart_panel, write_reused_facts)
 from tutorials.figures.sequence_labelling.sequence_utilities import (build_test_dataset, collate_named_sequences,
                                                                      convert_frame_to_image, describe_run_source,
                                                                      draw_captioned_frames, draw_figure_header,
                                                                      format_sequence_entry, load_thumbnail_fonts,
                                                                      read_main_block_settings, read_run_reused_facts,
-                                                                     read_run_sections, write_listing)
+                                                                     read_run_sections, reads_committed_dataset,
+                                                                     write_listing)
 from tutorial_builder.layout import ACCENT_COLOUR, CARD_COLOUR, DIM_TEXT_COLOUR, NAMED_COLOURS, TEXT_COLOUR
 from vision_training.configuration_processing.common_checks import SEQUENCE_TASKS
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
@@ -423,13 +425,16 @@ def make_dataset_figures(output_folder: Path, run_folder: Path, force: bool) -> 
     listings_folder = output_folder / "listings"
     reused_facts_path = dataset_folder / "class_balance_facts.json"
 
-    # A run read from the snapshots, without the training labels, takes the committed class balance and listings
-    if is_snapshot_folder(folder=run_folder):
+    # A run without its training labels (read from the snapshots, or whose dataset folder was generated again after
+    # the training) takes the committed class balance and listings
+    committed_mode = reads_committed_dataset(run_folder=run_folder)
+    if committed_mode:
         restore_committed_figures(output_folder=output_folder, family_folder="dataset")
         restore_committed_figures(output_folder=output_folder, family_folder="listings")
     reused_facts = read_run_reused_facts(facts_path=reused_facts_path, run_folder=run_folder,
                                          source_name=str(training_labels_path), source_paths=source_paths,
-                                         fact_prefix="dataset", force=force, required_fact_names=REQUIRED_BALANCE_FACTS,
+                                         fact_prefix="dataset", force=force, committed_mode=committed_mode,
+                                         required_fact_names=REQUIRED_BALANCE_FACTS,
                                          required_paths=[listings_folder / "labels_entry.txt",
                                                          listings_folder / "label_mapping.txt"])
     if reused_facts is not None:

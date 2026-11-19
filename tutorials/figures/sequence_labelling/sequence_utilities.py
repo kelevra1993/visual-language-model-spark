@@ -10,10 +10,15 @@ code of the repository as they are. The settings typed in the main block of a sc
 dataset generator, the split subset script) are read from its source, so that the narration quoting them follows the
 script, and the facts of the expensive figures are reused only when the previous build wrote every fact a series needs
 from the same run and the same unchanged files. A run read from the committed snapshots (tutorials/run_snapshots) reads
-its dataset files under datasets/ of the snapshot folder and reuses the committed facts of those figures as they are.
+its dataset files under datasets/ of the snapshot folder and reuses the committed facts of those figures as they are; a
+real run whose dataset folder was generated again after its training (labels.json files differing from the SHA-256
+its data.json recorded) reads those committed dataset files too (reads_committed_dataset), so that its figures show
+the sequences it was trained and evaluated on.
 """
 
 import ast
+import functools
+import hashlib
 import json
 import re
 
@@ -27,8 +32,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from tutorial_builder.layout import (CARD_COLOUR, DIM_TEXT_COLOUR, MONOSPACE_FONT_PATH, SANS_FONT_PATH,
                                      SANS_SEMIBOLD_FONT_PATH)
 from tutorial_builder.figure_context import find_repository_root, read_thread_count
-from tutorials.figures.figure_utilities import (compute_file_fingerprint, is_snapshot_folder, read_reused_facts,
-                                                remap_recorded_dataset_paths, resolve_dataset_path)
+from tutorials.figures.figure_utilities import (compute_file_fingerprint, find_snapshot_root, is_snapshot_folder,
+                                                read_reused_facts, remap_recorded_dataset_paths, resolve_dataset_path)
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.sequence.sequence_dataset import SequenceDataset, collate_padded_sequences
 from vision_training.evaluation.report_formatting import PERCENT_DECIMALS, PERCENT_SIGN
@@ -54,13 +59,90 @@ RATE_DECIMALS = PERCENT_DECIMALS + 2
 # run read from the snapshots
 DATASET_FOLDER_KEYS = ["train_data_folder", "validation_data_folder", "test_data_folder"]
 
+# Splits of data.json whose labels.json the figures read (the class balance reads the training split, the data and
+# evaluation figures the test split), with the folder key of the experiment section giving each one
+READ_SPLIT_FOLDER_KEYS = {"train": "train_data_folder", "test": "test_data_folder"}
+
+# Split whose labels.json the snapshots commit, checked against the run when the committed files replace a dataset
+# folder generated again (the training labels are left out of the snapshots)
+COMMITTED_SPLIT_NAME = "test"
+
+
+def compute_labels_digest(labels_path: Path) -> str:
+    """
+    Gives the SHA-256 of a labels.json file, the digest the trainers record for every split in the data.json of a run
+    (labels_sha256), so that the figures can tell whether a dataset folder still holds the labels the run read.
+
+    Args:
+        labels_path (Path): The labels.json file.
+
+    Returns:
+        str: Its SHA-256, in hexadecimal.
+    """
+    return hashlib.sha256(labels_path.read_bytes()).hexdigest()
+
+
+@functools.lru_cache(maxsize=None)
+def reads_committed_dataset(run_folder: Path) -> bool:
+    """
+    Tells whether the figures of a sequence run read the committed dataset files (datasets/ of tutorials/run_snapshots)
+    instead of its dataset folders: always for a run read from the snapshots, and for a real run whose training or
+    test labels.json differs from the SHA-256 its data.json recorded, its dataset folder having been generated again
+    after the training (the generator draws without a seed), so that the figures never show sequences the run was not
+    trained or evaluated on. Computed once per folder and build (the run and its Checkpoint_Evaluation folder).
+
+    Args:
+        run_folder (Path): The run folder, or its Checkpoint_Evaluation folder, holding training_configuration.yaml and
+            data.json.
+
+    Returns:
+        bool: Whether the committed dataset files replace the dataset folders of the run.
+
+    Raises:
+        ValueError: If the data.json of a real run records no digest of a split the figures read, or if the committed
+            test labels.json of a run whose dataset folder changed differs from the one the run recorded.
+    """
+    if is_snapshot_folder(folder=run_folder):
+        return True
+
+    # Digests the trainer recorded for the labels files the run read, against the labels files of its folders
+    experiment_configuration, _ = load_experiment_configuration(
+        configuration_path=run_folder / "training_configuration.yaml")
+    split_records = json.loads((run_folder / "data.json").read_text(encoding="utf-8"))["splits"]
+    missing_splits = [split_name for split_name in READ_SPLIT_FOLDER_KEYS
+                      if split_name not in split_records or "labels_sha256" not in split_records[split_name]]
+    if missing_splits:
+        raise ValueError(f"The data.json of {run_folder} records no labels_sha256 for the splits {missing_splits}.")
+    changed_splits = [split_name for split_name, folder_key in READ_SPLIT_FOLDER_KEYS.items()
+                      if compute_labels_digest(labels_path=Path(experiment_configuration[folder_key]) / "labels.json")
+                      != split_records[split_name]["labels_sha256"]]
+    if not changed_splits:
+        return False
+
+    # Dataset folder generated again after the training: its committed test labels must be those the run read
+    committed_folder = resolve_dataset_path(path=experiment_configuration[READ_SPLIT_FOLDER_KEYS[COMMITTED_SPLIT_NAME]],
+                                            snapshot_mode=True)
+    committed_labels_path = committed_folder / "labels.json"
+    recorded_digest = split_records[COMMITTED_SPLIT_NAME]["labels_sha256"]
+    if not committed_labels_path.is_file() or compute_labels_digest(labels_path=committed_labels_path) != \
+            recorded_digest:
+        raise ValueError(f"The {', '.join(changed_splits)} labels of the dataset folders of {run_folder} differ "
+                         f"from those its data.json recorded, and so does their committed copy "
+                         f"{committed_labels_path}: restore the dataset files of tutorials/run_snapshots/datasets from "
+                         f"git.")
+    print(f"The {', '.join(changed_splits)} labels of the dataset folders of {run_folder} differ from those its "
+          f"data.json recorded (a dataset generated again after the training): its figures read the committed dataset "
+          f"files of tutorials/run_snapshots instead.")
+    return True
+
 
 def read_run_sections(run_folder: Path) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
     Reads the saved training configuration of a sequence run with the loader of the trainers, which also builds its
     label dictionary from the mapping file, so that the figures read the data and the model exactly as the run did.
-    For a run read from the committed snapshots, its dataset folders and mapping file point at the committed dataset
-    files (resolve_dataset_path), so that the figures never read the datasets of the machine.
+    For a run read from the committed snapshots, or a real run whose dataset folder was generated again after its
+    training (reads_committed_dataset), its dataset folders and mapping file point at the committed dataset files
+    (resolve_dataset_path), so that the figures read the sequences of the run and never the datasets of the machine.
 
     Args:
         run_folder (Path): The run folder, holding training_configuration.yaml.
@@ -70,10 +152,10 @@ def read_run_sections(run_folder: Path) -> Tuple[Dict[str, Any], Dict[str, Any]]
     """
     experiment_configuration, model_configuration = load_experiment_configuration(
         configuration_path=run_folder / "training_configuration.yaml")
-    if not is_snapshot_folder(folder=run_folder):
+    if not reads_committed_dataset(run_folder=run_folder):
         return experiment_configuration, model_configuration
 
-    # Dataset paths of a run read from the snapshots replaced by their copies under datasets/ of the snapshot folder
+    # Dataset paths replaced by their copies under datasets/ of the snapshot folder
     for key in DATASET_FOLDER_KEYS:
         if key in experiment_configuration:
             experiment_configuration[key] = resolve_dataset_path(path=experiment_configuration[key], snapshot_mode=True)
@@ -471,16 +553,19 @@ def describe_run_source(run_folder: Path, source_name: str, source_paths: List[P
 
 
 def read_run_reused_facts(facts_path: Path, run_folder: Path, source_name: str, source_paths: List[Path],
-                          fact_prefix: str, force: bool, required_fact_names: Optional[List[str]] = None,
+                          fact_prefix: str, force: bool, committed_mode: bool,
+                          required_fact_names: Optional[List[str]] = None,
                           required_paths: Optional[List[Path]] = None) -> Optional[Dict[str, Any]]:
     """
     Reuses the facts of the expensive figures of a run (its predictions file, its model rebuilt on the CPU, the class
     balance of its training labels) like read_complete_reused_facts, but only when the previous build read the same
     run and the same unchanged files (describe_run_source), so that a cache made from another run of
     tutorial_sources.yaml, from another evaluation of it, or from files replaced since by a training or an evaluation
-    under the same name is made again instead of showing the figures of the old files. A run read from the committed
-    snapshots, whose files are absent or reduced, reuses the committed facts (restored from figure_reuse/ by the
-    caller) after checking only the run name, so that their sources and fingerprints stay those of the real files.
+    under the same name is made again instead of showing the figures of the old files. A run without the inputs of
+    the figures (read from the committed snapshots, whose files are absent or reduced, or a real run whose dataset
+    folder was generated again after its training, for the figures of its training labels) reuses the committed facts
+    (restored from figure_reuse/ by the caller) after checking only the run name, so that their sources and
+    fingerprints stay those of the real files.
 
     Args:
         facts_path (Path): The JSON file written next to the figures by write_reused_facts.
@@ -490,6 +575,8 @@ def read_run_reused_facts(facts_path: Path, run_folder: Path, source_name: str, 
         source_paths (List[Path]): The files whose fingerprint must not have changed, e.g. the predictions.csv read.
         fact_prefix (str): The prefix of the facts, e.g. "predictions".
         force (bool): Whether the figures are made again whatever is on disk.
+        committed_mode (bool): Whether the run lacks the inputs of the figures, which then come from the committed
+            facts (is_snapshot_folder, or reads_committed_dataset for the figures of the training labels).
         required_fact_names (Optional[List[str]]): Other facts the reused file must hold, None for none.
         required_paths (Optional[List[Path]]): Other files that must exist besides the listed figures, None for none.
 
@@ -497,21 +584,33 @@ def read_run_reused_facts(facts_path: Path, run_folder: Path, source_name: str, 
         Optional[Dict[str, Any]]: The reused facts, or None when the figures must be made again.
 
     Raises:
-        FileNotFoundError: If a run read from the snapshots has no complete committed facts.
-        ValueError: If the committed facts of a run read from the snapshots were made from another run.
+        FileNotFoundError: If a run without the inputs of the figures has no complete committed facts.
+        ValueError: If the committed facts were made from another run, or if a real run reading the committed files
+            finds other facts in the figures folder than the committed ones.
     """
-    # A run read from the snapshots cannot make these figures again: its committed facts are reused as they are
-    if is_snapshot_folder(folder=run_folder):
+    # A run without the inputs of these figures cannot make them again: its committed facts are reused as they are
+    if committed_mode:
         source_fact_names = [f"{fact_prefix}.{name}" for name in ["run_name", "source", "source_fingerprint"]]
         reused_facts = read_complete_reused_facts(facts_path=facts_path, required_paths=required_paths or [],
                                                   required_fact_names=source_fact_names + (required_fact_names or []),
                                                   force=False)
         if reused_facts is None:
-            raise FileNotFoundError(f"No complete committed facts {facts_path} for the run {run_folder} read from the "
-                                    f"snapshots: refresh the figure_reuse files with tutorials/make_run_snapshots.py.")
+            raise FileNotFoundError(f"No complete committed facts {facts_path} for the run {run_folder} read without "
+                                    f"its inputs: refresh the figure_reuse files with tutorials/make_run_snapshots.py.")
         if reused_facts[f"{fact_prefix}.run_name"] != run_folder.name:
             raise ValueError(f"The committed facts {facts_path} were made from the run "
                              f"{reused_facts[f'{fact_prefix}.run_name']}, not from {run_folder.name}.")
+
+        # A real run reading the committed files keeps a figures folder that may hold facts made from its dataset
+        # folder before it was found generated again: only the committed facts are taken
+        committed_facts_path = (find_snapshot_root() / "figure_reuse" / facts_path.parent.parent.name /
+                                facts_path.parent.name / facts_path.name)
+        if not is_snapshot_folder(folder=run_folder) and \
+                json.loads(committed_facts_path.read_text(encoding="utf-8")) != \
+                json.loads(facts_path.read_text(encoding="utf-8")):
+            raise ValueError(f"{facts_path} differs from the committed {committed_facts_path}, the facts of "
+                             f"{run_folder.name} being read from the committed files: build into an empty cache "
+                             f"folder or delete {facts_path.parent}.")
         return reused_facts
 
     current_source = describe_run_source(run_folder=run_folder, source_name=source_name, source_paths=source_paths,
