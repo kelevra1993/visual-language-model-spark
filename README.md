@@ -348,7 +348,7 @@ If each image shows one class (CLS, and SSL, whose categories only serve its k-N
   "categories": [                                                       // every category, with an integer identifier
     {"id": 1, "name": "circle"},
     {"id": 2, "name": "square"},
-    {"id": 3, "name": "triangle"}
+    {"id": 3, "name": "star"}
   ],
   "samples": [                                                          // one entry per image
     {"id": 1, "file_name": "image_0001.png", "category_id": 2},        // data/image_0001.png shows a square
@@ -362,7 +362,7 @@ Should an image hold several classes at once (`ClassificationHead.output_mode: "
 
 ```jsonc
   "samples": [
-    {"id": 1, "file_name": "image_0001.png", "category_ids": [1, 3]},   // a circle and a triangle
+    {"id": 1, "file_name": "image_0001.png", "category_ids": [1, 3]},   // a circle and a star
     {"id": 2, "file_name": "image_0002.png", "category_ids": [2]},      // a square only
     {"id": 3, "file_name": "image_0003.png", "category_ids": [1, 2, 3]}
   ]
@@ -372,7 +372,7 @@ For a segmentation (SEG), every image comes with its mask in `masks/`, a single-
 
 ```jsonc
 {
-  "categories": [{"id": 1, "name": "circle"}, {"id": 2, "name": "square"}, {"id": 3, "name": "triangle"}],
+  "categories": [{"id": 1, "name": "circle"}, {"id": 2, "name": "square"}, {"id": 3, "name": "star"}],
   "samples": [
     {"id": 1, "file_name": "image_0001.png", "mask_file_name": "image_0001.png",   // masks/image_0001.png
      "category_ids": [1, 3]},                                                     // optional, for the class counts
@@ -396,7 +396,8 @@ Whenever objects are located by boxes (DET), `labels.json` is a COCO file: the i
      "area": 8100, "iscrowd": 0},
     {"id": 3, "image_id": 2, "category_id": 3, "bbox": [10, 200, 150, 120], "area": 18000, "iscrowd": 0}
   ],
-  "categories": [{"id": 1, "name": "circle"}, {"id": 2, "name": "square"}, {"id": 3, "name": "triangle"}]
+  "categories": [{"id": 1, "name": "circle"}, {"id": 2, "name": "square"}, {"id": 3, "name": "star"},
+                 {"id": 5, "name": "triangle"}]                                // identifiers may have gaps
 }
 ```
 
@@ -404,7 +405,7 @@ In order to train masks (INS), every annotation also gives its `segmentation`, t
 
 ```jsonc
   "annotations": [
-    {"id": 1, "image_id": 1, "category_id": 3, "iscrowd": 0,
+    {"id": 1, "image_id": 1, "category_id": 5, "iscrowd": 0,             // a triangle
      "segmentation": [[120, 388, 152, 340, 184, 388]]},                  // polygons, flat [x1, y1, x2, y2, ...] in pixels
     {"id": 2, "image_id": 1, "category_id": 2, "iscrowd": 0,
      "segmentation": {"size": [512, 512], "counts": "f\\i01o?1O001..."}} // or a run length encoding, compressed or not
@@ -415,15 +416,15 @@ Suppose the objects have named points (KPT): every annotation lists its `keypoin
 
 ```jsonc
   "annotations": [
-    {"id": 1, "image_id": 1, "category_id": 1, "bbox": [65, 228, 206, 206], "iscrowd": 0, "num_keypoints": 4,
+    {"id": 1, "image_id": 1, "category_id": 2, "bbox": [65, 228, 206, 206], "iscrowd": 0, "num_keypoints": 4,
      "keypoints": [65, 228, 2, 271, 228, 2, 271, 434, 2, 65, 434, 1]},    // 4 corners, the last one hidden
-    {"id": 2, "image_id": 1, "category_id": 2, "bbox": [300, 40, 120, 100], "iscrowd": 0, "num_keypoints": 2,
+    {"id": 2, "image_id": 1, "category_id": 5, "bbox": [300, 40, 120, 100], "iscrowd": 0, "num_keypoints": 2,
      "keypoints": [360, 40, 2, 420, 140, 2, 0, 0, 0]}                      // its third keypoint not labelled
   ],
   "categories": [
-    {"id": 1, "name": "square", "keypoints": ["top_left", "top_right", "bottom_right", "bottom_left"],
+    {"id": 2, "name": "square", "keypoints": ["top_left", "top_right", "bottom_right", "bottom_left"],
      "skeleton": [[1, 2], [2, 3], [3, 4], [4, 1]]},                        // 1-based keypoint pairs
-    {"id": 2, "name": "triangle", "keypoints": ["top", "bottom_right", "bottom_left"],
+    {"id": 5, "name": "triangle", "keypoints": ["top", "bottom_right", "bottom_left"],
      "skeleton": [[1, 2], [2, 3], [3, 1]]}
   ]
 ```
@@ -461,12 +462,12 @@ So that the frame selection (SEL) knows which frames to choose, it reads the lay
 
 ```jsonc
 {
-  "categories": [{"id": 1, "name": "unselected"}, {"id": 2, "name": "circle"}, {"id": 3, "name": "star"}],
+  "categories": [{"id": 1, "name": "circle"}, {"id": 3, "name": "star"}, {"id": 6, "name": "unselected"}],
   "sequences": [
-    {"id": 1, "name": "sequence_0001", "frame_category_ids": [1, 3, 1, 2],  // frames_per_class 1: the star, then the circle
+    {"id": 1, "name": "sequence_0001", "frame_category_ids": [6, 3, 6, 1],  // frames_per_class 1: the star, then the circle
      "frames": ["sequence_0001/000000.png", "sequence_0001/000001.png", "sequence_0001/000002.png",
                 "sequence_0001/000003.png"]},
-    {"id": 2, "name": "sequence_0002", "frame_category_ids": [2, 3, 1],
+    {"id": 2, "name": "sequence_0002", "frame_category_ids": [1, 3, 6],
      "frames": ["sequence_0002/000000.png", "sequence_0002/000001.png", "sequence_0002/000002.png"]}
   ]
 }
