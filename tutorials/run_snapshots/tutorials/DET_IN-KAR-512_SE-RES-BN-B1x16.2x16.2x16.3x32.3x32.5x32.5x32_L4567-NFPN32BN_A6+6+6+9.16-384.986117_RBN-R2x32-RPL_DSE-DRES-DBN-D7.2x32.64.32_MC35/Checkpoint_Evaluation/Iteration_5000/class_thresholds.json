@@ -1,0 +1,133 @@
+{
+    "target_precision": 0.99,
+    "classes": {
+        "square": {
+            "threshold": 0.8822640180587769,
+            "recall": 0.7611749680715197
+        },
+        "circle": {
+            "threshold": 0.7636454105377197,
+            "recall": 0.7786163522012579
+        },
+        "triangle": {
+            "threshold": 0.9474146366119385,
+            "recall": 0.15326633165829145
+        },
+        "rectangle": {
+            "threshold": 0.9811975359916687,
+            "recall": 0.3360323886639676
+        },
+        "pentagon": {
+            "threshold": 0.7895106673240662,
+            "recall": 0.545816733067729
+        },
+        "hexagon": {
+            "threshold": 0.85997474193573,
+            "recall": 0.37361282367447596
+        },
+        "plus_sign": {
+            "threshold": 0.8367432355880737,
+            "recall": 0.8887515451174289
+        },
+        "star": {
+            "threshold": 0.7803105115890503,
+            "recall": 0.8859649122807017
+        },
+        "octagon": {
+            "threshold": 0.8090255260467529,
+            "recall": 0.06140350877192982
+        },
+        "rhombus": {
+            "threshold": 0.4278712868690491,
+            "recall": 0.008951406649616368
+        },
+        "parallelogram": {
+            "threshold": 0.9278770685195923,
+            "recall": 0.012804097311139564
+        },
+        "trapezoid": null,
+        "kite": null,
+        "heptagon": {
+            "threshold": 0.8880227208137512,
+            "recall": 0.15796019900497513
+        },
+        "nonagon": {
+            "threshold": 0.8002979159355164,
+            "recall": 0.3194805194805195
+        },
+        "ellipse": {
+            "threshold": 0.8809790015220642,
+            "recall": 0.012430939226519336
+        },
+        "semicircle": {
+            "threshold": 0.8316090703010559,
+            "recall": 0.15523932729624837
+        },
+        "annulus": {
+            "threshold": 0.7658165097236633,
+            "recall": 0.7931034482758621
+        },
+        "capsule": {
+            "threshold": 0.7200726866722107,
+            "recall": 0.04738760631834751
+        },
+        "l_shape": {
+            "threshold": 0.873864471912384,
+            "recall": 0.24399494310998734
+        },
+        "hollow_square": {
+            "threshold": 0.8990390300750732,
+            "recall": 0.6321989528795812
+        },
+        "hollow_triangle": {
+            "threshold": 0.8930749297142029,
+            "recall": 0.40559440559440557
+        },
+        "hollow_rectangle": {
+            "threshold": 0.942987322807312,
+            "recall": 0.55625
+        },
+        "hollow_pentagon": {
+            "threshold": 0.7725227475166321,
+            "recall": 0.7029077117572693
+        },
+        "hollow_hexagon": {
+            "threshold": 0.8430190086364746,
+            "recall": 0.3038309114927345
+        },
+        "hollow_octagon": {
+            "threshold": 0.7871351838111877,
+            "recall": 0.058823529411764705
+        },
+        "hollow_rhombus": null,
+        "hollow_parallelogram": {
+            "threshold": 0.9342082142829895,
+            "recall": 0.043256997455470736
+        },
+        "hollow_trapezoid": null,
+        "hollow_kite": {
+            "threshold": 0.5639435052871704,
+            "recall": 0.0013123359580052493
+        },
+        "hollow_heptagon": {
+            "threshold": 0.8557326793670654,
+            "recall": 0.08985879332477535
+        },
+        "hollow_nonagon": {
+            "threshold": 0.9037209153175354,
+            "recall": 0.033128834355828224
+        },
+        "hollow_ellipse": {
+            "threshold": 0.8482818007469177,
+            "recall": 0.040993788819875775
+        },
+        "hollow_semicircle": {
+            "threshold": 0.7959001660346985,
+            "recall": 0.2727272727272727
+        },
+        "hollow_capsule": {
+            "threshold": 0.6766273975372314,
+            "recall": 0.018300653594771243
+        }
+    }
+}

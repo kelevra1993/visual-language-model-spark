@@ -19,7 +19,7 @@ from matplotlib import pyplot
 from matplotlib.ticker import FuncFormatter, MultipleLocator
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from tutorials.figures.figure_utilities import (DOTS_PER_INCH, POINTS_PER_PIXEL, SERIES_COLOURS,
                                                 TEXT_SECONDARY_COLOUR, compute_pixel_box,
@@ -66,7 +66,7 @@ def draw_sample_iterations_figure(run_folder: Path, image_name: str, iterations:
 
     Args:
         run_folder (Path): The run folder.
-        image_name (str): The file name of the sample image, e.g. "test_014285.png".
+        image_name (str): The file name of the sample image, e.g. "test_000000.png".
         iterations (List[int]): The evaluated iterations, in increasing order.
         metric_tag (str): The headline scalar of the Test folder quoted under every panel, e.g. "mAP@0.5/area".
         metric_label (str): Its name written under the panels.
@@ -141,11 +141,12 @@ def smooth_values(values: numpy.ndarray, weight: float) -> numpy.ndarray:
 
 
 def draw_loss_curves_figure(run_folder: Path, panels: List[Tuple[str, List[Tuple[str, str]]]], output_path: Path,
-                            fact_prefix: str) -> Dict[str, Any]:
+                            fact_prefix: str, last_iteration: Optional[int] = None) -> Dict[str, Any]:
     """
     Draws the training losses of a run from its Train TensorBoard folder, one panel per group of losses, every loss
     as its raw values drawn faintly under its smoothed curve, its name and last smoothed value at the end of the curve,
-    and gives the first and last values of every loss and the boxes of the panels.
+    and gives the first and last values of every loss and the boxes of the panels. A run stopped after the evaluation
+    of a checkpoint logs a few iterations beyond it before its trainer ends; a last iteration cuts the curves there.
 
     Args:
         run_folder (Path): The run folder.
@@ -153,6 +154,8 @@ def draw_loss_curves_figure(run_folder: Path, panels: List[Tuple[str, List[Tuple
             and the short name of its fact.
         output_path (Path): The PNG file of the figure.
         fact_prefix (str): The prefix of the names of the facts.
+        last_iteration (Optional[int]): The last iteration drawn, the checkpoint the chapters stop at, or None for
+            every logged iteration.
 
     Returns:
         Dict[str, Any]: The facts of the figure: the first, last and last smoothed value of every loss, the number of
@@ -168,6 +171,8 @@ def draw_loss_curves_figure(run_folder: Path, panels: List[Tuple[str, List[Tuple
         maximum_value = 0.0
         for loss_index, (tag, short_name) in enumerate(losses):
             iterations, values = read_scalar_series(log_folder=run_folder / "Tensorboard" / "Train", tag=tag)
+            if last_iteration is not None:
+                iterations, values = iterations[iterations <= last_iteration], values[iterations <= last_iteration]
             smoothed_values = smooth_values(values=values, weight=SMOOTHING_WEIGHT)
             colour = SERIES_COLOURS[loss_index % len(SERIES_COLOURS)]
             axes.plot(iterations, values, color=colour, alpha=0.2, linewidth=1.0 * POINTS_PER_PIXEL)

@@ -202,13 +202,13 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 21814,
-      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/training_configuration.yaml",
-      "snapshot_sha256": "ab683283cc26ac24cfbb69f8c15b5a239a599d578119d2cfe63eb7aa91475af4",
-      "source_bytes": 21814,
+      "snapshot_bytes": 22551,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/training_configuration.yaml",
+      "snapshot_sha256": "3de7b0fd38bba85f5713ff0d14e3b0980c082545664debb2627aa8d7cee93223",
+      "source_bytes": 22551,
       "source_kind": "run",
-      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/training_configuration.yaml",
-      "source_sha256": "ab683283cc26ac24cfbb69f8c15b5a239a599d578119d2cfe63eb7aa91475af4"
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/training_configuration.yaml",
+      "source_sha256": "3de7b0fd38bba85f5713ff0d14e3b0980c082545664debb2627aa8d7cee93223"
     },
     {
       "options": {},
@@ -256,5 +256,5 @@
     }
   ],
   "series": "recipes",
-  "snapshot_bytes": 316544
+  "snapshot_bytes": 317281
 }

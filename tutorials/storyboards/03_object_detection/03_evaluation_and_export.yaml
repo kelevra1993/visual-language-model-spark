@@ -1,9 +1,9 @@
 # Object detection, chapter 3: the evaluation of a checkpoint (post-processing, sample images along the run, the
 # report tables of the mean average precision, the proposal recall, the moving average of the weights, the classes
 # and their thresholds, the confusion matrix), the export served by Triton with its input settings, and the
-# pitfalls of the task. Every number comes from the DET run of tutorial_sources.yaml (trained with the shipped
-# configuration), read by tutorials/figures/object_detection, but the joint selection of the pitfalls, measured on the
-# detection benchmark of chapter 1.
+# pitfalls of the task. Every number comes from the DET run of tutorial_sources.yaml (the shipped configuration with a
+# level 4 and a 384 pixel scale, stopped after its evaluation of 5000), read by tutorials/figures/object_detection, but
+# the joint selection of the pitfalls, measured on the detection benchmark of chapter 1.
 series: object_detection
 series_title: "Object Detection (DET)"
 chapter: 3
@@ -28,7 +28,7 @@ scenes:
     # The number of the chapter
     literal_numbers: ["3"]
     narration:
-      - "Every evaluated checkpoint of a detection run is scored on the whole test split, here {{object_detection.data.test_images:words}} images, with the trained weights and, when the moving average is on, with the averaged ones too."
+      - "Every evaluated checkpoint of a detection run is scored on the whole test folder of the run, here {{object_detection.data.test_images:,}} images, with the trained weights and, when the moving average is on, with the averaged ones too."
       - "This chapter reads that evaluation on the real run, then exports the detector and lists the pitfalls of the task."
 
   - kind: code
@@ -65,8 +65,8 @@ scenes:
       - {box: "{{object_detection.samples.panel_4_box}}", sentences: [2]}
     narration:
       - "The sample images show the same {{object_detection.run.number_sample_images:words}} test images at every evaluation: at iteration {{object_detection.samples.iterations[0]:words}}, the first one, the mAP at 0.5 is {{object_detection.samples.metrics[0]:percent}}, and not one detection of the whole test split reaches {{object_detection.run.score_threshold}}."
-      - "Imagine you stop at {{object_detection.samples.iterations[1]:words}}, half the run: only the square and the star are found here, with {{object_detection.samples.right_detections[1]:,}} right detections over the {{object_detection.data.test_objects:,}} test objects, at a mAP of {{object_detection.samples.metrics[1]:percent}}."
-      - "At {{object_detection.samples.iterations[2]:words}}, the end of the run, it finds {{object_detection.inference.found_object_count:words}} of the {{object_detection.inference.object_count:words}} shapes of this image, both nonagons still missed, at a mAP of {{object_detection.samples.metrics[2]:percent}}."
+      - "Imagine you stop at {{object_detection.samples.iterations[1]:words}}: only the {{object_detection.inference.samples.found_texts[1]}} are found here, with {{object_detection.samples.right_detections[1]:,}} right detections over the {{object_detection.data.test_objects:,}} test objects, at a mAP of {{object_detection.samples.metrics[1]:percent}}."
+      - "At {{object_detection.samples.iterations[2]:words}}, where the run was stopped, it finds {{object_detection.inference.found_object_count:words}} of the {{object_detection.inference.object_count:words}} shapes of this image, at a mAP of {{object_detection.samples.metrics[2]:percent}}: the {{object_detection.inference.missed_text}} is still missed, and the {{object_detection.inference.wrong_class_text}} is taken for a {{object_detection.inference.wrong_class_detected_text}}."
 
   - kind: html
     page: diagram
@@ -110,17 +110,15 @@ scenes:
     page: diagram
     title: "Proposal recall"
     code_reference: "vision_training/evaluation/detection/region_recall.py · accumulate_proposal_recall"
-    # The block numbers of the levels
-    literal_numbers: ["5", "6", "7"]
     elements:
       - {type: text, position: [40, 30], text: "proposal_recall.csv · objects overlapped by a proposal by {{constant:vision_training/evaluation/detection/region_recall.py#PROPOSAL_RECALL_THRESHOLDS[0]}}", font: diagram_bold}
       - {type: bars, box: [40, 110, 820, 400], orientation: horizontal, values: "{{object_detection.proposal_recall.recall_per_size}}", labels: ["small", "medium", "large", "all"], value_labels: "{{object_detection.proposal_recall.recall_per_size_labels}}", colours: [red, blue, blue, aqua], maximum: 1.0, label_width: 140, highlight: [0]}
       - {type: text, position: [940, 30], text: "proposals of one block alone", font: diagram_bold, appear: 1}
-      - {type: bars, box: [940, 110, 1720, 330], orientation: horizontal, values: "{{object_detection.proposal_recall.recall_per_block}}", labels: ["block 5", "block 6", "block 7"], value_labels: "{{object_detection.proposal_recall.recall_per_block_labels}}", colours: [blue, aqua, magenta], maximum: 1.0, label_width: 140, appear: 1, highlight: [1]}
+      - {type: bars, box: [940, 110, 1720, 400], orientation: horizontal, values: "{{object_detection.proposal_recall.recall_per_block}}", labels: "{{object_detection.proposal_recall.block_labels}}", value_labels: "{{object_detection.proposal_recall.recall_per_block_labels}}", colours: [violet, blue, aqua, magenta], maximum: 1.0, label_width: 140, appear: 1, highlight: [1]}
       - {type: text, position: [40, 470], text: "{{object_detection.inference.evaluation_filter.valid_count}} valid proposals per image at the inference settings of the filter,\nthe padding copies left out with the valid mask", font: diagram_small, colour: dim}
     narration:
       - "The proposal recall measures what the region proposal network hands the heads: {{object_detection.proposal_recall.all.recall_50:percent}} of the test objects have a proposal overlapping them by {{constant:vision_training/evaluation/detection/region_recall.py#PROPOSAL_RECALL_THRESHOLDS[0]}}, but only {{object_detection.proposal_recall.small.recall_50:percent}} of the small ones."
-      - "Each block alone reaches {{object_detection.proposal_recall.block_5.recall_50:percent}}, {{object_detection.proposal_recall.block_6.recall_50:percent}} and {{object_detection.proposal_recall.block_7.recall_50:percent}} of the objects: the levels overlap in what they cover."
+      - "Each block alone reaches {{object_detection.proposal_recall.block_4.recall_50:percent}}, {{object_detection.proposal_recall.block_5.recall_50:percent}}, {{object_detection.proposal_recall.block_6.recall_50:percent}} and {{object_detection.proposal_recall.block_7.recall_50:percent}} of the objects: the levels overlap in what they cover."
 
   - kind: image
     title: "Trained and averaged weights"
@@ -142,9 +140,9 @@ scenes:
     literal_numbers: ["0.5", "0.75"]
     image: "figures:object_detection/evaluation/class_average_precision.png"
     narration:
-      - "The classes spread widely: the {{object_detection.classes.worst_name}} reaches {{object_detection.classes.worst_ap_50:percent}} at 0.5, the {{object_detection.classes.best_name}} {{object_detection.classes.best_ap_50:percent}}, the orange marks giving the AP at 0.75."
-      - "On the right, the class thresholds file: the lowest score at which a class keeps a precision of {{object_detection.classes.target_precision:percent_label}}, with the recall left."
-      - "The square keeps {{object_detection.classes.square.recall:percent}} of its objects from a score of {{object_detection.classes.square.threshold:.2f}}; the {{object_detection.classes.without_threshold[0]}}, the {{object_detection.classes.without_threshold[1]}} and the {{object_detection.classes.without_threshold[2]}} never reach that precision."
+      - "The classes spread widely: the {{object_detection.classes.worst_name_text}} reaches {{object_detection.classes.worst_ap_50:percent}} at 0.5, the {{object_detection.classes.best_name_text}} {{object_detection.classes.best_ap_50:percent}}, the orange marks giving the AP at 0.75."
+      - "Next to the bars, the class thresholds file: the lowest score at which a class keeps a precision of {{object_detection.classes.target_precision:percent_label}}, with the recall left."
+      - "The {{object_detection.classes.most_recall.name_text}} keeps the most, {{object_detection.classes.most_recall.recall:percent}} of its objects from a score of {{object_detection.classes.most_recall.threshold:.2f}}; {{object_detection.classes.without_threshold_count:words}} classes never reach that precision: the {{object_detection.classes.without_threshold_text}}."
       - "With the per-class report, a Per Class Recall table adds the share of the objects of every class found at 0.5 and 0.75, whatever the score, with its exact {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:percent_label}} interval."
 
   - kind: image
@@ -154,11 +152,12 @@ scenes:
     highlights:
       - {box: "{{object_detection.confusion.background_row_box}}", sentences: [1]}
       - {box: "{{object_detection.confusion.background_column_box}}", sentences: [1]}
+      - {box: "{{object_detection.confusion.largest_cell_box}}", sentences: [3]}
     narration:
       - "The confusion matrix counts the detections at the deployment threshold of {{object_detection.run.score_threshold}}, matched at an overlap of {{constant:vision_training/evaluation/detection/detection_confusion.py#MATCHING_INTERSECTION_OVER_UNION_THRESHOLD}}: {{object_detection.confusion.right:,}} right, {{object_detection.confusion.wrong_class:,}} of the wrong class."
       - "The background row holds the {{object_detection.confusion.false_positives:,}} false positives, the background column the {{object_detection.confusion.missed:,}} missed objects."
-      - "Rhombuses and trapezoids are never right at {{object_detection.run.score_threshold}}, although the trapezoid reaches an AP of {{object_detection.classes.trapezoid.ap_50:percent}}: its detections score below the threshold."
-      - "The largest confusion puts {{object_detection.confusion.largest.count:,}} objects of the {{object_detection.confusion.largest.true_name}} class in the {{object_detection.confusion.largest.predicted_name}} column, shapes that differ by a single corner."
+      - "No detection of the {{object_detection.confusion.never_right_text}} classes is right at {{object_detection.run.score_threshold}}, although the {{object_detection.confusion.never_right_best.name_text}} reaches an AP of {{object_detection.confusion.never_right_best.ap_50:percent}}: its right detections all score below the threshold."
+      - "The largest confusion, outlined, puts {{object_detection.confusion.largest.count:,}} objects of the {{object_detection.confusion.largest.true_name_text}} class in the {{object_detection.confusion.largest.predicted_name_text}} column, against {{object_detection.confusion.largest.right_count:,}} found right."
 
   - kind: html
     page: diagram
@@ -207,13 +206,13 @@ scenes:
 
   - kind: text_panel
     title: "Pitfalls"
-    # The block number of the level, the overlaps of the metric name mAP from 0.5 to 0.95, and the residual pairs of
-    # two layers of ConvolutionBlock (residual_parity in convolution_block.py)
-    literal_numbers: ["0.5", "0.95", "5", two-layer, 2-layer]
+    # The overlaps of the metric name mAP from 0.5 to 0.95, and the residual pairs of two layers of ConvolutionBlock
+    # (residual_parity in convolution_block.py)
+    literal_numbers: ["0.5", "0.95", two-layer, 2-layer]
     columns:
       - heading: "Training"
         lines:
-          - "stride {{object_detection.inference.level_5.stride}} at best: few anchors for small boxes"
+          - "stride {{object_detection.inference.level_4.stride}} at best: {{object_detection.anchor_recall.small.recall_all_levels:percent}} of small boxes anchored"
           - "anchors on the cell corners"
           - "joint selection: copies fill the slots"
       - heading: "Evaluation and tools"
@@ -222,7 +221,7 @@ scenes:
           - "2-layer heads changing channels: no shortcut"
           - "eager forward: padding copies not masked"
     narration:
-      - "To close, the pitfalls: the small objects get few anchors at a stride of {{object_detection.inference.level_5.stride}}, centered on the cell corners; and the joint selection of older configurations fills only {{object_detection.proposal_selection.joint_proposals_per_image:.0f}} of the {{object_detection.proposal_selection.inference_post_nms}} slots of the benchmark with real proposals, the rest with copies."
+      - "To close, the pitfalls: even at the finest stride, {{object_detection.inference.level_4.stride}} pixels, only {{object_detection.anchor_recall.small.recall_all_levels:percent}} of the small objects get an anchor reaching the foreground threshold, and the anchors sit on the cell corners; and the joint selection of older configurations fills only {{object_detection.proposal_selection.joint_proposals_per_image:.0f}} of the {{object_detection.proposal_selection.inference_post_nms}} slots of the benchmark with real proposals, the rest with copies."
       - "The mAP from 0.5 to 0.95 is not the COCO one; and a two-layer head whose first convolution changes the channel count adds no shortcut."
 
   - kind: summary

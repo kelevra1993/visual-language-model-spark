@@ -1,7 +1,7 @@
-# Tutorial object_detection run (tutorial_sources.yaml): object_detection/configuration_synthetic_shapes.yaml as
-# shipped, in ~/Data/tutorial_runs (outside the repository); python -m vision_training.main --configuration_path=<file>.
-# Synthetic shapes dataset (create_synthetic_dataset.py "instance_segmentation", boxes of the visible parts), 64 pixels
-# to a third of the side; 20 classes (square to L-shape), made before the 15 hollow SHAPE_CATEGORIES were added.
+# Tutorial object_detection run (tutorial_sources.yaml): object_detection/configuration_synthetic_shapes.yaml with a
+# level 4 and a 384 pixel scale on level 7, tested on test_5000 every 1000 of 8000 iterations, in ~/Data/tutorial_runs.
+# Synthetic shapes dataset (create_synthetic_dataset.py "instance_segmentation", boxes of the visible parts), 5 to 6
+# shapes per image, 16 pixels to 80% of the side, mostly hidden ones unlabelled; the 35 SHAPE_CATEGORIES classes.
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "object_detection": two-stage detector; needs RegionProposal,
   # DetectionLevels and Detector. Labels: COCO annotations with a 'bbox' per object.
@@ -17,17 +17,17 @@ ExperimentConfiguration:
   # Validation images and labels.json annotations.
   validation_data_folder: "/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/validation"
   # Test images and labels.json annotations.
-  test_data_folder: "/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/test"
+  test_data_folder: "/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/test_5000"
   # Images per forward/backward pass.
   batch_size: 64
   # Metric logging interval, in iterations.
   information_dump: 1000
   # Checkpoint and test evaluation interval, in iterations.
-  weight_saving_iterations: 250
+  weight_saving_iterations: 1000
   # Interval (iterations) of extra checkpoints without test evaluation, below weight_saving_iterations, 0 for none.
-  intermediate_weight_saving_iterations: 125
+  intermediate_weight_saving_iterations: 500
   # Total training iterations.
-  number_iterations: 2000
+  number_iterations: 8000
   # Validation interval in iterations: 0 never, 1 every iteration, N every Nth.
   validation_iteration_ratio: 0
   # Test evaluation at every weight_saving_iterations checkpoint: mean average precision (mAP) on the whole test split.
@@ -258,22 +258,26 @@ Backbone:
 # Detection levels, finest to coarsest: each key is the quoted number of a Backbone.convolutions block (from "1") whose
 # map feeds the anchors and heads of the level; shared settings in RegionProposal and Detector.
 DetectionLevels:
-  "5":
+  "4":
     # Anchors per position, one per scale (square side, input pixels) and aspect ratio (height / width, same area);
     # scales x aspect_ratios gives the region proposal head outputs.
-    anchors: { scales: [32, 64], aspect_ratios: [0.5, 1.0, 2.0] }
+    anchors: { scales: [16, 32], aspect_ratios: [0.5, 1.0, 2.0] }
     # Region proposal head: [number_layers, output_channels] of its convolutions, before its objectness and box
     # regression layers.
     region_proposal: { convolutions: [2, 32] }
     # Detection head: RoIAlign grid side per proposal, [number_layers, output_channels] of its convolutions (multiples
     # of 8 with Detector.modules.inception), then fully connected sizes before the classifier and box regressor.
     detector: { roi_align_pool_size: 7, convolutions: [2, 32], fully_connected: [64, 32] }
+  "5":
+    anchors: { scales: [32, 64], aspect_ratios: [0.5, 1.0, 2.0] }
+    region_proposal: { convolutions: [2, 32] }
+    detector: { roi_align_pool_size: 7, convolutions: [2, 32], fully_connected: [64, 32] }
   "6":
     anchors: { scales: [64, 128], aspect_ratios: [0.5, 1.0, 2.0] }
     region_proposal: { convolutions: [2, 32] }
     detector: { roi_align_pool_size: 7, convolutions: [2, 32], fully_connected: [64, 32] }
   "7":
-    anchors: { scales: [128, 256], aspect_ratios: [0.5, 1.0, 2.0] }
+    anchors: { scales: [128, 256, 384], aspect_ratios: [0.5, 1.0, 2.0] }
     region_proposal: { convolutions: [2, 32] }
     detector: { roi_align_pool_size: 7, convolutions: [2, 32], fully_connected: [64, 32] }
 
