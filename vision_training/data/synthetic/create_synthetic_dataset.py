@@ -3429,12 +3429,13 @@ if __name__ == "__main__":
     # labelling the k-nearest neighbour evaluation of the test split. The 512000 training images of the multi-label
     # classification are seen 5 times by the 10000 iterations of 256 images of its configuration
     # (classification/configuration_synthetic_counted_shapes.yaml). The 512000 training images of the object
-    # detection are those of the detection benchmark
+    # detection are those of the detection benchmark. The 50000 training images of the semantic segmentation, for 35
+    # classes, are seen about 5 times by the 8000 iterations of 32 images of its tutorial run
     split_sizes = {"object_detection": {"train": 512000, "validation": 50000, "test": 50000},
                    "instance_segmentation": {"train": 128000, "validation": 20000, "test": 20000},
                    "keypoint_detection": {"train": 250000, "validation": 50000, "test": 50000},
                    "classification": {"train": 500000, "validation": 50000, "test": 50000},
-                   "semantic_segmentation": {"train": 2000, "validation": 200, "test": 200},
+                   "semantic_segmentation": {"train": 50000, "validation": 200, "test": 200},
                    "sequence_classification": {"train": 2000, "validation": 200, "test": 200},
                    "sequence_labelling": {"train": 250000, "validation": 50000, "test": 50000},
                    "sequence_comparison": {"train": 2000, "validation": 200, "test": 200},
