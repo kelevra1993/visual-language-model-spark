@@ -32,13 +32,13 @@
         "other_images": "drop"
       },
       "reduction": "manifest_subset",
-      "snapshot_bytes": 8817,
+      "snapshot_bytes": 8695,
       "snapshot_path": "datasets/keypoint_data/synthetic_shapes/test/labels.json",
-      "snapshot_sha256": "618f0f6df388142c9ab7586b5a14cd33cd2c8c1da55d706726015170046368fa",
-      "source_bytes": 48588277,
+      "snapshot_sha256": "5ae200494f3b60a64dbe7b19f7839fbd2085a66b24f358f5c0ada6d9ea91b9e9",
+      "source_bytes": 43610642,
       "source_kind": "dataset",
       "source_path": "keypoint_data/synthetic_shapes/test/labels.json",
-      "source_sha256": "50ad24f2404011476ebd3825f6abf8f2aa85ba465fca4460d95fd7bf4097c013"
+      "source_sha256": "3335fe55769540209079ab91fedab64c511a5d9c1568c9c606647ec691518f34"
     },
     {
       "options": {},
