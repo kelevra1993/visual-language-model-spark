@@ -1,23 +1,27 @@
 """
 Training and evaluation figures of the sequence classification tutorials (chapters 1 and 3), made by
-tutorials/figures/sequence_classification/figures.py from the three README runs of the task: the current flatten run
-at 128 pixels, the average pooling run at 512 pixels and the flatten run at 512 pixels. It draws the launch information
-and the first console summary of the flatten run, whose metric lines are written again with their logged values by
-the console formatter of the current code (the run printed its accuracies between 0 and 1, in narrower columns), the
-training loss of the three runs (an empty-axes base and its overlay, uncovered one panel at a time), the confusion
-matrices and ROC curves of the flatten and average runs side by side, the probability of the true class of every test
-sequence from their predictions files, and one sample sequence of both runs; its facts are the metrics of every
-evaluation, the throughputs and losses of the logs and the predictions the narration quotes. The evaluations of the
-flatten run at 128 pixels and the average run are read from their Checkpoint_Evaluation folder, where
-scripts/evaluation/evaluate_checkpoint.py evaluated their checkpoints again with the current code, so that the report,
-the images and the metrics show what the current evaluation writes.
+tutorials/figures/sequence_classification/figures.py from the three tutorial runs of the task: the flatten run at 256
+pixels of the synthetic configuration, the average pooling run at 512 pixels and the flatten run at 512 pixels. It
+draws the launch information and the first console summary of the flatten run at 256 pixels, its metric lines written
+by the console formatter of the current code, the training loss of the three runs (an empty-axes base and its overlay,
+uncovered one panel at a time), the confusion matrices and ROC curves of the flatten and average runs side by side, the
+probability of the true class of every test sequence from their predictions files, the accuracy of the flatten run on
+the test sequences of every number of frames, and one sample sequence of both runs; its facts are the metrics of every
+evaluation, the throughputs and losses of the logs and the predictions the narration quotes, and the properties the
+narration states of them (the single class the average run predicts, a sample right with flatten and wrong with
+average pooling) are checked. The evaluations of the flatten run at 256 pixels and of the average run are read from
+their Checkpoint_Evaluation folder, where their checkpoints were evaluated again after the training, those of the
+flatten run at 512 pixels from the evaluations of its training.
 """
 
+import csv
+import json
 import math
 import re
 
 import numpy
 
+from collections import defaultdict
 from matplotlib import pyplot
 from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter
@@ -27,18 +31,22 @@ from typing import Any, Dict, List
 from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, POINTS_PER_PIXEL,
                                                 REVEAL_MARGIN, SERIES_COLOURS, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR,
                                                 TEXT_SECONDARY_COLOUR, build_console_metric_tracker,
-                                                compute_pixel_box, format_thousands, reformat_console_summary,
-                                                register_fonts, round_fact, save_figure, style_chart_panel)
+                                                compute_pixel_box, format_thousands, read_run_configuration,
+                                                reformat_console_summary, register_fonts, round_fact, save_figure,
+                                                style_chart_panel)
 from tutorials.figures.foundations.training_curves import smooth_values
-from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
-from vision_training.evaluation.classification.classification_metrics import TOP_K_ACCURACY_CLASSES
-from tutorials.figures.sequence_classification.sequence_figure_utilities import (compose_image_grid,
+from tutorials.figures.sequence_classification.model_figures import AVERAGE_RUN_NAME, MAIN_RUN_NAME
+from tutorials.figures.sequence_classification.sequence_figure_utilities import (add_probability_axis,
+                                                                                 compose_image_grid,
                                                                                  draw_console_figure,
                                                                                  extract_interval_block,
                                                                                  extract_launch_block,
                                                                                  read_interval_summaries,
                                                                                  read_predictions, read_scalar_curve,
                                                                                  write_text_lines)
+from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
+from vision_training.evaluation.classification.classification_metrics import TOP_K_ACCURACY_CLASSES
+from vision_training.evaluation.report_formatting import format_percentage, format_percentage_tick
 from vision_training.trainers.sequence_classification_trainer import SequenceClassificationTrainer
 
 # Smoothing of the training curves, the exponential moving average of TensorBoard
@@ -50,11 +58,15 @@ TEST_SCALARS = {"Accuracy": "accuracy", "Balanced Accuracy": "balanced_accuracy"
                 f"Top-{TOP_K_ACCURACY_CLASSES} Accuracy": f"top_{TOP_K_ACCURACY_CLASSES}_accuracy",
                 "Macro ROC AUC": "macro_roc_auc", "Macro Average Precision": "macro_average_precision"}
 
-# Runs whose evaluations the scenes show, evaluated again into their Checkpoint_Evaluation folder
-EVALUATED_RUNS = ["flatten_128", "average_512"]
+# Runs whose evaluations the scenes show, evaluated again into their Checkpoint_Evaluation folder, and the flatten run
+# at 512 pixels, whose evaluations of its training give its accuracy
+EVALUATED_RUNS = [MAIN_RUN_NAME, AVERAGE_RUN_NAME]
+FLATTEN_512_RUN_NAME = "flatten_512"
 
-# Sample sequence compared between the runs, one of the 8 fixed test sequences of both
-SAMPLE_SEQUENCE = "test_000000"
+# Sample sequence compared between the runs, one of the 8 fixed test sequences of both, which the sample scene says
+# the flatten run gets right and the average run wrong, and the fewest frames it shows so that its movement is seen
+SAMPLE_SEQUENCE = "test_000004"
+SAMPLE_MINIMUM_FRAMES = 6
 
 # Bins of the histograms of the probability of the true class
 PROBABILITY_BINS = numpy.linspace(start=0.0, stop=1.0, num=41)
@@ -66,17 +78,17 @@ CONFIDENT_PROBABILITY = 0.9
 EVALUATION_FOLDER_PATTERN = re.compile(pattern=r"^Iteration_(\d+)$")
 
 
-def find_first_evaluated_iteration(run_folder: Path) -> int:
+def find_evaluated_iterations(run_folder: Path) -> List[int]:
     """
-    Finds the first evaluated checkpoint of a run, the earliest Checkpoint_Evaluation/Iteration_<n> folder, whose
-    wrong predictions the report scene quotes, so that the facts follow the evaluations of the run rather than a typed
-    iteration.
+    Finds the evaluated checkpoints of a run, its Checkpoint_Evaluation/Iteration_<n> folders, whose reports and
+    predictions the report scenes quote, so that the facts follow the evaluations of the run rather than typed
+    iterations.
 
     Args:
         run_folder (Path): The run folder.
 
     Returns:
-        int: The iteration of the first evaluation.
+        List[int]: The evaluated iterations, in order.
 
     Raises:
         FileNotFoundError: If the run holds no evaluation folder.
@@ -86,40 +98,67 @@ def find_first_evaluated_iteration(run_folder: Path) -> int:
                   if (match := EVALUATION_FOLDER_PATTERN.match(folder.name)) is not None and folder.is_dir()]
     if not iterations:
         raise FileNotFoundError(f"No Iteration_<n> folder in {evaluation_root}.")
-    return min(iterations)
+    return sorted(iterations)
 
 
-def read_test_metrics(run_folder: Path, run_name: str) -> Dict[str, Any]:
+def read_test_metrics(evaluation_root: Path, run_name: str, scalar_names: List[str]) -> Dict[str, Any]:
     """
-    Reads the headline metrics of every evaluated checkpoint of a run from the TensorBoard logs of its
-    Checkpoint_Evaluation folder, as facts named evaluation.<run name>.<metric>.iteration_<n>.
+    Reads headline metrics of every evaluated checkpoint of a run from the Test TensorBoard logs of its
+    Checkpoint_Evaluation folder (or of the run folder, for the evaluations of its training), as facts named
+    evaluation.<run name>.<metric>.iteration_<n>.
 
     Args:
-        run_folder (Path): The run folder.
-        run_name (str): The short name of the run in the facts, e.g. "flatten_128".
+        evaluation_root (Path): The folder holding the Tensorboard/Test logs.
+        run_name (str): The short name of the run in the facts, e.g. "flatten_256".
+        scalar_names (List[str]): The scalars read, keys of TEST_SCALARS.
 
     Returns:
         Dict[str, Any]: The facts.
     """
     facts = {}
-    for scalar_name, fact_name in TEST_SCALARS.items():
-        iterations, values = read_scalar_curve(run_folder=run_folder / CHECKPOINT_EVALUATION_FOLDER_NAME, split="Test",
-                                               tag=scalar_name)
+    for scalar_name in scalar_names:
+        fact_name = TEST_SCALARS[scalar_name]
+        iterations, values = read_scalar_curve(run_folder=evaluation_root, split="Test", tag=scalar_name)
         for iteration, value in zip(iterations, values):
             facts[f"evaluation.{run_name}.{fact_name}.iteration_{int(iteration)}"] = round_fact(value=value)
     return facts
 
 
-def draw_loss_figure(output_folder: Path, curves: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+def read_class_recalls(run_folder: Path, iteration: int) -> List[Dict[str, Any]]:
     """
-    Draws the training total loss of the three runs on two panels, the flatten run at 128 pixels on the left and the
+    Reads the recall of every class of an evaluated checkpoint from its class_metrics.csv, in class order, for the
+    class the Per Class Recall table writes first.
+
+    Args:
+        run_folder (Path): The run folder.
+        iteration (int): The evaluated iteration.
+
+    Returns:
+        List[Dict[str, Any]]: The 'class', 'samples' and 'recall' of every class.
+
+    Raises:
+        FileNotFoundError: If the file is missing.
+    """
+    metrics_path = run_folder / CHECKPOINT_EVALUATION_FOLDER_NAME / f"Iteration_{iteration}" / "class_metrics.csv"
+    if not metrics_path.exists():
+        raise FileNotFoundError(f"No class metrics file {metrics_path}.")
+    with open(file=metrics_path, mode="r", newline="", encoding="utf-8") as metrics_file:
+        return [{"class": row["class"], "samples": int(row["samples"]), "recall": float(row["recall"])}
+                for row in csv.DictReader(metrics_file)]
+
+
+def draw_loss_figure(output_folder: Path, curves: Dict[str, Dict[str, Any]], number_classes: int) -> Dict[str, Any]:
+    """
+    Draws the training total loss of the three runs on two panels, the flatten run at 256 pixels on the left and the
     two runs at 512 pixels on the right, every curve smoothed like TensorBoard over its faint raw values, with the line
-    of ln 4, the loss of a uniform guess over the four classes. The empty axes are written as the base image and the
-    whole chart as its overlay; gives the boxes of the panels and their reveal regions.
+    of the natural log of the number of classes, the loss of a uniform guess. The empty axes are written as the base
+    image and the whole chart as its overlay; gives the boxes of the panels and their reveal regions.
 
     Args:
         output_folder (Path): The figures folder of the series.
-        curves (Dict[str, Dict[str, Any]]): For every run name, its 'label', 'colour', 'iterations' and 'values'.
+        curves (Dict[str, Dict[str, Any]]): For every run name, its 'label', 'pooling', 'image_size', 'colour',
+            'iterations' and 'values'.
+        number_classes (int): The classes of the runs, whose uniform guess the dashed line marks.
 
     Returns:
         Dict[str, Any]: The boxes, named training.*.
@@ -129,9 +168,17 @@ def draw_loss_figure(output_folder: Path, curves: Dict[str, Dict[str, Any]]) -> 
                                                                 CHART_HEIGHT / DOTS_PER_INCH), dpi=DOTS_PER_INCH)
     figure.patch.set_facecolor(SURFACE_COLOUR)
     figure.subplots_adjust(left=0.06, right=0.985, top=0.80, bottom=0.12, wspace=0.14)
-    panel_runs = [["flatten_128"], ["average_512", "flatten_512"]]
-    panel_titles = ["Flatten pooling, 128 pixels", "512 pixels: average and flatten pooling"]
-    chance_loss = math.log(4)
+    panel_runs = [[MAIN_RUN_NAME], [AVERAGE_RUN_NAME, FLATTEN_512_RUN_NAME]]
+    main_curve, average_curve, flatten_curve = (curves[run_name] for run_name in
+                                                [MAIN_RUN_NAME, AVERAGE_RUN_NAME, FLATTEN_512_RUN_NAME])
+    panel_titles = [f"{main_curve['pooling'].capitalize()} pooling, {main_curve['image_size']} pixels",
+                    f"{average_curve['image_size']} pixels: {average_curve['pooling']} and "
+                    f"{flatten_curve['pooling']} pooling"]
+    if average_curve["image_size"] != flatten_curve["image_size"]:
+        raise ValueError("The right panel of the loss figure holds two runs of one frame size, but the average and "
+                         "flatten runs it draws have different ones.")
+    chance_loss = math.log(number_classes)
+    loss_top = max(1.6, math.ceil(max(float(numpy.max(curve["values"])) for curve in curves.values()) * 10) / 10)
 
     # Panels with the chance line, the legend and the axes, saved empty as the base image of the scene
     for axes, run_names, title in zip(panels, panel_runs, panel_titles):
@@ -139,16 +186,16 @@ def draw_loss_figure(output_folder: Path, curves: Dict[str, Dict[str, Any]]) -> 
                           if axes is panels[0] else None)
         last_iteration = max(int(curves[run_name]["iterations"][-1]) for run_name in run_names)
         axes.set_xlim(left=0, right=last_iteration)
-        axes.set_ylim(bottom=0.0, top=1.6)
+        axes.set_ylim(bottom=0.0, top=loss_top)
         axes.xaxis.set_major_formatter(formatter=FuncFormatter(func=format_thousands))
         axes.axhline(y=chance_loss, color=TEXT_SECONDARY_COLOUR, linewidth=1.5 * POINTS_PER_PIXEL, linestyle="--")
-        axes.annotate(text="ln 4 = 1.386, a uniform guess", xy=(last_iteration, chance_loss), xytext=(-8, 10),
-                      textcoords="offset points", ha="right", va="bottom", color=TEXT_SECONDARY_COLOUR,
-                      fontsize=17 * POINTS_PER_PIXEL)
+        axes.annotate(text=f"ln {number_classes} = {chance_loss:.3f}, a uniform guess",
+                      xy=(last_iteration, chance_loss), xytext=(-8, 10), textcoords="offset points", ha="right",
+                      va="bottom", color=TEXT_SECONDARY_COLOUR, fontsize=17 * POINTS_PER_PIXEL)
+    run_order = [MAIN_RUN_NAME, AVERAGE_RUN_NAME, FLATTEN_512_RUN_NAME]
     legend_handles = [Line2D(xdata=[0], ydata=[0], color=curves[run_name]["colour"], linewidth=3 * POINTS_PER_PIXEL)
-                      for run_name in ["flatten_128", "average_512", "flatten_512"]]
-    figure.legend(handles=legend_handles, labels=[curves[run_name]["label"] for run_name in
-                                                  ["flatten_128", "average_512", "flatten_512"]],
+                      for run_name in run_order]
+    figure.legend(handles=legend_handles, labels=[curves[run_name]["label"] for run_name in run_order],
                   loc="center left", bbox_to_anchor=(0.05, 0.93), ncols=3, frameon=False,
                   labelcolor=TEXT_PRIMARY_COLOUR, fontsize=18 * POINTS_PER_PIXEL, handlelength=1.6)
     figure.text(x=0.985, y=0.93, s=f"Faint: every iteration · solid: smoothed ({SMOOTHING_WEIGHT})", ha="right",
@@ -224,31 +271,172 @@ def draw_probability_figure(output_path: Path, probability_sets: Dict[str, Dict[
     return facts
 
 
+def compute_length_facts(predictions: List[Dict[str, str]], test_folder: Path) -> Dict[str, Any]:
+    """
+    Gives the accuracy, the mean probability of the true class and the number of test sequences of every number of
+    frames, from the predictions file of an evaluation and the lengths of the test manifest, and the weakest length
+    (the lowest accuracy, the shortest length among ties).
+
+    Args:
+        predictions (List[Dict[str, str]]): The rows of predictions.csv of the evaluation.
+        test_folder (Path): The test split, holding labels.json.
+
+    Returns:
+        Dict[str, Any]: The facts, named length_accuracy.*.
+
+    Raises:
+        ValueError: If a predicted sequence is not in the test manifest.
+    """
+    manifest = json.loads((test_folder / "labels.json").read_text(encoding="utf-8"))
+    lengths = {sequence["name"]: len(sequence["frames"]) for sequence in manifest["sequences"]}
+    missing_sequences = sorted({row["sequence"] for row in predictions} - set(lengths))
+    if missing_sequences:
+        raise ValueError(f"The predicted sequences {missing_sequences[:5]} are not in {test_folder / 'labels.json'}.")
+
+    # Rows of every number of frames: correctness and probability of the true class
+    rows_by_length = defaultdict(list)
+    for row in predictions:
+        rows_by_length[lengths[row["sequence"]]].append(row)
+    facts = {"length_accuracy.lengths": sorted(rows_by_length)}
+    accuracies = {}
+    for length, rows in sorted(rows_by_length.items()):
+        accuracies[length] = float(numpy.mean([row["correct"] == "1" for row in rows]))
+        facts[f"length_accuracy.frames_{length}.accuracy"] = round_fact(value=accuracies[length])
+        facts[f"length_accuracy.frames_{length}.mean_true_probability"] = round_fact(
+            value=float(compute_true_probabilities(predictions=rows).mean()))
+        facts[f"length_accuracy.frames_{length}.sequences"] = len(rows)
+        facts[f"length_accuracy.frames_{length}.wrong"] = sum(row["correct"] != "1" for row in rows)
+    weakest_length = min(accuracies, key=lambda length: (accuracies[length], length))
+    facts.update({"length_accuracy.weakest_length": weakest_length,
+                  "length_accuracy.weakest_accuracy": facts[f"length_accuracy.frames_{weakest_length}.accuracy"],
+                  "length_accuracy.weakest_sequences": len(rows_by_length[weakest_length]),
+                  "length_accuracy.perfect_lengths": sum(accuracy == 1.0 for accuracy in accuracies.values())})
+    return facts
+
+
+def draw_length_figure(output_path: Path, facts: Dict[str, Any], title: str) -> Dict[str, Any]:
+    """
+    Draws the accuracy and the mean probability of the true class of the flatten run on the test sequences of every
+    number of frames, both on the same 0 to 1 scale, written in percent on the left axis for the accuracy and with
+    decimals on the right axis for the probability, the number of test sequences of every length under its tick;
+    gives the box of the panel.
+
+    Args:
+        output_path (Path): The PNG file.
+        facts (Dict[str, Any]): The facts of compute_length_facts.
+        title (str): The title of the panel, naming the run and its evaluated iteration.
+
+    Returns:
+        Dict[str, Any]: The box, named length_accuracy.panel_box.
+    """
+    register_fonts()
+    figure, axes = pyplot.subplots(figsize=(CHART_WIDTH / DOTS_PER_INCH, CHART_HEIGHT / DOTS_PER_INCH),
+                                   dpi=DOTS_PER_INCH)
+    figure.patch.set_facecolor(SURFACE_COLOUR)
+    # Margins leaving room for the probability axis on the right and the two lines of the length ticks
+    figure.subplots_adjust(left=0.07, right=0.93, top=0.84, bottom=0.17)
+    lengths = facts["length_accuracy.lengths"]
+    series = [("accuracy", "Accuracy", SERIES_COLOURS[0]),
+              ("mean_true_probability", "Mean probability of the true class", SERIES_COLOURS[1])]
+    for fact_name, label, colour in series:
+        values = [facts[f"length_accuracy.frames_{length}.{fact_name}"] for length in lengths]
+        axes.plot(lengths, values, color=colour, linewidth=3 * POINTS_PER_PIXEL, marker="o",
+                  markersize=10 * POINTS_PER_PIXEL, markeredgecolor=SURFACE_COLOUR,
+                  markeredgewidth=2 * POINTS_PER_PIXEL)
+        # The accuracy of every length written as the percentages of the reports, like its axis
+        if fact_name == "accuracy":
+            for length, value in zip(lengths, values):
+                axes.annotate(text=format_percentage(value=value), xy=(length, value), xytext=(0, 12),
+                              textcoords="offset points", ha="center", va="bottom", color=TEXT_PRIMARY_COLOUR,
+                              fontsize=16 * POINTS_PER_PIXEL)
+    style_chart_panel(axes=axes, title=title, x_label="Frames of the test sequence (test sequences of that length)",
+                      y_label="Accuracy")
+    axes.set_xticks(ticks=lengths, labels=[f"{length}\n({facts[f'length_accuracy.frames_{length}.sequences']})"
+                                           for length in lengths])
+    axes.set_ylim(bottom=0.0, top=1.1)
+    # Accuracy ticks in percent on the left, the same scale with the decimals of the probability on the right
+    axes.yaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick))
+    legend_handles = [Line2D(xdata=[0], ydata=[0], color=colour, linewidth=3 * POINTS_PER_PIXEL, marker="o",
+                             markersize=8 * POINTS_PER_PIXEL) for _, _, colour in series]
+    figure.legend(handles=legend_handles, labels=[label for _, label, _ in series], loc="center right",
+                  bbox_to_anchor=(0.93, 0.93), ncols=2, frameon=False, labelcolor=TEXT_PRIMARY_COLOUR,
+                  fontsize=18 * POINTS_PER_PIXEL)
+    _, box = add_probability_axis(figure=figure, axes=axes, y_label="Mean probability of the true class", margin=6)
+    save_figure(figure=figure, output_path=output_path)
+    pyplot.close(fig=figure)
+    return {"length_accuracy.panel_box": box}
+
+
+def describe_wrong_predictions(predictions: List[Dict[str, str]], prefix: str) -> Dict[str, Any]:
+    """
+    Gives the wrong predictions of an evaluation: their number, and the most confident of them (the highest
+    probability given to a wrong class) with its true and predicted classes, for the report scene.
+
+    Args:
+        predictions (List[Dict[str, str]]): The rows of predictions.csv of the evaluation.
+        prefix (str): The start of the names of the facts, e.g. "evaluation.flatten_256.first".
+
+    Returns:
+        Dict[str, Any]: The facts '<prefix>.wrong_count', and '<prefix>.wrong.*' when a sequence is wrong.
+    """
+    wrong_rows = [row for row in predictions if row["correct"] == "0"]
+    facts = {f"{prefix}.wrong_count": len(wrong_rows)}
+    if wrong_rows:
+        confident_row = max(wrong_rows, key=lambda row: float(row[f"probability_{row['predicted_class']}"]))
+        facts.update({f"{prefix}.wrong.sequence": confident_row["sequence"],
+                      f"{prefix}.wrong.number": int(confident_row["sequence"].split("_")[-1]),
+                      f"{prefix}.wrong.true_class": confident_row["true_class"],
+                      f"{prefix}.wrong.predicted_class": confident_row["predicted_class"],
+                      f"{prefix}.wrong.probability": round_fact(
+                          value=float(confident_row[f"probability_{confident_row['predicted_class']}"])),
+                      f"{prefix}.wrong.true_probability": round_fact(
+                          value=float(confident_row[f"probability_{confident_row['true_class']}"]))})
+    return facts
+
+
 def make_evaluation_figures(output_folder: Path, run_folders: Dict[str, Path], log_paths: Dict[str, Path],
-                            evaluation_iterations: Dict[str, int]) -> Dict[str, Any]:
+                            evaluation_iterations: Dict[str, int], test_folder: Path) -> Dict[str, Any]:
     """
     Makes the training and evaluation figures of the three runs and gives their facts: the metrics of every evaluated
-    checkpoint of the flatten run at 128 pixels and the average run, the throughput and interval losses of the console
-    logs, the first and last training losses, the wrong predictions of the flatten run at its first evaluation, and the
-    probabilities of the predictions files.
+    checkpoint of the flatten run at 256 pixels and of the average run, the accuracy of the training evaluations of the
+    flatten run at 512 pixels, the throughput and interval losses of the console logs, the first and last training
+    losses, the wrong predictions of the flatten run at its first and last evaluations, the probabilities of the
+    predictions files and the accuracy by number of frames.
 
     Args:
         output_folder (Path): The figures folder of the series.
-        run_folders (Dict[str, Path]): The folders of the runs 'flatten_128', 'average_512' and 'flatten_512'.
+        run_folders (Dict[str, Path]): The folders of the runs MAIN_RUN_NAME, AVERAGE_RUN_NAME and 'flatten_512'.
         log_paths (Dict[str, Path]): The console logs of the same runs.
-        evaluation_iterations (Dict[str, int]): The last evaluated iteration of every run.
+        evaluation_iterations (Dict[str, int]): The last checkpoint of every run, evaluated for the flatten run at 256
+            pixels and the average run.
+        test_folder (Path): The test split of the runs, holding labels.json.
 
     Returns:
-        Dict[str, Any]: The facts, named evaluation.*, launch.*, console.*, training.*, probabilities.* and
-            samples.*.
+        Dict[str, Any]: The facts, named evaluation.*, launch.*, console.*, training.*, probabilities.*,
+            length_accuracy.* and samples.*.
+
+    Raises:
+        ValueError: If the average run predicts several classes, if its accuracy is not the share of its class, if the
+            last evaluation of the flatten run is not its last checkpoint, or if the sample sequence is not right with
+            flatten, wrong with average pooling and long enough.
     """
-    # Metrics of the evaluated checkpoints of the two runs whose evaluations the scenes show
+    # Metrics of the evaluated checkpoints of the two runs whose evaluations the scenes show, and the accuracies of
+    # the evaluations of the training of the flatten run at 512 pixels
     facts = {}
     for run_name in EVALUATED_RUNS:
-        facts.update(read_test_metrics(run_folder=run_folders[run_name], run_name=run_name))
+        facts.update(read_test_metrics(evaluation_root=run_folders[run_name] / CHECKPOINT_EVALUATION_FOLDER_NAME,
+                                       run_name=run_name, scalar_names=list(TEST_SCALARS)))
+    facts.update(read_test_metrics(evaluation_root=run_folders[FLATTEN_512_RUN_NAME], run_name=FLATTEN_512_RUN_NAME,
+                                   scalar_names=["Accuracy"]))
+    flatten_512_iterations, flatten_512_accuracies = read_scalar_curve(run_folder=run_folders[FLATTEN_512_RUN_NAME],
+                                                                       split="Test", tag="Accuracy")
+    facts.update({f"evaluation.{FLATTEN_512_RUN_NAME}.last_iteration": int(flatten_512_iterations[-1]),
+                  f"evaluation.{FLATTEN_512_RUN_NAME}.last.accuracy": round_fact(value=flatten_512_accuracies[-1]),
+                  f"evaluation.{FLATTEN_512_RUN_NAME}.best.accuracy": round_fact(
+                      value=float(numpy.max(flatten_512_accuracies)))})
 
     # Launch information of the flatten run: its split descriptions and the length of an epoch
-    launch_lines = extract_launch_block(log_path=log_paths["flatten_128"], last_line_start="- Batch Size")
+    launch_lines = extract_launch_block(log_path=log_paths[MAIN_RUN_NAME], last_line_start="- Batch Size")
     launch_boxes = draw_console_figure(lines=launch_lines, output_path=output_folder / "evaluation" /
                                        "launch_console.png", font_size=17,
                                        highlight_patterns={"splits": r"Data Folder", "epoch": r"Iterations Per Epoch"})
@@ -258,8 +446,8 @@ def make_evaluation_figures(output_folder: Path, run_folders: Dict[str, Path], l
 
     # Console summary of the first interval of the flatten run, its metric lines written by the current formatter with
     # their logged values, and the throughputs and losses of every log
-    logged_lines = extract_interval_block(log_path=log_paths["flatten_128"], iteration=100)
-    metric_tracker = build_console_metric_tracker(run_folder=run_folders["flatten_128"],
+    logged_lines = extract_interval_block(log_path=log_paths[MAIN_RUN_NAME], iteration=100)
+    metric_tracker = build_console_metric_tracker(run_folder=run_folders[MAIN_RUN_NAME],
                                                   trainer_class=SequenceClassificationTrainer,
                                                   trainer_attributes={"decorrelation_activated": False})
     console_lines = reformat_console_summary(lines=logged_lines, metric_tracker=metric_tracker)
@@ -277,9 +465,9 @@ def make_evaluation_figures(output_folder: Path, run_folders: Dict[str, Path], l
                             for line in console_lines if line.startswith("Validation Iterations"))
     interval_match = next(re.search(pattern=r"Interval Of (\d+) Iterations", string=line) for line in console_lines
                           if line.startswith("Interval Of"))
-    facts.update({"console.flatten_128.validation_batches": int(validation_match.group(1)),
-                  "console.flatten_128.validation_ratio": int(validation_match.group(2)),
-                  "console.flatten_128.interval_iterations": int(interval_match.group(1))})
+    facts.update({f"console.{MAIN_RUN_NAME}.validation_batches": int(validation_match.group(1)),
+                  f"console.{MAIN_RUN_NAME}.validation_ratio": int(validation_match.group(2)),
+                  f"console.{MAIN_RUN_NAME}.interval_iterations": int(interval_match.group(1))})
     for run_name, log_path in log_paths.items():
         summaries = read_interval_summaries(log_path=log_path)
         throughputs = [summary["throughput"] for summary in summaries]
@@ -288,25 +476,37 @@ def make_evaluation_figures(output_folder: Path, run_folders: Dict[str, Path], l
                       f"console.{run_name}.first_frame_throughput": summaries[0]["frame_throughput"],
                       f"console.{run_name}.minimum_throughput": min(throughputs),
                       f"console.{run_name}.maximum_throughput": max(throughputs),
+                      f"console.{run_name}.median_throughput": round_fact(value=float(numpy.median(throughputs))),
                       f"console.{run_name}.first_interval_loss": losses[0],
                       f"console.{run_name}.last_interval_loss": losses[-1],
                       f"console.{run_name}.minimum_interval_loss": min(losses),
-                      f"console.{run_name}.maximum_interval_loss": max(losses)})
+                      f"console.{run_name}.maximum_interval_loss": max(losses),
+                      f"console.{run_name}.last_interval_iteration": summaries[-1]["iteration"]})
 
-    # Training loss of the three runs, raw from TensorBoard
-    run_labels = {"flatten_128": ("Flatten, 128 pixels", SERIES_COLOURS[0]),
-                  "average_512": ("Average, 512 pixels", SERIES_COLOURS[2]),
-                  "flatten_512": ("Flatten, 512 pixels", SERIES_COLOURS[3])}
-    curves = {}
-    for run_name, (label, colour) in run_labels.items():
+    # Training loss of the three runs, raw from TensorBoard, every run named by its pooling and frame size
+    run_colours = {MAIN_RUN_NAME: SERIES_COLOURS[0], AVERAGE_RUN_NAME: SERIES_COLOURS[2],
+                   FLATTEN_512_RUN_NAME: SERIES_COLOURS[3]}
+    run_labels, curves = {}, {}
+    for run_name, colour in run_colours.items():
+        run_configuration = read_run_configuration(run_folder=run_folders[run_name])
+        pooling = run_configuration["ClassificationHead"]["global_pooling"]
+        image_size = run_configuration["Data"]["image_settings"]["size"]
+        run_labels[run_name] = (f"{pooling.capitalize()}, {image_size} pixels", colour)
+        # Losses up to the last checkpoint of the run, a run stopped right after an evaluation having logged a few
+        # iterations past it
         iterations, values = read_scalar_curve(run_folder=run_folders[run_name], split="Train", tag="Total Loss")
-        curves[run_name] = {"label": label, "colour": colour, "iterations": iterations, "values": values}
+        kept_steps = iterations <= evaluation_iterations[run_name]
+        iterations, values = iterations[kept_steps], values[kept_steps]
+        curves[run_name] = {"label": run_labels[run_name][0], "pooling": pooling, "image_size": image_size,
+                            "colour": colour, "iterations": iterations, "values": values}
         facts[f"training.{run_name}.first_loss"] = round_fact(value=values[0])
         facts[f"training.{run_name}.last_loss"] = round_fact(value=values[-1])
         facts[f"training.{run_name}.smoothed_last_loss"] = round_fact(
             value=smooth_values(values=values, weight=SMOOTHING_WEIGHT)[-1])
         facts[f"training.{run_name}.iterations"] = int(iterations[-1])
-    facts.update(draw_loss_figure(output_folder=output_folder, curves=curves))
+    number_classes = len(set(json.loads((run_folders[MAIN_RUN_NAME] / "label_dictionary.json").read_text(
+        encoding="utf-8")).values()))
+    facts.update(draw_loss_figure(output_folder=output_folder, curves=curves, number_classes=number_classes))
 
     # Confusion matrices and ROC curves of the flatten and average runs at their last evaluation
     composite_rows, row_headings = [], []
@@ -321,11 +521,12 @@ def make_evaluation_figures(output_folder: Path, run_folders: Dict[str, Path], l
                                          "confusion_and_roc.png")
     facts.update({f"evaluation.composite.{name}": box for name, box in composite_facts.items()})
 
-    # Probability of the true class of every test sequence, and the wrong predictions of every evaluation
-    probability_sets = {}
+    # Probability of the true class of every test sequence at the last evaluation of both runs
+    probability_sets, last_predictions = {}, {}
     for run_name in EVALUATED_RUNS:
         predictions = read_predictions(run_folder=run_folders[run_name], iteration=evaluation_iterations[run_name],
                                        evaluation_folder_name=CHECKPOINT_EVALUATION_FOLDER_NAME)
+        last_predictions[run_name] = predictions
         true_probabilities = compute_true_probabilities(predictions=predictions)
         all_probabilities = numpy.array([float(value) for row in predictions for key, value in row.items()
                                          if key.startswith("probability_")])
@@ -341,30 +542,67 @@ def make_evaluation_figures(output_folder: Path, run_folders: Dict[str, Path], l
                       f"probabilities.{run_name}.sequences": len(predictions)})
     facts.update(draw_probability_figure(output_path=output_folder / "evaluation" / "true_class_probabilities.png",
                                          probability_sets=probability_sets))
-    # Wrong predictions of the first evaluated checkpoint of the flatten run
-    first_iteration = find_first_evaluated_iteration(run_folder=run_folders["flatten_128"])
-    first_predictions = read_predictions(run_folder=run_folders["flatten_128"], iteration=first_iteration,
-                                         evaluation_folder_name=CHECKPOINT_EVALUATION_FOLDER_NAME)
-    wrong_rows = [row for row in first_predictions if row["correct"] == "0"]
-    facts.update({"probabilities.threshold": CONFIDENT_PROBABILITY,
-                  "evaluation.flatten_128.first_iteration": first_iteration})
-    facts["evaluation.flatten_128.wrong_at_first_iteration"] = [row["sequence"] for row in wrong_rows]
-    if wrong_rows:
-        facts.update({"evaluation.flatten_128.first_wrong.sequence": wrong_rows[0]["sequence"],
-                      "evaluation.flatten_128.first_wrong.true_class": wrong_rows[0]["true_class"],
-                      "evaluation.flatten_128.first_wrong.predicted_class": wrong_rows[0]["predicted_class"],
-                      "evaluation.flatten_128.first_wrong.probability": round_fact(
-                          value=float(wrong_rows[0][f"probability_{wrong_rows[0]['predicted_class']}"])),
-                      "evaluation.flatten_128.first_wrong.true_probability": round_fact(
-                          value=float(wrong_rows[0][f"probability_{wrong_rows[0]['true_class']}"])),
-                      "evaluation.flatten_128.first_wrong.number": int(wrong_rows[0]["sequence"].split("_")[-1])})
+    facts["probabilities.threshold"] = CONFIDENT_PROBABILITY
 
-    # Results.txt of the evaluation of the flatten run, read by the code scene of the report
-    results_path = run_folders["flatten_128"] / CHECKPOINT_EVALUATION_FOLDER_NAME / "Results.txt"
-    write_text_lines(output_path=output_folder / "listings" / "results_flatten_128.txt",
+    # The single class the average run gives every test sequence, whose share of the test split is its accuracy
+    average_classes = facts[f"probabilities.{AVERAGE_RUN_NAME}.predicted_classes"]
+    if len(average_classes) != 1:
+        raise ValueError(f"The average pooling run predicts {average_classes} at iteration "
+                         f"{evaluation_iterations[AVERAGE_RUN_NAME]}, while the evaluation scenes say it gives one "
+                         f"class to every test sequence.")
+    average_rows = last_predictions[AVERAGE_RUN_NAME]
+    class_sequences = sum(row["true_class"] == average_classes[0] for row in average_rows)
+    average_iteration = evaluation_iterations[AVERAGE_RUN_NAME]
+    average_accuracy = facts[f"evaluation.{AVERAGE_RUN_NAME}.accuracy.iteration_{average_iteration}"]
+    if abs(class_sequences / len(average_rows) - average_accuracy) > 1e-4:
+        raise ValueError(f"The accuracy of the average run, {average_accuracy}, is not the share of "
+                         f"{average_classes[0]} in the test split, {class_sequences / len(average_rows)}.")
+    facts.update({f"probabilities.{AVERAGE_RUN_NAME}.predicted_class": average_classes[0],
+                  f"probabilities.{AVERAGE_RUN_NAME}.predicted_class_sequences": class_sequences})
+
+    # Wrong predictions of the first and last evaluated checkpoints of the flatten run, and the class its first Per
+    # Class Recall table writes first (the lowest recall, ties in class order)
+    flatten_iterations = find_evaluated_iterations(run_folder=run_folders[MAIN_RUN_NAME])
+    # The last evaluation is the one the confusion, probability, sample and length figures draw, so that the narration
+    # quoting it by its role describes these figures
+    if flatten_iterations[-1] != evaluation_iterations[MAIN_RUN_NAME]:
+        raise ValueError(f"The last evaluated checkpoint of the flatten run, {flatten_iterations[-1]}, is not its last "
+                         f"checkpoint, {evaluation_iterations[MAIN_RUN_NAME]}, which the figures draw.")
+    facts.update({f"evaluation.{MAIN_RUN_NAME}.first_iteration": flatten_iterations[0],
+                  f"evaluation.{MAIN_RUN_NAME}.last_iteration": flatten_iterations[-1]})
+    for position_name, iteration in [("first", flatten_iterations[0]), ("last", flatten_iterations[-1])]:
+        # Headline metrics of the evaluation named by its place, so that the narration follows the evaluated
+        # checkpoints of the run rather than typed iterations
+        for fact_name in TEST_SCALARS.values():
+            facts[f"evaluation.{MAIN_RUN_NAME}.{position_name}.{fact_name}"] = facts[
+                f"evaluation.{MAIN_RUN_NAME}.{fact_name}.iteration_{iteration}"]
+        predictions = read_predictions(run_folder=run_folders[MAIN_RUN_NAME], iteration=iteration,
+                                       evaluation_folder_name=CHECKPOINT_EVALUATION_FOLDER_NAME)
+        facts.update(describe_wrong_predictions(predictions=predictions,
+                                                prefix=f"evaluation.{MAIN_RUN_NAME}.{position_name}"))
+        class_recalls = read_class_recalls(run_folder=run_folders[MAIN_RUN_NAME], iteration=iteration)
+        worst_class = min(class_recalls, key=lambda class_recall: class_recall["recall"])
+        facts.update({f"evaluation.{MAIN_RUN_NAME}.{position_name}.worst_recall_class": worst_class["class"],
+                      f"evaluation.{MAIN_RUN_NAME}.{position_name}.worst_recall": round_fact(
+                          value=worst_class["recall"]),
+                      f"evaluation.{MAIN_RUN_NAME}.{position_name}.fewest_class_sequences": min(
+                          class_recall["samples"] for class_recall in class_recalls),
+                      f"evaluation.{MAIN_RUN_NAME}.{position_name}.most_class_sequences": max(
+                          class_recall["samples"] for class_recall in class_recalls)})
+
+    # Results.txt of the evaluation of the flatten run, read by the code scenes of the report
+    results_path = run_folders[MAIN_RUN_NAME] / CHECKPOINT_EVALUATION_FOLDER_NAME / "Results.txt"
+    write_text_lines(output_path=output_folder / "listings" / f"results_{MAIN_RUN_NAME}.txt",
                      lines=results_path.read_text(encoding="utf-8").splitlines())
 
-    # The same sample sequence drawn by the evaluation of both runs
+    # Accuracy of the flatten run on the test sequences of every number of frames, at its last evaluation
+    facts.update(compute_length_facts(predictions=last_predictions[MAIN_RUN_NAME], test_folder=test_folder))
+    facts.update(draw_length_figure(output_path=output_folder / "evaluation" / "accuracy_by_length.png", facts=facts,
+                                    title=f"{run_labels[MAIN_RUN_NAME][0]}, iteration "
+                                          f"{evaluation_iterations[MAIN_RUN_NAME]:,}, on the "
+                                          f"{len(last_predictions[MAIN_RUN_NAME])} test sequences"))
+
+    # The same sample sequence drawn by the evaluation of both runs, right with flatten and wrong with average pooling
     sample_facts = compose_image_grid(
         rows=[[run_folders[run_name] / CHECKPOINT_EVALUATION_FOLDER_NAME /
                f"Iteration_{evaluation_iterations[run_name]}" / "Samples" / f"{SAMPLE_SEQUENCE}.png"
@@ -372,14 +610,19 @@ def make_evaluation_figures(output_folder: Path, run_folders: Dict[str, Path], l
         row_headings=[f"Samples/{SAMPLE_SEQUENCE}.png"], column_headings=[row_headings[0], row_headings[1]],
         image_height=400, output_path=output_folder / "evaluation" / "samples.png")
     facts.update({f"samples.{name}": box for name, box in sample_facts.items()})
-    facts["samples.sequence"] = SAMPLE_SEQUENCE
+    test_manifest = json.loads((test_folder / "labels.json").read_text(encoding="utf-8"))
+    sample_entry = next(sequence for sequence in test_manifest["sequences"] if sequence["name"] == SAMPLE_SEQUENCE)
+    facts.update({"samples.sequence": SAMPLE_SEQUENCE, "samples.frames": len(sample_entry["frames"])})
     for run_name in EVALUATED_RUNS:
-        sample_row = next(row for row in read_predictions(run_folder=run_folders[run_name],
-                                                          iteration=evaluation_iterations[run_name],
-                                                          evaluation_folder_name=CHECKPOINT_EVALUATION_FOLDER_NAME)
-                          if row["sequence"] == SAMPLE_SEQUENCE)
+        sample_row = next(row for row in last_predictions[run_name] if row["sequence"] == SAMPLE_SEQUENCE)
         facts.update({f"samples.{run_name}.true_class": sample_row["true_class"],
                       f"samples.{run_name}.predicted_class": sample_row["predicted_class"],
+                      f"samples.{run_name}.correct": sample_row["correct"] == "1",
                       f"samples.{run_name}.probability": round_fact(
                           value=float(sample_row[f"probability_{sample_row['predicted_class']}"]))})
+    if not (facts[f"samples.{MAIN_RUN_NAME}.correct"] and not facts[f"samples.{AVERAGE_RUN_NAME}.correct"]
+            and facts["samples.frames"] >= SAMPLE_MINIMUM_FRAMES):
+        raise ValueError(f"The sample sequence {SAMPLE_SEQUENCE} ({facts['samples.frames']} frames) should be right "
+                         f"with the flatten run, wrong with the average run and hold at least {SAMPLE_MINIMUM_FRAMES} "
+                         f"frames, as the sample scene says: choose another of the fixed sample sequences.")
     return facts

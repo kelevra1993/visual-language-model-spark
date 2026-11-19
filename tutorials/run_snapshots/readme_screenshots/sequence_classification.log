@@ -6,14 +6,14 @@ For Training We Will Be Using device: cuda
 [93m[1m=== Experiment Launch Information ===[0m
 [93m[1m--------------------------------------[0m
 [94m[1m- Run Name                : M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4[0m
-[94m[1m- Experiment Folder       : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4\[4mM2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4[24m]8;;\[0m
-[94m[1m- Tensorboard Directory   : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Tensorboard\[4mTensorboard[24m]8;;\[0m
-[94m[1m- Weights Directory       : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Weights\[4mWeights[24m]8;;\[0m
-[94m[1m- Configuration File      : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/training_configuration.yaml\[4mtraining_configuration.yaml[24m]8;;\[0m
-[94m[1m- Data Record             : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/data.json\[4mdata.json[24m]8;;\[0m
-[94m[1m- Train Data Folder       : ]8;;file:///home/robert_kelevra/Data/sequence_data/synthetic_moving_shapes/train\[4mtrain[24m]8;;\ (2000 sequences, 16000 frames, 2000 sequences of at most 50 frames)[0m
-[94m[1m- Validation Data Folder  : ]8;;file:///home/robert_kelevra/Data/sequence_data/synthetic_moving_shapes/validation\[4mvalidation[24m]8;;\ (200 sequences, 1600 frames, 200 sequences of at most 50 frames)[0m
-[94m[1m- Test Data Folder        : ]8;;file:///home/robert_kelevra/Data/sequence_data/synthetic_moving_shapes/test\[4mtest[24m]8;;\ (200 sequences, 1600 frames, 200 sequences of at most 50 frames)[0m
+[94m[1m- Experiment Folder       : ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4\[4mM2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4[24m]8;;\[0m
+[94m[1m- Tensorboard Directory   : ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Tensorboard\[4mTensorboard[24m]8;;\[0m
+[94m[1m- Weights Directory       : ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Weights\[4mWeights[24m]8;;\[0m
+[94m[1m- Configuration File      : ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/training_configuration.yaml\[4mtraining_configuration.yaml[24m]8;;\[0m
+[94m[1m- Data Record             : ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/data.json\[4mdata.json[24m]8;;\[0m
+[94m[1m- Train Data Folder       : ]8;;file:///home/robert_kelevra/Data/sequence_data/synthetic_moving_shapes/train\[4mtrain[24m]8;;\ (2000 sequences, 13892 frames, 2000 sequences of at most 50 frames)[0m
+[94m[1m- Validation Data Folder  : ]8;;file:///home/robert_kelevra/Data/sequence_data/synthetic_moving_shapes/validation\[4mvalidation[24m]8;;\ (200 sequences, 1387 frames, 200 sequences of at most 50 frames)[0m
+[94m[1m- Test Data Folder        : ]8;;file:///home/robert_kelevra/Data/sequence_data/synthetic_moving_shapes/test\[4mtest[24m]8;;\ (200 sequences, 1417 frames, 200 sequences of at most 50 frames)[0m
 [94m[1m- Iterations Per Epoch    : 125[0m
 [94m[1m- Batch Size              : 16[0m
 [94m[1m- Total Iterations        : 2000[0m
@@ -22,12 +22,9 @@ For Training We Will Be Using device: cuda
 [94m[1m- Learning Rate           : 0.001[0m
 [94m[1m- Optimizer               : adam (weight decay 0.0)[0m
 [94m[1m- Learning Rate Schedule  : constant (warm-up 0 iterations)[0m
-[94m[1m- Gradient Clipping Norm  : None[0m
 [94m[1m- Weight Moving Average   : Off[0m
-[94m[1m- Mixed Precision         : False[0m
-[94m[1m- Resume Training         : False[0m
 [94m[1m- Validation Iter. Ratio  : 25[0m
-[94m[1m- MLflow Tracking         : sqlite:////home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/mlflow.db[0m
+[94m[1m- MLflow Tracking         : sqlite:////home/robert_kelevra/Data/tutorial_runs/readme_screenshots/mlflow.db[0m
 [93m[1m------------------------------[0m
 [93m[1mBackbone Architecture Summary[0m
 [93m[1m------------------------------[0m
@@ -43,7 +40,7 @@ For Training We Will Be Using device: cuda
 │    - Output Shape : [1, 16, 256, 256]                                        │
 │                                                                              │
 │  - Convolution Block 2                                                       │
-│    - Modules      : Residual Shortcuts, Squeeze-and-Excitation               │
+│    - Modules      : Squeeze-and-Excitation                                   │
 │    - Input Shape  : [1, 16, 256, 256]                                        │
 │    - Output Shape : [1, 32, 128, 128]                                        │
 │                                                                              │
@@ -53,7 +50,7 @@ For Training We Will Be Using device: cuda
 │    - Output Shape : [1, 32, 64, 64]                                          │
 │                                                                              │
 │  - Convolution Block 4                                                       │
-│    - Modules      : Residual Shortcuts, Squeeze-and-Excitation               │
+│    - Modules      : Squeeze-and-Excitation                                   │
 │    - Input Shape  : [1, 32, 64, 64]                                          │
 │    - Output Shape : [1, 64, 32, 32]                                          │
 │                                                                              │
@@ -131,332 +128,360 @@ For Training We Will Be Using device: cuda
 │   - Trainable Parameters : 349,348                       │
 │   - Estimated Size       : 1.40 MB                       │
 ╰──────────────────────────────────────────────────────────╯
-2026/10/23 03:02:27 INFO mlflow.agent.hint: Load the `instrumenting-with-mlflow-tracing` skill at /home/robert_kelevra/Projects/visual-language-model-spark/.venv/lib/python3.13/site-packages/mlflow/assistant/skills/instrumenting-with-mlflow-tracing/SKILL.md before writing any tracing code; it ships with this MLflow install. Set MLFLOW_DISABLE_AGENT_HINT=1 to silence this.
-[94m[1mMLflow Run Created In The Experiment 'sequence_classification' : 07e36ebcaa6445848e0261a52af717ca (Browse : mlflow ui --backend-store-uri sqlite:////home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/mlflow.db)[0m
+[32m[1m-----------------------------------------------------------[0m
+[32m[1mNo Initiation Model Weights Will Be Used...
+We Generate A New Model That Will Be Trained From Scratch.[0m
+[32m[1m-----------------------------------------------------------[0m
+2026/11/18 22:24:40 INFO mlflow.agent.hint: Load the `instrumenting-with-mlflow-tracing` skill at /home/robert_kelevra/Projects/visual-language-model-spark/.venv/lib/python3.13/site-packages/mlflow/assistant/skills/instrumenting-with-mlflow-tracing/SKILL.md before writing any tracing code; it ships with this MLflow install. Set MLFLOW_DISABLE_AGENT_HINT=1 to silence this.
+[94m[1mMLflow Run Created In The Experiment 'sequence_classification' : 916f918c0eb04986b2977266183040ec (Browse : mlflow ui --backend-store-uri sqlite:////home/robert_kelevra/Data/tutorial_runs/readme_screenshots/mlflow.db)[0m
 ===========================================================================================================================================================
-|    Iteration: 100   |    Total Sequences: 1600    |   Interval Sequences: 1600   |  Throughput: 11.4 Sequences Per Second  |   91.6 Frames Per Second   |
+|    Iteration: 100   |    Total Sequences: 1600    |   Interval Sequences: 1600   |   Throughput: 9.3 Sequences Per Second  |   64.9 Frames Per Second   |
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-[94m[1mMoving Average of Train Total Loss                     :   1.3914[0m
-[93m[1mMoving Average of Valid Total Loss                     :   1.3887[0m
-[94m[1mMoving Average of Train Classification Loss            :   1.3914[0m
-[93m[1mMoving Average of Valid Classification Loss            :   1.3887[0m
-[94m[1mMoving Average of Train Accuracy                       :   0.2500[0m
-[93m[1mMoving Average of Valid Accuracy                       :   0.3281[0m
+[94m[1mMoving Average of Train Total Loss                     :     1.3917[0m
+[93m[1mMoving Average of Valid Total Loss                     :     1.4242[0m
+[94m[1mMoving Average of Train Classification Loss            :     1.3917[0m
+[93m[1mMoving Average of Valid Classification Loss            :     1.4242[0m
+[94m[1mMoving Average of Train Accuracy                       :    26.44 %[0m
+[93m[1mMoving Average of Valid Accuracy                       :    15.62 %[0m
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-Interval Of 100 Iterations Took 00:02:19.
+Interval Of 100 Iterations Took 00:02:51.
 Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
 ===========================================================================================================================================================
 ===========================================================================================================================================================
-|    Iteration: 200   |    Total Sequences: 3200    |   Interval Sequences: 1600   |  Throughput: 11.6 Sequences Per Second  |   92.9 Frames Per Second   |
+|    Iteration: 200   |    Total Sequences: 3200    |   Interval Sequences: 1600   |   Throughput: 9.3 Sequences Per Second  |   64.7 Frames Per Second   |
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-[94m[1mMoving Average of Train Total Loss                     :   1.3904[0m [32m[1m -0.0010[0m [94m[1mBest[0m
-[93m[1mMoving Average of Valid Total Loss                     :   1.3854[0m [32m[1m -0.0033[0m [93m[1mBest[0m
-[94m[1mMoving Average of Train Classification Loss            :   1.3904[0m [32m[1m -0.0010[0m [94m[1mBest[0m
-[93m[1mMoving Average of Valid Classification Loss            :   1.3854[0m [32m[1m -0.0033[0m [93m[1mBest[0m
-[94m[1mMoving Average of Train Accuracy                       :   0.2619[0m [32m[1m +0.0119[0m [94m[1mBest[0m
-[93m[1mMoving Average of Valid Accuracy                       :   0.2344[0m [91m[1m -0.0938[0m
+[94m[1mMoving Average of Train Total Loss                     :     1.3873[0m [32m[1m   -0.0045[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Total Loss                     :     1.3899[0m [32m[1m   -0.0343[0m [93m[1mBest[0m
+[94m[1mMoving Average of Train Classification Loss            :     1.3873[0m [32m[1m   -0.0045[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Classification Loss            :     1.3899[0m [32m[1m   -0.0343[0m [93m[1mBest[0m
+[94m[1mMoving Average of Train Accuracy                       :    26.75 %[0m [32m[1m   +0.31 %[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Accuracy                       :    26.56 %[0m [32m[1m  +10.94 %[0m [93m[1mBest[0m
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-Interval Of 100 Iterations Took 00:02:17.
+Interval Of 100 Iterations Took 00:02:52.
 Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
 ===========================================================================================================================================================
 ===========================================================================================================================================================
-|    Iteration: 300   |    Total Sequences: 4800    |   Interval Sequences: 1600   |  Throughput: 10.0 Sequences Per Second  |   80.1 Frames Per Second   |
+|    Iteration: 300   |    Total Sequences: 4800    |   Interval Sequences: 1600   |   Throughput: 8.5 Sequences Per Second  |   58.5 Frames Per Second   |
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-[94m[1mMoving Average of Train Total Loss                     :   1.3895[0m [32m[1m -0.0009[0m [94m[1mBest[0m
-[93m[1mMoving Average of Valid Total Loss                     :   1.3927[0m [91m[1m +0.0072[0m
-[94m[1mMoving Average of Train Classification Loss            :   1.3895[0m [32m[1m -0.0009[0m [94m[1mBest[0m
-[93m[1mMoving Average of Valid Classification Loss            :   1.3927[0m [91m[1m +0.0072[0m
-[94m[1mMoving Average of Train Accuracy                       :   0.2406[0m [91m[1m -0.0213[0m
-[93m[1mMoving Average of Valid Accuracy                       :   0.1406[0m [91m[1m -0.0938[0m
+[94m[1mMoving Average of Train Total Loss                     :     1.3850[0m [32m[1m   -0.0022[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Total Loss                     :     1.3883[0m [32m[1m   -0.0016[0m [93m[1mBest[0m
+[94m[1mMoving Average of Train Classification Loss            :     1.3850[0m [32m[1m   -0.0022[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Classification Loss            :     1.3883[0m [32m[1m   -0.0016[0m [93m[1mBest[0m
+[94m[1mMoving Average of Train Accuracy                       :    25.50 %[0m [91m[1m   -1.25 %[0m
+[93m[1mMoving Average of Valid Accuracy                       :    23.44 %[0m [91m[1m   -3.12 %[0m
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-Interval Of 100 Iterations Took 00:02:39.
+Interval Of 100 Iterations Took 00:03:07.
 Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
 ===========================================================================================================================================================
 ===========================================================================================================================================================
-|    Iteration: 400   |    Total Sequences: 6400    |   Interval Sequences: 1600   |  Throughput: 10.0 Sequences Per Second  |   80.4 Frames Per Second   |
+|    Iteration: 400   |    Total Sequences: 6400    |   Interval Sequences: 1600   |   Throughput: 8.2 Sequences Per Second  |   57.3 Frames Per Second   |
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-[94m[1mMoving Average of Train Total Loss                     :   1.3890[0m [32m[1m -0.0005[0m [94m[1mBest[0m
-[93m[1mMoving Average of Valid Total Loss                     :   1.3849[0m [32m[1m -0.0078[0m [93m[1mBest[0m
-[94m[1mMoving Average of Train Classification Loss            :   1.3890[0m [32m[1m -0.0005[0m [94m[1mBest[0m
-[93m[1mMoving Average of Valid Classification Loss            :   1.3849[0m [32m[1m -0.0078[0m [93m[1mBest[0m
-[94m[1mMoving Average of Train Accuracy                       :   0.2481[0m [32m[1m +0.0075[0m
-[93m[1mMoving Average of Valid Accuracy                       :   0.2656[0m [32m[1m +0.1250[0m
+[94m[1mMoving Average of Train Total Loss                     :     1.3868[0m [91m[1m   +0.0017[0m
+[93m[1mMoving Average of Valid Total Loss                     :     1.4180[0m [91m[1m   +0.0297[0m
+[94m[1mMoving Average of Train Classification Loss            :     1.3868[0m [91m[1m   +0.0017[0m
+[93m[1mMoving Average of Valid Classification Loss            :     1.4180[0m [91m[1m   +0.0297[0m
+[94m[1mMoving Average of Train Accuracy                       :    27.19 %[0m [32m[1m   +1.69 %[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Accuracy                       :    12.50 %[0m [91m[1m  -10.94 %[0m
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-Interval Of 100 Iterations Took 00:02:39.
+Interval Of 100 Iterations Took 00:03:15.
 Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
 ===========================================================================================================================================================
 Checkpoint Folder :
- - ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Weights/Iteration_500\[4mIteration_500[24m]8;;\
+ - ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Weights/Iteration_500\[4mIteration_500[24m]8;;\
  - Model Saved In : model_000500.pt
 ===========================================================================================================================================================
-|    Iteration: 500   |    Total Sequences: 8000    |   Interval Sequences: 1600   |  Throughput: 10.0 Sequences Per Second  |   80.4 Frames Per Second   |
+|    Iteration: 500   |    Total Sequences: 8000    |   Interval Sequences: 1600   |   Throughput: 8.0 Sequences Per Second  |   55.6 Frames Per Second   |
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-[94m[1mMoving Average of Train Total Loss                     :   1.3877[0m [32m[1m -0.0012[0m [94m[1mBest[0m
-[93m[1mMoving Average of Valid Total Loss                     :   1.3866[0m [91m[1m +0.0017[0m
-[94m[1mMoving Average of Train Classification Loss            :   1.3877[0m [32m[1m -0.0012[0m [94m[1mBest[0m
-[93m[1mMoving Average of Valid Classification Loss            :   1.3866[0m [91m[1m +0.0017[0m
-[94m[1mMoving Average of Train Accuracy                       :   0.2569[0m [32m[1m +0.0088[0m
-[93m[1mMoving Average of Valid Accuracy                       :   0.2812[0m [32m[1m +0.0156[0m
+[94m[1mMoving Average of Train Total Loss                     :     1.3847[0m [32m[1m   -0.0020[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Total Loss                     :     1.3912[0m [32m[1m   -0.0267[0m
+[94m[1mMoving Average of Train Classification Loss            :     1.3847[0m [32m[1m   -0.0020[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Classification Loss            :     1.3912[0m [32m[1m   -0.0267[0m
+[94m[1mMoving Average of Train Accuracy                       :    26.69 %[0m [91m[1m   -0.50 %[0m
+[93m[1mMoving Average of Valid Accuracy                       :    25.00 %[0m [32m[1m  +12.50 %[0m
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-Interval Of 100 Iterations Took 00:02:39.
+Interval Of 100 Iterations Took 00:03:19.
 Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
 ===========================================================================================================================================================
 ===========================================================================================================================================================
-|    Iteration: 600   |    Total Sequences: 9600    |   Interval Sequences: 1600   |  Throughput: 10.0 Sequences Per Second  |   80.3 Frames Per Second   |
+|    Iteration: 600   |    Total Sequences: 9600    |   Interval Sequences: 1600   |   Throughput: 8.1 Sequences Per Second  |   56.2 Frames Per Second   |
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-[94m[1mMoving Average of Train Total Loss                     :   1.3885[0m [91m[1m +0.0008[0m
-[93m[1mMoving Average of Valid Total Loss                     :   1.4013[0m [91m[1m +0.0147[0m
-[94m[1mMoving Average of Train Classification Loss            :   1.3885[0m [91m[1m +0.0008[0m
-[93m[1mMoving Average of Valid Classification Loss            :   1.4013[0m [91m[1m +0.0147[0m
-[94m[1mMoving Average of Train Accuracy                       :   0.2481[0m [91m[1m -0.0088[0m
-[93m[1mMoving Average of Valid Accuracy                       :   0.2031[0m [91m[1m -0.0781[0m
+[94m[1mMoving Average of Train Total Loss                     :     1.3857[0m [91m[1m   +0.0010[0m
+[93m[1mMoving Average of Valid Total Loss                     :     1.3856[0m [32m[1m   -0.0056[0m [93m[1mBest[0m
+[94m[1mMoving Average of Train Classification Loss            :     1.3857[0m [91m[1m   +0.0010[0m
+[93m[1mMoving Average of Valid Classification Loss            :     1.3856[0m [32m[1m   -0.0056[0m [93m[1mBest[0m
+[94m[1mMoving Average of Train Accuracy                       :    25.50 %[0m [91m[1m   -1.19 %[0m
+[93m[1mMoving Average of Valid Accuracy                       :    28.12 %[0m [32m[1m   +3.12 %[0m [93m[1mBest[0m
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-Interval Of 100 Iterations Took 00:02:39.
+Interval Of 100 Iterations Took 00:03:18.
 Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
 ===========================================================================================================================================================
 ===========================================================================================================================================================
-|    Iteration: 700   |    Total Sequences: 11200   |   Interval Sequences: 1600   |  Throughput: 10.0 Sequences Per Second  |   80.2 Frames Per Second   |
+|    Iteration: 700   |    Total Sequences: 11200   |   Interval Sequences: 1600   |   Throughput: 8.4 Sequences Per Second  |   58.1 Frames Per Second   |
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-[94m[1mMoving Average of Train Total Loss                     :   1.3868[0m [32m[1m -0.0016[0m [94m[1mBest[0m
-[93m[1mMoving Average of Valid Total Loss                     :   1.3826[0m [32m[1m -0.0187[0m [93m[1mBest[0m
-[94m[1mMoving Average of Train Classification Loss            :   1.3868[0m [32m[1m -0.0016[0m [94m[1mBest[0m
-[93m[1mMoving Average of Valid Classification Loss            :   1.3826[0m [32m[1m -0.0187[0m [93m[1mBest[0m
-[94m[1mMoving Average of Train Accuracy                       :   0.2569[0m [32m[1m +0.0088[0m
-[93m[1mMoving Average of Valid Accuracy                       :   0.2500[0m [32m[1m +0.0469[0m
+[94m[1mMoving Average of Train Total Loss                     :     1.3861[0m [91m[1m   +0.0004[0m
+[93m[1mMoving Average of Valid Total Loss                     :     1.3915[0m [91m[1m   +0.0059[0m
+[94m[1mMoving Average of Train Classification Loss            :     1.3861[0m [91m[1m   +0.0004[0m
+[93m[1mMoving Average of Valid Classification Loss            :     1.3915[0m [91m[1m   +0.0059[0m
+[94m[1mMoving Average of Train Accuracy                       :    26.25 %[0m [32m[1m   +0.75 %[0m
+[93m[1mMoving Average of Valid Accuracy                       :    32.81 %[0m [32m[1m   +4.69 %[0m [93m[1mBest[0m
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-Interval Of 100 Iterations Took 00:02:39.
+Interval Of 100 Iterations Took 00:03:11.
 Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
 ===========================================================================================================================================================
 ===========================================================================================================================================================
-|    Iteration: 800   |    Total Sequences: 12800   |   Interval Sequences: 1600   |  Throughput: 11.9 Sequences Per Second  |   95.2 Frames Per Second   |
+|    Iteration: 800   |    Total Sequences: 12800   |   Interval Sequences: 1600   |   Throughput: 8.3 Sequences Per Second  |   57.5 Frames Per Second   |
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-[94m[1mMoving Average of Train Total Loss                     :   1.3860[0m [32m[1m -0.0008[0m [94m[1mBest[0m
-[93m[1mMoving Average of Valid Total Loss                     :   1.3845[0m [91m[1m +0.0018[0m
-[94m[1mMoving Average of Train Classification Loss            :   1.3860[0m [32m[1m -0.0008[0m [94m[1mBest[0m
-[93m[1mMoving Average of Valid Classification Loss            :   1.3845[0m [91m[1m +0.0018[0m
-[94m[1mMoving Average of Train Accuracy                       :   0.2519[0m [91m[1m -0.0050[0m
-[93m[1mMoving Average of Valid Accuracy                       :   0.2656[0m [32m[1m +0.0156[0m
+[94m[1mMoving Average of Train Total Loss                     :     1.3857[0m [32m[1m   -0.0003[0m
+[93m[1mMoving Average of Valid Total Loss                     :     1.3995[0m [91m[1m   +0.0081[0m
+[94m[1mMoving Average of Train Classification Loss            :     1.3857[0m [32m[1m   -0.0003[0m
+[93m[1mMoving Average of Valid Classification Loss            :     1.3995[0m [91m[1m   +0.0081[0m
+[94m[1mMoving Average of Train Accuracy                       :    26.75 %[0m [32m[1m   +0.50 %[0m
+[93m[1mMoving Average of Valid Accuracy                       :    12.50 %[0m [91m[1m  -20.31 %[0m
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-Interval Of 100 Iterations Took 00:02:14.
+Interval Of 100 Iterations Took 00:03:11.
 Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
 ===========================================================================================================================================================
 ===========================================================================================================================================================
-|    Iteration: 900   |    Total Sequences: 14400   |   Interval Sequences: 1600   |  Throughput: 12.2 Sequences Per Second  |   97.6 Frames Per Second   |
+|    Iteration: 900   |    Total Sequences: 14400   |   Interval Sequences: 1600   |   Throughput: 8.5 Sequences Per Second  |   58.9 Frames Per Second   |
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-[94m[1mMoving Average of Train Total Loss                     :   1.3866[0m [91m[1m +0.0006[0m
-[93m[1mMoving Average of Valid Total Loss                     :   1.3830[0m [32m[1m -0.0015[0m
-[94m[1mMoving Average of Train Classification Loss            :   1.3866[0m [91m[1m +0.0006[0m
-[93m[1mMoving Average of Valid Classification Loss            :   1.3830[0m [32m[1m -0.0015[0m
-[94m[1mMoving Average of Train Accuracy                       :   0.2344[0m [91m[1m -0.0175[0m
-[93m[1mMoving Average of Valid Accuracy                       :   0.3281[0m [32m[1m +0.0625[0m
+[94m[1mMoving Average of Train Total Loss                     :     1.3870[0m [91m[1m   +0.0013[0m
+[93m[1mMoving Average of Valid Total Loss                     :     1.3778[0m [32m[1m   -0.0217[0m [93m[1mBest[0m
+[94m[1mMoving Average of Train Classification Loss            :     1.3870[0m [91m[1m   +0.0013[0m
+[93m[1mMoving Average of Valid Classification Loss            :     1.3778[0m [32m[1m   -0.0217[0m [93m[1mBest[0m
+[94m[1mMoving Average of Train Accuracy                       :    25.12 %[0m [91m[1m   -1.63 %[0m
+[93m[1mMoving Average of Valid Accuracy                       :    31.25 %[0m [32m[1m  +18.75 %[0m
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-Interval Of 100 Iterations Took 00:02:11.
+Interval Of 100 Iterations Took 00:03:09.
 Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
 ===========================================================================================================================================================
 Checkpoint Folder :
- - ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Weights/Iteration_1000\[4mIteration_1000[24m]8;;\
+ - ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Weights/Iteration_1000\[4mIteration_1000[24m]8;;\
  - Model Saved In : model_001000.pt
 ===========================================================================================================================================================
-|   Iteration: 1000   |    Total Sequences: 16000   |   Interval Sequences: 1600   |   Throughput: 9.0 Sequences Per Second  |   71.6 Frames Per Second   |
+|   Iteration: 1000   |    Total Sequences: 16000   |   Interval Sequences: 1600   |   Throughput: 8.2 Sequences Per Second  |   56.9 Frames Per Second   |
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-[94m[1mMoving Average of Train Total Loss                     :   1.3880[0m [91m[1m +0.0014[0m
-[93m[1mMoving Average of Valid Total Loss                     :   1.3851[0m [91m[1m +0.0021[0m
-[94m[1mMoving Average of Train Classification Loss            :   1.3880[0m [91m[1m +0.0014[0m
-[93m[1mMoving Average of Valid Classification Loss            :   1.3851[0m [91m[1m +0.0021[0m
-[94m[1mMoving Average of Train Accuracy                       :   0.2494[0m [32m[1m +0.0150[0m
-[93m[1mMoving Average of Valid Accuracy                       :   0.2344[0m [91m[1m -0.0938[0m
+[94m[1mMoving Average of Train Total Loss                     :     1.3859[0m [32m[1m   -0.0011[0m
+[93m[1mMoving Average of Valid Total Loss                     :     1.3964[0m [91m[1m   +0.0186[0m
+[94m[1mMoving Average of Train Classification Loss            :     1.3859[0m [32m[1m   -0.0011[0m
+[93m[1mMoving Average of Valid Classification Loss            :     1.3964[0m [91m[1m   +0.0186[0m
+[94m[1mMoving Average of Train Accuracy                       :    27.31 %[0m [32m[1m   +2.19 %[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Accuracy                       :    25.00 %[0m [91m[1m   -6.25 %[0m
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-Interval Of 100 Iterations Took 00:02:58.
+Interval Of 100 Iterations Took 00:03:15.
 Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
 ===========================================================================================================================================================
-Test Evaluation Iteration 1000:   0%|          | 0/13 [00:00<?, ?it/s]Test Evaluation Iteration 1000:   8%|▊         | 1/13 [00:01<00:20,  1.71s/it]Test Evaluation Iteration 1000:  15%|█▌        | 2/13 [00:02<00:11,  1.04s/it]Test Evaluation Iteration 1000:  23%|██▎       | 3/13 [00:03<00:10,  1.03s/it]Test Evaluation Iteration 1000:  31%|███       | 4/13 [00:03<00:07,  1.18it/s]Test Evaluation Iteration 1000:  38%|███▊      | 5/13 [00:04<00:06,  1.27it/s]Test Evaluation Iteration 1000:  46%|████▌     | 6/13 [00:05<00:05,  1.31it/s]Test Evaluation Iteration 1000:  54%|█████▍    | 7/13 [00:05<00:04,  1.36it/s]Test Evaluation Iteration 1000:  62%|██████▏   | 8/13 [00:06<00:03,  1.52it/s]Test Evaluation Iteration 1000:  69%|██████▉   | 9/13 [00:07<00:03,  1.26it/s]Test Evaluation Iteration 1000:  77%|███████▋  | 10/13 [00:08<00:02,  1.21it/s]Test Evaluation Iteration 1000:  85%|████████▍ | 11/13 [00:09<00:01,  1.33it/s]Test Evaluation Iteration 1000:  92%|█████████▏| 12/13 [00:09<00:00,  1.33it/s]Test Evaluation Iteration 1000: 100%|██████████| 13/13 [00:10<00:00,  1.36it/s]Test Evaluation Iteration 1000: 100%|██████████| 13/13 [00:10<00:00,  1.24it/s]
-Iteration 1000 · 200 Test Sequences · 2026-10-23 03:27 ─────────────────────────────────────────────────────────────────
-  Accuracy        0.2300   Balanced Accuracy         0.2500                                                             
-  Macro F1        0.0935   Top-2 Accuracy            0.5000                                                             
-  Macro ROC AUC   0.5222   Macro Average Precision   0.2913                                                             
+Test Evaluation Iteration 1000:   0%|          | 0/13 [00:00<?, ?it/s]Test Evaluation Iteration 1000:   8%|▊         | 1/13 [00:02<00:32,  2.71s/it]Test Evaluation Iteration 1000:  15%|█▌        | 2/13 [00:03<00:20,  1.84s/it]Test Evaluation Iteration 1000:  23%|██▎       | 3/13 [00:05<00:15,  1.50s/it]Test Evaluation Iteration 1000:  31%|███       | 4/13 [00:07<00:17,  1.95s/it]Test Evaluation Iteration 1000:  38%|███▊      | 5/13 [00:09<00:14,  1.81s/it]Test Evaluation Iteration 1000:  46%|████▌     | 6/13 [00:10<00:11,  1.66s/it]Test Evaluation Iteration 1000:  54%|█████▍    | 7/13 [00:12<00:10,  1.72s/it]Test Evaluation Iteration 1000:  62%|██████▏   | 8/13 [00:14<00:08,  1.73s/it]Test Evaluation Iteration 1000:  69%|██████▉   | 9/13 [00:16<00:07,  1.83s/it]Test Evaluation Iteration 1000:  77%|███████▋  | 10/13 [00:17<00:05,  1.70s/it]Test Evaluation Iteration 1000:  85%|████████▍ | 11/13 [00:18<00:03,  1.55s/it]Test Evaluation Iteration 1000:  92%|█████████▏| 12/13 [00:20<00:01,  1.45s/it]Test Evaluation Iteration 1000: 100%|██████████| 13/13 [00:21<00:00,  1.38s/it]Test Evaluation Iteration 1000: 100%|██████████| 13/13 [00:21<00:00,  1.64s/it]
+Iteration 1000 · 200 Test Sequences · 2026-11-18 22:56 ─────────────────────────────────────────────────────────────────
+  Accuracy        24.50 %   Balanced Accuracy         25.00 %                                                           
+  Macro F1        9.84 %    Top-5 Accuracy            100.00 %                                                          
+  Macro ROC AUC   57.58 %   Macro Average Precision   32.80 %                                                           
   Sample Images : 8 fixed test sequences                                                                                
                                                                                                                         
   Per Class Metrics                                                                                                     
-                                                                      Average   Threshold    Recall                     
-   Class          Samples   Precision   Recall       F1   ROC AUC   Precision     @ P0.99   @ P0.99                     
-  ──────────────────────────────────────────────────────────────────────────────────────────────────                    
-   moving_left         49      0.0000   0.0000   0.0000    0.4782      0.2468           —         —                     
-   moving_right        52      0.0000   0.0000   0.0000    0.5212      0.2936           —         —                     
-   moving_up           53      0.0000   0.0000   0.0000    0.6032      0.3989      0.2505    0.0566                     
-   moving_down         46      0.2300   1.0000   0.3740    0.4861      0.2258           —         —                     
-  Worst F1 first, ties in class order. — : no samples of the class, no negative for the ROC AUC, or the precision 0.99  
+                                                                         Average   Threshold    Recall                  
+   Class          Samples   Precision     Recall        F1   ROC AUC   Precision     @ P99 %   @ P99 %                  
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────                 
+   moving_left         40      0.00 %     0.00 %    0.00 %   69.05 %     39.74 %      0.2516    2.50 %                  
+   moving_up           56      0.00 %     0.00 %    0.00 %   53.96 %     29.59 %           —         —                  
+   moving_down         55      0.00 %     0.00 %    0.00 %   54.80 %     32.50 %           —         —                  
+   moving_right        49     24.50 %   100.00 %   39.36 %   52.53 %     29.36 %      0.2735    2.04 %                  
+  Worst F1 first, ties in class order. — : no samples of the class, no negative for the ROC AUC, or the precision 99 %  
   is never reached.                                                                                                     
-[32m[1m  - Results : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Results.txt\[4mResults.txt[24m]8;;\[0m
-[32m[1m  - Confusion Matrix Table : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_1000/confusion_matrix.csv\[4mconfusion_matrix.csv[24m]8;;\[0m
-[32m[1m  - Class Thresholds : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_1000/class_thresholds.json\[4mclass_thresholds.json[24m]8;;\[0m
-[32m[1m  - Class Metrics : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_1000/class_metrics.csv\[4mclass_metrics.csv[24m]8;;\[0m
-[32m[1m  - Confusion Matrix Image : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_1000/confusion_matrix.png\[4mconfusion_matrix.png[24m]8;;\[0m
-[32m[1m  - ROC Curves Image : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_1000/roc_curves.png\[4mroc_curves.png[24m]8;;\[0m
-[32m[1m  - Precision Recall Curves Image : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_1000/precision_recall_curves.png\[4mprecision_recall_curves.png[24m]8;;\[0m
-[32m[1m  - Predictions : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_1000/predictions.csv\[4mpredictions.csv[24m]8;;\[0m
-[32m[1m  - Sample Images : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_1000/Samples\[4mSamples[24m]8;;\[0m
+                                                                                                                        
+  Per Class Recall                                                                                                      
+                                          95 %       95 %                                                               
+   Class          Samples     Recall     Lower      Upper                                                               
+  ────────────────────────────────────────────────────────                                                              
+   moving_left         40     0.00 %    0.00 %     8.81 %                                                               
+   moving_up           56     0.00 %    0.00 %     6.38 %                                                               
+   moving_down         55     0.00 %    0.00 %     6.49 %                                                               
+   moving_right        49   100.00 %   92.75 %   100.00 %                                                               
+  Worst Recall first, ties in class order. 95 % Lower and Upper : exact (Clopper-Pearson) interval, the counted samples 
+  being independent. — : no samples of the class.                                                                       
+[32m[1m  - Results : ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Results.txt\[4mResults.txt[24m]8;;\[0m
+[32m[1m  - Confusion Matrix Table : ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_1000/confusion_matrix.csv\[4mconfusion_matrix.csv[24m]8;;\[0m
+[32m[1m  - Class Thresholds : ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_1000/class_thresholds.json\[4mclass_thresholds.json[24m]8;;\[0m
+[32m[1m  - Class Metrics : ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_1000/class_metrics.csv\[4mclass_metrics.csv[24m]8;;\[0m
+[32m[1m  - Confusion Matrix Image : ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_1000/confusion_matrix.png\[4mconfusion_matrix.png[24m]8;;\[0m
+[32m[1m  - ROC Curves Image : ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_1000/roc_curves.png\[4mroc_curves.png[24m]8;;\[0m
+[32m[1m  - Precision Recall Curves Image : ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_1000/precision_recall_curves.png\[4mprecision_recall_curves.png[24m]8;;\[0m
+[32m[1m  - Precision Recall Thresholds Image : ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_1000/precision_recall_thresholds.png\[4mprecision_recall_thresholds.png[24m]8;;\[0m
+[32m[1m  - Predictions : ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_1000/predictions.csv\[4mpredictions.csv[24m]8;;\[0m
+[32m[1m  - Sample Images : ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_1000/Samples\[4mSamples[24m]8;;\[0m
 ===========================================================================================================================================================
-|   Iteration: 1100   |    Total Sequences: 17600   |   Interval Sequences: 1600   |   Throughput: 8.3 Sequences Per Second  |   66.6 Frames Per Second   |
+|   Iteration: 1100   |    Total Sequences: 17600   |   Interval Sequences: 1600   |   Throughput: 7.1 Sequences Per Second  |   49.5 Frames Per Second   |
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-[94m[1mMoving Average of Train Total Loss                     :   1.3870[0m [32m[1m -0.0011[0m
-[93m[1mMoving Average of Valid Total Loss                     :   1.3864[0m [91m[1m +0.0013[0m
-[94m[1mMoving Average of Train Classification Loss            :   1.3870[0m [32m[1m -0.0011[0m
-[93m[1mMoving Average of Valid Classification Loss            :   1.3864[0m [91m[1m +0.0013[0m
-[94m[1mMoving Average of Train Accuracy                       :   0.2556[0m [32m[1m +0.0062[0m
-[93m[1mMoving Average of Valid Accuracy                       :   0.2500[0m [32m[1m +0.0156[0m
+[94m[1mMoving Average of Train Total Loss                     :     1.3857[0m [32m[1m   -0.0002[0m
+[93m[1mMoving Average of Valid Total Loss                     :     1.4034[0m [91m[1m   +0.0071[0m
+[94m[1mMoving Average of Train Classification Loss            :     1.3857[0m [32m[1m   -0.0002[0m
+[93m[1mMoving Average of Valid Classification Loss            :     1.4034[0m [91m[1m   +0.0071[0m
+[94m[1mMoving Average of Train Accuracy                       :    26.50 %[0m [91m[1m   -0.81 %[0m
+[93m[1mMoving Average of Valid Accuracy                       :    18.75 %[0m [91m[1m   -6.25 %[0m
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-Interval Of 100 Iterations Took 00:03:12.
+Interval Of 100 Iterations Took 00:03:44.
 Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
 ===========================================================================================================================================================
 ===========================================================================================================================================================
-|   Iteration: 1200   |    Total Sequences: 19200   |   Interval Sequences: 1600   |   Throughput: 8.9 Sequences Per Second  |   71.4 Frames Per Second   |
+|   Iteration: 1200   |    Total Sequences: 19200   |   Interval Sequences: 1600   |   Throughput: 8.4 Sequences Per Second  |   58.1 Frames Per Second   |
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-[94m[1mMoving Average of Train Total Loss                     :   1.3866[0m [32m[1m -0.0004[0m
-[93m[1mMoving Average of Valid Total Loss                     :   1.3861[0m [32m[1m -0.0003[0m
-[94m[1mMoving Average of Train Classification Loss            :   1.3866[0m [32m[1m -0.0004[0m
-[93m[1mMoving Average of Valid Classification Loss            :   1.3861[0m [32m[1m -0.0003[0m
-[94m[1mMoving Average of Train Accuracy                       :   0.2594[0m [32m[1m +0.0038[0m
-[93m[1mMoving Average of Valid Accuracy                       :   0.3125[0m [32m[1m +0.0625[0m
+[94m[1mMoving Average of Train Total Loss                     :     1.3852[0m [32m[1m   -0.0004[0m
+[93m[1mMoving Average of Valid Total Loss                     :     1.3907[0m [32m[1m   -0.0127[0m
+[94m[1mMoving Average of Train Classification Loss            :     1.3852[0m [32m[1m   -0.0004[0m
+[93m[1mMoving Average of Valid Classification Loss            :     1.3907[0m [32m[1m   -0.0127[0m
+[94m[1mMoving Average of Train Accuracy                       :    27.25 %[0m [32m[1m   +0.75 %[0m
+[93m[1mMoving Average of Valid Accuracy                       :    26.56 %[0m [32m[1m   +7.81 %[0m
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-Interval Of 100 Iterations Took 00:02:59.
+Interval Of 100 Iterations Took 00:03:11.
 Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
 ===========================================================================================================================================================
 ===========================================================================================================================================================
-|   Iteration: 1300   |    Total Sequences: 20800   |   Interval Sequences: 1600   |   Throughput: 8.9 Sequences Per Second  |   71.2 Frames Per Second   |
+|   Iteration: 1300   |    Total Sequences: 20800   |   Interval Sequences: 1600   |   Throughput: 8.4 Sequences Per Second  |   59.2 Frames Per Second   |
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-[94m[1mMoving Average of Train Total Loss                     :   1.3868[0m [91m[1m +0.0002[0m
-[93m[1mMoving Average of Valid Total Loss                     :   1.3836[0m [32m[1m -0.0025[0m
-[94m[1mMoving Average of Train Classification Loss            :   1.3868[0m [91m[1m +0.0002[0m
-[93m[1mMoving Average of Valid Classification Loss            :   1.3836[0m [32m[1m -0.0025[0m
-[94m[1mMoving Average of Train Accuracy                       :   0.2387[0m [91m[1m -0.0206[0m
-[93m[1mMoving Average of Valid Accuracy                       :   0.1719[0m [91m[1m -0.1406[0m
+[94m[1mMoving Average of Train Total Loss                     :     1.3867[0m [91m[1m   +0.0015[0m
+[93m[1mMoving Average of Valid Total Loss                     :     1.3976[0m [91m[1m   +0.0068[0m
+[94m[1mMoving Average of Train Classification Loss            :     1.3867[0m [91m[1m   +0.0015[0m
+[93m[1mMoving Average of Valid Classification Loss            :     1.3976[0m [91m[1m   +0.0068[0m
+[94m[1mMoving Average of Train Accuracy                       :    25.06 %[0m [91m[1m   -2.19 %[0m
+[93m[1mMoving Average of Valid Accuracy                       :    20.31 %[0m [91m[1m   -6.25 %[0m
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-Interval Of 100 Iterations Took 00:02:59.
+Interval Of 100 Iterations Took 00:03:09.
 Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
 ===========================================================================================================================================================
 ===========================================================================================================================================================
-|   Iteration: 1400   |    Total Sequences: 22400   |   Interval Sequences: 1600   |   Throughput: 8.8 Sequences Per Second  |   70.4 Frames Per Second   |
+|   Iteration: 1400   |    Total Sequences: 22400   |   Interval Sequences: 1600   |   Throughput: 8.4 Sequences Per Second  |   57.7 Frames Per Second   |
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-[94m[1mMoving Average of Train Total Loss                     :   1.3870[0m [91m[1m +0.0002[0m
-[93m[1mMoving Average of Valid Total Loss                     :   1.3848[0m [91m[1m +0.0012[0m
-[94m[1mMoving Average of Train Classification Loss            :   1.3870[0m [91m[1m +0.0002[0m
-[93m[1mMoving Average of Valid Classification Loss            :   1.3848[0m [91m[1m +0.0012[0m
-[94m[1mMoving Average of Train Accuracy                       :   0.2606[0m [32m[1m +0.0219[0m
-[93m[1mMoving Average of Valid Accuracy                       :   0.3125[0m [32m[1m +0.1406[0m
+[94m[1mMoving Average of Train Total Loss                     :     1.3862[0m [32m[1m   -0.0004[0m
+[93m[1mMoving Average of Valid Total Loss                     :     1.3843[0m [32m[1m   -0.0133[0m
+[94m[1mMoving Average of Train Classification Loss            :     1.3862[0m [32m[1m   -0.0004[0m
+[93m[1mMoving Average of Valid Classification Loss            :     1.3843[0m [32m[1m   -0.0133[0m
+[94m[1mMoving Average of Train Accuracy                       :    27.38 %[0m [32m[1m   +2.31 %[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Accuracy                       :    31.25 %[0m [32m[1m  +10.94 %[0m
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-Interval Of 100 Iterations Took 00:03:01.
+Interval Of 100 Iterations Took 00:03:09.
 Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
 ===========================================================================================================================================================
 Checkpoint Folder :
- - ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Weights/Iteration_1500\[4mIteration_1500[24m]8;;\
+ - ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Weights/Iteration_1500\[4mIteration_1500[24m]8;;\
  - Model Saved In : model_001500.pt
 ===========================================================================================================================================================
-|   Iteration: 1500   |    Total Sequences: 24000   |   Interval Sequences: 1600   |   Throughput: 8.9 Sequences Per Second  |   70.9 Frames Per Second   |
+|   Iteration: 1500   |    Total Sequences: 24000   |   Interval Sequences: 1600   |   Throughput: 8.5 Sequences Per Second  |   59.2 Frames Per Second   |
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-[94m[1mMoving Average of Train Total Loss                     :   1.3869[0m [32m[1m -0.0002[0m
-[93m[1mMoving Average of Valid Total Loss                     :   1.3857[0m [91m[1m +0.0009[0m
-[94m[1mMoving Average of Train Classification Loss            :   1.3869[0m [32m[1m -0.0002[0m
-[93m[1mMoving Average of Valid Classification Loss            :   1.3857[0m [91m[1m +0.0009[0m
-[94m[1mMoving Average of Train Accuracy                       :   0.2487[0m [91m[1m -0.0119[0m
-[93m[1mMoving Average of Valid Accuracy                       :   0.2812[0m [91m[1m -0.0312[0m
+[94m[1mMoving Average of Train Total Loss                     :     1.3860[0m [32m[1m   -0.0002[0m
+[93m[1mMoving Average of Valid Total Loss                     :     1.4030[0m [91m[1m   +0.0187[0m
+[94m[1mMoving Average of Train Classification Loss            :     1.3860[0m [32m[1m   -0.0002[0m
+[93m[1mMoving Average of Valid Classification Loss            :     1.4030[0m [91m[1m   +0.0187[0m
+[94m[1mMoving Average of Train Accuracy                       :    26.88 %[0m [91m[1m   -0.50 %[0m
+[93m[1mMoving Average of Valid Accuracy                       :    15.62 %[0m [91m[1m  -15.62 %[0m
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-Interval Of 100 Iterations Took 00:03:00.
+Interval Of 100 Iterations Took 00:03:09.
 Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
 ===========================================================================================================================================================
 ===========================================================================================================================================================
-|   Iteration: 1600   |    Total Sequences: 25600   |   Interval Sequences: 1600   |   Throughput: 8.9 Sequences Per Second  |   71.0 Frames Per Second   |
+|   Iteration: 1600   |    Total Sequences: 25600   |   Interval Sequences: 1600   |   Throughput: 9.1 Sequences Per Second  |   63.1 Frames Per Second   |
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-[94m[1mMoving Average of Train Total Loss                     :   1.3871[0m [91m[1m +0.0003[0m
-[93m[1mMoving Average of Valid Total Loss                     :   1.3838[0m [32m[1m -0.0019[0m
-[94m[1mMoving Average of Train Classification Loss            :   1.3871[0m [91m[1m +0.0003[0m
-[93m[1mMoving Average of Valid Classification Loss            :   1.3838[0m [32m[1m -0.0019[0m
-[94m[1mMoving Average of Train Accuracy                       :   0.2450[0m [91m[1m -0.0038[0m
-[93m[1mMoving Average of Valid Accuracy                       :   0.2188[0m [91m[1m -0.0625[0m
+[94m[1mMoving Average of Train Total Loss                     :     1.3842[0m [32m[1m   -0.0018[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Total Loss                     :     1.3933[0m [32m[1m   -0.0096[0m
+[94m[1mMoving Average of Train Classification Loss            :     1.3842[0m [32m[1m   -0.0018[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Classification Loss            :     1.3933[0m [32m[1m   -0.0096[0m
+[94m[1mMoving Average of Train Accuracy                       :    27.25 %[0m [32m[1m   +0.38 %[0m
+[93m[1mMoving Average of Valid Accuracy                       :    18.75 %[0m [32m[1m   +3.12 %[0m
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-Interval Of 100 Iterations Took 00:03:00.
+Interval Of 100 Iterations Took 00:02:56.
 Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
 ===========================================================================================================================================================
 ===========================================================================================================================================================
-|   Iteration: 1700   |    Total Sequences: 27200   |   Interval Sequences: 1600   |   Throughput: 8.9 Sequences Per Second  |   71.1 Frames Per Second   |
+|   Iteration: 1700   |    Total Sequences: 27200   |   Interval Sequences: 1600   |   Throughput: 8.7 Sequences Per Second  |   60.2 Frames Per Second   |
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-[94m[1mMoving Average of Train Total Loss                     :   1.3871[0m [32m[1m -0.0001[0m
-[93m[1mMoving Average of Valid Total Loss                     :   1.3903[0m [91m[1m +0.0065[0m
-[94m[1mMoving Average of Train Classification Loss            :   1.3871[0m [32m[1m -0.0001[0m
-[93m[1mMoving Average of Valid Classification Loss            :   1.3903[0m [91m[1m +0.0065[0m
-[94m[1mMoving Average of Train Accuracy                       :   0.2494[0m [32m[1m +0.0044[0m
-[93m[1mMoving Average of Valid Accuracy                       :   0.2031[0m [91m[1m -0.0156[0m
+[94m[1mMoving Average of Train Total Loss                     :     1.3825[0m [32m[1m   -0.0018[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Total Loss                     :     1.3986[0m [91m[1m   +0.0052[0m
+[94m[1mMoving Average of Train Classification Loss            :     1.3825[0m [32m[1m   -0.0018[0m [94m[1mBest[0m
+[93m[1mMoving Average of Valid Classification Loss            :     1.3986[0m [91m[1m   +0.0052[0m
+[94m[1mMoving Average of Train Accuracy                       :    26.88 %[0m [91m[1m   -0.38 %[0m
+[93m[1mMoving Average of Valid Accuracy                       :    21.88 %[0m [32m[1m   +3.12 %[0m
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-Interval Of 100 Iterations Took 00:03:00.
+Interval Of 100 Iterations Took 00:03:03.
 Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
 ===========================================================================================================================================================
 ===========================================================================================================================================================
-|   Iteration: 1800   |    Total Sequences: 28800   |   Interval Sequences: 1600   |   Throughput: 8.9 Sequences Per Second  |   70.9 Frames Per Second   |
+|   Iteration: 1800   |    Total Sequences: 28800   |   Interval Sequences: 1600   |   Throughput: 9.1 Sequences Per Second  |   63.5 Frames Per Second   |
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-[94m[1mMoving Average of Train Total Loss                     :   1.3860[0m [32m[1m -0.0010[0m [94m[1mBest[0m
-[93m[1mMoving Average of Valid Total Loss                     :   1.3855[0m [32m[1m -0.0047[0m
-[94m[1mMoving Average of Train Classification Loss            :   1.3860[0m [32m[1m -0.0010[0m [94m[1mBest[0m
-[93m[1mMoving Average of Valid Classification Loss            :   1.3855[0m [32m[1m -0.0047[0m
-[94m[1mMoving Average of Train Accuracy                       :   0.2700[0m [32m[1m +0.0206[0m [94m[1mBest[0m
-[93m[1mMoving Average of Valid Accuracy                       :   0.2812[0m [32m[1m +0.0781[0m
+[94m[1mMoving Average of Train Total Loss                     :     1.3888[0m [91m[1m   +0.0063[0m
+[93m[1mMoving Average of Valid Total Loss                     :     1.3951[0m [32m[1m   -0.0034[0m
+[94m[1mMoving Average of Train Classification Loss            :     1.3888[0m [91m[1m   +0.0063[0m
+[93m[1mMoving Average of Valid Classification Loss            :     1.3951[0m [32m[1m   -0.0034[0m
+[94m[1mMoving Average of Train Accuracy                       :    24.81 %[0m [91m[1m   -2.06 %[0m
+[93m[1mMoving Average of Valid Accuracy                       :    23.44 %[0m [32m[1m   +1.56 %[0m
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-Interval Of 100 Iterations Took 00:03:00.
+Interval Of 100 Iterations Took 00:02:55.
 Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
 ===========================================================================================================================================================
 ===========================================================================================================================================================
-|   Iteration: 1900   |    Total Sequences: 30400   |   Interval Sequences: 1600   |   Throughput: 8.9 Sequences Per Second  |   71.1 Frames Per Second   |
+|   Iteration: 1900   |    Total Sequences: 30400   |   Interval Sequences: 1600   |  Throughput: 11.4 Sequences Per Second  |   79.3 Frames Per Second   |
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-[94m[1mMoving Average of Train Total Loss                     :   1.3869[0m [91m[1m +0.0009[0m
-[93m[1mMoving Average of Valid Total Loss                     :   1.3869[0m [91m[1m +0.0013[0m
-[94m[1mMoving Average of Train Classification Loss            :   1.3869[0m [91m[1m +0.0009[0m
-[93m[1mMoving Average of Valid Classification Loss            :   1.3869[0m [91m[1m +0.0013[0m
-[94m[1mMoving Average of Train Accuracy                       :   0.2437[0m [91m[1m -0.0263[0m
-[93m[1mMoving Average of Valid Accuracy                       :   0.2500[0m [91m[1m -0.0312[0m
+[94m[1mMoving Average of Train Total Loss                     :     1.3852[0m [32m[1m   -0.0036[0m
+[93m[1mMoving Average of Valid Total Loss                     :     1.3838[0m [32m[1m   -0.0114[0m
+[94m[1mMoving Average of Train Classification Loss            :     1.3852[0m [32m[1m   -0.0036[0m
+[93m[1mMoving Average of Valid Classification Loss            :     1.3838[0m [32m[1m   -0.0114[0m
+[94m[1mMoving Average of Train Accuracy                       :    26.06 %[0m [32m[1m   +1.25 %[0m
+[93m[1mMoving Average of Valid Accuracy                       :    25.00 %[0m [32m[1m   +1.56 %[0m
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-Interval Of 100 Iterations Took 00:02:59.
+Interval Of 100 Iterations Took 00:02:20.
 Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
 ===========================================================================================================================================================
 Checkpoint Folder :
- - ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Weights/Iteration_2000\[4mIteration_2000[24m]8;;\
+ - ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Weights/Iteration_2000\[4mIteration_2000[24m]8;;\
  - Model Saved In : model_002000.pt
 ===========================================================================================================================================================
-|   Iteration: 2000   |    Total Sequences: 32000   |   Interval Sequences: 1600   |   Throughput: 8.9 Sequences Per Second  |   71.1 Frames Per Second   |
+|   Iteration: 2000   |    Total Sequences: 32000   |   Interval Sequences: 1600   |  Throughput: 10.4 Sequences Per Second  |   72.1 Frames Per Second   |
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-[94m[1mMoving Average of Train Total Loss                     :   1.3865[0m [32m[1m -0.0004[0m
-[93m[1mMoving Average of Valid Total Loss                     :   1.3877[0m [91m[1m +0.0008[0m
-[94m[1mMoving Average of Train Classification Loss            :   1.3865[0m [32m[1m -0.0004[0m
-[93m[1mMoving Average of Valid Classification Loss            :   1.3877[0m [91m[1m +0.0008[0m
-[94m[1mMoving Average of Train Accuracy                       :   0.2544[0m [32m[1m +0.0106[0m
-[93m[1mMoving Average of Valid Accuracy                       :   0.2031[0m [91m[1m -0.0469[0m
+[94m[1mMoving Average of Train Total Loss                     :     1.3850[0m [32m[1m   -0.0002[0m
+[93m[1mMoving Average of Valid Total Loss                     :     1.3892[0m [91m[1m   +0.0054[0m
+[94m[1mMoving Average of Train Classification Loss            :     1.3850[0m [32m[1m   -0.0002[0m
+[93m[1mMoving Average of Valid Classification Loss            :     1.3892[0m [91m[1m   +0.0054[0m
+[94m[1mMoving Average of Train Accuracy                       :    27.00 %[0m [32m[1m   +0.94 %[0m
+[93m[1mMoving Average of Valid Accuracy                       :    29.69 %[0m [32m[1m   +4.69 %[0m
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-Interval Of 100 Iterations Took 00:03:00.
+Interval Of 100 Iterations Took 00:02:33.
 Validation Iterations In This Interval: 4 (Ratio: Every 25 Training Iterations).
 ===========================================================================================================================================================
-Test Evaluation Iteration 2000:   0%|          | 0/13 [00:00<?, ?it/s]Test Evaluation Iteration 2000:   8%|▊         | 1/13 [00:01<00:15,  1.31s/it]Test Evaluation Iteration 2000:  15%|█▌        | 2/13 [00:01<00:09,  1.12it/s]Test Evaluation Iteration 2000:  23%|██▎       | 3/13 [00:03<00:10,  1.03s/it]Test Evaluation Iteration 2000:  31%|███       | 4/13 [00:04<00:09,  1.00s/it]Test Evaluation Iteration 2000:  38%|███▊      | 5/13 [00:04<00:06,  1.15it/s]Test Evaluation Iteration 2000:  46%|████▌     | 6/13 [00:05<00:05,  1.28it/s]Test Evaluation Iteration 2000:  54%|█████▍    | 7/13 [00:06<00:05,  1.17it/s]Test Evaluation Iteration 2000:  62%|██████▏   | 8/13 [00:06<00:03,  1.31it/s]Test Evaluation Iteration 2000:  69%|██████▉   | 9/13 [00:07<00:03,  1.20it/s]Test Evaluation Iteration 2000:  77%|███████▋  | 10/13 [00:08<00:02,  1.30it/s]Test Evaluation Iteration 2000:  85%|████████▍ | 11/13 [00:09<00:01,  1.27it/s]Test Evaluation Iteration 2000:  92%|█████████▏| 12/13 [00:09<00:00,  1.39it/s]Test Evaluation Iteration 2000: 100%|██████████| 13/13 [00:10<00:00,  1.61it/s]Test Evaluation Iteration 2000: 100%|██████████| 13/13 [00:10<00:00,  1.26it/s]
-Iteration 2000 · 200 Test Sequences · 2026-10-23 03:58 ─────────────────────────────────────────────────────────────────
-  Accuracy        0.2300   Balanced Accuracy         0.2500                                                             
-  Macro F1        0.0935   Top-2 Accuracy            0.4900                                                             
-  Macro ROC AUC   0.5050   Macro Average Precision   0.2661                                                             
+Test Evaluation Iteration 2000:   0%|          | 0/13 [00:00<?, ?it/s]Test Evaluation Iteration 2000:   8%|▊         | 1/13 [00:01<00:18,  1.51s/it]Test Evaluation Iteration 2000:  15%|█▌        | 2/13 [00:03<00:16,  1.53s/it]Test Evaluation Iteration 2000:  23%|██▎       | 3/13 [00:03<00:11,  1.14s/it]Test Evaluation Iteration 2000:  31%|███       | 4/13 [00:04<00:10,  1.16s/it]Test Evaluation Iteration 2000:  38%|███▊      | 5/13 [00:06<00:09,  1.14s/it]Test Evaluation Iteration 2000:  46%|████▌     | 6/13 [00:06<00:07,  1.08s/it]Test Evaluation Iteration 2000:  54%|█████▍    | 7/13 [00:08<00:06,  1.07s/it]Test Evaluation Iteration 2000:  62%|██████▏   | 8/13 [00:09<00:06,  1.23s/it]Test Evaluation Iteration 2000:  69%|██████▉   | 9/13 [00:10<00:05,  1.27s/it]Test Evaluation Iteration 2000:  77%|███████▋  | 10/13 [00:11<00:03,  1.06s/it]Test Evaluation Iteration 2000:  85%|████████▍ | 11/13 [00:12<00:02,  1.05s/it]Test Evaluation Iteration 2000:  92%|█████████▏| 12/13 [00:13<00:00,  1.07it/s]Test Evaluation Iteration 2000: 100%|██████████| 13/13 [00:14<00:00,  1.04it/s]Test Evaluation Iteration 2000: 100%|██████████| 13/13 [00:14<00:00,  1.10s/it]
+Iteration 2000 · 200 Test Sequences · 2026-11-18 23:26 ─────────────────────────────────────────────────────────────────
+  Accuracy        24.50 %   Balanced Accuracy         25.00 %                                                           
+  Macro F1        9.84 %    Top-5 Accuracy            100.00 %                                                          
+  Macro ROC AUC   50.11 %   Macro Average Precision   27.15 %                                                           
   Sample Images : 8 fixed test sequences                                                                                
                                                                                                                         
   Per Class Metrics                                                                                                     
-                                                                      Average   Threshold    Recall                     
-   Class          Samples   Precision   Recall       F1   ROC AUC   Precision     @ P0.99   @ P0.99                     
-  ──────────────────────────────────────────────────────────────────────────────────────────────────                    
-   moving_left         49      0.0000   0.0000   0.0000    0.5076      0.2486           —         —                     
-   moving_right        52      0.0000   0.0000   0.0000    0.5376      0.3281      0.2524    0.0577                     
-   moving_up           53      0.0000   0.0000   0.0000    0.4867      0.2635           —         —                     
-   moving_down         46      0.2300   1.0000   0.3740    0.4884      0.2242           —         —                     
-  Worst F1 first, ties in class order. — : no samples of the class, no negative for the ROC AUC, or the precision 0.99  
+                                                                         Average   Threshold    Recall                  
+   Class          Samples   Precision     Recall        F1   ROC AUC   Precision     @ P99 %   @ P99 %                  
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────                 
+   moving_left         40      0.00 %     0.00 %    0.00 %   45.63 %     20.60 %           —         —                  
+   moving_up           56      0.00 %     0.00 %    0.00 %   49.39 %     26.42 %           —         —                  
+   moving_down         55      0.00 %     0.00 %    0.00 %   54.75 %     33.10 %      0.2503    1.82 %                  
+   moving_right        49     24.50 %   100.00 %   39.36 %   50.67 %     28.48 %      0.3045    4.08 %                  
+  Worst F1 first, ties in class order. — : no samples of the class, no negative for the ROC AUC, or the precision 99 %  
   is never reached.                                                                                                     
-[32m[1m  - Results : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Results.txt\[4mResults.txt[24m]8;;\[0m
-[32m[1m  - Confusion Matrix Table : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_2000/confusion_matrix.csv\[4mconfusion_matrix.csv[24m]8;;\[0m
-[32m[1m  - Class Thresholds : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_2000/class_thresholds.json\[4mclass_thresholds.json[24m]8;;\[0m
-[32m[1m  - Class Metrics : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_2000/class_metrics.csv\[4mclass_metrics.csv[24m]8;;\[0m
-[32m[1m  - Confusion Matrix Image : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_2000/confusion_matrix.png\[4mconfusion_matrix.png[24m]8;;\[0m
-[32m[1m  - ROC Curves Image : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_2000/roc_curves.png\[4mroc_curves.png[24m]8;;\[0m
-[32m[1m  - Precision Recall Curves Image : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_2000/precision_recall_curves.png\[4mprecision_recall_curves.png[24m]8;;\[0m
-[32m[1m  - Predictions : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_2000/predictions.csv\[4mpredictions.csv[24m]8;;\[0m
-[32m[1m  - Sample Images : ]8;;file:///home/robert_kelevra/Projects/visual-language-model-spark/experiments/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_2000/Samples\[4mSamples[24m]8;;\[0m
+                                                                                                                        
+  Per Class Recall                                                                                                      
+                                          95 %       95 %                                                               
+   Class          Samples     Recall     Lower      Upper                                                               
+  ────────────────────────────────────────────────────────                                                              
+   moving_left         40     0.00 %    0.00 %     8.81 %                                                               
+   moving_up           56     0.00 %    0.00 %     6.38 %                                                               
+   moving_down         55     0.00 %    0.00 %     6.49 %                                                               
+   moving_right        49   100.00 %   92.75 %   100.00 %                                                               
+  Worst Recall first, ties in class order. 95 % Lower and Upper : exact (Clopper-Pearson) interval, the counted samples 
+  being independent. — : no samples of the class.                                                                       
+[32m[1m  - Results : ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Results.txt\[4mResults.txt[24m]8;;\[0m
+[32m[1m  - Confusion Matrix Table : ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_2000/confusion_matrix.csv\[4mconfusion_matrix.csv[24m]8;;\[0m
+[32m[1m  - Class Thresholds : ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_2000/class_thresholds.json\[4mclass_thresholds.json[24m]8;;\[0m
+[32m[1m  - Class Metrics : ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_2000/class_metrics.csv\[4mclass_metrics.csv[24m]8;;\[0m
+[32m[1m  - Confusion Matrix Image : ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_2000/confusion_matrix.png\[4mconfusion_matrix.png[24m]8;;\[0m
+[32m[1m  - ROC Curves Image : ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_2000/roc_curves.png\[4mroc_curves.png[24m]8;;\[0m
+[32m[1m  - Precision Recall Curves Image : ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_2000/precision_recall_curves.png\[4mprecision_recall_curves.png[24m]8;;\[0m
+[32m[1m  - Precision Recall Thresholds Image : ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_2000/precision_recall_thresholds.png\[4mprecision_recall_thresholds.png[24m]8;;\[0m
+[32m[1m  - Predictions : ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_2000/predictions.csv\[4mpredictions.csv[24m]8;;\[0m
+[32m[1m  - Sample Images : ]8;;file:///home/robert_kelevra/Data/tutorial_runs/readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/Evaluation/Iteration_2000/Samples\[4mSamples[24m]8;;\[0m
 [32m[1m-----------------------------------------------------------[0m
 [32m[1mLast Checkpoint Saved At Iteration 2000. Exiting Training.[0m
 [32m[1m-----------------------------------------------------------[0m

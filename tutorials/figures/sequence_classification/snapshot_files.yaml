@@ -1,11 +1,12 @@
 # Files of the runs the sequence classification figures read, copied into tutorials/run_snapshots by
 # tutorials/make_run_snapshots.py (tutorials/MAINTAINING.md, section Run Snapshots). No checkpoint is committed: the
 # flatten run is rebuilt from its configuration for the facts of its structure, the checkpoint sizes the narration
-# quotes come from the listings of the Weights folders, and the families that run the trained weights (the truncation
-# figure and inference facts, the animated padded batch) are committed from the build cache under figure_reuse.
+# quotes come from the listings of the Weights folders, and the families that run the trained weights (the similarity
+# and invariance inference, the animated padded batch) are committed from the build cache under figure_reuse.
 runs:
-  # Main run (flatten pooling, 128 pixels), shared with sequence_comparison (configuration and console log): settings,
-  # checkpoint registry, training and test curves, evaluation report, figures and predictions of both evaluations
+  # Main run (flatten pooling, 256 pixels), shared with sequence_comparison (configuration and console log): settings,
+  # checkpoint registry, training and test curves, evaluation report, class metrics and predictions of both
+  # evaluations, and the figures and sample of the last one (SAMPLE_SEQUENCE of evaluation_figures.py)
   - run: sequence_classification
     files:
       - path: training_configuration.yaml
@@ -19,14 +20,16 @@ runs:
       - path: Checkpoint_Evaluation/Tensorboard/Test/events.out.tfevents.*
         reduction: tensorboard_scalars
       - path: Checkpoint_Evaluation/Results.txt
-      - path: Checkpoint_Evaluation/Iteration_1000/confusion_matrix.png
-      - path: Checkpoint_Evaluation/Iteration_1000/roc_curves.png
-      - path: Checkpoint_Evaluation/Iteration_1000/predictions.csv
-      - path: Checkpoint_Evaluation/Iteration_1000/Samples/test_000000.png
+      - path: Checkpoint_Evaluation/Iteration_500/confusion_matrix.png
+      - path: Checkpoint_Evaluation/Iteration_500/roc_curves.png
       - path: Checkpoint_Evaluation/Iteration_500/predictions.csv
+      - path: Checkpoint_Evaluation/Iteration_500/class_metrics.csv
+      - path: Checkpoint_Evaluation/Iteration_500/Samples/test_000004.png
+      - path: Checkpoint_Evaluation/Iteration_250/predictions.csv
+      - path: Checkpoint_Evaluation/Iteration_250/class_metrics.csv
       - path: ../sequence_classification_flatten.log
-  # Average pooling at 512 pixels: settings, checkpoint registry and size, curves, figures and predictions of its
-  # last evaluation, and its console log
+  # Average pooling at 512 pixels: settings, checkpoint registry and size, curves, figures, predictions and sample of
+  # its last evaluation, and its console log
   - run: sequence_classification.comparison_runs.average_pooling_512
     files:
       - path: training_configuration.yaml
@@ -42,10 +45,10 @@ runs:
       - path: Checkpoint_Evaluation/Iteration_2000/confusion_matrix.png
       - path: Checkpoint_Evaluation/Iteration_2000/roc_curves.png
       - path: Checkpoint_Evaluation/Iteration_2000/predictions.csv
-      - path: Checkpoint_Evaluation/Iteration_2000/Samples/test_000000.png
+      - path: Checkpoint_Evaluation/Iteration_2000/Samples/test_000004.png
       - path: ../sequence_classification.log
-  # Flatten pooling at 512 pixels (the verification run): settings, checkpoint registry and size, training curves and
-  # its console log
+  # Flatten pooling at 512 pixels (the verification run): settings, checkpoint registry and size, training curves, the
+  # test accuracy of its training evaluations and its console log
   - run: sequence_classification.comparison_runs.flatten_512
     files:
       - path: training_configuration.yaml
@@ -56,16 +59,19 @@ runs:
         output: weights_listing.txt
       - path: Tensorboard/Train/events.out.tfevents.*
         reduction: tensorboard_scalars
+      - path: Tensorboard/Test/events.out.tfevents.*
+        reduction: tensorboard_scalars
       - path: ../sequence_classification_flatten_512.log
-# Moving shapes data set: label mapping and labels of every split, and the frames of the first training sequence drawn
-# by the data figures (the generator seeds its chunks from the system, so the data set cannot be made again identically)
+# Moving shapes data set: label mapping and labels of every split (the lengths of the sequences, the classes of the
+# splits and of the test sequences by length), and the frames of the first training sequence drawn by the data figures
+# (the generator seeds its chunks from the system, so the data set cannot be made again identically)
 datasets:
   - path: sequence_data/synthetic_moving_shapes/label_mapping.json
   - path: sequence_data/synthetic_moving_shapes/train/labels.json
   - path: sequence_data/synthetic_moving_shapes/validation/labels.json
   - path: sequence_data/synthetic_moving_shapes/test/labels.json
   - path: sequence_data/synthetic_moving_shapes/train/data/train_000000/*.png
-# Families run with the trained weights, reused from these committed outputs when the checkpoint is absent
+# Families run with the trained weights, reused from these committed outputs when the checkpoints are absent
 figure_reuse:
   - family: model
   - family: batch

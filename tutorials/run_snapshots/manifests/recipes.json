@@ -147,35 +147,35 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 5333,
-      "snapshot_path": "readme_screenshots/M2O_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4/training_configuration.yaml",
-      "snapshot_sha256": "17939c3738a2f4b415ad0363f3d28c87aea09a14cb185b0fb8bb371d339056da",
-      "source_bytes": 5333,
+      "snapshot_bytes": 19574,
+      "snapshot_path": "readme_screenshots/M2O_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4/training_configuration.yaml",
+      "snapshot_sha256": "045064973995dfd3c580649e9f2786786b43095106717a18135540802183a9a0",
+      "source_bytes": 19574,
       "source_kind": "run",
-      "source_path": "readme_screenshots/M2O_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4/training_configuration.yaml",
-      "source_sha256": "17939c3738a2f4b415ad0363f3d28c87aea09a14cb185b0fb8bb371d339056da"
+      "source_path": "readme_screenshots/M2O_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4/training_configuration.yaml",
+      "source_sha256": "045064973995dfd3c580649e9f2786786b43095106717a18135540802183a9a0"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 5334,
+      "snapshot_bytes": 19386,
       "snapshot_path": "readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/training_configuration.yaml",
-      "snapshot_sha256": "8ee260ae0bdc79a619477075c268c8dfb35f45c5f9828154613f26ab2a25ed60",
-      "source_bytes": 5334,
+      "snapshot_sha256": "8946fa7428b88aee11193883241886039321a27d062abb4ea740cbcb08c45507",
+      "source_bytes": 19386,
       "source_kind": "run",
       "source_path": "readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/training_configuration.yaml",
-      "source_sha256": "8ee260ae0bdc79a619477075c268c8dfb35f45c5f9828154613f26ab2a25ed60"
+      "source_sha256": "8946fa7428b88aee11193883241886039321a27d062abb4ea740cbcb08c45507"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 5341,
+      "snapshot_bytes": 19588,
       "snapshot_path": "readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4_verification/training_configuration.yaml",
-      "snapshot_sha256": "09cf0044a3f7cde6fd9b3722d865eb4dc10f871c1540f8fba3b0d557a5e64fa0",
-      "source_bytes": 5341,
+      "snapshot_sha256": "052eb5d8d8377840fb563f8089473bb39c8b4bef36e65187a5771c76412f55c8",
+      "source_bytes": 19588,
       "source_kind": "run",
       "source_path": "readme_screenshots/M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4_verification/training_configuration.yaml",
-      "source_sha256": "09cf0044a3f7cde6fd9b3722d865eb4dc10f871c1540f8fba3b0d557a5e64fa0"
+      "source_sha256": "052eb5d8d8377840fb563f8089473bb39c8b4bef36e65187a5771c76412f55c8"
     },
     {
       "options": {},
@@ -256,5 +256,5 @@
     }
   ],
   "series": "recipes",
-  "snapshot_bytes": 316544
+  "snapshot_bytes": 359084
 }

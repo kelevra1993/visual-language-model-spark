@@ -2611,24 +2611,24 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 5333,
-      "snapshot_path": "readme_screenshots/M2O_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4/training_configuration.yaml",
-      "snapshot_sha256": "17939c3738a2f4b415ad0363f3d28c87aea09a14cb185b0fb8bb371d339056da",
-      "source_bytes": 5333,
+      "snapshot_bytes": 19574,
+      "snapshot_path": "readme_screenshots/M2O_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4/training_configuration.yaml",
+      "snapshot_sha256": "045064973995dfd3c580649e9f2786786b43095106717a18135540802183a9a0",
+      "source_bytes": 19574,
       "source_kind": "run",
-      "source_path": "readme_screenshots/M2O_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4/training_configuration.yaml",
-      "source_sha256": "17939c3738a2f4b415ad0363f3d28c87aea09a14cb185b0fb8bb371d339056da"
+      "source_path": "readme_screenshots/M2O_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4/training_configuration.yaml",
+      "source_sha256": "045064973995dfd3c580649e9f2786786b43095106717a18135540802183a9a0"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 42095,
+      "snapshot_bytes": 27010,
       "snapshot_path": "readme_screenshots/sequence_classification_flatten.log",
-      "snapshot_sha256": "0cb635937cdb45defc47feaf3efa2f7e509ef4d2e40237baf740e42997edfb13",
-      "source_bytes": 42095,
+      "snapshot_sha256": "0a0f008b4b317dbd829d41fd914bbbcac193628b302c3121b1c39d0d54d282c6",
+      "source_bytes": 27010,
       "source_kind": "run",
       "source_path": "readme_screenshots/sequence_classification_flatten.log",
-      "source_sha256": "0cb635937cdb45defc47feaf3efa2f7e509ef4d2e40237baf740e42997edfb13"
+      "source_sha256": "0a0f008b4b317dbd829d41fd914bbbcac193628b302c3121b1c39d0d54d282c6"
     },
     {
       "options": {},
@@ -2643,5 +2643,5 @@
     }
   ],
   "series": "sequence_comparison",
-  "snapshot_bytes": 2257241
+  "snapshot_bytes": 2256397
 }

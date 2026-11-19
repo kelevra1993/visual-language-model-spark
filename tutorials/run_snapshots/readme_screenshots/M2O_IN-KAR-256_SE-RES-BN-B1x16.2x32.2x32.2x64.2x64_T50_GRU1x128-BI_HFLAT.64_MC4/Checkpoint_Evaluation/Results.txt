@@ -1,0 +1,56 @@
+Iteration 250 · 200 Test Sequences · 2026-11-19 20:53 ──────────────────────────────────────────────────────────────────
+  Accuracy        96.50 %   Balanced Accuracy         96.68 %
+  Macro F1        96.47 %   Top-5 Accuracy            100.00 %
+  Macro ROC AUC   99.91 %   Macro Average Precision   99.73 %
+  Sample Images : 8 fixed test sequences
+
+  Per Class Metrics
+                                                                         Average   Threshold    Recall
+   Class          Samples   Precision     Recall        F1   ROC AUC   Precision     @ P99 %   @ P99 %
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────
+   moving_right        49     90.74 %   100.00 %   95.15 %   99.92 %     99.77 %      0.8307   95.92 %
+   moving_left         40     95.12 %    97.50 %   96.30 %   99.88 %     99.55 %      0.5151   95.00 %
+   moving_up           56    100.00 %    92.86 %   96.30 %   99.88 %     99.70 %      0.3625   94.64 %
+   moving_down         55    100.00 %    96.36 %   98.15 %   99.96 %     99.90 %      0.8273   96.36 %
+  Worst F1 first, ties in class order. — : no samples of the class, no negative for the ROC AUC, or the precision 99 %
+  is never reached.
+
+  Per Class Recall
+                                          95 %       95 %
+   Class          Samples     Recall     Lower      Upper
+  ────────────────────────────────────────────────────────
+   moving_up           56    92.86 %   82.71 %    98.02 %
+   moving_down         55    96.36 %   87.47 %    99.56 %
+   moving_left         40    97.50 %   86.84 %    99.94 %
+   moving_right        49   100.00 %   92.75 %   100.00 %
+  Worst Recall first, ties in class order. 95 % Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
+  being independent. — : no samples of the class.
+
+Iteration 500 · 200 Test Sequences · 2026-11-19 20:53 ──────────────────────────────────────────────────────────────────
+  Accuracy        99.00 %   Balanced Accuracy         99.04 %
+  Macro F1        98.90 %   Top-5 Accuracy            100.00 %
+  Macro ROC AUC   99.99 %   Macro Average Precision   99.96 %
+  Sample Images : 8 fixed test sequences
+
+  Per Class Metrics
+                                                                           Average   Threshold     Recall
+   Class          Samples   Precision     Recall         F1    ROC AUC   Precision     @ P99 %    @ P99 %
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────
+   moving_left         40     95.24 %   100.00 %    97.56 %    99.95 %     99.83 %      0.6818    97.50 %
+   moving_right        49    100.00 %    97.96 %    98.97 %   100.00 %    100.00 %      0.2195   100.00 %
+   moving_down         55    100.00 %    98.18 %    99.08 %   100.00 %    100.00 %      0.3148   100.00 %
+   moving_up           56    100.00 %   100.00 %   100.00 %   100.00 %    100.00 %      0.5182   100.00 %
+  Worst F1 first, ties in class order. — : no samples of the class, no negative for the ROC AUC, or the precision 99 %
+  is never reached.
+
+  Per Class Recall
+                                          95 %       95 %
+   Class          Samples     Recall     Lower      Upper
+  ────────────────────────────────────────────────────────
+   moving_right        49    97.96 %   89.15 %    99.95 %
+   moving_down         55    98.18 %   90.28 %    99.95 %
+   moving_left         40   100.00 %   91.19 %   100.00 %
+   moving_up           56   100.00 %   93.62 %   100.00 %
+  Worst Recall first, ties in class order. 95 % Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
+  being independent. — : no samples of the class.
+
