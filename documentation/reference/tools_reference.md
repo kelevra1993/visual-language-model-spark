@@ -95,7 +95,7 @@ Every row is a launch and its weights (`evaluated_weights`: `trained`, or `ema` 
 | `table_grouping` | `"run"` for one table per run, `"columns"` for one table per set of column titles |
 | `curves_in_percent`, `number_decimals`, `output_path` | whether the curves that are rates are written as the percentages of the reports, `89.80 %` (`True` in the main block), the decimals of the other curves (3): the mean true frame rank, effective rank, standard deviation, proposals per image and keypoint pixel error of `NON_RATE_CURVE_NAMES`, or every curve with `False`; and a Markdown file receiving the tables (`None` to print only) |
 
-Say you compare two of the four runs of the main block, the synthetic shapes classifier of the README trained at two learning rates, with `table_grouping = "columns"`, the learning rate as first column and the recalls of two of its classes:
+Say you compare two of the four runs of the main block, the 9-class synthetic shapes classifier of the README screenshots trained at two learning rates, with `table_grouping = "columns"`, the learning rate as first column and the recalls of two of its classes:
 
 ```text
 | Learning Rate | Best Iteration | Balanced Accuracy | Recall square | Recall circle | Validation Images | Train Images |
