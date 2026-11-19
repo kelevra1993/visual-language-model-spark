@@ -1,7 +1,5 @@
-# Launch configuration of the tutorial retrain of 2026-11-18 (harder synthetic datasets), written by
-# analysis/write_configurations.py from vision_training/configurations/sequence_comparison/configuration_synthetic_pairs.yaml of origin/main f1408fd.
-# Deliberate settings of the recipe applied: ExperimentConfiguration.experiment_folder /home/robert_kelevra/Data/tutorial_runs/readme_screenshots; ExperimentConfiguration.number_iterations 1000; ExperimentConfiguration.tracking.activated True.
-# Rerun of 2026-11-19 (tmp/retrain/plan_after_ins.md): none, the recipe as it is (1,000 iterations of 16 pairs).
+# Tutorial run trained from vision_training/configurations/sequence_comparison/configuration_synthetic_pairs.yaml of
+# main f1408fd, with the settings changed for the run and its dataset listed in tutorials/tutorial_sources.yaml.
 # Synthetic object loss pairs dataset (create_synthetic_dataset.py "sequence_comparison"): before and after views of 2
 # to 6 objects, labelled with whether the after member lost one.
 ExperimentConfiguration:

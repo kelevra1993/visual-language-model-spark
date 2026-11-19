@@ -1,6 +1,5 @@
-# Launch configuration of the tutorial retrain of 2026-11-18 (harder synthetic datasets), written by
-# analysis/write_configurations.py from vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml of origin/main f1408fd.
-# Deliberate settings of the recipe applied: ExperimentConfiguration.experiment_folder /home/robert_kelevra/Data/tutorial_runs/readme_screenshots; ExperimentConfiguration.number_iterations 2000; ExperimentConfiguration.tracking.activated True.
+# Tutorial run trained from vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml of
+# main f1408fd, with the settings changed for the run and its dataset listed in tutorials/tutorial_sources.yaml.
 # Synthetic selected shapes dataset (create_synthetic_dataset.py "frame_selection"): sequences of 4 to 12 one-shape
 # frames, the largest circle, triangle and star selected, the other frames unselected.
 ExperimentConfiguration:

@@ -317,15 +317,15 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 20213,
+      "snapshot_bytes": 19948,
       "snapshot_path": "readme_screenshots/SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1/training_configuration.yaml",
-      "snapshot_sha256": "e39753fe9471ce11d39c9555cd031c839eee86a2f431d59ae6171163c116e520",
-      "source_bytes": 20213,
+      "snapshot_sha256": "5da8a01babfaa953d36b70e4fc09fc6ce637759e67ce281e6cce0b75c253896e",
+      "source_bytes": 19948,
       "source_kind": "run",
       "source_path": "readme_screenshots/SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1/training_configuration.yaml",
-      "source_sha256": "e39753fe9471ce11d39c9555cd031c839eee86a2f431d59ae6171163c116e520"
+      "source_sha256": "5da8a01babfaa953d36b70e4fc09fc6ce637759e67ce281e6cce0b75c253896e"
     }
   ],
   "series": "frame_selection",
-  "snapshot_bytes": 1989252
+  "snapshot_bytes": 1988987
 }

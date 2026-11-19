@@ -153,13 +153,13 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 19874,
+      "snapshot_bytes": 19489,
       "snapshot_path": "keypoint_focal_synthetic/experiments/KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256-HH_MC33/training_configuration.yaml",
-      "snapshot_sha256": "ca33e001fb780d5ff0b573112af69fa1d207f320cb58d7b586f93556ddd4a60b",
-      "source_bytes": 19874,
+      "snapshot_sha256": "d598ef3c414c0e8b9d7bce5bffd782fd98934321c0f2d959a56919fda44fc7e4",
+      "source_bytes": 19489,
       "source_kind": "run",
       "source_path": "keypoint_focal_synthetic/experiments/KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256-HH_MC33/training_configuration.yaml",
-      "source_sha256": "ca33e001fb780d5ff0b573112af69fa1d207f320cb58d7b586f93556ddd4a60b"
+      "source_sha256": "d598ef3c414c0e8b9d7bce5bffd782fd98934321c0f2d959a56919fda44fc7e4"
     },
     {
       "options": {
@@ -176,5 +176,5 @@
     }
   ],
   "series": "keypoint_detection",
-  "snapshot_bytes": 4816884
+  "snapshot_bytes": 4816377
 }

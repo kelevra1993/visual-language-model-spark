@@ -1,9 +1,7 @@
-# Launch configuration of the tutorial retrain of 2026-11-18 (harder synthetic datasets), written by
-# analysis/write_configurations.py from vision_training/configurations/classification/configuration_synthetic_shapes.yaml of origin/main f1408fd.
-# Deliberate settings of the recipe applied: ExperimentConfiguration.experiment_folder /home/robert_kelevra/Data/tutorial_runs/readme_screenshots; ExperimentConfiguration.number_iterations 1500; ExperimentConfiguration.weight_saving_iterations 500; ExperimentConfiguration.intermediate_weight_saving_iterations 250; ExperimentConfiguration.tracking.activated True.
-# Rerun of 2026-11-19 (tmp/retrain/plan_after_ins.md): 4,000 iterations from the shape pretrainer SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128.
-# Synthetic shapes classification dataset (create_synthetic_dataset.py "classification"), one shape per image, 64 pixels
-# to a third of the side; 9 classes (square to octagon), made before 26 of the 35 SHAPE_CATEGORIES were added.
+# Tutorial run trained from vision_training/configurations/classification/configuration_synthetic_shapes.yaml of main
+# f1408fd, with the settings changed for the run and its dataset listed in tutorials/tutorial_sources.yaml.
+# Synthetic shapes classification dataset (create_synthetic_dataset.py "classification"), one shape per image, 16 pixels
+# to 80% of the side, cut by the border, on flat or textured backgrounds; the 35 SHAPE_CATEGORIES classes.
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "classification": the image classifier; needs
   # ClassificationHead.

@@ -1,6 +1,5 @@
-# Launch configuration of the tutorial retrain of 2026-11-18 (harder synthetic datasets), written by
-# analysis/write_configurations.py from vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml of origin/main f1408fd.
-# Deliberate settings of the recipe applied: ExperimentConfiguration.experiment_folder /home/robert_kelevra/Data/tutorial_runs/keypoint_focal_synthetic/experiments; ExperimentConfiguration.number_iterations 6000; Optimization.decay_iterations 5500; ExperimentConfiguration.test_data_folder /home/robert_kelevra/Data/keypoint_data/synthetic_shapes/test_first_1024.
+# Tutorial run trained from vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml of
+# main f1408fd, with the settings changed for the run and its dataset listed in tutorials/tutorial_sources.yaml.
 # Synthetic keypoint dataset (create_synthetic_dataset.py "keypoint_detection"): 2 to 5 objects per image (35 upright
 # shapes, stick figure, house), keypoints per category; circle, ellipse, annulus and hollow ellipse have none.
 ExperimentConfiguration:

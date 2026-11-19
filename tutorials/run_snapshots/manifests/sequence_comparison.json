@@ -1676,13 +1676,13 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 19960,
+      "snapshot_bytes": 19582,
       "snapshot_path": "readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/training_configuration.yaml",
-      "snapshot_sha256": "70b43a0d7459af11bd5d93cc26e0b7022106c2bcc929aaa44a6dca8805db8d33",
-      "source_bytes": 19960,
+      "snapshot_sha256": "d4d0c5e186e154daafc1a819f3dba6827615a7a261a87e4c3033dade9afe46e2",
+      "source_bytes": 19582,
       "source_kind": "run",
       "source_path": "readme_screenshots/CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/training_configuration.yaml",
-      "source_sha256": "70b43a0d7459af11bd5d93cc26e0b7022106c2bcc929aaa44a6dca8805db8d33"
+      "source_sha256": "d4d0c5e186e154daafc1a819f3dba6827615a7a261a87e4c3033dade9afe46e2"
     },
     {
       "options": {},
@@ -1697,5 +1697,5 @@
     }
   ],
   "series": "sequence_comparison",
-  "snapshot_bytes": 3312156
+  "snapshot_bytes": 3311778
 }

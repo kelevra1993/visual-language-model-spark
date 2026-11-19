@@ -1,11 +1,9 @@
-# Launch configuration of the tutorial retrain of 2026-11-18 (harder synthetic datasets), written by
-# analysis/write_configurations.py from tutorials/run_configurations/object_detection_synthetic_shapes_tutorial.yaml of origin/main f1408fd.
-# Deliberate settings of the recipe applied: none (the file as it is).
-# Rerun of 2026-11-19 (tmp/retrain/plan_after_ins.md): 8,000 iterations, evaluation every 1,000 (checkpoints every 500) on test_5000, level 4 [16, 32] and scale 384 on level 7.
-# Tutorial object_detection run (tutorial_sources.yaml): object_detection/configuration_synthetic_shapes.yaml as
-# shipped, in ~/Data/tutorial_runs (outside the repository); python -m vision_training.main --configuration_path=<file>.
-# Synthetic shapes dataset (create_synthetic_dataset.py "instance_segmentation", boxes of the visible parts), 64 pixels
-# to a third of the side; 20 classes (square to L-shape), made before the 15 hollow SHAPE_CATEGORIES were added.
+# Tutorial run trained from tutorials/run_configurations/object_detection_synthetic_shapes_tutorial.yaml of main
+# f1408fd, with the settings changed for the run and its dataset listed in tutorials/tutorial_sources.yaml.
+# Tutorial object_detection run (tutorial_sources.yaml): object_detection/configuration_synthetic_shapes.yaml with a
+# level 4 and a 384 pixel scale on level 7, tested on test_5000 every 1000 of 8000 iterations, in ~/Data/tutorial_runs.
+# Synthetic shapes dataset (create_synthetic_dataset.py "instance_segmentation", boxes of the visible parts), 5 to 6
+# shapes per image, 16 pixels to 80% of the side, mostly hidden ones unlabelled; the 35 SHAPE_CATEGORIES classes.
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "object_detection": two-stage detector; needs RegionProposal,
   # DetectionLevels and Detector. Labels: COCO annotations, crowd ones (iscrowd 1) as ordinary objects.

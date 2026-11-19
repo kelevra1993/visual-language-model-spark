@@ -1,7 +1,6 @@
-# Launch configuration of the tutorial retrain of 2026-11-18 (harder synthetic datasets), written by
-# analysis/write_configurations.py from vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml of origin/main f1408fd.
-# Deliberate settings of the recipe applied: ExperimentConfiguration.experiment_folder /home/robert_kelevra/Data/tutorial_runs/readme_screenshots; ExperimentConfiguration.run_name_suffix "verification"; ExperimentConfiguration.number_iterations 500; ExperimentConfiguration.weight_saving_iterations 500; ExperimentConfiguration.intermediate_weight_saving_iterations 250; Data.image_settings.size 512.
-# Rerun of 2026-11-19 (tmp/retrain/plan_after_ins.md): 2,000 iterations of 32 sequences, evaluated every 500.
+# Tutorial run trained from
+# vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml of main f1408fd, with
+# the settings changed for the run and its dataset listed in tutorials/tutorial_sources.yaml.
 # Synthetic moving shapes dataset (create_synthetic_dataset.py "sequence_classification"): one shape crossing the
 # frames, labelled left, right, up or down; needs a temporal module, order-blind poolings cannot learn it.
 ExperimentConfiguration:

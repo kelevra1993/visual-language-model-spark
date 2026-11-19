@@ -121,7 +121,7 @@
       "reduction": "folder_listing",
       "snapshot_bytes": 7502,
       "snapshot_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35/run_folder_listing.tsv",
-      "snapshot_sha256": "fb3f19d5d2d5120d26273c41a136dbd5be825a11f7f01aa82e3df93f0c2ec2fd",
+      "snapshot_sha256": "f62f5d7fc22bc488b66df5afba464d46fd67b4310fe9059e5f1cd610b3979b2b",
       "source_bytes": null,
       "source_kind": "run",
       "source_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35/run_folder_listing.tsv",
@@ -130,15 +130,15 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 16641,
+      "snapshot_bytes": 16110,
       "snapshot_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35/training_configuration.yaml",
-      "snapshot_sha256": "915a0a1f13067b8fbced456f38ac166df0b05b228d259920d74a5054ee46a917",
-      "source_bytes": 16641,
+      "snapshot_sha256": "3d6ea64d7e69c0601c589d7b70c52cad180cf3cf50bf1abd9fb1f50629cc5a4f",
+      "source_bytes": 16110,
       "source_kind": "run",
       "source_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35/training_configuration.yaml",
-      "source_sha256": "915a0a1f13067b8fbced456f38ac166df0b05b228d259920d74a5054ee46a917"
+      "source_sha256": "3d6ea64d7e69c0601c589d7b70c52cad180cf3cf50bf1abd9fb1f50629cc5a4f"
     }
   ],
   "series": "foundations",
-  "snapshot_bytes": 933670
+  "snapshot_bytes": 933139
 }

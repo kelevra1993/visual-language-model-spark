@@ -37,13 +37,13 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 16641,
+      "snapshot_bytes": 16110,
       "snapshot_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35/training_configuration.yaml",
-      "snapshot_sha256": "915a0a1f13067b8fbced456f38ac166df0b05b228d259920d74a5054ee46a917",
-      "source_bytes": 16641,
+      "snapshot_sha256": "3d6ea64d7e69c0601c589d7b70c52cad180cf3cf50bf1abd9fb1f50629cc5a4f",
+      "source_bytes": 16110,
       "source_kind": "run",
       "source_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35/training_configuration.yaml",
-      "source_sha256": "915a0a1f13067b8fbced456f38ac166df0b05b228d259920d74a5054ee46a917"
+      "source_sha256": "3d6ea64d7e69c0601c589d7b70c52cad180cf3cf50bf1abd9fb1f50629cc5a4f"
     },
     {
       "options": {},
@@ -91,5 +91,5 @@
     }
   ],
   "series": "deployment",
-  "snapshot_bytes": 66013
+  "snapshot_bytes": 65482
 }
