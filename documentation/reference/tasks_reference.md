@@ -127,8 +127,8 @@ A two-stage detector. Every entry of `DetectionLevels` is a backbone level with 
 ```json
 {
   "images": [{"id": 1, "file_name": "000001.png", "width": 1024, "height": 1024}],
-  "annotations": [{"id": 1, "image_id": 1, "category_id": 3, "bbox": [120, 340, 64, 48], "area": 3072, "iscrowd": 0}],
-  "categories": [{"id": 3, "name": "triangle"}]
+  "annotations": [{"id": 1, "image_id": 1, "category_id": 5, "bbox": [120, 340, 64, 48], "area": 3072, "iscrowd": 0}],
+  "categories": [{"id": 5, "name": "triangle"}]
 }
 ```
 
