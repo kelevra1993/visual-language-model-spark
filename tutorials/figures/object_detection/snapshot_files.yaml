@@ -4,7 +4,8 @@
 # from these configurations, and the inference of the DET run on the test image (proposal filter, anchor labels,
 # detections) is committed under figure_reuse/object_detection/inference by a build from the real runs.
 runs:
-  # DET run of the series (the shipped synthetic configuration, 2000 iterations)
+  # DET run of the series (the synthetic configuration with a level 4 and a 384 pixel scale, stopped after its
+  # evaluation of 5000)
   - run: object_detection
     files:
       # Settings, iterations, test folder and label mapping of the run, and the model built untrained from them
@@ -15,22 +16,24 @@ runs:
       # Image and object counts of the splits; the file names of every image are dropped (4.8 MB to a few KB)
       - path: data.json
         reduction: tutorials.figures.object_detection.snapshot_reductions:reduce_data_record
-      # Confusion matrix notes of the evaluations made during the training (iterations 250, 1000 and 2000)
+      # Confusion matrix notes of the evaluations made during the training (iterations 1000 to 5000)
       - path: Results.txt
       # Losses (Train), headline metrics and their tag count (Test, Test_EMA), without the sample images
       - path: Tensorboard/*/events.out.tfevents.*
         reduction: tensorboard_scalars
-      # Sample image of the test image of the series at the three compared evaluations
-      - path: Evaluation/Iteration_250/Samples/test_014285.png
-      - path: Evaluation/Iteration_1000/Samples/test_014285.png
-      - path: Evaluation/Iteration_2000/Samples/test_014285.png
-      # Last checkpoint evaluated again with the current code: report tables, classes, confusion matrix, proposal recall
+      # Sample image of the test image of the series at the three compared evaluations (DETECTION_SAMPLE_ITERATIONS
+      # of detection_sources.py), whose folders also tell the figures the last evaluated iteration; the one of 5000 is
+      # also shown by the first chapter
+      - path: Evaluation/Iteration_1000/Samples/test_000000.png
+      - path: Evaluation/Iteration_3000/Samples/test_000000.png
+      - path: Evaluation/Iteration_5000/Samples/test_000000.png
+      # Last checkpoint evaluated again after the training: report tables, classes, confusion matrix, proposal recall
       - path: Checkpoint_Evaluation/Results.txt
-      - path: Checkpoint_Evaluation/Iteration_2000/class_metrics.csv
-      - path: Checkpoint_Evaluation/Iteration_2000/class_thresholds.json
-      - path: Checkpoint_Evaluation/Iteration_2000/confusion_matrix.csv
-      - path: Checkpoint_Evaluation/Iteration_2000/proposal_recall.csv
-      # Console log of the training next to the run folder, whose summaries of iterations 1000 and 2000 are listed
+      - path: Checkpoint_Evaluation/Iteration_5000/class_metrics.csv
+      - path: Checkpoint_Evaluation/Iteration_5000/class_thresholds.json
+      - path: Checkpoint_Evaluation/Iteration_5000/confusion_matrix.csv
+      - path: Checkpoint_Evaluation/Iteration_5000/proposal_recall.csv
+      # Console log of the training next to the run folder, whose summaries of iterations 1000 and 5000 are listed
       - path: ../object_detection.log
   # Stage 7 of the detection benchmark (proposal_selection.py): proposals and proposal recall of every level of the
   # averaged weights at iteration 15000, read from the test curves of the two launches of each selection; the training
@@ -60,15 +63,16 @@ runs:
       - path: Tensorboard/Test_EMA/events.out.tfevents.*
         reduction: tensorboard_scalars
 
-# Dataset files of the DET run, relative to the recorded data root: the test manifest keeping whole the two images the
-# figures follow (test_000000.png, the image of the first annotation, and test_014285.png), the other images and
-# annotations slimmed to their identifiers so that the counts of the split stay right, with the test image itself and
-# the label mapping file of the manifest listing
+# Dataset files of the DET run, relative to the recorded data root: the test manifest of the run (test_5000, the first
+# 5,000 test images), the test image of the series kept whole (also the image of the first annotation, the one of the
+# manifest listing) and the other records slimmed so that the counts of the split stay right, the same entry as the
+# instance segmentation series; the test image itself, declared under test/data since the committed test_5000/data is
+# a relative link to ../test/data; and the label mapping file of the manifest listing
 datasets:
-  - path: instance_segmentation_data/synthetic_shapes/test/labels.json
+  - path: instance_segmentation_data/synthetic_shapes/test_5000/labels.json
     reduction: manifest_subset
-    images: [test_000000.png, test_014285.png]
-  - path: instance_segmentation_data/synthetic_shapes/test/data/test_014285.png
+    images: [test_000000.png]
+  - path: instance_segmentation_data/synthetic_shapes/test/data/test_000000.png
   - path: instance_segmentation_data/synthetic_shapes/label_mapping.json
 
 # Outputs of the inference of the DET checkpoint on the test image, reused by a build without the checkpoint

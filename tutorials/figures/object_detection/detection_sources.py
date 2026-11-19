@@ -43,17 +43,26 @@ from vision_training.trainers.checkpointing import get_checkpoint_path
 # hollow pentagon (best anchor IoU 0.49) and the hollow semicircle (0.37) stay under the foreground threshold of the
 # anchors of both runs, which gives the anchor scenes of the detection series two objects matched by the fallback of
 # the assignment; the instance segmentation figures check the properties their chapters narrate (every object found,
-# one object found twice, a proposal of IoU from 0.5 to 0.7 for the mask target, no detection at the first evaluation).
+# one object found twice, a proposal of IoU from 0.5 to 0.7 for the mask target, no detection at the first evaluation),
+# and the object detection figures those of their chapters (the L shape nearest the centre giving the cell of the
+# anchor scene, two objects matched by the fallback, the hollow pentagon detected as another class and the hollow
+# semicircle missed at the last checkpoint of the DET run, the objects found at every compared evaluation).
 # It is also the image of the first annotation of the test manifest, which the first instance segmentation chapter
 # decodes
 SAMPLE_IMAGE_NAME = "test_000000.png"
 
 # Checkpoint whose trained weights the instance segmentation figures run, the last one of the INS run (planned for
 # 10,000 iterations, stopped after the evaluation of 6000), and the evaluated checkpoints whose sample images are
-# compared; the object detection figures read those of the DET run from its saved configuration (find_run_iterations
-# of object_detection/figures.py)
+# compared
 CHECKPOINT_ITERATION = 6000
 SAMPLE_ITERATIONS = [1000, 3000, 6000]
+
+# The same for the DET run of the object detection series (planned for 8000 iterations, stopped after the evaluation
+# of 5000): the checkpoint whose trained weights the inference figures run and whose evaluation the report, class and
+# confusion figures read, and the evaluated checkpoints whose sample images are compared, the inference figures
+# running these checkpoints too to name the objects they find
+DETECTION_CHECKPOINT_ITERATION = 5000
+DETECTION_SAMPLE_ITERATIONS = [1000, 3000, 5000]
 
 # Folder of the last checkpoint of both runs evaluated again with the current code by
 # scripts/evaluation/evaluate_checkpoint.py, whose Results.txt tables, class metrics and thresholds, confusion matrix
@@ -150,6 +159,38 @@ def read_category_names(test_folder: Path) -> Dict[int, str]:
         Dict[int, str]: The name of every category identifier.
     """
     return {category["id"]: category["name"] for category in read_test_manifest(test_folder=test_folder)["categories"]}
+
+
+def describe_class_name(class_name: str) -> str:
+    """
+    Writes a class name of the synthetic shapes the way the narration and the captions of both series say it, so that
+    the storyboards quote the objects of the test image and the classes of the reports by facts rather than typed
+    names: words separated by spaces, a one-letter first word in capitals ("l_shape" gives "L shape",
+    "hollow_pentagon" gives "hollow pentagon").
+
+    Args:
+        class_name (str): The class name of the label dictionary.
+
+    Returns:
+        str: The name as said.
+    """
+    words = class_name.split("_")
+    if len(words[0]) == 1:
+        words[0] = words[0].upper()
+    return " ".join(words)
+
+
+def join_words(words: List[str]) -> str:
+    """
+    Joins words the way the narration of both series lists them: commas, then "and" before the last one.
+
+    Args:
+        words (List[str]): The words, at least one.
+
+    Returns:
+        str: The list, e.g. "4, 5, 6 and 7".
+    """
+    return ", ".join(words[:-1]) + " and " + words[-1] if len(words) > 1 else words[0]
 
 
 def read_network_image(test_folder: Path, image_name: str) -> Tuple[numpy.ndarray, torch.Tensor]:

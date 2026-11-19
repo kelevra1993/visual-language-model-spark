@@ -28,7 +28,8 @@ from tutorials.figures.semantic_segmentation.model_figures import (count_configu
 from tutorials.figures.semantic_segmentation.segmentation_inference import run_segmentation_inference
 from tutorials.figures.semantic_segmentation.segmentation_sources import (CHECKPOINT_ITERATION, EVALUATED_ITERATIONS,
                                                                          SAMPLE_IMAGE_NAME, TASK_NAME, find_test_split,
-                                                                         load_test_sample, read_label_dictionary)
+                                                                         load_test_sample, read_label_dictionary,
+                                                                         read_run_dataset_configuration)
 from tutorials.figures.semantic_segmentation.training_figures import (describe_pixel_shares, draw_training_curves,
                                                                       read_training_throughput)
 from vision_training.data.synthetic.create_synthetic_dataset import TASK_CATEGORIES
@@ -48,8 +49,10 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
     Returns:
         Dict[str, Any]: The facts of every figure family, keyed by their names.
     """
+    # Configuration of the run, its dataset paths leading to the files it was trained on
     run_folder = find_run_folder(experiments_folder=experiments_folder, run_key="semantic_segmentation")
-    configuration = read_run_configuration(run_folder=run_folder)
+    configuration = read_run_dataset_configuration(run_folder=run_folder,
+                                                   configuration=read_run_configuration(run_folder=run_folder))
     test_split = find_test_split(configuration=configuration)
     label_dictionary = read_label_dictionary(configuration=configuration)
     sample_record = load_test_sample(configuration=configuration, test_split=test_split,
@@ -62,8 +65,8 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
     draw_training_curves(output_folder=output_folder, run_folder=run_folder, with_curves=True)
     experiment_configuration = configuration["ExperimentConfiguration"]
 
-    # Settings of the run, the checkpoints the figures read, the shapes the current generator draws for the task and
-    # the boundary counts the evaluation keeps per class
+    # Settings of the run, the checkpoints the figures read, the shapes the generator of the repository draws for the
+    # task and the boundary counts the evaluation keeps per class
     return merge_facts(fact_groups=[
         {"run_label": describe_run_label(experiments_folder=experiments_folder, run_folder=run_folder),
          "run_iterations": experiment_configuration["number_iterations"],

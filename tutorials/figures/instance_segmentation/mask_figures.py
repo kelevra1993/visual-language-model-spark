@@ -33,7 +33,8 @@ from tutorials.figures.figure_utilities import (SERIES_COLOURS, compute_file_fin
                                                 read_run_configuration, restore_committed_figures, round_fact,
                                                 write_reused_facts)
 from tutorials.figures.object_detection.detection_sources import (CHECKPOINT_ITERATION, SAMPLE_IMAGE_NAME,
-                                                                  SAMPLE_ITERATIONS, find_test_folder,
+                                                                  SAMPLE_ITERATIONS, describe_class_name,
+                                                                  find_test_folder,
                                                                   hexadecimal_to_rgb, load_run_model,
                                                                   load_untrained_run_model, read_category_names,
                                                                   read_image_annotations, read_network_image,
@@ -245,24 +246,6 @@ def compute_overlap_chunk_size(image_height: int, image_width: int) -> int:
         int: The masks compared at once, at least one.
     """
     return max(1, MASK_OVERLAP_CHUNK_SIZE * MASK_OVERLAP_REFERENCE_PIXELS // (image_height * image_width))
-
-
-def describe_class_name(class_name: str) -> str:
-    """
-    Writes a class name of the synthetic shapes the way the narration and the captions say it, so that the storyboards
-    quote the objects of the test image by facts rather than typed names: words separated by spaces, a one-letter first
-    word in capitals ("l_shape" gives "L shape", "hollow_pentagon" gives "hollow pentagon").
-
-    Args:
-        class_name (str): The class name of the label dictionary.
-
-    Returns:
-        str: The name as said.
-    """
-    words = class_name.split("_")
-    if len(words[0]) == 1:
-        words[0] = words[0].upper()
-    return " ".join(words)
 
 
 def make_annotation_figure(test_folder: Path, output_folder: Path) -> Dict[str, Any]:

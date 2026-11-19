@@ -4,84 +4,83 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 264,
+      "snapshot_bytes": 474,
       "snapshot_path": "datasets/instance_segmentation_data/synthetic_shapes/label_mapping.json",
-      "snapshot_sha256": "5185b034d77b300b6ae39b7891db6d32e0c82d2b802eb87ae6547c21ef98be19",
-      "source_bytes": 264,
+      "snapshot_sha256": "df3ba8e30ed188e9b481b43c074859dff0d0963310ddd49face7bafd58bcc258",
+      "source_bytes": 474,
       "source_kind": "dataset",
       "source_path": "instance_segmentation_data/synthetic_shapes/label_mapping.json",
-      "source_sha256": "5185b034d77b300b6ae39b7891db6d32e0c82d2b802eb87ae6547c21ef98be19"
+      "source_sha256": "df3ba8e30ed188e9b481b43c074859dff0d0963310ddd49face7bafd58bcc258"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 8080,
-      "snapshot_path": "datasets/instance_segmentation_data/synthetic_shapes/test/data/test_014285.png",
-      "snapshot_sha256": "a004d1b4e7272e3bb2b11b6d01000f32e7feb5947b3e544b93ab6414496433b3",
-      "source_bytes": 8080,
+      "snapshot_bytes": 7018,
+      "snapshot_path": "datasets/instance_segmentation_data/synthetic_shapes/test/data/test_000000.png",
+      "snapshot_sha256": "61958509d860bac631553a83aa8859b15d9ee9dc98b98288fadd9ecbd4774ab4",
+      "source_bytes": 7018,
       "source_kind": "dataset",
-      "source_path": "instance_segmentation_data/synthetic_shapes/test/data/test_014285.png",
-      "source_sha256": "a004d1b4e7272e3bb2b11b6d01000f32e7feb5947b3e544b93ab6414496433b3"
+      "source_path": "instance_segmentation_data/synthetic_shapes/test/data/test_000000.png",
+      "source_sha256": "61958509d860bac631553a83aa8859b15d9ee9dc98b98288fadd9ecbd4774ab4"
     },
     {
       "options": {
         "images": [
-          "test_000000.png",
-          "test_014285.png"
+          "test_000000.png"
         ]
       },
       "reduction": "manifest_subset",
-      "snapshot_bytes": 2897437,
-      "snapshot_path": "datasets/instance_segmentation_data/synthetic_shapes/test/labels.json",
-      "snapshot_sha256": "f7a8423c97502fdb17f9bbfc9e04ca61787b198e6758810d1273aec56a32a5ff",
-      "source_bytes": 80972478,
+      "snapshot_bytes": 991350,
+      "snapshot_path": "datasets/instance_segmentation_data/synthetic_shapes/test_5000/labels.json",
+      "snapshot_sha256": "86d9e7476aecc5fb5f038372dc99c68f0285fb5f41a18c10e0fe67df6414db66",
+      "source_bytes": 14786842,
       "source_kind": "dataset",
-      "source_path": "instance_segmentation_data/synthetic_shapes/test/labels.json",
-      "source_sha256": "313be07f3a539266819f08e30be3ee784dfe2b0b59c17c240a2206fbbe3f7830"
+      "source_path": "instance_segmentation_data/synthetic_shapes/test_5000/labels.json",
+      "source_sha256": "afd587a2fc1fd27e321a96f446913b6eafd0d243013328bef687091a780d31f8"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 71745,
+      "snapshot_bytes": 61059,
       "snapshot_path": "figure_reuse/object_detection/inference/anchor_labels.png",
-      "snapshot_sha256": "ceee60abe6588c61c850e601d77906a881aab284ea43fb89643d5fa152aadcd8",
-      "source_bytes": 71745,
+      "snapshot_sha256": "508f353bbb0f61409dc0556c6ea83e414daef4dc96338f2d23e51ca93cc0fb7c",
+      "source_bytes": 61059,
       "source_kind": "figures",
       "source_path": "inference/anchor_labels.png",
-      "source_sha256": "ceee60abe6588c61c850e601d77906a881aab284ea43fb89643d5fa152aadcd8"
+      "source_sha256": "508f353bbb0f61409dc0556c6ea83e414daef4dc96338f2d23e51ca93cc0fb7c"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 13894,
+      "snapshot_bytes": 17854,
       "snapshot_path": "figure_reuse/object_detection/inference/inference_facts.json",
-      "snapshot_sha256": "408a0706a3667d4beb6521bb23006d2fd750ffc3d0302c0f4e63f2ec75b06288",
-      "source_bytes": 13894,
+      "snapshot_sha256": "cdee695887f0c04745fab18685f49dec7cb8b389c34e999ec8c03482f707d9c6",
+      "source_bytes": 17854,
       "source_kind": "figures",
       "source_path": "inference/inference_facts.json",
-      "source_sha256": "408a0706a3667d4beb6521bb23006d2fd750ffc3d0302c0f4e63f2ec75b06288"
+      "source_sha256": "cdee695887f0c04745fab18685f49dec7cb8b389c34e999ec8c03482f707d9c6"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 152383,
+      "snapshot_bytes": 149489,
       "snapshot_path": "figure_reuse/object_detection/inference/proposal_filter.png",
-      "snapshot_sha256": "b3028b48c59e8aa50d8d9ee47bc447df4f5655a3fde3e7b846ea8f47668596a8",
-      "source_bytes": 152383,
+      "snapshot_sha256": "40294a535b7588d1134df0729d0ce1a98594461ad0425bc4897d872226f569e3",
+      "source_bytes": 149489,
       "source_kind": "figures",
       "source_path": "inference/proposal_filter.png",
-      "source_sha256": "b3028b48c59e8aa50d8d9ee47bc447df4f5655a3fde3e7b846ea8f47668596a8"
+      "source_sha256": "40294a535b7588d1134df0729d0ce1a98594461ad0425bc4897d872226f569e3"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 3960,
-      "snapshot_path": "figure_reuse/object_detection/inference/test_014285.png",
-      "snapshot_sha256": "ecc4e0d13e0065626bbae46f5bea5dab4048c4352b95bc118604c2f16dc276ef",
-      "source_bytes": 3960,
+      "snapshot_bytes": 3145,
+      "snapshot_path": "figure_reuse/object_detection/inference/test_000000.png",
+      "snapshot_sha256": "4188d9da3a53836ed22388f24ee01b2e7dc60aac0bc29a541dc30e38ddf036e8",
+      "source_bytes": 3145,
       "source_kind": "figures",
-      "source_path": "inference/test_014285.png",
-      "source_sha256": "ecc4e0d13e0065626bbae46f5bea5dab4048c4352b95bc118604c2f16dc276ef"
+      "source_path": "inference/test_000000.png",
+      "source_sha256": "4188d9da3a53836ed22388f24ee01b2e7dc60aac0bc29a541dc30e38ddf036e8"
     },
     {
       "options": {},
@@ -163,191 +162,191 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 3951,
-      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Checkpoint_Evaluation/Iteration_2000/class_metrics.csv",
-      "snapshot_sha256": "6b8cd7c95026c8ca85c9d6654de565a42e3a016eca4ae19ff35c23c6d36d7d03",
-      "source_bytes": 3951,
+      "snapshot_bytes": 6622,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/Iteration_5000/class_metrics.csv",
+      "snapshot_sha256": "f87974619ebdb03444d504f4320da40cad96b069b6117045770aacae380d3383",
+      "source_bytes": 6622,
       "source_kind": "run",
-      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Checkpoint_Evaluation/Iteration_2000/class_metrics.csv",
-      "source_sha256": "6b8cd7c95026c8ca85c9d6654de565a42e3a016eca4ae19ff35c23c6d36d7d03"
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/Iteration_5000/class_metrics.csv",
+      "source_sha256": "f87974619ebdb03444d504f4320da40cad96b069b6117045770aacae380d3383"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 2163,
-      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Checkpoint_Evaluation/Iteration_2000/class_thresholds.json",
-      "snapshot_sha256": "36ade6b99ea3c7abcf0a987a57229beab79017f93cc8ecf085b8538c898981ef",
-      "source_bytes": 2163,
+      "snapshot_bytes": 3952,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/Iteration_5000/class_thresholds.json",
+      "snapshot_sha256": "42155a5036106e3c01a8e7730341578c18ef0511e51de1e9ce7b643cc613765d",
+      "source_bytes": 3952,
       "source_kind": "run",
-      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Checkpoint_Evaluation/Iteration_2000/class_thresholds.json",
-      "source_sha256": "36ade6b99ea3c7abcf0a987a57229beab79017f93cc8ecf085b8538c898981ef"
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/Iteration_5000/class_thresholds.json",
+      "source_sha256": "42155a5036106e3c01a8e7730341578c18ef0511e51de1e9ce7b643cc613765d"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 1469,
-      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Checkpoint_Evaluation/Iteration_2000/confusion_matrix.csv",
-      "snapshot_sha256": "c40554a119bb1469ceb11cbd69eaa4be74f4c84a63bdf7dbb0e9fc86098cf187",
-      "source_bytes": 1469,
+      "snapshot_bytes": 3683,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/Iteration_5000/confusion_matrix.csv",
+      "snapshot_sha256": "d7ac72ec8e6ad5ac0b31c6400b54355061e943597da6121dd6f11a8291c8ac5d",
+      "source_bytes": 3683,
       "source_kind": "run",
-      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Checkpoint_Evaluation/Iteration_2000/confusion_matrix.csv",
-      "source_sha256": "c40554a119bb1469ceb11cbd69eaa4be74f4c84a63bdf7dbb0e9fc86098cf187"
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/Iteration_5000/confusion_matrix.csv",
+      "source_sha256": "d7ac72ec8e6ad5ac0b31c6400b54355061e943597da6121dd6f11a8291c8ac5d"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 318,
-      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Checkpoint_Evaluation/Iteration_2000/proposal_recall.csv",
-      "snapshot_sha256": "71a8196c349b217316b6716e788971c3e0995181c1956ef3c1d9148013866538",
-      "source_bytes": 318,
+      "snapshot_bytes": 360,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/Iteration_5000/proposal_recall.csv",
+      "snapshot_sha256": "89e9f30db369e1a9dc1e933dd38f943203de96919cec3295e02c680fdc1e8c88",
+      "source_bytes": 360,
       "source_kind": "run",
-      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Checkpoint_Evaluation/Iteration_2000/proposal_recall.csv",
-      "source_sha256": "71a8196c349b217316b6716e788971c3e0995181c1956ef3c1d9148013866538"
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/Iteration_5000/proposal_recall.csv",
+      "source_sha256": "89e9f30db369e1a9dc1e933dd38f943203de96919cec3295e02c680fdc1e8c88"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 17575,
-      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Checkpoint_Evaluation/Results.txt",
-      "snapshot_sha256": "fb36f951b1b185b188c0e10e94901ca53d0ec95b67b54fe2499339a358b6c48a",
-      "source_bytes": 17575,
+      "snapshot_bytes": 24521,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/Results.txt",
+      "snapshot_sha256": "df764132024e323ebdbe68139b79bf1c744d7967555387ad0975e458f35412bf",
+      "source_bytes": 24521,
       "source_kind": "run",
-      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Checkpoint_Evaluation/Results.txt",
-      "source_sha256": "fb36f951b1b185b188c0e10e94901ca53d0ec95b67b54fe2499339a358b6c48a"
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/Results.txt",
+      "source_sha256": "df764132024e323ebdbe68139b79bf1c744d7967555387ad0975e458f35412bf"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 52704,
-      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Evaluation/Iteration_1000/Samples/test_014285.png",
-      "snapshot_sha256": "7e265110ddec8e46b2b582dbc20b25c3989e00f63fcb4f1fb3c333d9da960539",
-      "source_bytes": 52704,
+      "snapshot_bytes": 47715,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Evaluation/Iteration_1000/Samples/test_000000.png",
+      "snapshot_sha256": "f71ab0bda2d76f9d77a0b9075fde53fa98fed1a6116605bae4a1fbf39abf4f97",
+      "source_bytes": 47715,
       "source_kind": "run",
-      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Evaluation/Iteration_1000/Samples/test_014285.png",
-      "source_sha256": "7e265110ddec8e46b2b582dbc20b25c3989e00f63fcb4f1fb3c333d9da960539"
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Evaluation/Iteration_1000/Samples/test_000000.png",
+      "source_sha256": "f71ab0bda2d76f9d77a0b9075fde53fa98fed1a6116605bae4a1fbf39abf4f97"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 57682,
-      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Evaluation/Iteration_2000/Samples/test_014285.png",
-      "snapshot_sha256": "b13b58eef15138b1a9643b6f60b301237b420c807f74a655d89c984d6e061131",
-      "source_bytes": 57682,
+      "snapshot_bytes": 53036,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Evaluation/Iteration_3000/Samples/test_000000.png",
+      "snapshot_sha256": "a1a650483769ca75f20fd8d30b02b81bc950678e1d90a4aeab6b88b2974572a1",
+      "source_bytes": 53036,
       "source_kind": "run",
-      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Evaluation/Iteration_2000/Samples/test_014285.png",
-      "source_sha256": "b13b58eef15138b1a9643b6f60b301237b420c807f74a655d89c984d6e061131"
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Evaluation/Iteration_3000/Samples/test_000000.png",
+      "source_sha256": "a1a650483769ca75f20fd8d30b02b81bc950678e1d90a4aeab6b88b2974572a1"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 48001,
-      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Evaluation/Iteration_250/Samples/test_014285.png",
-      "snapshot_sha256": "a2ca5baa3d4a3055523396b128f29a07c54a859a64c929365bcdee889033f136",
-      "source_bytes": 48001,
+      "snapshot_bytes": 59960,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Evaluation/Iteration_5000/Samples/test_000000.png",
+      "snapshot_sha256": "3ed18af6798d1e9d198160e42ba2732d495a0709e84f6754ad2b6ae6ce2e677d",
+      "source_bytes": 59960,
       "source_kind": "run",
-      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Evaluation/Iteration_250/Samples/test_014285.png",
-      "source_sha256": "a2ca5baa3d4a3055523396b128f29a07c54a859a64c929365bcdee889033f136"
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Evaluation/Iteration_5000/Samples/test_000000.png",
+      "source_sha256": "3ed18af6798d1e9d198160e42ba2732d495a0709e84f6754ad2b6ae6ce2e677d"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 138095,
-      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Results.txt",
-      "snapshot_sha256": "3ce632c1980ee85d114fcca8b90e5602027d79e406ddf0d076df3969b2b4008d",
-      "source_bytes": 138095,
+      "snapshot_bytes": 122715,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Results.txt",
+      "snapshot_sha256": "4e6e8e73aaa6df06b385ec6210ce48023e733e12526d867b4ac2371dcdddc290",
+      "source_bytes": 122715,
       "source_kind": "run",
-      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Results.txt",
-      "source_sha256": "3ce632c1980ee85d114fcca8b90e5602027d79e406ddf0d076df3969b2b4008d"
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Results.txt",
+      "source_sha256": "4e6e8e73aaa6df06b385ec6210ce48023e733e12526d867b4ac2371dcdddc290"
     },
     {
       "options": {},
       "reduction": "tensorboard_scalars",
-      "snapshot_bytes": 33352,
-      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Tensorboard/Test/events.out.tfevents.1794753314.spark-c6e9.183890.1",
-      "snapshot_sha256": "73201dc6311d1f04acb897c20dac1492ef6c97a1e59dc17ffbce495a56880524",
-      "source_bytes": 2316935,
+      "snapshot_bytes": 26428,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Tensorboard/Test/events.out.tfevents.1795108125.spark-c6e9.345822.1",
+      "snapshot_sha256": "3a5455554a210b7054519656d693464b646cf0fe8385ccca7222e6692c4eec96",
+      "source_bytes": 3411887,
       "source_kind": "run",
-      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Tensorboard/Test/events.out.tfevents.1794753314.spark-c6e9.183890.1",
-      "source_sha256": "0c706ab5d577113152440a16949f76cb6c8ab134677188e3379817785656b76a"
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Tensorboard/Test/events.out.tfevents.1795108125.spark-c6e9.345822.1",
+      "source_sha256": "021dcb779a70dd4479c740f15031ed1be5b26f4265adcde5627f087684b94db0"
     },
     {
       "options": {},
       "reduction": "tensorboard_scalars",
-      "snapshot_bytes": 33352,
-      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Tensorboard/Test_EMA/events.out.tfevents.1794753581.spark-c6e9.183890.2",
-      "snapshot_sha256": "95af47bfb73fd7fd93d7892f341d9d1fbb13d6501076eb09bfce009a0e25b290",
-      "source_bytes": 2246280,
+      "snapshot_bytes": 26428,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Tensorboard/Test_EMA/events.out.tfevents.1795108203.spark-c6e9.345822.2",
+      "snapshot_sha256": "8190e671f6a6d57eddb3e76e7614ec6dbfd4f643ea86c08fbed1a81697d33216",
+      "source_bytes": 3327992,
       "source_kind": "run",
-      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Tensorboard/Test_EMA/events.out.tfevents.1794753581.spark-c6e9.183890.2",
-      "source_sha256": "c6efbf7689b64edadbd3de427267ff185de93f1b994b24f68f151aaa47349515"
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Tensorboard/Test_EMA/events.out.tfevents.1795108203.spark-c6e9.345822.2",
+      "source_sha256": "2e9ba859adf507b819e194af01e18f02894a1deba3af6a5781286b09f94c2a66"
     },
     {
       "options": {},
       "reduction": "tensorboard_scalars",
-      "snapshot_bytes": 705326,
-      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Tensorboard/Train/events.out.tfevents.1794752845.spark-c6e9.183890.0",
-      "snapshot_sha256": "ad87f0a24e8635ecc63f67c20f8c1962270c0fdf1013bc59dd7fb6b09e02a6c0",
-      "source_bytes": 705326,
+      "snapshot_bytes": 1766444,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Tensorboard/Train/events.out.tfevents.1795107039.spark-c6e9.345822.0",
+      "snapshot_sha256": "f71f51507036ef0a279af985c20521102d5fb34d5334a5c943868765ee43eb43",
+      "source_bytes": 1766444,
       "source_kind": "run",
-      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/Tensorboard/Train/events.out.tfevents.1794752845.spark-c6e9.183890.0",
-      "source_sha256": "ad87f0a24e8635ecc63f67c20f8c1962270c0fdf1013bc59dd7fb6b09e02a6c0"
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Tensorboard/Train/events.out.tfevents.1795107039.spark-c6e9.345822.0",
+      "source_sha256": "f71f51507036ef0a279af985c20521102d5fb34d5334a5c943868765ee43eb43"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 275,
-      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/anchor_recall.csv",
-      "snapshot_sha256": "a9fdc6e20ba2d2d84ec06bf7e864548f84fd897907ebe061844228f472b5fe77",
-      "source_bytes": 275,
+      "snapshot_bytes": 328,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/anchor_recall.csv",
+      "snapshot_sha256": "9a96e2349330069251215c6363e24cf8c8eef7ea23d395c279fcdc87eea907e7",
+      "source_bytes": 328,
       "source_kind": "run",
-      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/anchor_recall.csv",
-      "source_sha256": "a9fdc6e20ba2d2d84ec06bf7e864548f84fd897907ebe061844228f472b5fe77"
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/anchor_recall.csv",
+      "source_sha256": "9a96e2349330069251215c6363e24cf8c8eef7ea23d395c279fcdc87eea907e7"
     },
     {
       "options": {},
       "reduction": "tutorials.figures.object_detection.snapshot_reductions:reduce_data_record",
-      "snapshot_bytes": 7423,
-      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/data.json",
-      "snapshot_sha256": "3a0fe31baf391010ee205a9271d8d35f9804618f219bb10c06e716b056b1e621",
-      "source_bytes": 4791501,
+      "snapshot_bytes": 12229,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/data.json",
+      "snapshot_sha256": "66919de801780c5467e9bb565382ae0719e2e2875267e6a2cf24e15e2eeabfce",
+      "source_bytes": 4391307,
       "source_kind": "run",
-      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/data.json",
-      "source_sha256": "940ec3c3599c20cd0c1efdd2831f1d781926d28b699f2b7ca238072499357491"
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/data.json",
+      "source_sha256": "4f377249ad49368c2f5bd6be3d413c6949c4aa3e8ad44ae06671b635cd5641d9"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 285,
-      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/label_dictionary.json",
-      "snapshot_sha256": "ad35c57e1589ec3e2621ceee4a2d37a943a58662fd217e0431d626c5d51a3de2",
-      "source_bytes": 285,
+      "snapshot_bytes": 495,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/label_dictionary.json",
+      "snapshot_sha256": "81836303a1fdae50fe17dcc7544e6c32d40e1b0b5e0826ef856af55b49470a80",
+      "source_bytes": 495,
       "source_kind": "run",
-      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/label_dictionary.json",
-      "source_sha256": "ad35c57e1589ec3e2621ceee4a2d37a943a58662fd217e0431d626c5d51a3de2"
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/label_dictionary.json",
+      "source_sha256": "81836303a1fdae50fe17dcc7544e6c32d40e1b0b5e0826ef856af55b49470a80"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 21814,
-      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/training_configuration.yaml",
-      "snapshot_sha256": "ab683283cc26ac24cfbb69f8c15b5a239a599d578119d2cfe63eb7aa91475af4",
-      "source_bytes": 21814,
+      "snapshot_bytes": 22551,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/training_configuration.yaml",
+      "snapshot_sha256": "3de7b0fd38bba85f5713ff0d14e3b0980c082545664debb2627aa8d7cee93223",
+      "source_bytes": 22551,
       "source_kind": "run",
-      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567-NFPN32BN_A6.32-256.e7b72c_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC20/training_configuration.yaml",
-      "source_sha256": "ab683283cc26ac24cfbb69f8c15b5a239a599d578119d2cfe63eb7aa91475af4"
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/training_configuration.yaml",
+      "source_sha256": "3de7b0fd38bba85f5713ff0d14e3b0980c082545664debb2627aa8d7cee93223"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 769970,
+      "snapshot_bytes": 301380,
       "snapshot_path": "tutorials/object_detection.log",
-      "snapshot_sha256": "6f9e376ab621fa71214b7a01d21033b1ca4b4b3c44c9b23c183e05d0125da2b4",
-      "source_bytes": 769970,
+      "snapshot_sha256": "d50e2dc33accabeda489b223a49ffd0ad7bd2e97f2d1e467f396e27378844161",
+      "source_bytes": 301380,
       "source_kind": "run",
       "source_path": "tutorials/object_detection.log",
-      "source_sha256": "6f9e376ab621fa71214b7a01d21033b1ca4b4b3c44c9b23c183e05d0125da2b4"
+      "source_sha256": "d50e2dc33accabeda489b223a49ffd0ad7bd2e97f2d1e467f396e27378844161"
     }
   ],
   "series": "object_detection",
-  "snapshot_bytes": 5701683
+  "snapshot_bytes": 4369401
 }

@@ -18,7 +18,7 @@ the test image, the losses and the report being checked there. The facts are quo
 import math
 
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from tutorial_builder.figure_context import find_repository_root
 from tutorials.figures.figure_utilities import (build_console_metric_tracker, find_run_folder, merge_facts,
@@ -29,7 +29,7 @@ from tutorials.figures.instance_segmentation.mask_figures import (FOUND_MASK_OVE
                                                                   make_mask_figures)
 from tutorials.figures.object_detection.detection_sources import (CHECKPOINT_ITERATION, EVALUATION_FOLDER_NAME,
                                                                   SAMPLE_IMAGE_NAME, SAMPLE_ITERATIONS,
-                                                                  count_scalar_tags, find_test_folder,
+                                                                  count_scalar_tags, find_test_folder, join_words,
                                                                   read_test_manifest)
 from tutorials.figures.object_detection.evaluation_figures import read_confusion_notes, read_proposal_recall
 from tutorials.figures.object_detection.run_figures import (draw_loss_curves_figure, draw_metric_iterations_figure,
@@ -70,19 +70,6 @@ NARRATED_NECK_TYPE = "feature_pyramid"
 # Largest distance of the first mask loss of the run from the logarithm of two, the loss of logits at zero the first
 # chapter names
 FIRST_MASK_LOSS_TOLERANCE = 0.02
-
-
-def join_words(words: List[str]) -> str:
-    """
-    Joins words the way the narration lists them: commas, then "and" before the last one.
-
-    Args:
-        words (List[str]): The words, at least one.
-
-    Returns:
-        str: The list, e.g. "4, 5, 6 and 7".
-    """
-    return ", ".join(words[:-1]) + " and " + words[-1] if len(words) > 1 else words[0]
 
 
 def describe_run_settings(run_folder: Path) -> Dict[str, Any]:

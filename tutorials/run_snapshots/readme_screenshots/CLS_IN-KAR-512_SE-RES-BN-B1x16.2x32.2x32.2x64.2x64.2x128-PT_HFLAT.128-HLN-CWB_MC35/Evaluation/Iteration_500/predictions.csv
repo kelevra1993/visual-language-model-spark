@@ -1,0 +1,9 @@
+sample,true_class,predicted_class,correct,predicted_probability
+test_000018.png,star,star,1,0.840213478
+test_000007.png,square,square,1,0.411036462
+test_000012.png,hexagon,hexagon,1,0.439331919
+test_000022.png,circle,semicircle,0,0.235598102
+test_000002.png,rectangle,square,0,0.369763255
+test_000017.png,plus_sign,plus_sign,1,0.475128144
+test_000042.png,pentagon,pentagon,1,0.566464663
+test_000036.png,triangle,triangle,1,0.219753653
