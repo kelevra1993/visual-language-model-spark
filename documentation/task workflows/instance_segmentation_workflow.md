@@ -434,8 +434,8 @@ With `Data.instance_index_maps: True` (the synthetic configuration), `add_instan
 **Example: the manifest of the training split**
 ```text
 images[0]:          {'id': 1, 'file_name': 'train_000000.png', 'width': 512, 'height': 512}   (100 images)
-annotation keys:    ['id', 'image_id', 'category_id', 'bbox', 'area', 'iscrowd', 'segmentation']
-annotations[0]:     {'id': 1, 'image_id': 1, 'category_id': 6, 'bbox': [325, 369, 133, 123], 'area': 11681, 'iscrowd': 0,
+annotation keys:    ['id', 'image_id', 'category_id', 'bbox', 'segmentation']
+annotations[0]:     {'id': 1, 'image_id': 1, 'category_id': 6, 'bbox': [325, 369, 133, 123],
                      'segmentation': {'size': [512, 512], 'counts': [166822, 2, 508, 6, 505, 9, 502, 13, 497, 17, ...]}}   (358 annotations)
 segmentation types: 358 RLE (dict), 0 polygons (list), 0 compressed RLE
 categories[0]:      {'id': 1, 'name': 'square', 'supercategory': 'shape'}   (20 categories)

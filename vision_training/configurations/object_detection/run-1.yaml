@@ -2,7 +2,7 @@
 # Hyperparameter experiment run_1, background iou minimum stage: background_iou_minimum 0.0, launch A.
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "object_detection": two-stage detector; needs RegionProposal,
-  # DetectionLevels and Detector. Labels: COCO annotations, crowd ones (iscrowd 1) as ordinary objects.
+  # DetectionLevels and Detector. Labels: COCO annotations with a 'bbox' per object.
   task: "object_detection"
   # Root of the runs, a subfolder per model, data and optimizer settings (run_name.py), resumed if equal; augmentation,
   # batch size, learning rate, schedule, gradient clipping can change on resume.

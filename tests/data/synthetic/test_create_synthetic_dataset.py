@@ -893,15 +893,15 @@ def test_covered_objects_are_left_out_of_the_labels() -> None:
                                                                       object_pixel_counts=object_pixel_counts)
     assert detection_objects == [(2, [0, 20, 20, 40]), (3, [0, 0, 30, 40])] and detection_segmentations == []
 
-    # The instance segmentation keeps the box, the compressed encoding and the pixel count of the visible part of every
-    # visible object
+    # The instance segmentation keeps the box and the compressed encoding of the visible part of every visible object,
+    # nothing else
     instance_objects, instance_parts = keep_visible_objects(objects=objects, instance_map=instance_map,
                                                             keep_visible_parts=True,
                                                             object_pixel_counts=object_pixel_counts)
     assert instance_objects == [(2, [0, 20, 10, 40]), (3, [0, 0, 30, 40])]
     assert isinstance(instance_parts[0]["segmentation"]["counts"], str)
     assert np.array_equal(decode_run_length_encoding(segmentation=instance_parts[0]["segmentation"]), instance_map == 2)
-    assert [instance_part["area"] for instance_part in instance_parts] == [200, int(np.sum(instance_map == 3))]
+    assert [sorted(instance_part) for instance_part in instance_parts] == [["segmentation"], ["segmentation"]]
 
 
 def test_small_shapes_stay_in_the_labels_half_visible() -> None:
@@ -990,9 +990,9 @@ def test_keypoint_labels_follow_the_visible_pixels(monkeypatch: pytest.MonkeyPat
 def test_created_instance_segmentation_dataset_encodes_small_and_large_visible_parts(tmp_path: Path) -> None:
     """
     Verifies the instance segmentation mode of the generator: the COCO labels hold 5 to 12 objects per image on
-    average, every one with the compressed encoding of its visible part, whose pixel count is its area and whose tight
-    box is its box, the parts of an image never overlapping, down to small shapes and up to large ones, some cut by the
-    image border, and the instance segmentation dataset of the framework loads the same masks.
+    average, every one with the compressed encoding of its visible part, not empty, whose tight box is its box and
+    no 'area' or 'iscrowd' key, the parts of an image never overlapping, down to small shapes and up to large ones,
+    some cut by the image border, and the instance segmentation dataset of the framework loads the same masks.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -1001,7 +1001,7 @@ def test_created_instance_segmentation_dataset_encodes_small_and_large_visible_p
                              maximum_objects=12, minimum_frames=1, maximum_frames=1, number_workers=2,
                              task="instance_segmentation")
 
-    # Objects per image, and the compressed encoding, area and box of every visible part
+    # Objects per image, and the keys, compressed encoding and box of every visible part
     labels = json.loads((tmp_path / "train" / "labels.json").read_text())
     objects_per_image = np.bincount([annotation["image_id"] for annotation in labels["annotations"]],
                                     minlength=13)[1:]
@@ -1011,7 +1011,8 @@ def test_created_instance_segmentation_dataset_encodes_small_and_large_visible_p
         assert isinstance(annotation["segmentation"]["counts"], str)
         mask = decode_run_length_encoding(segmentation=annotation["segmentation"])
         x, y, width, height = annotation["bbox"]
-        assert int(mask.sum()) == annotation["area"] > 0
+        assert sorted(annotation) == ["bbox", "category_id", "id", "image_id", "segmentation"]
+        assert int(mask.sum()) > 0
         assert get_mask_bounding_box(mask=mask) == [x, y, x + width, y + height]
         image_masks[annotation["image_id"]].append(mask)
 

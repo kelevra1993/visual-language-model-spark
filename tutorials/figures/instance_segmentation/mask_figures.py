@@ -213,7 +213,7 @@ def make_annotation_figure(test_folder: Path, output_folder: Path) -> Dict[str, 
     run_descriptions = [f"{'background' if run_index % 2 == 0 else 'object'} {value:,}"
                         for run_index, value in enumerate(counts[:5])]
     lines = [f"test/labels.json · annotations[0] · {category_name} of {image_entry['file_name']}",
-             f"  bbox {annotation['bbox']}   area {annotation['area']}",
+             f"  bbox {annotation['bbox']}",
              f"  segmentation size {segmentation['size']}   (height, width)",
              f"  counts [{', '.join(str(value) for value in counts[:RUN_LENGTH_VALUES_SHOWN])}, ...]",
              f"         {len(counts)} values, sum {sum(counts):,} = {segmentation['size'][0]} x "
@@ -230,12 +230,11 @@ def make_annotation_figure(test_folder: Path, output_folder: Path) -> Dict[str, 
     mask_image = Image.fromarray(obj=(mask * 255).astype(numpy.uint8)).convert(mode="RGB")
     panel_boxes = paste_panels(panels=[
         (f"{category_name} of {image_entry['file_name']}", "white: the box of the mask", masked_image),
-        (f"decoded mask, {mask.shape[1]} × {mask.shape[0]}", f"{int(mask.sum()):,} pixels = area "
-                                                              f"{annotation['area']:,}", mask_image)],
+        (f"decoded mask, {mask.shape[1]} × {mask.shape[0]}", f"{int(mask.sum()):,} pixels", mask_image)],
         output_path=output_folder / "masks" / "decoded_annotation.png")
     return {"annotation.category": category_name, "annotation.image_name": image_entry["file_name"],
             "annotation.bbox": annotation["bbox"], "annotation.mask_box": [int(value) for value in mask_box],
-            "annotation.mask_pixels": int(mask.sum()), "annotation.area": annotation["area"],
+            "annotation.mask_pixels": int(mask.sum()),
             "annotation.run_length_values": len(counts), "annotation.run_length_sum": sum(counts),
             "annotation.first_background_run": counts[0], "annotation.first_object_run": counts[1],
             "annotation.panel_1_box": panel_boxes[0], "annotation.panel_2_box": panel_boxes[1]}

@@ -2167,7 +2167,7 @@ def keep_visible_objects(objects: List[Tuple[Any, ...]], instance_map: np.ndarra
     Returns:
         Tuple[List[Tuple[Any, ...]], List[Dict[str, Any]]]: The objects kept with their category identifier, box and
             keypoints, and the visible part of every kept object as its compressed run length encoding 'segmentation'
-            and its number of pixels 'area' (empty for the detection and the keypoint detection).
+            (empty for the detection and the keypoint detection).
     """
     kept_objects, visible_parts = [], []
     for object_index, (category_identifier, box, *extra_fields) in enumerate(objects):
@@ -2180,13 +2180,11 @@ def keep_visible_objects(objects: List[Tuple[Any, ...]], instance_map: np.ndarra
         if visible_pixels < minimum_visible_pixels:
             continue
 
-        # Box, compressed encoding and pixel count of the visible part for the instance segmentation, the count being
-        # its COCO area, which the compressed string no longer gives without decoding; box of the whole shape for the
-        # detection
+        # Box and compressed encoding of the visible part for the instance segmentation; box of the whole shape for
+        # the detection
         if keep_visible_parts:
             kept_objects.append((category_identifier, get_mask_bounding_box(mask=visible_mask), *extra_fields))
-            visible_parts.append({"segmentation": encode_run_length_encoding(mask=visible_mask, compressed=True),
-                                  "area": visible_pixels})
+            visible_parts.append({"segmentation": encode_run_length_encoding(mask=visible_mask, compressed=True)})
         else:
             kept_objects.append((category_identifier, box, *extra_fields))
     return kept_objects, visible_parts
@@ -2217,10 +2215,9 @@ def generate_image_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
         List[Dict[str, Any]]: For every image, its 'index', 'file_name' and list of (category, box) 'objects', the
             keypoint detection objects being (category, box, keypoints), for the semantic segmentation the
             'mask_category_ids' of the categories visible in its mask, and for the instance segmentation its
-            'visible_parts', the compressed run length encoding 'segmentation' and pixel count 'area' of the visible
-            part of every object, the box of every object being the box of that part (see keep_visible_objects). The
-            self-supervised and multi-label classification images give the 'shape_names' of their shapes instead of
-            'objects'.
+            'visible_parts', the compressed run length encoding 'segmentation' of the visible part of every object,
+            the box of every object being the box of that part (see keep_visible_objects). The self-supervised and
+            multi-label classification images give the 'shape_names' of their shapes instead of 'objects'.
     """
     random_generator = np.random.default_rng()
     image_records = []
@@ -2298,8 +2295,7 @@ def build_detection_labels(image_records: List[Dict[str, Any]], image_size: int,
                        "height": image_size})
         for category_identifier, (x_1, y_1, x_2, y_2), *_ in record["objects"]:
             annotations.append({"id": len(annotations) + 1, "image_id": image_identifier,
-                                "category_id": category_identifier, "bbox": [x_1, y_1, x_2 - x_1, y_2 - y_1],
-                                "area": (x_2 - x_1) * (y_2 - y_1), "iscrowd": 0})
+                                "category_id": category_identifier, "bbox": [x_1, y_1, x_2 - x_1, y_2 - y_1]})
             class_counts[category_names[category_identifier]] += 1
 
     labels = {"info": {"description": f"Synthetic shapes detection dataset, {split_name} split"},
@@ -2314,11 +2310,11 @@ def build_instance_segmentation_labels(image_records: List[Dict[str, Any]], imag
     """
     Assembles the COCO annotation file of a synthetic instance segmentation split, read by the COCO dataset with its
     instance masks: the detection labels with the 'segmentation' of every object, the compressed run length encoding
-    of its visible part (holes included), and its number of visible pixels as 'area'.
+    of its visible part (holes included).
 
     Args:
         image_records (List[Dict[str, Any]]): The 'index', 'file_name', (category, box) 'objects' and 'visible_parts'
-            (compressed 'segmentation' and 'area', keep_visible_objects) of every image.
+            (compressed 'segmentation', keep_visible_objects) of every image.
         image_size (int): The height and width of the images in pixels.
         split_name (str): The name of the split, written in the description.
 
@@ -2329,12 +2325,10 @@ def build_instance_segmentation_labels(image_records: List[Dict[str, Any]], imag
                                                   split_name=split_name, categories=SHAPE_CATEGORIES)
     labels["info"]["description"] = f"Synthetic shapes instance segmentation dataset, {split_name} split"
 
-    # The annotations follow the objects of the records in order, each one getting the encoding and the pixel count of
-    # its visible part
+    # The annotations follow the objects of the records in order, each one getting the encoding of its visible part
     visible_parts = [visible_part for record in image_records for visible_part in record["visible_parts"]]
     for annotation, visible_part in zip(labels["annotations"], visible_parts, strict=True):
         annotation["segmentation"] = visible_part["segmentation"]
-        annotation["area"] = visible_part["area"]
     return labels, class_counts
 
 
