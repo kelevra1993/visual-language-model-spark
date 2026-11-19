@@ -761,6 +761,15 @@ Should a research report need the figures of its kept classifier again, set the 
 uv run python -m scripts.evaluation.draw_report_figures
 ```
 
+<p align="center">
+  <img src="README/report_precision_recall_curves.png" width="90%" />
+</p>
+
+<p align="center">
+  <img src="README/report_training_curves.png" width="80%" />
+</p>
+<p align="center"><em>The precision-recall curves and the training curves drawn for the classifier above at iteration 1500: a dot marks the threshold reaching 99 % precision (none for rectangle, which never reaches it), at a logit temperature of 1 since no temperature was saved. The confusion matrix of the report is the one shown above; the chart of the groups needs a group manifest, which the synthetic shapes do not have.</em></p>
+
 ## Comparing Launches
 After the launches of a hyperparameter stage have trained, three scripts of `scripts/evaluation/` compare them:
 - `collect_experiment_results.py` gathers the test curve and the swept settings of the `run_<n>` launches into one CSV file, with a `mean` row per setting.
