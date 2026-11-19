@@ -73,14 +73,13 @@ runs:
       - path: Tensorboard/Test/events.out.tfevents.*
         reduction: tensorboard_scalars
 datasets:
-  # Label mapping file of the labels listing (and of the configuration checks of the self-supervised series)
+  # Label mapping file of the labels listing, also loaded by the configuration checks of the self-supervised series
   - path: classifier_data/synthetic_shapes/label_mapping.json
-  # Training manifest: the first samples of the labels listing and the k-NN reference images of the self-supervised
-  # run, with the count of the 500,000 samples of the split; the same entry as in the self-supervised series
+  # Training manifest reduced to the first samples of the labels listing, with the count of the 500,000 samples of
+  # the split that the listing quotes
   - path: classifier_data/synthetic_shapes/train/labels.json
     reduction: tutorials.figures.classification.snapshot_reductions:reduce_sample_manifest
     first_samples: 3
-    reference_samples_per_category: 50
 figure_reuse:
   # Outputs of the trained head on the test star and the validation images (classification_head.py)
   - family: model
