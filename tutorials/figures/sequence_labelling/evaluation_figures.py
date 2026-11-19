@@ -527,7 +527,8 @@ def make_prediction_facts(run_folder: Path, source: Dict[str, Any], output_folde
     source_name = str(source["files_folder"].relative_to(run_folder))
     predictions_path = source["files_folder"] / "predictions.csv"
     reused_facts = read_run_reused_facts(facts_path=reused_facts_path, run_folder=run_folder, source_name=source_name,
-                                         source_paths=[predictions_path], fact_prefix="predictions", force=force)
+                                         source_paths=[predictions_path], fact_prefix="predictions", force=force,
+                                         committed_mode=is_snapshot_folder(folder=run_folder))
     if reused_facts is not None:
         return reused_facts
     predictions = pandas.read_csv(filepath_or_buffer=predictions_path)
@@ -971,7 +972,7 @@ def make_evaluation_facts(output_folder: Path, run_folder: Path, force: bool) ->
                                                                      iteration=source["iteration"])]
     model_facts = read_run_reused_facts(facts_path=model_facts_path, run_folder=run_folder, source_name=checkpoint_name,
                                         source_paths=checkpoint_paths, fact_prefix="model", force=force,
-                                        required_fact_names=REQUIRED_MODEL_FACTS)
+                                        committed_mode=snapshot_mode, required_fact_names=REQUIRED_MODEL_FACTS)
     if model_facts is None:
         model_facts = compute_model_facts(run_folder=run_folder, iteration=source["iteration"])
         model_facts.update(describe_run_source(run_folder=run_folder, source_name=checkpoint_name,

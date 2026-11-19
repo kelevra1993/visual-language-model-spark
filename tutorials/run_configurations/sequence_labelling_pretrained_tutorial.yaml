@@ -1,8 +1,8 @@
-# Synthetic changing shapes dataset (frames of 5 to 10 shapes redrawn every frame, each frame from the second adding,
-# removing or keeping a shape), created by vision_training/data/synthetic/create_synthetic_dataset.py with the task
-# "sequence_labelling". Every frame is labelled 'appearing_<class>', 'disappearing_<class>' or 'no_change' (always the
-# first frame), 71 labels for the 35 shape classes, a change being told only by comparing the shape classes with the
-# previous frame.
+# Synthetic changing shapes dataset of October 2026 the run was trained on (frames of 5 to 10 shapes redrawn every
+# frame, each frame from the second adding, removing or keeping a shape; the generator of the repository keeps and moves
+# the shapes), created by vision_training/data/synthetic/create_synthetic_dataset.py with the task "sequence_labelling".
+# Every frame is labelled 'appearing_<class>', 'disappearing_<class>' or 'no_change' (always the first frame), 71
+# labels for the 35 shape classes, a change being told by comparing the shape classes with the previous frame.
 # Tutorial sequence_labelling run: the settings kept by the sequence labelling experiment plan (run_49, pretrained
 # backbone fine-tuned, LSTM-BI, flatten pooling), 2000 iterations, in ~/Data/tutorial_runs; run with vision_training.main.
 ExperimentConfiguration:
