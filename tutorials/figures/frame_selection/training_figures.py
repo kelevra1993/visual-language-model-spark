@@ -10,6 +10,8 @@ the logs) as facts. The accuracy and the share of unselected frames are written 
 the repository ("94.03 %", ticks "60 %"), the facts keeping them between 0 and 1.
 """
 
+import math
+
 import matplotlib
 import numpy
 
@@ -44,6 +46,10 @@ REFERENCE_COLOUR = SERIES_COLOURS[3]
 
 # Iterations at which the facts give the smoothed training curves
 FACT_ITERATIONS = [100, 500, 1000, 2000]
+
+# Lowest bottom of the accuracy axis, lowered to the tenth under the lowest accuracy of the batches when a curve starts
+# under it (the first training batches of an untrained model)
+ACCURACY_AXIS_BOTTOM = 0.5
 
 # Scalar of the training batches, written at every iteration, whose wall times give the throughput of the run
 THROUGHPUT_TAG = "Total Loss"
@@ -169,7 +175,9 @@ def make_training_figures(output_folder: Path, run_folder: Path, run_label: str,
     loss_axes.set_ylim(bottom=1e-4, top=6.0)
     style_curve_panel(axes=accuracy_axes, title="Accuracy of the frames", y_label="Accuracy",
                       last_iteration=last_iteration)
-    accuracy_axes.set_ylim(bottom=0.5, top=1.03)
+    # Accuracy axis from ACCURACY_AXIS_BOTTOM, or lower so that the first batches of a curve starting under it show
+    lowest_accuracy = min(float(numpy.min(curves[(split, "Accuracy")][1])) for split in ["Train", "Validation"])
+    accuracy_axes.set_ylim(bottom=min(ACCURACY_AXIS_BOTTOM, math.floor(lowest_accuracy * 10) / 10), top=1.03)
 
     # Accuracy ticks written as the percentages of the reports of the repository, the losses keeping their decimals
     accuracy_axes.yaxis.set_major_formatter(formatter=FuncFormatter(func=format_percentage_tick))
@@ -197,7 +205,7 @@ def make_training_figures(output_folder: Path, run_folder: Path, run_label: str,
     validation_iterations, validation_values = curves[("Validation", "Accuracy")]
     accuracy_axes.plot(validation_iterations, validation_values, color=CURVE_COLOURS["Validation"],
                        linewidth=3 * POINTS_PER_PIXEL, zorder=3, label="validation batches")
-    accuracy_axes.legend(loc="center right", frameon=False, labelcolor=TEXT_PRIMARY_COLOUR,
+    accuracy_axes.legend(loc="lower right", frameon=False, labelcolor=TEXT_PRIMARY_COLOUR,
                          fontsize=18 * POINTS_PER_PIXEL)
     save_figure(figure=figure, output_path=output_folder / "training" / f"{FIGURE_NAME}.png")
     facts = {}

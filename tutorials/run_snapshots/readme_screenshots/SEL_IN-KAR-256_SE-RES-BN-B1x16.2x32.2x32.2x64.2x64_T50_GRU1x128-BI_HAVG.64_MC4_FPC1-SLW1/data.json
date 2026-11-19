@@ -1,5 +1,5 @@
 {
-  "created": "2026-10-23 05:38:46",
+  "created": "2026-11-18 23:14:47",
   "classes": [
     {
       "class_index": 0,
@@ -8,9 +8,9 @@
         1
       ],
       "frames": {
-        "train": 9898,
-        "validation": 952,
-        "test": 1039
+        "train": 10134,
+        "validation": 968,
+        "test": 961
       }
     },
     {

@@ -10,6 +10,7 @@ choices the deployed decoder flags as low confidence and which go through.
 """
 
 import json
+import re
 
 import matplotlib
 import numpy
@@ -26,9 +27,10 @@ from tutorials.figures.frame_selection.selection_figures import EVALUATION_FOLDE
 from tutorials.figures.sequence_labelling.sequence_utilities import (parse_block_metrics, read_results_block,
                                                                      read_run_sections, write_listing)
 from tutorial_builder.layout import NAMED_COLOURS
-from vision_training.evaluation.report_formatting import format_percentage_label
+from vision_training.evaluation.report_formatting import PERCENT_SIGN, format_percentage_label
 
-# Iterations of the evaluations compared, the one with wrong choices and the last one
+# Iterations of the evaluations compared, the one of the wrong picks shown (SELECTION_ITERATION of the selection
+# figures) and the last one
 THRESHOLD_ITERATIONS = [1000, 2000]
 
 # Iteration of the evaluation block listed in the report scene
@@ -36,6 +38,12 @@ LISTED_ITERATION = 1000
 
 # Characters kept of every listed line, the header line ending with a rule as wide as the console
 LISTED_LINE_LENGTH = 118
+
+# Title of the per-class table of a block, whose first row after its rule is the worst class of the decoding of the run
+PER_CLASS_TABLE_TITLE = "Per Class Selection"
+
+# Row of the per-class table: the class, its true frames and its Hungarian selection accuracy written as a percentage
+PER_CLASS_ROW_PATTERN = re.compile(pattern=r"^\s+(\S+)\s+(\d+)\s+(\d+\.\d+)" + re.escape(PERCENT_SIGN))
 
 # Colours of the right and wrong choices, and of the thresholds
 RIGHT_COLOUR = SERIES_COLOURS[1]
@@ -59,11 +67,13 @@ def draw_threshold_panel(axes: matplotlib.axes.Axes, selection_rows: Dict[Any, D
         iteration (int): The evaluated iteration.
 
     Returns:
-        Dict[str, Any]: The thresholds, recalls and choices of every class, named thresholds.iteration_<n>_*.
+        Dict[str, Any]: The thresholds, recalls and choices of every class, named thresholds.iteration_<n>_*, and over
+            every class the wrong choices, those flagged and not flagged, and the right choices flagged.
     """
     facts = {}
     random_generator = numpy.random.default_rng(seed=0)
     decoding = thresholds["decoding"]
+    totals = {"wrong": 0, "wrong_flagged": 0, "wrong_unflagged": 0, "right_flagged": 0}
     for row_index, class_name in enumerate(class_names):
         # Choices of the decoding the thresholds were found with, in the columns of selections.csv named after it
         rows = [row for row in selection_rows.values() if row["class"] == class_name]
@@ -97,6 +107,13 @@ def draw_threshold_panel(axes: matplotlib.axes.Axes, selection_rows: Dict[Any, D
             f"thresholds.iteration_{iteration}_{class_name}_minimum_right": round_fact(
                 value=chosen_probabilities[right_choices].min())})
 
+        # Wrong choices flagged for a human or going through, and right choices flagged with them, over every class
+        totals["wrong"] += int((~right_choices).sum())
+        totals["wrong_flagged"] += int((~right_choices & flagged_choices).sum())
+        totals["wrong_unflagged"] += int((~right_choices & ~flagged_choices).sum())
+        totals["right_flagged"] += int((right_choices & flagged_choices).sum())
+    facts.update({f"thresholds.iteration_{iteration}_{name}": value for name, value in totals.items()})
+
     # Rows named after their class, the probability axis from 0 to 1
     style_chart_panel(axes=axes, title=f"Iteration {iteration}: probability of the chosen frames",
                       x_label="Probability of the chosen frame for its class", y_label=None)
@@ -105,6 +122,36 @@ def draw_threshold_panel(axes: matplotlib.axes.Axes, selection_rows: Dict[Any, D
     axes.set_yticks(ticks=list(range(len(class_names))), labels=list(reversed(class_names)))
     axes.tick_params(axis="y", labelsize=20 * POINTS_PER_PIXEL, labelcolor=TEXT_PRIMARY_COLOUR)
     return facts
+
+
+def read_worst_class(block_lines: List[str], fact_prefix: str) -> Dict[str, Any]:
+    """
+    Reads the first row of the per-class table of an evaluation block of Results.txt, the worst class of the decoding
+    of the run (the table puts the lowest Hungarian selection accuracy first), so that the narration names the class
+    the report puts first instead of typing it.
+
+    Args:
+        block_lines (List[str]): The lines of the block (read_results_block).
+        fact_prefix (str): The prefix of the fact names, e.g. "evaluation".
+
+    Returns:
+        Dict[str, Any]: The class and its Hungarian selection accuracy between 0 and 1, named <prefix>.worst_class and
+            <prefix>.worst_class_accuracy.
+
+    Raises:
+        ValueError: If the block has no per-class table or no row under its rule.
+    """
+    table_start = next((line_index for line_index, line in enumerate(block_lines)
+                        if line.strip() == PER_CLASS_TABLE_TITLE), None)
+    if table_start is not None:
+        # First row matching a class, its true frames and its accuracy after the title and the column headers
+        for line in block_lines[table_start + 1:]:
+            row_match = PER_CLASS_ROW_PATTERN.match(string=line)
+            if row_match is not None:
+                return {f"{fact_prefix}.worst_class": row_match.group(1),
+                        f"{fact_prefix}.worst_class_accuracy": round_fact(value=float(row_match.group(3)) / 100.0)}
+    raise ValueError(f"Expected a '{PER_CLASS_TABLE_TITLE}' table with a class row in the evaluation block starting "
+                     f"'{block_lines[0][:40]}', but found none.")
 
 
 def draw_thresholds_figure(run_folder: Path, output_path: Path) -> Dict[str, Any]:
@@ -184,7 +231,11 @@ def make_evaluation_figures(output_folder: Path, run_folder: Path) -> Dict[str, 
                   "evaluation.results_listing_lines": len(block_lines),
                   "evaluation.top_k": int(experiment_configuration["evaluation"]["top_k"])})
     facts.update(parse_block_metrics(block_lines=block_lines, fact_prefix="evaluation"))
-    facts.update(parse_block_metrics(block_lines=read_results_block(results_path=results_path,
-                                                                    iteration=THRESHOLD_ITERATIONS[-1]),
-                                     fact_prefix=f"evaluation.iteration_{THRESHOLD_ITERATIONS[-1]}"))
+    facts.update(read_worst_class(block_lines=block_lines, fact_prefix="evaluation"))
+
+    # Headline metrics and worst class of the last evaluation
+    last_block_lines = read_results_block(results_path=results_path, iteration=THRESHOLD_ITERATIONS[-1])
+    last_prefix = f"evaluation.iteration_{THRESHOLD_ITERATIONS[-1]}"
+    facts.update(parse_block_metrics(block_lines=last_block_lines, fact_prefix=last_prefix))
+    facts.update(read_worst_class(block_lines=last_block_lines, fact_prefix=last_prefix))
     return facts

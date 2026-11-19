@@ -28,7 +28,7 @@ datasets:
   - path: sequence_data/synthetic_selected_shapes/label_mapping.json
   - path: sequence_data/synthetic_selected_shapes/train/labels.json
   - path: sequence_data/synthetic_selected_shapes/test/labels.json
-  - path: sequence_data/synthetic_selected_shapes/test/data/test_000057/*.png
+  - path: sequence_data/synthetic_selected_shapes/test/data/test_000050/*.png
 # Family run with the trained weights (the wrong picks and the matrix data of the decoding animations), reused from
 # these committed outputs when the checkpoint is absent
 figure_reuse:
