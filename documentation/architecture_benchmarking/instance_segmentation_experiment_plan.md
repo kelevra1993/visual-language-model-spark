@@ -83,11 +83,11 @@ So that the order and the cost of the benchmark are seen at once, the table list
 | 3b | Finer inputs of the mask heads (the user's designs A and B) | on the `[4, 64]` heads of stage 3: A, an image branch; B, U-Net skips from the backbone; the control, the fusion convolution alone | `MaskHead.image_branch_convolutions`, `skip_blocks_at_pool_size`, `skip_blocks_at_mask_resolution`, `fusion_convolutions` (main 0ef5cbd) | A done, +0.0719 over stage 3 (0.8865); B done, +0.0714 (0.8859), tied with A at a lower cost and a smaller box loss; control done, +0.0053 (0.8198), so the finer inputs carry 0.066 of the gains of A and B; the user chose A (2026-11-19), written into `run-1.yaml` |
 | 4 | Upsampling | `transposed`, `bilinear` | none | planned |
 | 5 | One mask head shared by the levels (`suggestions.md` item 7) | per level, shared | `MaskHead.shared` | planned |
-| 6 | Mask level chosen by the box size (`suggestions.md` item 2) | level of the proposal, level of the box size | level rule | planned |
-| 7 | A finer map for the masks (`suggestions.md` item 5) | the levels of the detection, a level 3 of the feature pyramid (stride 8) for the masks | neck level | planned |
+| 6 | Mask level chosen by the box size (`suggestions.md` item 2) | level of the proposal, level of the box size | level rule | dropped by the user on 2026-11-19, the image branch of design A giving every box its own pixels |
+| 7 | A finer map for the masks (`suggestions.md` item 5) | the levels of the detection, a level 3 of the feature pyramid (stride 8) for the masks | neck level | dropped by the user on 2026-11-19, design A having raised the small objects by 0.12 |
 | 8 | Mask scoring (Mask Scoring R-CNN) | class score, class score times the predicted mask IoU | mask IoU head | planned |
 
-Stages 0 to 4 change settings only; stage 3b needs the finer inputs of the mask heads, merged on 2026-11-15 and off by default; stages 5 to 8 need code, merged right before their pair. Every training pair is expected to take at least the 14 hours of a detection pair, the mask heads and targets adding a share that stage 0 measures. On 2026-11-12 the user kept every stage of the table (stage 4 trains both upsamplings, the transposed convolution as the reference), the pools of 18 and 22 for stage 1 (on 2026-11-14, with the pool of 22 behind the reference by 0.0155 at iteration 9000, the user dropped the pool of 18 to save its 15 hours), and the launch of stage 0 as soon as stage 8 of the detection benchmark ends.
+Stages 0 to 4 change settings only; stage 3b needs the finer inputs of the mask heads, merged on 2026-11-15 and off by default; stages 5 and 8 need code, merged right before their pair (stages 6 and 7, which needed code as well, were dropped by the user on 2026-11-19). Every training pair is expected to take at least the 14 hours of a detection pair, the mask heads and targets adding a share that stage 0 measures. On 2026-11-12 the user kept every stage of the table (stage 4 trains both upsamplings, the transposed convolution as the reference), the pools of 18 and 22 for stage 1 (on 2026-11-14, with the pool of 22 behind the reference by 0.0155 at iteration 9000, the user dropped the pool of 18 to save its 15 hours), and the launch of stage 0 as soon as stage 8 of the detection benchmark ends.
 
 ## The Stages
 
@@ -297,9 +297,13 @@ Whenever a level holds few positives, its own mask head learns from few examples
 
 For the medium and large boxes to be pooled from enough cells, the level can follow the box size (`suggestions.md` item 2): every mask is pooled from the level of its proposal, whose anchors match the box, so a box covers a few cells of its map (stage 1). The rule of the feature pyramid paper, level k = k0 + log2(sqrt(w h) / 224) with k0 = 4, pools every box from the level where it covers about 14 cells: the finest level (stride 16) for the boxes up to about 224 pixels, level 5 (stride 32) around 448 pixels. A box of 128 to 256 pixels, now pooled from 2 to 4 cells of level 6, would get 8 to 16 cells of level 4. It works best with the shared head of stage 5, every head otherwise seeing boxes of other sizes than before. Code: the level rule in the mask loss, the mask prediction and the export, and a setting to choose it.
 
+The user dropped the stage on 2026-11-19 ("drop 6 and 7 then"): the few cells a box covers on its level map no longer bound its borders, since the image branch of design A (stage 3b, now in `run-1.yaml`) crops every box from the image at 28 x 28, which doubled the mask mAP@0.95 (0.3949 against 0.1899).
+
 ### Stage 7: A Finer Map For The Masks
 
 If one wishes to give the small objects finer masks, a finer map is needed (`suggestions.md` item 5): the finest level of the detection has a stride of 16, where Mask R-CNN pools its small boxes from a stride of 4. The feature pyramid can add a level 3 (stride 8, block 3 of the backbone) read by the mask heads only, the detection keeping its levels and anchors. The small objects, 1 to 2 cells wide on level 4, would get 2 to 4 cells. Code: a neck level outside `DetectionLevels`, the mask head of that level, its memory and time measured before the pair.
+
+The user dropped the stage on 2026-11-19 ("drop 6 and 7 then"): design A raised the small objects by 0.1197 over stage 3 (0.8764 against 0.7567), the largest gain of any size, and design B, which read the backbone maps at strides 8 and 4, did no better than A (0.8519 on the small objects).
 
 ### Stage 8: Mask Scoring
 
