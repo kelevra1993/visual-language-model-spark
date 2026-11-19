@@ -5,9 +5,11 @@ reused between builds unless forced: the checkpoint of iteration 6000 of the syn
 of the chapters with its ground truth, gives in one forward pass the heatmaps of both strides, the tags, the losses of
 the image, the keypoint candidates (extract_keypoint_candidates, as in the evaluation and the exports) and, through
 forward hooks, the shape of every tensor of the network and the parameters of its components. The arrays the figures
-draw are kept for the channels of the classes of the image only (the tag maps, which no figure draws, are left out).
-A run without its checkpoint (read from the committed snapshots, tutorials/run_snapshots) reuses the outputs of the
-inference committed in figure_reuse/keypoint_detection/inference of the snapshots.
+draw are kept for the channels of the classes of the image only (the tag maps, which no figure draws, are left out),
+the heatmaps in float16, so that the committed copy stays under the 5 MB per file of the snapshots with the four
+classes of the image (the facts of the inference come from the float32 outputs). A run without its checkpoint (read
+from the committed snapshots, tutorials/run_snapshots) reuses the outputs of the inference committed in
+figure_reuse/keypoint_detection/inference of the snapshots.
 """
 
 import numpy
@@ -271,13 +273,15 @@ def run_keypoint_inference(output_folder: Path, run_folder: Path, sample_record:
         valid = targets["tag_valid"][0, object_index]
         sample_object["tags"] = [round_fact(value=tag) for tag in keypoint_tags[object_index][valid].tolist()]
 
-    # Channels of the classes of the image, whose heatmaps the figures draw, with the candidates of every channel; the
-    # tag maps are left out, the figures reading the tags of the keypoints from the facts and those of the candidates
+    # Channels of the classes of the image, whose heatmaps the figures draw (in float16, as drawn colours need no more),
+    # with the candidates of every channel; the tag maps are left out, the figures reading the tags of the keypoints
+    # from the facts and those of the candidates
     shown_channels = sorted({channel for sample_object in objects for channel in sample_object["channels"]})
     arrays_path.parent.mkdir(parents=True, exist_ok=True)
     numpy.savez_compressed(file=arrays_path, channels=numpy.array(shown_channels),
-                           heatmaps=outputs["heatmaps"][0, shown_channels].numpy(),
-                           higher_resolution_heatmaps=outputs["higher_resolution_heatmaps"][0, shown_channels].numpy(),
+                           heatmaps=outputs["heatmaps"][0, shown_channels].numpy().astype(numpy.float16),
+                           higher_resolution_heatmaps=outputs["higher_resolution_heatmaps"][0, shown_channels].numpy()
+                           .astype(numpy.float16),
                            candidate_positions=candidates["candidate_positions"][0].numpy(),
                            candidate_scores=candidates["candidate_scores"][0].numpy(),
                            candidate_tags=candidates["candidate_tags"][0].numpy())

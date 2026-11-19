@@ -1,8 +1,8 @@
 # Keypoint detection, chapter 3: from the heatmaps of the trained detector to objects (the candidates, their refinement
-# within their cell, the grouping by tags followed on the two hollow capsules of the test image), the object keypoint
-# similarity and the metrics of the synthetic keypoint run (trained and averaged weights, worst classes and keypoints,
-# the pitfall of Matched Objects), then the commands and the export. Coordinates of the html scenes are in pixels of the
-# content area (1760 x 740); the figures and facts are made by tutorials/figures/keypoint_detection.
+# within their cell, the grouping by tags followed on the pair of the test image, its two objects of one class), the
+# object keypoint similarity and the metrics of the synthetic keypoint run (trained and averaged weights, worst classes
+# and keypoints, the pitfall of Matched Objects), then the commands and the export. Coordinates of the html scenes are
+# in pixels of the content area (1760 x 740); the figures and facts are made by tutorials/figures/keypoint_detection.
 series: keypoint_detection
 series_title: "Keypoint Detection (KPT)"
 chapter: 3
@@ -37,13 +37,14 @@ scenes:
     code_reference: "vision_training/models/keypoints/keypoint_detector.py · extract_keypoint_candidates"
     image: "figures:keypoint_detection/evaluation/heatmaps.png"
     highlights:
-      - {box: "{{keypoint_detection.heatmaps_trapezoid_row_box}}", sentences: [1]}
-      - {box: "{{keypoint_detection.heatmaps_hollow_capsule_average_box}}", sentences: [2]}
-      - {box: "{{keypoint_detection.heatmaps_trapezoid_average_box}}", sentences: [2]}
+      - {box: "{{keypoint_detection.heatmaps_single_row_box}}", sentences: [1]}
+      - {box: "{{keypoint_detection.heatmaps_pair_average_box}}", sentences: [2, 3]}
+      - {box: "{{keypoint_detection.heatmaps_single_average_box}}", sentences: [2, 3]}
     narration:
       - "At inference the heat maps of a quarter of the image are upsampled by {{constant:vision_training/models/keypoints/hrnet.py#BRANCH_SCALE_FACTOR:words}} and averaged with those of the higher resolution branch, and the tags are upsampled with them."
-      - "For the trapezoid the peaks reach {{keypoint_detection.heatmaps_trapezoid_peak_stride_2:.2f}} at stride {{keypoint_detection.branch_stride:words}}, and the average on the right is the map the candidates are taken on."
-      - "Of the {{keypoint_detection.heatmaps_candidate_count:,}} candidates of the image, {{keypoint_detection.heatmaps_candidates_above_threshold}} pass the key point threshold of {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#KeypointHead.inference.keypoint_threshold}}, each less than {{keypoint_detection.heatmaps_error_bound:.1f}} pixels from a labelled key point."
+      - "For the {{keypoint_detection.single_class_label}} the peaks reach {{keypoint_detection.heatmaps_single_peak_stride_2:.2f}} at stride {{keypoint_detection.branch_stride:words}}, and the average on the right is the map the candidates are taken on."
+      - "Of the {{keypoint_detection.heatmaps_candidate_count:,}} candidates of the image, {{keypoint_detection.heatmaps_candidates_above_threshold}} pass the key point threshold of {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#KeypointHead.inference.keypoint_threshold}}, and {{keypoint_detection.heatmaps_candidates_on_keypoints}} of them lie less than {{keypoint_detection.heatmaps_error_bound:.1f}} pixels from a labelled key point of their channel."
+      - "The {{keypoint_detection.heatmaps_other_candidates}} others score at most {{keypoint_detection.heatmaps_other_best_score:.2f}}, below every candidate on a key point."
 
   - kind: code
     title: "Local maxima of every channel"
@@ -71,39 +72,43 @@ scenes:
     highlights:
       - {match: "offset_x = compute_peak_offsets|offset_y = compute_peak_offsets", sentences: [0]}
       - {match: "candidate_x = ", sentences: [1]}
-    # The parabola through a cell and its two neighbours, and the errors measured once on the synthetic test
-    # images when the offsets were added (documentation/suggestions.md), not computed by any build
-    literal_numbers: [two, "0.458", "0.363"]
+    # The parabola through a cell and its two neighbours
+    literal_numbers: [two]
     narration:
       - "Each is placed within its cell, along each axis, at the vertex of the parabola through the log heat map at its cell and its two neighbours: the Taylor expansion of DARK without its cross term."
-      - "Its position in pixels is the cell plus that offset plus one half, times the stride; on the synthetic test images this cut the error per axis off the pixel centres from 0.458 to 0.363 pixels."
+      - "Its position in pixels is the cell plus that offset plus one half, times the stride."
 
   - kind: html
     page: 05_keypoint_detection/grouping
     title: "Grouping by tags"
     code_reference: "vision_training/models/keypoints/keypoint_grouping.py · group_keypoint_candidates"
     data: "figures:keypoint_detection/evaluation/grouping.json"
-    steps: {columns: 0, exchange: 2}
-    # A rounded tag distance below one half
+    steps: {columns: 0, exchange: 3}
+    # A rounded tag distance below one half and the score of a key point not found
     literal_numbers: [zero]
     narration:
       - "The grouping runs on the CPU, class by class: the candidates of the first key point of the class start one object each."
       - "The candidates of every next key point are matched to the objects so far by the Hungarian method, the cost being the tag distance to the mean tag of the object rounded to whole units, times {{constant:vision_training/models/keypoints/keypoint_grouping.py#TAG_DISTANCE_COST:.0f}}, minus the score."
-      - "The {{keypoint_detection.grouping_capsule_objects:words}} capsules have mean tags only {{keypoint_detection.tags_same_class_distance:.2f}} apart, so every rounded distance is zero, both assignments cost the same, and the candidates go to the objects in the order of their scores: {{keypoint_detection.grouping_exchanged_count}} key points join the other capsule."
-      - "An object scores the mean of its key point scores over all the key points of its class, a key point not found counting zero."
+      - "The {{keypoint_detection.pair_object_count:words}} {{keypoint_detection.pair_class_plural}} have mean tags only {{keypoint_detection.tags_pair_distance:.2f}} apart, so the candidates on their key points are at a rounded distance of zero from both objects and both assignments cost the same."
+      - "The candidates then go to the objects in the order of their scores: those of the {{keypoint_detection.grouping_exchanged_keypoints}} key points end in the wrong {{keypoint_detection.pair_class_label}}."
+      - "An object scores the mean of its key point scores over all the key points of its class, a key point not found counting zero: the last object here, a single weak candidate left over, scores {{keypoint_detection.grouping_weakest_score:.2f}}."
       - "The evaluation keeps every object, while the sample images keep those scoring at least {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#KeypointHead.inference.object_score_threshold}}, the threshold a client passes to the grouping."
 
   - kind: image
     title: "The sample image of the evaluation"
     code_reference: "vision_training/utilities/visualization.py · build_keypoint_sample_grid"
-    image: "runs:keypoint_focal_synthetic/experiments/KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256-HH_MC33/Checkpoint_Evaluation/Iteration_6000/Samples/test_000000.png"
+    image: "runs:keypoint_focal_synthetic/experiments/KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256-HH_MC33/Checkpoint_Evaluation/Iteration_6000/Samples/test_000409.png"
+    # The score of a key point not found
+    literal_numbers: [zero]
     highlights:
-      - {box: "{{keypoint_detection.sample_prediction_hollow_capsule_box}}", sentences: [0]}
-      - {box: "{{keypoint_detection.sample_ground_truth_hollow_capsule_box}}", sentences: [0]}
-      - {box: "{{keypoint_detection.sample_prediction_trapezoid_box}}", sentences: [1]}
+      - {box: "{{keypoint_detection.sample_prediction_pair_box}}", sentences: [0]}
+      - {box: "{{keypoint_detection.sample_ground_truth_pair_box}}", sentences: [0]}
+      - {box: "{{keypoint_detection.sample_prediction_cut_box}}", sentences: [1]}
+      - {box: "{{keypoint_detection.sample_prediction_single_box}}", sentences: [2]}
     narration:
-      - "The sample image of the evaluation shows it: every key point of both capsules is found, but their skeletons cross from one capsule to the other."
-      - "The trapezoid, alone in its class, comes out whole, with a score of {{keypoint_detection.grouping_trapezoid_best_score:.2f}}."
+      - "The sample image of the evaluation shows it: every labelled key point of both {{keypoint_detection.pair_class_plural}} is found, but their skeletons cross from one {{keypoint_detection.pair_class_label}} to the other."
+      - "The {{keypoint_detection.pair_class_label}} cut by the border also gets its {{keypoint_detection.grouping_cut_border_keypoints:words}} key points outside the image, placed on the edge with scores of at most {{keypoint_detection.grouping_cut_border_best_score:.2f}}."
+      - "The {{keypoint_detection.single_class_label}}, alone in its class, scores only {{keypoint_detection.grouping_single_best_score:.2f}}: its {{keypoint_detection.single_unlabelled_keypoint_label}} key point, outside the image, is not found and counts zero."
 
   - kind: html
     page: diagram
@@ -116,8 +121,8 @@ scenes:
       - type: curve
         box: [180, 110, 1180, 560]
         series:
-          - {name: "trapezoid", colour: blue, points: "{{keypoint_detection.oks_trapezoid_points}}"}
-          - {name: "capsule", colour: aqua, points: "{{keypoint_detection.oks_capsule_points}}"}
+          - {name: "{{keypoint_detection.oks_large_label}}", colour: blue, points: "{{keypoint_detection.oks_large_points}}"}
+          - {name: "{{keypoint_detection.oks_small_label}}", colour: aqua, points: "{{keypoint_detection.oks_small_points}}"}
         x_range: [0, 30]
         y_range: [0, 1]
         x_ticks: [{value: 0, label: "0"}, {value: 10, label: "10"}, {value: 20, label: "20"}, {value: 30, label: "30"}]
@@ -125,12 +130,12 @@ scenes:
         x_label: "distance of every key point to its ground truth, pixels"
         y_label: "OKS"
         appear: 1
-      - {type: text, position: [1300, 200], text: "trapezoid, area {{keypoint_detection.oks_trapezoid_area:,}} px²\nOKS 0.5 at {{keypoint_detection.oks_trapezoid_half_distance:.1f}} px\nPCK tolerance {{keypoint_detection.oks_trapezoid_pck_tolerance:.2f}} px", font: diagram_small, colour: blue, appear: 1}
-      - {type: text, position: [1300, 360], text: "capsule, area {{keypoint_detection.oks_capsule_area:,}} px²\nOKS 0.5 at {{keypoint_detection.oks_capsule_half_distance:.1f}} px\nPCK tolerance {{keypoint_detection.oks_capsule_pck_tolerance:.2f}} px", font: diagram_small, colour: aqua, appear: 1}
+      - {type: text, position: [1300, 200], text: "{{keypoint_detection.oks_large_label}}, area {{keypoint_detection.oks_large_area:,}} px²\nOKS 0.5 at {{keypoint_detection.oks_large_half_distance:.1f}} px\nPCK tolerance {{keypoint_detection.oks_large_pck_tolerance:.2f}} px", font: diagram_small, colour: blue, appear: 1}
+      - {type: text, position: [1300, 360], text: "{{keypoint_detection.oks_small_label}}, area {{keypoint_detection.oks_small_area:,}} px²\nOKS 0.5 at {{keypoint_detection.oks_small_half_distance:.1f}} px\nPCK tolerance {{keypoint_detection.oks_small_pck_tolerance:.2f}} px", font: diagram_small, colour: aqua, appear: 1}
       - {type: box, box: [80, 655, 1680, 725], text: "a labelled key point not found counts 0: half the key points missing caps the OKS at 0.5", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
     narration:
       - "An object found is scored against the ground truth objects of its class with the COCO object key point similarity, which replaces the box IOU of detection."
-      - "With the default sigma of {{keypoint_detection.oks_default_sigma:.3g}}, key points about {{keypoint_detection.oks_trapezoid_half_distance:.0f}} pixels away bring the similarity down to one half on the trapezoid, but only about {{keypoint_detection.oks_capsule_half_distance:.0f}} pixels away on the smaller capsule."
+      - "With the default sigma of {{keypoint_detection.oks_default_sigma:.3g}}, key points about {{keypoint_detection.oks_large_half_distance:.0f}} pixels away bring the similarity down to one half on the {{keypoint_detection.oks_large_label}}, but only about {{keypoint_detection.oks_small_half_distance:.0f}} pixels away on the smaller {{keypoint_detection.oks_small_label}}."
       - "A labelled key point that was not found counts zero, so an object missing half its key points has an OKS of one half at most, only with the others exact."
 
   - kind: html
@@ -190,7 +195,7 @@ scenes:
       - {role: command, text: "uv run python -m vision_training.deployment.export_model"}
     narration:
       - "To train a run like it, generate the synthetic key point data set with the task set in the main block of the script, then train with the synthetic configuration set to {{keypoint_detection.run_iterations}} iterations and a cosine decay over {{keypoint_detection.run_decay_iterations}}."
-      - "The run shown predates the current augmentation probabilities and the haze augmentation."
+      - "Its test folder holds the first {{keypoint_detection.metrics_test_images}} test images, and every other setting is the one of the configuration file, augmentations included."
       - "The evaluation script skips its maximum error images per class pair with a yellow warning, key point detection saving no error images."
       - "In a situation where no GPU is available, the export cannot run: it loads the checkpoint on CUDA, hard-coded."
 

@@ -22,7 +22,7 @@ runs:
       - path: Checkpoint_Evaluation/Iteration_6000/class_metrics.csv
       - path: Checkpoint_Evaluation/Iteration_6000/keypoint_metrics.csv
       # Sample image of the test image: boxes of its objects, and the image of the sample scene (storyboard runs:)
-      - path: Checkpoint_Evaluation/Iteration_6000/Samples/test_000000.png
+      - path: Checkpoint_Evaluation/Iteration_6000/Samples/test_000409.png
       # Throughput of the training, read from the summaries of the log two levels above the run folder
       - path: ../../training.log
         reduction: text_lines
@@ -31,10 +31,10 @@ datasets:
   # Label dictionary of the repository configuration
   - path: keypoint_data/synthetic_shapes/label_mapping.json
   # Test image of the chapters, and its records with the keypoint categories (the other images left out)
-  - path: keypoint_data/synthetic_shapes/test/data/test_000000.png
+  - path: keypoint_data/synthetic_shapes/test/data/test_000409.png
   - path: keypoint_data/synthetic_shapes/test/labels.json
     reduction: manifest_subset
-    images: [test_000000.png]
+    images: [test_000409.png]
     other_images: drop
     other_annotations: drop
 figure_reuse:

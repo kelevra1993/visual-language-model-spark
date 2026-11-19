@@ -1,10 +1,11 @@
 <!doctype html>
 <!--
- Tags of the trained keypoint detector at the labelled keypoints of the three objects of the test image, for the second
- chapter of the keypoint detection series: one row per object, every keypoint a dot at its tag on a shared tag axis
- (the "dots" step), then the mean tag of every object and the spread the pull loss gathers ("pull" step), then the pair
- of objects of the same class the push loss separates, the trapezoid being compared with nothing ("push" step). The data
- is the tags.json written by tutorials/figures/keypoint_detection/network_figures.py from the tag maps of the checkpoint.
+ Tags of the trained keypoint detector at the labelled keypoints of the objects of the test image, for the second
+ chapter of the keypoint detection series: one row per object (the rows closer together above three objects), every
+ keypoint a dot at its tag on a shared tag axis (the "dots" step), then the mean tag of every object and the spread the
+ pull loss gathers ("pull" step), then the pair of objects of the same class the push loss separates, the objects alone
+ in their class being compared with nothing ("push" step). The data is the tags.json written by
+ tutorials/figures/keypoint_detection/network_figures.py from the tag maps of the checkpoint.
 -->
 <html lang="en">
 <head>
@@ -24,7 +25,11 @@
         const AXIS_Y = 590;
         const FIRST_ROW_Y = 150;
         const ROW_SPACING = 150;
+        const LAST_ROW_LIMIT = 480;
         const DOT_RADIUS = 10;
+
+        // Half width of a "mean 0.040" label, to tell whether it would lie on the spread of the row above
+        const MEAN_LABEL_HALF_WIDTH = 70;
 
         // Seconds between the drops of two dots of a row, and the time a dot takes to fall
         const DOT_DELAY_SECONDS = 0.08;
@@ -62,15 +67,20 @@
                                      root);
             const tickStep = chooseTickStep(maximum - minimum);
             for (let tick = Math.ceil(minimum / tickStep) * tickStep; tick <= maximum; tick += tickStep) {
-                helpers.createText(root, tick.toFixed(tickStep < 1 ? 2 : 0).replace(/\.?0+$/, "") || "0", scale(tick),
-                                   AXIS_Y + 12, "ma", "diagram_tiny", "dim");
+                // Tick rounded to its step, so that the sums of steps near zero are written "0" and not "-0"
+                const tickValue = Math.round(tick / tickStep) * tickStep;
+                helpers.createText(root, tickValue.toFixed(tickStep < 1 ? 2 : 0).replace(/\.?0+$/, "") || "0",
+                                   scale(tick), AXIS_Y + 12, "ma", "diagram_tiny", "dim");
             }
             helpers.createText(root, "tag value", AXIS_RIGHT, AXIS_Y + 44, "ra", "diagram_small", "dim");
 
-            // One row per object: its name, its dots, its mean and the spread of its tags
+            // One row per object: its name, its dots, its mean and the spread of its tags, the rows closer together
+            // when more than three keep the last one above the axis
             const names = nameRows(data.objects);
+            const rowSpacing = Math.min(ROW_SPACING, (LAST_ROW_LIMIT - FIRST_ROW_Y) / Math.max(data.objects.length - 1,
+                                                                                              1));
             data.objects.forEach((item, objectIndex) => {
-                const rowY = FIRST_ROW_Y + objectIndex * ROW_SPACING;
+                const rowY = FIRST_ROW_Y + objectIndex * rowSpacing;
                 const colour = helpers.cssColour(helpers.resolveColour(item.colour));
                 helpers.createText(root, names[objectIndex], 60, rowY, "lm", "diagram_bold", "text");
                 helpers.createText(root, `${item.tags.length} key points`, 60, rowY + 34, "lm", "diagram_small", "dim");
@@ -92,11 +102,19 @@
                 const meanLine = helpers.createSvgElement("line", { x1: meanX, y1: rowY - 44, x2: meanX, y2: rowY + 44,
                                                                     stroke: helpers.cssColour(helpers.COLOURS.text),
                                                                     "stroke-width": 3, opacity: 0 }, root);
-                const meanLabel = helpers.createText(root, `mean ${item.mean.toFixed(3)}`, meanX, rowY - 50, "md",
+                // Mean written above its row, or under it when the spread of the row above lies over the label
+                const spreadLeft = scale(Math.min(...item.tags)) - DOT_RADIUS - 6;
+                const spreadRight = scale(Math.max(...item.tags)) + DOT_RADIUS + 6;
+                const previous = parts.means[objectIndex - 1];
+                const isCrowded = previous !== undefined && meanX + MEAN_LABEL_HALF_WIDTH > previous.spreadLeft &&
+                    meanX - MEAN_LABEL_HALF_WIDTH < previous.spreadRight;
+                const meanLabel = helpers.createText(root, `mean ${item.mean.toFixed(3)}`, meanX,
+                                                     isCrowded ? rowY + 50 : rowY - 50, isCrowded ? "ma" : "md",
                                                      "diagram_small", "text");
                 meanLabel.setAttribute("opacity", 0);
                 parts.means.push({ line: meanLine, label: meanLabel, spread: spread, x: meanX, y: rowY,
-                                   classIndex: item.class_index, objectIndex: objectIndex });
+                                   spreadLeft: spreadLeft, spreadRight: spreadRight, classIndex: item.class_index,
+                                   objectIndex: objectIndex });
             });
 
             // The pair of objects of the same class, joined by the push, the objects alone in their class marked
@@ -120,8 +138,9 @@
                                    `${Math.exp(-difference * difference).toFixed(3)}`, arcX + 16,
                                    (first.y + second.y) / 2, "lm", "diagram_small", "accent");
             });
+            // The note of an object alone in its class written under its name, so that it stays with its own row
             parts.means.filter((record) => !pairs.some((pair) => pair.includes(record))).forEach((record) => {
-                helpers.createText(pushGroup, "alone in its class: never pushed", AXIS_RIGHT, record.y + 54, "rm",
+                helpers.createText(pushGroup, "alone in its class: never pushed", 60, record.y + 62, "lm",
                                    "diagram_small", "dim");
             });
             parts.push = pushGroup;

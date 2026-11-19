@@ -1,11 +1,12 @@
 <!doctype html>
 <!--
- Grouping of the keypoint candidates of the two hollow capsules of the test image into objects, for the third chapter of
- the keypoint detection series, as group_keypoint_candidates runs it: the keypoints of the class taken in their order
- (one column each), the candidates of every keypoint above the keypoint threshold drawn at their tag and filled with the
- colour of the labelled capsule they lie on, matched to the objects formed so far (whose running mean tag is drawn
- between the columns), every object a path through the candidates it took. The columns are added one after the other
- from the "columns" step, and the candidates an object took from the other capsule are ringed with the "exchange" step
+ Grouping of the keypoint candidates of the two objects of one class of the test image (its pair) into objects, for the
+ third chapter of the keypoint detection series, as group_keypoint_candidates runs it: the keypoints of the class taken
+ in their order (one column each), the candidates of every keypoint above the keypoint threshold drawn at their tag and
+ filled with the colour of the labelled object they lie on (dim for a candidate on none, such as a keypoint outside the
+ image placed on the border), matched to the objects formed so far (whose running mean tag is drawn between the
+ columns), every object a path through the candidates it took. The columns are added one after the other from the
+ "columns" step, and the candidates an object took from the other labelled object are ringed with the "exchange" step
  (scene key "steps"). The data is the grouping.json written by tutorials/figures/keypoint_detection/evaluation_figures.py
  from the candidates of the checkpoint, checked against group_keypoint_candidates.
 -->
@@ -78,7 +79,8 @@
                     });
                 }
                 step.candidates.forEach((candidate) => {
-                    const colour = helpers.resolveColour(data.capsule_colours[candidate.capsule]);
+                    const colour = helpers.resolveColour(candidate.labelled_object >= 0 ?
+                        data.labelled_colours[candidate.labelled_object] : "dim");
                     helpers.createSvgElement("circle", { cx: x, cy: scaleY(candidate.tag), r: DOT_RADIUS,
                                                          fill: helpers.cssColour(colour), stroke: helpers.cssColour(
                                                              helpers.COLOURS.card), "stroke-width": 2 }, group);
@@ -94,25 +96,30 @@
                 parts.columns.push(group);
             });
 
-            // Path of every object through the candidates it took, in the colour of the capsule it mostly lies on
+            // Path of every object through the candidates it took, in the colour of the labelled object it mostly lies
+            // on, dim when none of its candidates lies on one
             data.objects.forEach((item, objectIndex) => {
                 const points = [];
-                const capsuleCounts = {};
+                const labelledCounts = {};
                 data.steps.forEach((step, stepIndex) => {
                     step.candidates.filter((candidate) => candidate.object === objectIndex).forEach((candidate) => {
                         points.push({ x: columnX(stepIndex), y: scaleY(candidate.tag), column: stepIndex });
-                        capsuleCounts[candidate.capsule] = (capsuleCounts[candidate.capsule] || 0) + 1;
+                        if (candidate.labelled_object >= 0) {
+                            labelledCounts[candidate.labelled_object] = (labelledCounts[candidate.labelled_object] ||
+                                                                          0) + 1;
+                        }
                     });
                 });
-                const capsule = Number(Object.keys(capsuleCounts).sort((first, second) =>
-                    capsuleCounts[second] - capsuleCounts[first])[0]);
+                const owners = Object.keys(labelledCounts).sort((first, second) =>
+                    labelledCounts[second] - labelledCounts[first]);
+                const pathColour = owners.length ? data.labelled_colours[Number(owners[0])] : "dim";
                 const path = helpers.createSvgElement("polyline", { fill: "none", stroke: helpers.cssColour(
-                    helpers.resolveColour(data.capsule_colours[capsule])), "stroke-width": 3,
+                    helpers.resolveColour(pathColour)), "stroke-width": 3,
                                                                     "stroke-dasharray": objectIndex === 0 ? "" : "10 6",
                                                                     opacity: 0.85 }, root);
                 root.insertBefore(path, root.children[1]);
                 // Legend of the object above the plot, its line drawn like its path, shown once the path is complete
-                const legendY = PLOT_TOP - 62 + objectIndex * 32;
+                const legendY = PLOT_TOP - 62 + objectIndex * 26;
                 const label = helpers.createSvgElement("g", { opacity: 0 }, root);
                 helpers.createSvgElement("line", { x1: PLOT_RIGHT - 330, y1: legendY, x2: PLOT_RIGHT - 280, y2: legendY,
                                                    stroke: path.getAttribute("stroke"), "stroke-width": 3,
@@ -126,8 +133,8 @@
             helpers.createText(root, "matching cost = round(|tag - mean tag of the object|) x 100 - score;  " +
                                `a match is kept below a tag distance of ${data.tag_threshold}`, PLOT_LEFT - 20, 640,
                                "la", "diagram_small", "text");
-            helpers.createText(root, "fill: the labelled capsule under the candidate · path: the object it joined · " +
-                               "dashes: the mean tags the next key point is matched to", PLOT_LEFT - 20, 682, "la",
+            helpers.createText(root, "fill: the labelled object under the candidate, grey if none · path: the object " +
+                               "it joined · dashes: the mean tags matched next", PLOT_LEFT - 20, 682, "la",
                                "diagram_small", "dim");
             return parts;
         }

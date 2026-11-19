@@ -24,7 +24,8 @@ from tutorials.figures.keypoint_detection.evaluation_figures import (describe_me
 from tutorials.figures.keypoint_detection.keypoint_inference import run_keypoint_inference
 from tutorials.figures.keypoint_detection.keypoint_sources import (describe_sample_objects, find_test_split,
                                                                   load_test_sample, read_channel_table,
-                                                                  read_label_dictionary, read_repository_configuration)
+                                                                  read_label_dictionary, read_repository_configuration,
+                                                                  select_story_objects)
 from tutorials.figures.keypoint_detection.network_figures import (describe_architecture_constants,
                                                                   describe_heatmap_losses, describe_network,
                                                                   describe_stem_and_run, describe_tags,
@@ -57,6 +58,7 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
                                      label_dictionary=label_dictionary, maximum_keypoints=int(channel_table.shape[1]))
     objects = describe_sample_objects(sample=sample_record["sample"], keypoint_categories=keypoint_categories,
                                       channel_table=channel_table)
+    story_objects = select_story_objects(objects=objects, sample=sample_record["sample"])
     head_configuration = configuration["KeypointHead"]
     architecture_facts = describe_architecture_constants(configuration=configuration)
 
@@ -65,16 +67,18 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
                                              sample_record=sample_record, channel_table=channel_table,
                                              keypoint_categories=keypoint_categories, configuration=configuration,
                                              force=force)
-    draw_labelled_image(output_folder=output_folder, sample_record=sample_record, objects=objects)
+    draw_labelled_image(output_folder=output_folder, sample_record=sample_record, objects=objects,
+                        story_objects=story_objects)
     draw_training_curves(output_folder=output_folder, run_folder=run_folder, with_curves=True,
                          tag_loss_weight=architecture_facts["tag_loss_weight"])
     run_configuration = load_configuration(configuration_path=run_folder / "training_configuration.yaml")
     run_label = describe_run_label(experiments_folder=experiments_folder, run_folder=run_folder)
 
-    # Facts of every family, with the settings of the run and the largest rotation of the augmentations of the
-    # supervised tasks (SUPERVISED_AUGMENTATION_STRENGTHS, whose computed values a constant placeholder cannot read)
+    # Facts of every family, with the objects named by their role, the settings of the run and the largest rotation of
+    # the augmentations of the supervised tasks (SUPERVISED_AUGMENTATION_STRENGTHS, whose computed values a constant
+    # placeholder cannot read)
     return merge_facts(fact_groups=[
-        architecture_facts,
+        architecture_facts, story_objects["facts"],
         {"run_label": run_label, "run_iterations": run_configuration["ExperimentConfiguration"]["number_iterations"],
          "run_batch_size": run_configuration["ExperimentConfiguration"]["batch_size"],
          "run_evaluation_interval": run_configuration["ExperimentConfiguration"]["weight_saving_iterations"],
@@ -84,26 +88,30 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
          "sample_image_name": sample_record["image_record"]["file_name"],
          "checkpoint_iteration": inference_facts["inference_checkpoint_iteration"],
          "augmentation_maximum_rotation_degrees": SUPERVISED_AUGMENTATION_STRENGTHS["maximum_rotation_degrees"]},
-        write_labels_listing(output_folder=output_folder, sample_record=sample_record),
+        write_labels_listing(output_folder=output_folder, sample_record=sample_record, objects=objects,
+                             story_objects=story_objects),
         write_channel_table(output_folder=output_folder, channel_table=channel_table,
-                            keypoint_categories=keypoint_categories, objects=objects),
+                            keypoint_categories=keypoint_categories, objects=objects, story_objects=story_objects),
         make_target_figures(output_folder=output_folder, sample_record=sample_record, channel_table=channel_table,
-                            objects=objects, heatmap_sigma=head_configuration["heatmap_sigma"]),
+                            objects=objects, story_objects=story_objects,
+                            heatmap_sigma=head_configuration["heatmap_sigma"]),
         describe_network(inference_facts=inference_facts, configuration=configuration, output_folder=output_folder),
         describe_heatmap_losses(inference_facts=inference_facts, sample_record=sample_record,
                                 channel_table=channel_table, heatmap_sigma=head_configuration["heatmap_sigma"]),
-        describe_tags(inference_facts=inference_facts, output_folder=output_folder),
+        describe_tags(inference_facts=inference_facts, story_objects=story_objects, output_folder=output_folder),
         describe_stem_and_run(configuration=configuration, run_folder=run_folder),
         draw_training_curves(output_folder=output_folder, run_folder=run_folder, with_curves=False,
                              tag_loss_weight=architecture_facts["tag_loss_weight"]),
         draw_heatmap_figure(output_folder=output_folder, sample_record=sample_record, inference_facts=inference_facts,
                             channel_table=channel_table,
-                            keypoint_threshold=head_configuration["inference"]["keypoint_threshold"]),
+                            keypoint_threshold=head_configuration["inference"]["keypoint_threshold"],
+                            story_objects=story_objects),
         write_grouping_data(output_folder=output_folder, inference_facts=inference_facts, channel_table=channel_table,
-                            inference_configuration=head_configuration["inference"]),
+                            inference_configuration=head_configuration["inference"], story_objects=story_objects),
         describe_object_keypoint_similarity(sample_record=sample_record, inference_facts=inference_facts,
                                             default_sigma=configuration["ExperimentConfiguration"]["evaluation"][
-                                                "default_keypoint_sigma"]),
+                                                "default_keypoint_sigma"], story_objects=story_objects),
         describe_metrics(run_folder=run_folder),
         draw_worst_figure(output_folder=output_folder, run_folder=run_folder),
-        describe_sample_image(run_folder=run_folder, inference_facts=inference_facts)])
+        describe_sample_image(run_folder=run_folder, sample_record=sample_record, inference_facts=inference_facts,
+                              story_objects=story_objects)])
