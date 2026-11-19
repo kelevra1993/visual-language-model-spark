@@ -630,3 +630,19 @@ comparisons:
     kept: "image branch or backbone skips, tied, pending the control"
     verdict: "Design B: 88.59 % (88.63 %, 88.56 %) against 81.45 % for the heads of stage 3 at 15,000 (+7.14 points) and 88.65 % for design A (-0.06 points, inside the launch gaps of 0.08 and 0.07 points), a tie; behind A until 13,000 (-1.47 points at 4000); mask mAP@0.95 39.37 % against 39.49 %, small objects -2.45 points against A, medium +1.38, box mAP@[0.5:0.95] -0.46 points against stage 3 where A loses 1.23, at a lower cost (training step +9.3 % against +13.4 %)."
     notes: "run_1, run_2 (stage 0), run_7, run_8 (stage 3) and run_9, run_10 (design A) are reused without training. B adds the skips of block 4 at 14 and block 3 at 28 and one fusion convolution at 28; the control (run_13, run_14), which trains the fusion convolution alone, waits for the user. The mask mAP@0.5, @0.75 and @0.95, the object sizes and the box mAP of the plan cannot be drawn from the CSV, which holds the mask mAP@[0.5:0.95] only."
+
+  - experiment: instance_segmentation
+    results_file: instance_segmentation_results.csv
+    stage: "3b"
+    title: Control, fusion convolution alone
+    plan_lines: "203-284"
+    last_iteration: 15000
+    compared_weights: ema
+    arms:
+      - {label: "heads [4, 64]", launches: [run_7, run_8], reference: true, trained_as_averaged: false}
+      - {label: "heads [4, 64] and fusion convolution", launches: [run_13, run_14], reference: false, trained_as_averaged: false}
+      - {label: "heads [4, 64] and image branch", launches: [run_9, run_10], reference: false, trained_as_averaged: false}
+      - {label: "heads [4, 64] and backbone skips", launches: [run_11, run_12], reference: false, trained_as_averaged: false}
+    kept: "image branch or backbone skips, credited with their finer inputs; the choice waits for the user"
+    verdict: "Control: 81.98 % (81.90 %, 82.07 %) against 81.45 % for the heads of stage 3 at 15,000 (+0.53 points, launch gaps 0.37 and 0.17 points), a gain shrinking from +2.11 points at 3000; A and B beat it by 6.67 and 6.61 points, so the finer inputs carry 6.6 of their 7.2 points; mask mAP@0.95 20.54 % against 18.99 %, box mAP@[0.5:0.95] unchanged (83.39 % against 83.35 %)."
+    notes: "run_7, run_8 (stage 3), run_9, run_10 (design A) and run_11, run_12 (design B) are reused without training. The control adds one fusion convolution of 64 channels at 28 to the heads of stage 3, the convolution A and B also add. Trainings of another session shared the machine from about 22:00 to 09:00, slowing the pair without changing its iterations. The mask mAP@0.95 and the box mAP of the plan cannot be drawn from the CSV, which holds the mask mAP@[0.5:0.95] only."
