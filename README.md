@@ -19,6 +19,7 @@
   - [Augmentation And Diagnosis Modes](#augmentation-and-diagnosis-modes)
   - [Moving Average Of The Weights](#moving-average-of-the-weights)
 - [Tasks](#tasks)
+  - [Label Files](#label-files)
 - [Transfer Between Runs](#transfer-between-runs)
 - [Evaluating Checkpoints](#evaluating-checkpoints)
 - [Comparing Launches](#comparing-launches)
@@ -92,7 +93,7 @@ Every script runs as a module from the repository root. The training takes `--co
 </p>
 
 ### Data Requirements
-For a task to train, it needs a train, a validation and a test split folder, each holding its images in `data/` and a `labels.json` manifest, and a `label_mapping.json` file giving the class of every category ([Tasks](#tasks)). The [synthetic datasets](#quick-start-with-synthetic-data) need none of this.
+For a task to train, it needs a train, a validation and a test split folder, each holding its images in `data/` and a `labels.json` manifest, and a `label_mapping.json` file giving the class of every category ([Label Files](#label-files)). The [synthetic datasets](#quick-start-with-synthetic-data) need none of this.
 
 <p align="center">
   <img src="README/data_folder_layout.png" width="100%" />
@@ -273,7 +274,7 @@ Before choosing the decay, read it as a window: the average looks back about 1 /
 <p align="center"><em>The reference pair of the object detection benchmark (run_21 and run_22), test mAP@[0.5:0.95] of their trained and averaged weights on 10,000 test images: the mean of the averaged weights leads at all 30 evaluations, by 8.01 points at iteration 15,000. Shaded: the window 1 / (1 − decay) of their decay, 0.9998, and the shorter one of their last update. Drawn by <code>documentation/presentation/figures/plot_detection_moving_average.py</code>.</em></p>
 
 ## Tasks
-Say you bring your own data: every task reads a folder per split with its images in `data/` and a `labels.json` manifest, and `label_mapping.json` maps every category identifier of the manifests to the class index the model predicts (from 1 for DET, INS, KPT and SEG, whose class 0 is the background), merging categories or leaving out those it does not name. Each task starts from the `configuration_example.yaml` of its folder.
+Say you bring your own data: every task reads a folder per split with its images in `data/` and a `labels.json` manifest, and `label_mapping.json` maps every category identifier of the manifests to the class index the model predicts (from 1 for DET, INS, KPT and SEG, whose class 0 is the background), merging categories or leaving out those it does not name ([Label Files](#label-files) shows both files for every task). Each task starts from the `configuration_example.yaml` of its folder.
 
 <p align="center">
   <img src="README/tasks_dataset_layout.png" width="100%" />
@@ -306,6 +307,177 @@ A few behaviours are easy to miss:
   <img src="README/sequence_pooling_similarity.png" width="100%" />
 </p>
 <p align="center"><em>Similarity of the frame vectors of one moving-shape sequence: after average pooling every frame looks the same, flatten keeps where the shape is.</em></p>
+
+### Label Files
+Before a first launch on your own data, every split needs a `labels.json` listing its images, sequences or pairs with their categories, and the dataset needs one `label_mapping.json` turning these categories into the classes the model predicts. The `//` comments below only explain the examples: the JSON files take none. `class_folder_manifests.py` (one folder per class) and `pair_list_manifests.py` (CMP pair lists) write both files for you.
+
+To turn the categories into classes, `label_mapping.json` (`Data.label_mapping.mapping_file_path`, `mode: "multi_class"`) gives every category identifier of `labels.json`, written as a string, its class index. The classes start at 0 for CLS, M2O, M2M, CMP and SEL, and at 1 for DET, INS, KPT and SEG, whose class 0 is the background; they must have no gaps.
+
+```jsonc
+{                // CLS, M2O, M2M, CMP, SEL: classes from 0
+  "1": 0,        // category 1 (circle)    -> class 0
+  "2": 1,        // category 2 (square)    -> class 1
+  "4": 1,        // category 4 (rectangle) -> class 1 too: merged with the squares, the class named square+rectangle
+  "5": 2         // category 5 (triangle)  -> class 2; category 3, not written, is left out
+}
+```
+
+```jsonc
+{                // DET, INS, KPT, SEG: classes from 1, class 0 being the background
+  "1": 1,        // category 1 (circle) -> class 1
+  "2": 2,        // category 2 (square) -> class 2
+  "3": 0         // category 3 (star)   -> 0: left out like a category not written
+}
+```
+
+A category left out skips its samples (CLS, M2O, CMP), leaves the classes of its multi-label samples, makes its frames ignored (M2M) or unselected (SEL), its objects ignored (DET, INS, KPT) and its pixels background (SEG). DET, INS and SEG also accept `mode: "binary"`, every category becoming class 1 without a mapping file.
+
+If each image shows one class (CLS, and SSL, whose categories only serve its k-NN evaluation), `labels.json` gives one entry per image, its `file_name` relative to `data/`:
+
+```jsonc
+{
+  "categories": [                                                       // every category, with an integer identifier
+    {"id": 1, "name": "circle"},
+    {"id": 2, "name": "square"},
+    {"id": 3, "name": "triangle"}
+  ],
+  "samples": [                                                          // one entry per image
+    {"id": 1, "file_name": "image_0001.png", "category_id": 2},        // data/image_0001.png shows a square
+    {"id": 2, "file_name": "image_0002.png", "category_id": 1},
+    {"id": 3, "file_name": "night/image_0003.png", "category_id": 3}   // a subfolder of data/ stays in the name
+  ]
+}
+```
+
+Should an image hold several classes at once (`ClassificationHead.output_mode: "multi_label"`), every sample lists all of them:
+
+```jsonc
+  "samples": [
+    {"id": 1, "file_name": "image_0001.png", "category_ids": [1, 3]},   // a circle and a triangle
+    {"id": 2, "file_name": "image_0002.png", "category_ids": [2]},      // a square only
+    {"id": 3, "file_name": "image_0003.png", "category_ids": [1, 2, 3]}
+  ]
+```
+
+For a segmentation (SEG), every image comes with its mask in `masks/`, a single-channel uint8 PNG of the same size holding the category identifier of every pixel, 0 for the background and 255 for the pixels to ignore:
+
+```jsonc
+{
+  "categories": [{"id": 1, "name": "circle"}, {"id": 2, "name": "square"}, {"id": 3, "name": "triangle"}],
+  "samples": [
+    {"id": 1, "file_name": "image_0001.png", "mask_file_name": "image_0001.png",   // masks/image_0001.png
+     "category_ids": [1, 3]},                                                     // optional, for the class counts
+    {"id": 2, "file_name": "image_0002.png", "mask_file_name": "image_0002.png", "category_ids": [2]}
+  ]
+}
+```
+
+Whenever objects are located by boxes (DET), `labels.json` is a COCO file: the images, one annotation per object, and the categories:
+
+```jsonc
+{
+  "images": [                                                                     // one entry per image
+    {"id": 1, "file_name": "image_0001.png", "width": 512, "height": 512},
+    {"id": 2, "file_name": "image_0002.png", "width": 640, "height": 480}
+  ],
+  "annotations": [                                                                // one entry per object
+    {"id": 1, "image_id": 1, "category_id": 2, "bbox": [120, 340, 64, 48],      // [x, y, width, height] in pixels
+     "area": 3072, "iscrowd": 0},
+    {"id": 2, "image_id": 1, "category_id": 1, "bbox": [300, 80, 90, 90],       // a second object of image 1
+     "area": 8100, "iscrowd": 0},
+    {"id": 3, "image_id": 2, "category_id": 3, "bbox": [10, 200, 150, 120], "area": 18000, "iscrowd": 0}
+  ],
+  "categories": [{"id": 1, "name": "circle"}, {"id": 2, "name": "square"}, {"id": 3, "name": "triangle"}]
+}
+```
+
+In order to train masks (INS), every annotation also gives its `segmentation`, the box being the tight box of the mask:
+
+```jsonc
+  "annotations": [
+    {"id": 1, "image_id": 1, "category_id": 3, "iscrowd": 0,
+     "segmentation": [[120, 388, 152, 340, 184, 388]]},                  // polygons, flat [x1, y1, x2, y2, ...] in pixels
+    {"id": 2, "image_id": 1, "category_id": 2, "iscrowd": 0,
+     "segmentation": {"size": [512, 512], "counts": "f\\i01o?1O001..."}} // or a run length encoding, compressed or not
+  ]
+```
+
+Suppose the objects have named points (KPT): every annotation lists its `keypoints` as `[x, y, v]` triples in pixels, v being 2 (visible), 1 (hidden) or 0 (not labelled), and every category names its keypoints and the pairs drawn as lines:
+
+```jsonc
+  "annotations": [
+    {"id": 1, "image_id": 1, "category_id": 1, "bbox": [65, 228, 206, 206], "iscrowd": 0, "num_keypoints": 4,
+     "keypoints": [65, 228, 2, 271, 228, 2, 271, 434, 2, 65, 434, 1]},    // 4 corners, the last one hidden
+    {"id": 2, "image_id": 1, "category_id": 2, "bbox": [300, 40, 120, 100], "iscrowd": 0, "num_keypoints": 2,
+     "keypoints": [360, 40, 2, 420, 140, 2, 0, 0, 0]}                      // its third keypoint not labelled
+  ],
+  "categories": [
+    {"id": 1, "name": "square", "keypoints": ["top_left", "top_right", "bottom_right", "bottom_left"],
+     "skeleton": [[1, 2], [2, 3], [3, 4], [4, 1]]},                        // 1-based keypoint pairs
+    {"id": 2, "name": "triangle", "keypoints": ["top", "bottom_right", "bottom_left"],
+     "skeleton": [[1, 2], [2, 3], [3, 1]]}
+  ]
+```
+
+Say a whole sequence has one class (M2O): its frames sit in `data/<sequence name>/`, listed in order, and the sequences may differ in length:
+
+```jsonc
+{
+  "categories": [{"id": 1, "name": "moving_left"}, {"id": 2, "name": "moving_right"}],
+  "sequences": [                                                        // one entry per sequence
+    {"id": 1, "name": "sequence_0001", "category_id": 1,
+     "frames": ["sequence_0001/000000.png", "sequence_0001/000001.png", "sequence_0001/000002.png"]},
+    {"id": 2, "name": "sequence_0002", "category_id": 2,
+     "frames": ["sequence_0002/000000.png", "sequence_0002/000001.png"]}
+  ]
+}
+```
+
+If every frame has its own class (M2M), `frame_category_ids` gives one category per frame, as long as `frames`:
+
+```jsonc
+{
+  "categories": [{"id": 1, "name": "no_change"}, {"id": 2, "name": "appearing_circle"},
+                 {"id": 3, "name": "disappearing_circle"}],
+  "sequences": [
+    {"id": 1, "name": "sequence_0001", "frame_category_ids": [1, 2, 1],    // a circle appears on the second frame
+     "frames": ["sequence_0001/000000.png", "sequence_0001/000001.png", "sequence_0001/000002.png"]},
+    {"id": 2, "name": "sequence_0002", "frame_category_ids": [1, 3],
+     "frames": ["sequence_0002/000000.png", "sequence_0002/000001.png"]}
+  ]
+}
+```
+
+So that the frame selection (SEL) knows which frames to choose, it reads the layout of M2M: every frame has the unselected category (`Selection.unselected_category`, which the mapping must map) or a wanted class, every sequence holding exactly `Selection.frames_per_class` frames of every wanted class:
+
+```jsonc
+{
+  "categories": [{"id": 1, "name": "unselected"}, {"id": 2, "name": "circle"}, {"id": 3, "name": "star"}],
+  "sequences": [
+    {"id": 1, "name": "sequence_0001", "frame_category_ids": [1, 3, 1, 2],  // frames_per_class 1: the star, then the circle
+     "frames": ["sequence_0001/000000.png", "sequence_0001/000001.png", "sequence_0001/000002.png",
+                "sequence_0001/000003.png"]},
+    {"id": 2, "name": "sequence_0002", "frame_category_ids": [2, 3, 1],
+     "frames": ["sequence_0002/000000.png", "sequence_0002/000001.png", "sequence_0002/000002.png"]}
+  ]
+}
+```
+
+To compare a before and an after sequence (CMP), every pair has one category and two frame lists, which may differ in length:
+
+```jsonc
+{
+  "categories": [{"id": 1, "name": "loss_of_object"}, {"id": 2, "name": "same_number_of_objects"}],
+  "pairs": [                                                              // one entry per pair
+    {"id": 1, "name": "pair_0001", "category_id": 1,
+     "before": ["pair_0001/before/000000.png", "pair_0001/before/000001.png"],
+     "after": ["pair_0001/after/000000.png"]},
+    {"id": 2, "name": "pair_0002", "category_id": 2,
+     "before": ["pair_0002/before/000000.png"],
+     "after": ["pair_0002/after/000000.png", "pair_0002/after/000001.png"]}
+  ]
+}
+```
 
 ## Transfer Between Runs
 To be able to start from a trained component, such as a backbone trained on ImageNet for a detector, give its run in the `pretrained` block of the section, the source run being of the same task or of another one:
