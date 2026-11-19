@@ -256,6 +256,11 @@ If one wishes to score a smoothed model, `Optimization.exponential_moving_averag
 Before choosing the decay, read it as a window: the average looks back about 1 / (1 − decay) iterations, which carry about 63 % of its weight, the older ones fading geometrically. A decay of 0.99 averages about the last 100 iterations, 0.999 the last 1,000 and 0.9998 the last 5,000. The n-th update uses the decay min(decay, (1 + n) / (10 + n)), so a short run averages fewer iterations than its decay says: 0.9998 is only reached after about 45,000 iterations, and the detection launches below, stopped at iteration 15,000, made their last update with a decay of 0.9994, a window of about 1,670 iterations.
 
 <p align="center">
+  <img src="README/moving_average_window.png" width="100%" />
+</p>
+<p align="center"><em>How many trained weights one averaged model mixes, for the decay 0.9998 of the detection launches below. Left: the share of their averaged weights of iteration 15,000 held by every 100 iterations of the training. The warm-up lowered the decay of the last update to 0.9994, so the last 1,668 iterations carry 65 % of the average and the last 5,000 iterations 97 %; the same decay used from the first update would give the last 5,000 iterations 63 % and leave 5.0 % to the random starting weights. Right: the window 1 / (1 − decay) of the update of every iteration, which the warm-up grows by one iteration every 9 iterations until the configured window. Drawn by <code>documentation/presentation/figures/plot_moving_average_window.py</code>.</em></p>
+
+<p align="center">
   <img src="README/moving_average_of_the_weights.png" width="100%" />
 </p>
 <p align="center"><em>The reference pair of the object detection benchmark (run_21 and run_22), test mAP@[0.5:0.95] of their trained and averaged weights on 10,000 test images: the mean of the averaged weights leads at all 30 evaluations, by 8.01 points at iteration 15,000. Shaded: the window 1 / (1 − decay) of their decay, 0.9998, and the shorter one of their last update. Drawn by <code>documentation/presentation/figures/plot_detection_moving_average.py</code>.</em></p>
