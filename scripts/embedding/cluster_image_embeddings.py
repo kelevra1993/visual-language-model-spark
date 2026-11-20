@@ -933,11 +933,10 @@ def run_extraction_pass(embedder: Dict[str, Any], source: Dict[str, Any], source
                 raise ValueError(f"The loader gave the rows {rows.tolist()} instead of the rows {batch_start} to "
                                  f"{batch_end - 1}.")
             # Run the model once for every missing output and write the finite values to the rows of the batch
-            outputs = compute_batch_outputs(model=embedder["model"],
-                                            images=batch["images"].to(device=embedder["device"], dtype=torch.float32),
-                                            block_requests=missing_block_requests,
-                                            fully_connected_requests=missing_fully_connected_requests,
-                                            output_mode=output_mode)
+            outputs = compute_batch_outputs(
+                model=embedder["model"], images=batch["images"].to(device=embedder["device"], dtype=torch.float32),
+                block_requests=missing_block_requests, fully_connected_requests=missing_fully_connected_requests,
+                output_mode=output_mode)
             for output_key, output in outputs.items():
                 values = output.to(dtype=torch.float32).cpu().numpy()
                 if not np.isfinite(values).all():
@@ -1138,9 +1137,8 @@ def select_kept_images_by_clustering(labels: np.ndarray, ranks: np.ndarray, numb
     elif isolated_image_selection == "none":
         kept_isolated_positions = isolated_positions[:0]
     else:
-        kept_isolated_positions = random_generator.choice(isolated_positions,
-                                                          size=min(isolated_image_selection, len(isolated_positions)),
-                                                          replace=False)
+        kept_isolated_positions = random_generator.choice(
+            isolated_positions, size=min(isolated_image_selection, len(isolated_positions)), replace=False)
     for position in kept_isolated_positions:
         kept_images[int(position)] = ISOLATED_IMAGE_REASON
     return kept_images

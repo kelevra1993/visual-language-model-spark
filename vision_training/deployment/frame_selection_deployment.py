@@ -108,6 +108,7 @@ def build_decoding_settings(experiment_configuration: Dict[str, Any], model_conf
         class_names = list(thresholds["classes"])
         class_thresholds = [None if class_threshold is None else class_threshold["threshold"]
                             for class_threshold in thresholds["classes"].values()]
+        # Thresholds found for another decoding are still served, with a warning
         if thresholds["decoding"] != selection_configuration["decoding"]:
             print_color(color="yellow", output=f"The thresholds were found for the {thresholds['decoding']} decoding, "
                                                f"the run now uses the {selection_configuration['decoding']} decoding : "
@@ -117,6 +118,7 @@ def build_decoding_settings(experiment_configuration: Dict[str, Any], model_conf
                                            f"confidence, no {THRESHOLDS_FILE_NAME} in [{EVALUATION_FOLDER_NAME} or "
                                            f"{CHECKPOINT_EVALUATION_FOLDER_NAME}]/{checkpoint_path.parent.name} of "
                                            f"{format_path_link(path=experiment_folder)}")
+        # Without thresholds the classes are named by their index and no frame is flagged
         class_names = [str(class_index) for class_index in wanted_class_indices]
         class_thresholds = [0.0] * len(wanted_class_indices)
 

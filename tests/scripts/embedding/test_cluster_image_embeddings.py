@@ -482,6 +482,7 @@ def test_representatives_and_baselines_are_kept() -> None:
     assert ranks.tolist() == [3, 1, 2, 2, 1, 3, 2, 1]
     assert sorted(file_names[5:], key=natural_sort_key) == ["isolated_1.png", "isolated_9.png", "isolated_10.png"]
 
+    # Two representatives per cluster with all the isolated images, one with none, one with two drawn ones
     random_generator = np.random.default_rng(seed=0)
     assert select_kept_images_by_clustering(labels=labels, ranks=ranks, number_representatives_per_cluster=2,
                                             isolated_image_selection="all", random_generator=random_generator) == {
@@ -495,6 +496,7 @@ def test_representatives_and_baselines_are_kept() -> None:
                                                          number_representatives_per_cluster=1,
                                                          isolated_image_selection=2, random_generator=random_generator)
     assert len(drawn_kept_images) == 4 and len({5, 6, 7} & set(drawn_kept_images)) == 2
+    # The random baseline draws distinct sorted positions inside the images
     random_positions = select_random_baseline(number_images=8, budget=5, random_generator=random_generator)
     assert len(set(random_positions.tolist())) == 5 and random_positions.tolist() == sorted(random_positions.tolist())
     assert 0 <= random_positions.min() and random_positions.max() < 8
