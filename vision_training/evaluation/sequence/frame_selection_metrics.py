@@ -138,8 +138,9 @@ def find_selection_thresholds(probabilities: List[np.ndarray], frame_labels: Lis
                               selected_frames: List[np.ndarray], wanted_class_indices: List[int],
                               target_precision: float) -> List[Optional[Tuple[float, float]]]:
     """
-    Finds the confidence threshold of every wanted class: the lowest probability from which the frames chosen for the
-    class are true frames of it with the target precision, so that a chosen frame below it is flagged as low
+    Finds the confidence threshold of every wanted class: the probability from which the frames chosen for the class
+    are true frames of it with the target precision keeping the most of them, the highest such probability when a
+    lower one adds only wrong choices (find_class_thresholds), so that a chosen frame below it is flagged as low
     confidence (the sequence may hold no good frame of the class) for a human to check. The recall is the share of
     all the true frames of the class kept, i.e. chosen and above the threshold.
 

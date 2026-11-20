@@ -220,9 +220,9 @@ def build_class_thresholds_table(class_rows: List[Dict[str, Any]], target_precis
     for written_precision in written_precisions:
         recall_columns.append(f"Recall\n@ P{written_precision}")
         columns += [f"Threshold\n@ P{written_precision}", recall_columns[-1]]
-    legend = (f"Lowest score threshold of every class keeping the precision, which gives the highest recall, in class "
-              f"order, exact in class_thresholds.json. — : the precision {' or '.join(written_precisions)} is never "
-              f"reached.")
+    legend = (f"Score threshold of every class keeping the highest recall at the precision, the highest such "
+              f"threshold, in class order, exact in class_thresholds.json. — : the precision "
+              f"{' or '.join(written_precisions)} is never reached.")
     return {"title": CLASS_THRESHOLDS_TABLE_TITLE, "columns": columns, "rows": rows, "sort_column": None,
             "per_class": True, "legend": legend, "percent_columns": recall_columns}
 

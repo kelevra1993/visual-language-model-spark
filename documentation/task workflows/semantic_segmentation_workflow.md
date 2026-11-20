@@ -17,10 +17,10 @@ So that the stages below can be followed on one page, the whole task fits in thi
 ```text
 on disk        <split>/data/*.png, <split>/masks/*.png (uint8 category per pixel: 0 background, 255 unlabelled),
                <split>/labels.json (samples with file_name and mask_file_name, categories), label_mapping.json
-sample         SegmentationDataset: letterbox to 512 (image bilinear, mask nearest with padding 255), lookup table
+sample         SegmentationDataset: letterbox to 512 (image bilinear, mask nearest-exact, padding 255), lookup table
                {0: 0, category: class, 255: -100}: images [3, 512, 512] uint8, masks [512, 512] int64
-batch (16)     images [16, 3, 512, 512], masks [16, 512, 512]; augment_batch moves the masks with the image (nearest,
-               uncovered pixels -100), the photometric types change the images only
+batch (16)     images [16, 3, 512, 512], masks [16, 512, 512]; augment_batch moves the masks with the image
+               (nearest-exact, uncovered pixels -100), the photometric types change the images only
 encoder        Backbone, outputs before pooling: '1' [16, 16, 512, 512] '2' [16, 32, 256, 256] '3' [16, 32, 128, 128]
                '4' [16, 64, 64, 64] '5' [16, 64, 32, 32], bottleneck '6' [16, 128, 16, 16]
 decoder        per level 5 -> 1: 2x2 transposed conv (x2) -> cat(skip, upsampled) -> ConvolutionBlock:
@@ -123,7 +123,7 @@ Should a result of the task look wrong, check these behaviours first.
 
 - `residual_nets: True` adds no shortcut in the backbone blocks 2, 4 and 6, which change the channel count with 2 layers, nor in the decoder levels of this file: the input of a level (skip plus upsampled channels) never has the channels of its output, so its residual pairs are shifted by one layer and the first shortcut closes at the third layer, which no level of 1 or 2 layers has (`ConvolutionBlock.residual_parity` and `count_residual_additions()` of `convolution_block.py`). A decoder level of 3 or 4 layers adds one shortcut. The backbone summary lists the shortcuts for blocks 3 and 5 only (Step 2.14).
 - `Mean IoU` and `Mean Dice` average over the classes present in the true masks or predicted, a class painted without any true pixel counting with 0 (`compute_segmentation_metrics()` of `segmentation_metrics.py`). Before 2026-10-25 they left out the classes predicted but absent, so older evaluations can be higher. The batch `Mean IoU` of the console averages the classes of each batch, then the batches (Step 3.20).
-- The masks are resized with `cv2.INTER_NEAREST`, about half a pixel off their images, and `random_crop` adds another half pixel (`segmentation_dataset.py`, `augmentations.py`; `suggestions.md` M5, open): with `original_resolution: True` on large images the shift can exceed `boundary_tolerance`.
+- Before 2026-11-20 the masks were resized with the plain nearest interpolation (`cv2.INTER_NEAREST`), about half a pixel to the bottom right of their images, `random_crop`, `random_aspect_crop` and `random_zoom_out` adding another half pixel, and the restored class maps of the inference clients were shifted alike. They are now resized on the pixel centres like the images (`cv2.INTER_NEAREST_EXACT` in `segmentation_dataset.py`, `InterpolationMode.NEAREST_EXACT` in `augmentations.py`, `nearest-exact` in `restore_prediction_to_original_image()`), so a run trained earlier learned masks shifted by up to about a pixel, which can lower its boundary scores (not measured).
 - The `SegmentationLoss` settings, the head dropout, the deep supervision weights and the tile overlap give no run name token, so changing them resumes the same run folder, `load_model()` setting the class weights of the new configuration again (`build_segmentation_sections()` of `run_name.py`; Step 2.18).
 - A run trained on tiles is exported with one tile as input, the client scaling and tiling the images with `segment_image_by_tiles()` ([tools reference, Export](../reference/tools_reference.md#export)), while `run_inference.py` refuses such a run, as its requests would hold one letterboxed image instead of the many tiles a photo needs (`load_inference_inputs()` of `vision_training/deployment/deployment_utilities.py`). The export describes the tiles in the input contract of the model, version 2 (`build_input_contract()` of `vision_training/deployment/input_contract.py`, [tools reference, Input Contract](../reference/tools_reference.md#input-contract)): with `Data.tiling` at `activated: True`, `scale: 0.5` and `overlap: 128`, it writes `input_resize` `tiles`, `input_interpolation` `area`, `input_padding_placement` `bottom_right`, `input_tile_scale` `0.5` and `input_tile_overlap` `128`, against `keep_ratio`, `linear`, `centred` and `none` for this file.
 
@@ -246,16 +246,17 @@ main()
         │   ├── get_next_batch()                    a batch failing to load is dropped and the next one taken
         │   │   └── SegmentationDataset.__getitem__()
         │   │           Reads the image (read_image()) and its mask, resizes the image (bilinear) and the mask
-        │   │           (nearest, padding at 255) with the same letterbox, or cuts a tile with tiling, then converts the
-        │   │           mask values to class indices through the lookup table. Returns images [B, 3, H, W] uint8, masks
-        │   │           [B, H, W] int64, sample_identifiers [B].
+        │   │           (nearest-exact, padding at 255) with the same letterbox, or cuts a tile with tiling, then
+        │   │           converts the mask values to class indices through the lookup table. Returns images
+        │   │           [B, 3, H, W] uint8, masks [B, H, W] int64, sample_identifiers [B].
         │   ├── run_training_step()  set_training_mode() to step_optimizer() below, the step also timed by
         │   │       the speed benchmark (diagnosis_modes.benchmark_speed)
         │   ├── set_training_mode()
         │   ├── run_model_iteration()
         │   │   ├── prepare_batch()                 images to float32, masks to int64 on the device
         │   │   ├── augment_batch()                 the masks follow every geometric augmentation (nearest
-        │   │   │                                   interpolation, the pixels uncovered by a rotation ignored)
+        │   │   │                                   interpolation on the pixel centres, the pixels uncovered by a
+        │   │   │                                   rotation ignored)
         │   │   ├── forward_pass() -> SemanticSegmenter.forward(masks=...)
         │   │   │   ├── Backbone.forward(return_pre_pooling_outputs=True)   final feature map + skip connections
         │   │   │   ├── SegmentationDecoder.forward()                       upsample, concatenate the skip, refine
@@ -780,7 +781,7 @@ This run was saved before the checkpoints held `pretrained_backbone_blocks`: a c
 At iterations 6 and 12, last in the iteration, after its checkpoint, and at iteration 12 after its summary too, the summaries coming every 4 iterations (see `classification_workflow.md`, Step 3.7), see Stage 4.
 
 ### Step 3.7 — `get_next_batch()` → `SegmentationDataset.__getitem__()`
-`get_next_batch()` drops a batch whose loading fails and takes the next one (see `classification_workflow.md`, Step 3.8). `__getitem__()` reads the image with `read_image()` (BGR, `uint8`, a `ValueError` naming a file that cannot be read, a file of more than 8 bits per channel read with 8 bits after a yellow warning) and its mask (a mask that is not a single-channel `uint8` image is refused with a `ValueError`), and checks that they have the same size. Without tiling, `preprocess_image()` resizes the image with the bilinear interpolation and the mask with the nearest interpolation (so that every pixel keeps a category), with the same letterbox: the padding of the image is black and the padding of the mask is 255, the unlabelled value. With tiling, `cut_tile()` scales both and cuts the tile of the split. The lookup table of Step 2.9 then turns the mask values into class indices.
+`get_next_batch()` drops a batch whose loading fails and takes the next one (see `classification_workflow.md`, Step 3.8). `__getitem__()` reads the image with `read_image()` (BGR, `uint8`, a `ValueError` naming a file that cannot be read, a file of more than 8 bits per channel read with 8 bits after a yellow warning) and its mask (a mask that is not a single-channel `uint8` image is refused with a `ValueError`), and checks that they have the same size. Without tiling, `preprocess_image()` resizes the image with the bilinear interpolation and the mask with the nearest interpolation on the pixel centres (`cv2.INTER_NEAREST_EXACT`, so that every pixel keeps a category and stays on its image pixel, where the plain `cv2.INTER_NEAREST` shifts the mask by about half a pixel to the bottom right), with the same letterbox: the padding of the image is black and the padding of the mask is 255, the unlabelled value. With tiling, `cut_tile()` scales both, the mask with the same interpolation, and cuts the tile of the split. The lookup table of Step 2.9 then turns the mask values into class indices.
 
 **Example: the first batch of the run**
 ```text
@@ -808,7 +809,7 @@ masks   [4, 64, 64]    torch.int64   -> [4, 64, 64]    torch.int64
 ```
 
 ### Step 3.11 — `augment_batch()` → `DataAugmenter.augment_batch(masks=...)`
-The segmentation trainer overrides this hook so that the masks are augmented with their images: every geometric augmentation (crop, flips, rotations) is applied to the mask with the nearest interpolation, and the pixels uncovered by a rotation become ignored; the photometric augmentations leave the mask untouched. A mask that did not follow its image would teach the network wrong pixels.
+The segmentation trainer overrides this hook so that the masks are augmented with their images: every geometric augmentation (crop, flips, rotations) is applied to the mask with the nearest interpolation on the pixel centres (the crops and the zoom-out resize it with `InterpolationMode.NEAREST_EXACT`, the resized crop of torchvision taking the plain nearest for masks), and the pixels uncovered by a rotation become ignored; the photometric augmentations leave the mask untouched. A mask that did not follow its image would teach the network wrong pixels.
 
 **Example: which images and masks of the first batch were changed** (`probability: 0.4`)
 ```text

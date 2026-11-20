@@ -1012,7 +1012,7 @@ Top-2 Accuracy = 0.5150 at iteration 6, 0.4600 at iteration 12      (about 2 / 4
 ```
 
 ### Step 4.10 — `find_class_thresholds()`
-For every class, the lowest probability threshold keeping a precision of at least `target_precision`, with the recall kept, saved in `class_thresholds.json` (`build_class_thresholds_file()`). A list of target precisions keeps the first one as the main target and gives the others under `additional_targets`.
+For every class, the probability threshold keeping a precision of at least `target_precision` with the highest recall, the highest such threshold when a lower one only adds wrong predictions, with the recall kept, saved in `class_thresholds.json` (`build_class_thresholds_file()`). A list of target precisions keeps the first one as the main target and gives the others under `additional_targets`.
 
 **Example: `Evaluation/Iteration_6/class_thresholds.json`** (recorded before the `logit_temperature` key)
 ```text

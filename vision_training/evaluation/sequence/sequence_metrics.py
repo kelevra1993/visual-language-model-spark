@@ -27,14 +27,19 @@ def compute_frame_accuracy(predicted_labels: torch.Tensor, labels: torch.Tensor)
 
 def compute_sequence_exact_matches(predicted_labels: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
     """
-    Tells, for every sequence, whether every one of its labelled frames is predicted right, the strictest metric of
-    the sequence labelling task.
+    Tells, for every sequence holding a labelled frame, whether every one of its labelled frames is predicted right,
+    the strictest metric of the sequence labelling task. A sequence whose frames are all without class (unmapped
+    categories) has nothing to match and is left out, so that it neither counts as an exact match nor in the number of
+    test sequences, which the sequence labelling trainer takes from these booleans.
 
     Args:
         predicted_labels (torch.Tensor): The [B, T] predicted class index of every frame.
         labels (torch.Tensor): The [B, T] class index of every frame, -100 for the frames without class.
 
     Returns:
-        torch.Tensor: The [B] booleans, True for the sequences whose labelled frames are all right.
+        torch.Tensor: The [S] booleans of the S sequences holding a labelled frame, in their order, True for those
+            whose labelled frames are all right.
     """
-    return ((predicted_labels == labels) | (labels == IGNORED_LABEL_INDEX)).all(dim=1)
+    unlabelled_frames = labels == IGNORED_LABEL_INDEX
+    exact_matches = ((predicted_labels == labels) | unlabelled_frames).all(dim=1)
+    return exact_matches[~unlabelled_frames.all(dim=1)]

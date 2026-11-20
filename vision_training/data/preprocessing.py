@@ -1,8 +1,8 @@
 """
 Image, mask and bounding box preprocessing shared by the data loaders and the inference clients: the reading of the
 dataset and inference images, naming the files that cannot be read, the resizing to the square network input with
-optional centred padding (bilinear for the images, nearest for the segmentation masks), the matching box
-transformation, and their inverses restoring predicted boxes and segmentation predictions (class maps or
+optional centred padding (bilinear for the images, nearest on the pixel centres for the segmentation masks), the
+matching box transformation, and their inverses restoring predicted boxes and segmentation predictions (class maps or
 probabilities) to the original image, the latter also used by the evaluation of the segmenter at the original
 resolution.
 """
@@ -86,8 +86,9 @@ def preprocess_image(image: np.ndarray, image_size: int, keep_ratio: bool = True
                      interpolation: int = cv2.INTER_LINEAR, padding_value: int = 0) -> np.ndarray:
     """
     Preprocesses an image by resizing it to a specified square size, optionally maintaining its aspect ratio. The
-    segmentation masks go through the same resizing and padding as their images, with the nearest interpolation so
-    that every pixel keeps a category of the mask, and the padding at the ignored value of the masks.
+    segmentation masks go through the same resizing and padding as their images, with the nearest interpolation on the
+    pixel centres (cv2.INTER_NEAREST_EXACT) so that every pixel keeps a category of the mask and stays aligned with
+    the image, and the padding at the ignored value of the masks.
 
     If `keep_ratio` is True, the image is padded with 'padding_value' (black for the images) to make it square before
     resizing, preventing distortion. If False, the image is simply stretched or squashed to the target size.
@@ -97,8 +98,9 @@ def preprocess_image(image: np.ndarray, image_size: int, keep_ratio: bool = True
         image_size (int): The target width and height for the output square image.
         keep_ratio (bool): If True, pads the image to maintain its original aspect ratio before resizing.
         Defaults to True.
-        interpolation (int): The OpenCV interpolation of the resizing, bilinear for the images and nearest for the
-            masks. Defaults to cv2.INTER_LINEAR.
+        interpolation (int): The OpenCV interpolation of the resizing, bilinear for the images and
+            cv2.INTER_NEAREST_EXACT for the masks, the plain cv2.INTER_NEAREST shifting them by half a pixel to the
+            bottom right. Defaults to cv2.INTER_LINEAR.
         padding_value (int): The value of the padding pixels, 0 (black) for the images. Defaults to 0.
 
     Returns:
@@ -210,7 +212,8 @@ def restore_prediction_to_original_image(prediction: torch.Tensor, original_heig
     Brings a segmentation prediction made at the network resolution back to its original image, undoing the
     preprocessing of the images (preprocess_image): the centred padding added to keep the aspect ratio is cut off,
     then the prediction is resized to the size of the original image. A class map (integer tensor) is resized with
-    the nearest interpolation, so that every pixel keeps one of the predicted classes, and class probabilities (float
+    the nearest interpolation on the pixel centres ("nearest-exact"), so that every pixel keeps one of the predicted
+    classes and the map stays aligned with the bilinear probabilities and the image, and class probabilities (float
     tensor) bilinearly, so that the class of every original pixel is the argmax of its interpolated probabilities.
     Used by the inference clients and by the evaluation of the segmenter at the original resolution, on the device of
     the prediction.
@@ -234,7 +237,8 @@ def restore_prediction_to_original_image(prediction: torch.Tensor, original_heig
             image_height=original_height, image_width=original_width, image_size=prediction.shape[-1])
         image_part = prediction[..., start_y:start_y + resized_height, start_x:start_x + resized_width]
 
-    # Resize every leading channel at once, bilinearly for the probabilities and nearest for the class indices
+    # Resize every leading channel at once, bilinearly for the probabilities and nearest on the pixel centres for the
+    # class indices, the plain nearest shifting them by half an original pixel to the bottom right
     leading_shape = image_part.shape[:-2]
     stacked_channels = image_part.reshape(1, -1, image_part.shape[-2], image_part.shape[-1])
     if prediction.is_floating_point():
@@ -244,7 +248,7 @@ def restore_prediction_to_original_image(prediction: torch.Tensor, original_heig
     else:
         restored_channels = torch.nn.functional.interpolate(input=stacked_channels.float(),
                                                             size=(original_height, original_width),
-                                                            mode="nearest").to(dtype=prediction.dtype)
+                                                            mode="nearest-exact").to(dtype=prediction.dtype)
     return restored_channels.reshape(*leading_shape, original_height, original_width)
 
 

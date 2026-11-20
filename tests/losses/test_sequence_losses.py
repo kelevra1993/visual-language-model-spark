@@ -1,6 +1,7 @@
 """
 Tests of vision_training/losses/sequence_losses.py: compute_sequence_labelling_loss, which only counts the labelled
-frames, and compute_frame_selection_loss, the softmax of every wanted class over the frames of its sequence.
+frames and gives 0 for a batch without any, and compute_frame_selection_loss, the softmax of every wanted class over
+the frames of its sequence.
 """
 
 import pytest
@@ -33,6 +34,32 @@ def test_sequence_labelling_loss_only_counts_the_labelled_frames() -> None:
     assert torch.allclose(input=compute_sequence_labelling_loss(class_logits=changed_logits, labels=labels,
                                                                 label_smoothing=0.1, class_weights=class_weights),
                           other=loss)
+
+
+def test_sequence_labelling_loss_of_a_batch_without_labelled_frame_is_zero() -> None:
+    """
+    Verifies that a batch whose frames are all padding or of unmapped categories gives a loss of 0 with finite
+    gradients, instead of the NaN of the mean over no frame, which would reach the tracked loss of the interval, and
+    that a class weight below 1 on the single labelled frame of a batch still gives the plain cross entropy of that
+    frame, the normaliser being the class weight of the labelled frames.
+    """
+    class_logits = torch.randn(size=(2, 3, 4), generator=torch.Generator().manual_seed(0), requires_grad=True)
+    class_weights = torch.tensor(data=[1.0, 2.0, 0.5, 1.5])
+
+    # No labelled frame: a loss of 0 and gradients of 0
+    loss = compute_sequence_labelling_loss(class_logits=class_logits,
+                                           labels=torch.full(size=(2, 3), fill_value=IGNORED_LABEL_INDEX),
+                                           label_smoothing=0.1, class_weights=class_weights)
+    loss.backward()
+    assert loss.item() == 0.0 and bool(torch.isfinite(class_logits.grad).all())
+
+    # A single labelled frame of the class weighted 0.5
+    labels = torch.full(size=(2, 3), fill_value=IGNORED_LABEL_INDEX)
+    labels[1, 2] = 2
+    loss = compute_sequence_labelling_loss(class_logits=class_logits, labels=labels, label_smoothing=0.0,
+                                           class_weights=class_weights)
+    expected_loss = torch.nn.functional.cross_entropy(input=class_logits[1, 2:], target=labels[1, 2:])
+    assert loss.item() == pytest.approx(expected=expected_loss.item(), rel=1e-6)
 
 
 def test_frame_selection_loss_makes_the_frames_compete_for_every_wanted_class() -> None:

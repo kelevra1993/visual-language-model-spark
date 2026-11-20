@@ -15,9 +15,10 @@ def find_score_threshold(scores: torch.Tensor, positives: torch.Tensor, number_p
                          target_precision: float) -> Optional[Tuple[float, float]]:
     """
     Finds the score threshold of one class reaching a target precision: the predictions whose score reaches the
-    threshold are accepted, and the lowest such threshold is kept, i.e. the one keeping the highest recall at the
-    target precision. The recall is counted over the true members of the class, some of which may never be predicted
-    (the objects found by no detection).
+    threshold are accepted, and the threshold keeping the highest recall at the target precision is kept, the highest
+    of them when several keep that recall. A lower threshold adding only wrong predictions keeps the same recall at a
+    lower precision, closer to the target, which new data would more likely fall below. The recall is counted over the
+    true members of the class, some of which may never be predicted (the objects found by no detection).
 
     Args:
         scores (torch.Tensor): The [N] scores of the predictions of the class.
@@ -44,9 +45,10 @@ def find_score_threshold(scores: torch.Tensor, positives: torch.Tensor, number_p
     if len(valid_cuts) == 0:
         return None
 
-    # The deepest valid cut keeps the most positives at the target precision
-    last_valid_cut = int(valid_cuts[-1])
-    return float(sorted_scores[last_valid_cut]), float(true_positives[last_valid_cut]) / number_positives
+    # The valid cut keeping the most positives at the target precision, the first of them (argmax gives the first
+    # maximum), so that the deeper valid cuts adding only wrong predictions do not lower the threshold
+    best_cut = int(valid_cuts[int(torch.argmax(input=true_positives[valid_cuts]))])
+    return float(sorted_scores[best_cut]), float(true_positives[best_cut]) / number_positives
 
 
 def find_class_thresholds(probabilities: torch.Tensor, positive_masks: torch.Tensor,

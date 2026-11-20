@@ -68,8 +68,9 @@ class SegmentationDataset(Dataset):
     the 'categories' and the 'samples', each sample giving its 'file_name' and its 'mask_file_name'. A mask is a
     single-channel uint8 PNG of the size of its image, whose every pixel holds the category identifier of the image
     pixel (0 for the background, 255 for the unlabelled pixels). The images are resized and padded exactly like the
-    other loaders, the masks with the nearest interpolation and the ignored value on the padding, and their categories
-    are converted to the class indices of the label dictionary.
+    other loaders, the masks with the nearest interpolation on the pixel centres (cv2.INTER_NEAREST_EXACT, aligned with
+    the images) and the ignored value on the padding, and their categories are converted to the class indices of the
+    label dictionary.
 
     With 'Data.tiling' activated, the images and masks are scaled by 'Data.tiling.scale' instead (1 for their full
     resolution), then cut into a square tile of the network size at a random place (training) or at a place fixed per
@@ -169,10 +170,10 @@ class SegmentationDataset(Dataset):
     def cut_tile(self, image: np.ndarray, mask: np.ndarray, sample_identifier: int) -> Tuple[np.ndarray, np.ndarray]:
         """
         Prepares an image and its mask for the training on tiles ('Data.tiling'): both are scaled by the tiling scale
-        (the image by area averaging when shrinking, the mask with the nearest interpolation), then the test split keeps
-        the whole scaled image, and the other splits pad it to at least a tile on its bottom and right sides and cut a
-        tile of the network size, at a random place for the training split and at a place drawn from the identifier
-        of the image for the validation split.
+        (the image by area averaging when shrinking, the mask with the nearest interpolation on the pixel centres, so
+        that it stays aligned with the image), then the test split keeps the whole scaled image, and the other splits
+        pad it to at least a tile on its bottom and right sides and cut a tile of the network size, at a random place
+        for the training split and at a place drawn from the identifier of the image for the validation split.
 
         Args:
             image (np.ndarray): The [H, W, 3] uint8 BGR image.
@@ -189,7 +190,7 @@ class SegmentationDataset(Dataset):
                            max(1, int(round(image.shape[0] * self.tiling_scale))))
             image = cv2.resize(src=image, dsize=scaled_size,
                                interpolation=cv2.INTER_AREA if self.tiling_scale < 1.0 else cv2.INTER_LINEAR)
-            mask = cv2.resize(src=mask, dsize=scaled_size, interpolation=cv2.INTER_NEAREST)
+            mask = cv2.resize(src=mask, dsize=scaled_size, interpolation=cv2.INTER_NEAREST_EXACT)
         if self.tile_sampling == "whole":
             return image, mask
 
@@ -230,14 +231,15 @@ class SegmentationDataset(Dataset):
             raise ValueError(f"The mask {sample['mask_file_name']} has the size {mask.shape}, its image "
                              f"{sample['file_name']} has the size {image.shape[:2]}.")
 
-        # Resize the image bilinearly and the mask with the nearest interpolation, with the same scale and padding, or
-        # cut the tile of the split out of the scaled image and mask
+        # Resize the image bilinearly and the mask with the nearest interpolation on the pixel centres, the plain
+        # nearest shifting it by half a pixel, with the same scale and padding, or cut the tile of the split out of the
+        # scaled image and mask
         if self.tiling_activated:
             resized_image, resized_mask = self.cut_tile(image=image, mask=mask, sample_identifier=sample["identifier"])
         else:
             resized_image = preprocess_image(image=image, image_size=self.image_size, keep_ratio=self.keep_ratio)
             resized_mask = preprocess_image(image=mask, image_size=self.image_size, keep_ratio=self.keep_ratio,
-                                            interpolation=cv2.INTER_NEAREST, padding_value=IGNORED_MASK_VALUE)
+                                            interpolation=cv2.INTER_NEAREST_EXACT, padding_value=IGNORED_MASK_VALUE)
 
         # Convert the categories of every pixel to class indices
         image_tensor = torch.from_numpy(np.ascontiguousarray(resized_image)).permute(2, 0, 1)

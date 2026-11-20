@@ -351,7 +351,7 @@ class CubicScalingDataset:
         scaled_size = (max(1, int(round(image.shape[1] * self.tiling_scale))),
                        max(1, int(round(image.shape[0] * self.tiling_scale))))
         return (cv2.resize(src=image, dsize=scaled_size, interpolation=cv2.INTER_CUBIC),
-                cv2.resize(src=mask, dsize=scaled_size, interpolation=cv2.INTER_NEAREST))
+                cv2.resize(src=mask, dsize=scaled_size, interpolation=cv2.INTER_NEAREST_EXACT))
 
 
 def segment_image_by_grey_padded_tiles(image: torch.Tensor,

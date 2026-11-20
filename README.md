@@ -345,7 +345,7 @@ To turn the categories into classes, `label_mapping.json` (`Data.label_mapping.m
 }                 //   not written
 ```
 
-A category left out skips its samples (CLS, M2O, CMP), leaves the classes of its multi-label samples, makes its frames ignored (M2M) or unselected (SEL), its objects left out (DET, INS, KPT) and its pixels background (SEG). DET, INS and SEG also accept `mode: "binary"`, every category becoming class 1 without a mapping file.
+A category left out skips its samples (CLS, M2O, CMP), leaves the classes of its multi-label samples, a sample of left-out categories only being skipped, makes its frames ignored (M2M) or unselected (SEL), its objects left out (DET, INS, KPT) and its pixels background (SEG). DET, INS and SEG also accept `mode: "binary"`, every category becoming class 1 without a mapping file.
 
 If each image shows one class (CLS, and SSL, whose categories only serve its k-NN evaluation), `labels.json` gives one entry per image, its `file_name` relative to `data/`:
 

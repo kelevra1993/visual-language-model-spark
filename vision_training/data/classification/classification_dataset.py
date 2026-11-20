@@ -36,8 +36,11 @@ class ClassificationDataset(Dataset):
     The images are resized and padded exactly like the detection loaders, and the raw categories are converted to the
     class indices of the label dictionary; samples whose category is not mapped are left out, unless the unlabelled
     samples are kept (self-supervised task), the label of a multi-class sample without a single mapped category (none,
-    or several in the 'category_ids' of a multi-label manifest) being then IGNORED_LABEL_INDEX. The number of these
-    samples, left out or kept, is reported by get_classification_dataloaders with the other splits.
+    or several in the 'category_ids' of a multi-label manifest) being then IGNORED_LABEL_INDEX. A multi-label sample
+    keeps each class of its mapped categories once (merged categories giving one class), its unmapped categories being
+    ignored, and is left out when none of its categories is mapped, while a sample listing no category at all is kept
+    as a negative of every class. The number of the samples without mapped category, left out or kept, is reported by
+    get_classification_dataloaders with the other splits.
     """
 
     def __init__(self, data_directory: str, labels_file: str, image_size: int, keep_ratio: bool,
@@ -87,6 +90,16 @@ class ClassificationDataset(Dataset):
                 if not keep_unlabelled_samples:
                     continue
                 class_indices = []
+
+            # A multi-label sample keeps each of its classes once, merged categories giving the same class, and is left
+            # out when none of its categories is mapped, instead of becoming a negative of every class, a sample listing
+            # no category at all staying a negative of every class
+            if output_mode == "multi_label":
+                class_indices = sorted(set(class_indices))
+                if raw_categories and not class_indices:
+                    self.number_unlabelled_samples += 1
+                    if not keep_unlabelled_samples:
+                        continue
 
             # Optional named attributes of the sample (camera, scene, device...), which the grouped batches of the
             # self-supervised task read, empty for a sample without them
