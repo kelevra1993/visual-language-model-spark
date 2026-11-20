@@ -81,7 +81,7 @@ So that the order and the cost of the benchmark are seen at once, the table list
 | 2 | Mask resolution | one doubling against two (`mask_resolution` 2 or 4 times the pool kept by stage 1) | none | done, resolution 28 kept (56 -0.0053, beyond the launch gaps) |
 | 3 | Mask head size | `convolutions` `[3, 32]`, `[4, 64]` | none | done, `[4, 64]` kept (+0.0262, beyond the launch gaps) |
 | 3b | Finer inputs of the mask heads (the user's designs A and B) | on the `[4, 64]` heads of stage 3: A, an image branch; B, U-Net skips from the backbone; the control, the fusion convolution alone | `MaskHead.image_branch_convolutions`, `skip_blocks_at_pool_size`, `skip_blocks_at_mask_resolution`, `fusion_convolutions` (main 0ef5cbd) | A done, +0.0719 over stage 3 (0.8865); B done, +0.0714 (0.8859), tied with A at a lower cost and a smaller box loss; control done, +0.0053 (0.8198), so the finer inputs carry 0.066 of the gains of A and B; the user chose A (2026-11-19), written into `run-1.yaml` |
-| 4 | Upsampling | `transposed`, `bilinear` | none | planned |
+| 4 | Upsampling | `transposed`, `bilinear` | none | done, cut at 13,250 by the user; `bilinear` ties (+0.0015 at 13,000, inside the launch gaps) and the user kept it (2026-11-20), written into `run-1.yaml` |
 | 5 | One mask head shared by the levels (`suggestions.md` item 7) | per level, shared | `MaskHead.shared` | planned |
 | 6 | Mask level chosen by the box size (`suggestions.md` item 2) | level of the proposal, level of the box size | level rule | dropped by the user on 2026-11-19, the image branch of design A giving every box its own pixels |
 | 7 | A finer map for the masks (`suggestions.md` item 5) | the levels of the detection, a level 3 of the feature pyramid (stride 8) for the masks | neck level | dropped by the user on 2026-11-19, design A having raised the small objects by 0.12 |
@@ -288,6 +288,17 @@ The user chose design A on 2026-11-19, from the tie on the decision metric (+0.0
 ### Stage 4: Upsampling
 
 In case the transposed convolution marks the borders, the stage trains `MaskHead.upsampling: "bilinear"` (a bilinear doubling followed by a 3 x 3 convolution) against the transposed convolution of Mask R-CNN, whose 2 x 2 kernel of stride 2 can leave a checkerboard pattern on the borders. A tie is likely, but the user kept the stage ("we try transposed and bilinear upsampling right ?").
+
+The stage was trained on design A once the user gave the go ("Run the next stage."): run_15 started on 2026-11-19 at 22:46 and run_16 at 22:47, design A's pair (run_9, run_10) serving as the transposed reference without training. The user cut the pair at iteration 13,250 to free the GPUs ("cut it as soon as they have reached 13250"), so both were stopped on 2026-11-20 at 14:21 and 14:19 (15 hours 35 and 15 hours 32 minutes), and the comparison is made at 13,000, their last test evaluation, against design A at the same iteration:
+
+| Upsampling | Test_EMA mask mAP@[0.5:0.95] at 13,000 | Gap to transposed | Trained weights | Mask mAP@0.5 / @0.75 / @0.95 | Small / medium / large | Box mAP@[0.5:0.95] / @0.95 |
+|---|---|---|---|---|---|---|
+| `transposed`, design A (run_9, run_10) | 0.8803 (0.8793, 0.8814) | reference | 0.8406 | 0.9556 / 0.9457 / 0.3904 | 0.8644 / 0.9067 / 0.8633 | 0.8129 / 0.1300 |
+| `bilinear` (run_15, run_16) | 0.8818 (0.8807, 0.8829) | +0.0015 | 0.8455 | 0.9562 / 0.9473 / 0.3933 | 0.8762 / 0.9068 / 0.8588 | 0.8137 / 0.1314 |
+
+Bilinear ties with the transposed convolution: +0.0015 at 13,000, inside the launch gaps of both (0.0021 for A, 0.0022 for bilinear), and +0.0005 on the mean of the last four evaluations (0.8747 against 0.8742). It started slower, 0.0140 under A at 4000 and 0.0036 at 6000, then closed the gap (-0.0005 at 10,000, +0.0004 at 11,000, +0.0007 at 12,000). The borders are no finer (mask mAP@0.95 0.3933 against 0.3904), the small objects gain 0.0118 and the large lose 0.0045, both within what one launch moves, and the boxes are unchanged (box mAP@[0.5:0.95] 0.8137 against 0.8129). Each launch kept its training loader workers at 3.4 to 4.2 GB of private memory at iteration 3500, and the machine about 48 GB available while both trained. As the plan expects for a tie, the user kept `bilinear` on 2026-11-20, which learns no weights in the doubling: `run-1.yaml` takes `MaskHead.upsampling: "bilinear"` (the setting of run_15 and run_16). No next stage is started until the user asks.
+
+![Instance segmentation, stage 4: Upsampling](figures/instance_segmentation/stage_4_upsampling.png)
 
 ### Stage 5: One Mask Head Shared By The Levels
 

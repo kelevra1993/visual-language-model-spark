@@ -646,3 +646,17 @@ comparisons:
     kept: "image branch or backbone skips, credited with their finer inputs; the choice waits for the user"
     verdict: "Control: 81.98 % (81.90 %, 82.07 %) against 81.45 % for the heads of stage 3 at 15,000 (+0.53 points, launch gaps 0.37 and 0.17 points), a gain shrinking from +2.11 points at 3000; A and B beat it by 6.67 and 6.61 points, so the finer inputs carry 6.6 of their 7.2 points; mask mAP@0.95 20.54 % against 18.99 %, box mAP@[0.5:0.95] unchanged (83.39 % against 83.35 %)."
     notes: "run_7, run_8 (stage 3), run_9, run_10 (design A) and run_11, run_12 (design B) are reused without training. The control adds one fusion convolution of 64 channels at 28 to the heads of stage 3, the convolution A and B also add. Trainings of another session shared the machine from about 22:00 to 09:00, slowing the pair without changing its iterations. The mask mAP@0.95 and the box mAP of the plan cannot be drawn from the CSV, which holds the mask mAP@[0.5:0.95] only."
+
+  - experiment: instance_segmentation
+    results_file: instance_segmentation_results.csv
+    stage: "4"
+    title: Upsampling
+    plan_lines: "288-301"
+    last_iteration: 13000
+    compared_weights: ema
+    arms:
+      - {label: "transposed, design A", launches: [run_9, run_10], reference: true, trained_as_averaged: false}
+      - {label: "bilinear", launches: [run_15, run_16], reference: false, trained_as_averaged: false}
+    kept: "bilinear, tied with the transposed convolution and without learned weights in the doubling (user, 2026-11-20)"
+    verdict: "Bilinear: 88.18 % (88.07 %, 88.29 %) against 88.03 % for the transposed convolution of design A at 13,000 (+0.15 points, inside the launch gaps of 0.21 and 0.22 points), a tie; behind until 10,000 (-1.40 points at 4000, -0.05 at 10,000); mask mAP@0.95 39.33 % against 39.04 %, box mAP@[0.5:0.95] unchanged (81.37 % against 81.29 %)."
+    notes: "run_9, run_10 (design A, transposed) are reused without training. The user cut run_15 and run_16 at iteration 13,250 to free the GPUs, so the comparison stops at 13,000, their last test evaluation. The mask mAP@0.5, @0.75 and @0.95, the object sizes and the box mAP of the plan cannot be drawn from the CSV, which holds the mask mAP@[0.5:0.95] only."
