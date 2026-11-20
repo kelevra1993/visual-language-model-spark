@@ -21,8 +21,8 @@ them. The settings are the variables of the main block, and the script runs thre
 Every image read (extraction, mosaics) and every feature matrix of a clustered source is released from the page cache
 of Linux, which would otherwise fill the memory the GPU shares on the DGX Spark and stop other processes from starting.
 
-Timings on the DGX Spark (2026-10-19), to extrapolate to other datasets: the ficha empty bins train split (11,772
-empty_bin and 31,805 not_empty frames of 1920 x 1080 pixels) embedded by its classification run at 512 pixels
+Timings on the DGX Spark (2026-10-19), to extrapolate to other datasets: a train split of video frames of 1920 x 1080
+pixels in two categories, A (11,772 frames) and B (31,805 frames), embedded by its classification run at 512 pixels
 (iteration 200), a training running on the same machine. The extraction of block 6 took 812 Seconds (53.7 Images Per
 Second, bound by the decoding of the frames). HDBSCAN (min_cluster_size 10, min_samples 5, eom) builds its spanning
 tree on a single core over all the pairs of images, its time growing with the square of the number of images and with
@@ -34,24 +34,24 @@ clusters, the large clusters weighing the most). PCA 100 and 50 were not measure
 
 | Layer             | Category  | PCA | Variance | PCA Time | HDBSCAN Time | Clusters | Isolated | Kept  | Agreement |
 |-------------------|-----------|-----|----------|----------|--------------|----------|----------|-------|-----------|
-| block_6           | empty_bin | 800 | 95.1 %   | 81       | 61           | 66       | 5.5 %    | 975   | 1.000     |
-| block_6           | empty_bin | 400 | 92.6 %   | 44       | 28           | 80       | 6.4 %    | 1,151 | 0.832     |
-| block_6           | empty_bin | 200 | 89.8 %   | 28       | 14           | 84       | 6.1 %    | 1,133 | 0.812     |
-| block_6           | not_empty | 800 | 93.4 %   | 372      | 487          | 358      | 5.4 %    | 3,513 | 1.000     |
-| block_6           | not_empty | 400 | 90.3 %   | 85       | 240          | 329      | 3.8 %    | 2,856 | 0.863     |
-| block_6           | not_empty | 200 | 86.1 %   | 78       | 116          | 319      | 4.3 %    | 2,967 | 0.827     |
-| fully_connected_1 | empty_bin | 800 | -        | -        | 38           | 54       | 9.2 %    | 1,354 | 1.000     |
-| fully_connected_1 | empty_bin | 400 | 100.0 %  | 1        | 29           | 54       | 9.1 %    | 1,345 | 0.998     |
-| fully_connected_1 | empty_bin | 200 | 99.9 %   | 3        | 16           | 54       | 9.2 %    | 1,356 | 0.985     |
-| fully_connected_1 | not_empty | 800 | -        | -        | 358          | 254      | 9.1 %    | 4,176 | 1.000     |
-| fully_connected_1 | not_empty | 400 | 100.0 %  | 2        | 233          | 255      | 9.2 %    | 4,201 | 0.995     |
-| fully_connected_1 | not_empty | 200 | 99.8 %   | 3        | 116          | 249      | 8.7 %    | 4,006 | 0.965     |
-| fully_connected_2 | empty_bin | 800 | -        | -        | 17           | 50       | 10.7 %   | 1,515 | 1.000     |
-| fully_connected_2 | empty_bin | 400 | -        | -        | 17           | 50       | 10.7 %   | 1,515 | 1.000     |
-| fully_connected_2 | empty_bin | 200 | 100.0 %  | < 1      | 16           | 49       | 10.6 %   | 1,489 | 0.993     |
-| fully_connected_2 | not_empty | 800 | -        | -        | 151          | 244      | 12.1 %   | 5,064 | 1.000     |
-| fully_connected_2 | not_empty | 400 | -        | -        | 150          | 244      | 12.1 %   | 5,064 | 1.000     |
-| fully_connected_2 | not_empty | 200 | 100.0 %  | < 1      | 126          | 245      | 12.1 %   | 5,061 | 0.994     |
+| block_6           | A         | 800 | 95.1 %   | 81       | 61           | 66       | 5.5 %    | 975   | 1.000     |
+| block_6           | A         | 400 | 92.6 %   | 44       | 28           | 80       | 6.4 %    | 1,151 | 0.832     |
+| block_6           | A         | 200 | 89.8 %   | 28       | 14           | 84       | 6.1 %    | 1,133 | 0.812     |
+| block_6           | B         | 800 | 93.4 %   | 372      | 487          | 358      | 5.4 %    | 3,513 | 1.000     |
+| block_6           | B         | 400 | 90.3 %   | 85       | 240          | 329      | 3.8 %    | 2,856 | 0.863     |
+| block_6           | B         | 200 | 86.1 %   | 78       | 116          | 319      | 4.3 %    | 2,967 | 0.827     |
+| fully_connected_1 | A         | 800 | -        | -        | 38           | 54       | 9.2 %    | 1,354 | 1.000     |
+| fully_connected_1 | A         | 400 | 100.0 %  | 1        | 29           | 54       | 9.1 %    | 1,345 | 0.998     |
+| fully_connected_1 | A         | 200 | 99.9 %   | 3        | 16           | 54       | 9.2 %    | 1,356 | 0.985     |
+| fully_connected_1 | B         | 800 | -        | -        | 358          | 254      | 9.1 %    | 4,176 | 1.000     |
+| fully_connected_1 | B         | 400 | 100.0 %  | 2        | 233          | 255      | 9.2 %    | 4,201 | 0.995     |
+| fully_connected_1 | B         | 200 | 99.8 %   | 3        | 116          | 249      | 8.7 %    | 4,006 | 0.965     |
+| fully_connected_2 | A         | 800 | -        | -        | 17           | 50       | 10.7 %   | 1,515 | 1.000     |
+| fully_connected_2 | A         | 400 | -        | -        | 17           | 50       | 10.7 %   | 1,515 | 1.000     |
+| fully_connected_2 | A         | 200 | 100.0 %  | < 1      | 16           | 49       | 10.6 %   | 1,489 | 0.993     |
+| fully_connected_2 | B         | 800 | -        | -        | 151          | 244      | 12.1 %   | 5,064 | 1.000     |
+| fully_connected_2 | B         | 400 | -        | -        | 150          | 244      | 12.1 %   | 5,064 | 1.000     |
+| fully_connected_2 | B         | 200 | 100.0 %  | < 1      | 126          | 245      | 12.1 %   | 5,061 | 0.994     |
 """
 
 import csv
@@ -102,7 +102,7 @@ RUN_DATA_SOURCE = "run"
 SPLIT_ROLES = {"train_data_folder": "train", "validation_data_folder": "validation", "test_data_folder": "test"}
 
 # Number of trailing components of the path of a data source naming its extraction folder, e.g.
-# 'empty_bin_classification_data-classification_dataset_v1-train', so that the splits of two datasets differ
+# 'sequence_data-synthetic_moving_shapes-test', so that the splits of two datasets differ
 SOURCE_NAME_COMPONENTS = 3
 
 # Files of the extraction folder of a data source
@@ -113,9 +113,9 @@ IMAGES_FILE_NAME = "images.csv"
 PREDICTIONS_OUTPUT = "predictions"
 
 # Largest number of values per image of an asked block (channels x height x width of its output before its pooling),
-# so that the matrix of a category and the PCA fitted on it fit in memory: block 6 of the ficha runs at 512 pixels
-# (128 x 16 x 16 = 32,768 values) is allowed, block 5 (128 x 32 x 32 = 131,072, 16.7 Gigabytes for 31,805 images) is
-# refused
+# so that the matrix of a category and the PCA fitted on it fit in memory: block 6 of the README classifier at 512
+# pixels (128 x 16 x 16 = 32,768 values) is allowed, block 5 (64 x 32 x 32 = 65,536, 8.3 Gigabytes for 31,805 images)
+# is refused
 MAXIMUM_BLOCK_VALUES = 32768
 
 # Entries of the extraction record that must be the same for stored features to be reused
@@ -558,10 +558,10 @@ def release_file_from_page_cache(path: Path) -> None:
     """
     Asks Linux to drop a file the script has read from its page cache, the copy of the recently read files it keeps
     in memory. On the unified memory of the DGX Spark, the frames read for the extraction and the mosaics (about 20
-    Gigabytes for the ficha train split) and the feature matrices would otherwise fill the memory the GPU shares and
-    stop other processes from creating their CUDA context. Only the pages of this file are released, without sudo and
-    without touching the files of other processes; the pages still mapped or not yet written to the disk stay. Does
-    nothing on a system without posix_fadvise (macOS).
+    Gigabytes for the 43,577 frames of the timings at the top of the file) and the feature matrices would otherwise
+    fill the memory the GPU shares and stop other processes from creating their CUDA context. Only the pages of this
+    file are released, without sudo and without touching the files of other processes; the pages still mapped or not
+    yet written to the disk stay. Does nothing on a system without posix_fadvise (macOS).
 
     Args:
         path (Path): The file read by the script.
@@ -933,11 +933,10 @@ def run_extraction_pass(embedder: Dict[str, Any], source: Dict[str, Any], source
                 raise ValueError(f"The loader gave the rows {rows.tolist()} instead of the rows {batch_start} to "
                                  f"{batch_end - 1}.")
             # Run the model once for every missing output and write the finite values to the rows of the batch
-            outputs = compute_batch_outputs(model=embedder["model"],
-                                            images=batch["images"].to(device=embedder["device"], dtype=torch.float32),
-                                            block_requests=missing_block_requests,
-                                            fully_connected_requests=missing_fully_connected_requests,
-                                            output_mode=output_mode)
+            outputs = compute_batch_outputs(
+                model=embedder["model"], images=batch["images"].to(device=embedder["device"], dtype=torch.float32),
+                block_requests=missing_block_requests, fully_connected_requests=missing_fully_connected_requests,
+                output_mode=output_mode)
             for output_key, output in outputs.items():
                 values = output.to(dtype=torch.float32).cpu().numpy()
                 if not np.isfinite(values).all():
@@ -1138,9 +1137,8 @@ def select_kept_images_by_clustering(labels: np.ndarray, ranks: np.ndarray, numb
     elif isolated_image_selection == "none":
         kept_isolated_positions = isolated_positions[:0]
     else:
-        kept_isolated_positions = random_generator.choice(isolated_positions,
-                                                          size=min(isolated_image_selection, len(isolated_positions)),
-                                                          replace=False)
+        kept_isolated_positions = random_generator.choice(
+            isolated_positions, size=min(isolated_image_selection, len(isolated_positions)), replace=False)
     for position in kept_isolated_positions:
         kept_images[int(position)] = ISOLATED_IMAGE_REASON
     return kept_images
@@ -1822,12 +1820,12 @@ def embed_and_cluster_sources(experiment_folder: Path, iteration: int, use_avera
 
 
 if __name__ == "__main__":
-    repository_folder = Path(__file__).absolute().parents[2]
     # Trained run embedding the images, of any task for the convolution blocks and a classification run for the fully
-    # connected layers, with the iteration of its checkpoint, and True to embed with the moving average of its weights
-    experiment_folder = (repository_folder / "ficha-experiments-empty-bins" /
-                         "CLS_IN-KAR-512_SE-RES-BN-B1x64.2x64.2x64.16x128.20x128.20x128-PT_HFLAT.512.256-HLN-CWB_MC2")
-    iteration = 200
+    # connected layers, with the iteration of its checkpoint, and True to embed with the moving average of its weights:
+    # the 35-class synthetic shapes classifier of the README, kept with the tutorial runs
+    experiment_folder = (Path.home() / "Data" / "tutorial_runs" / "readme_screenshots" /
+                         "CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35")
+    iteration = 2000
     use_averaged_weights = False
     # Images to embed, a list of:
     # - "run": the train, validation and test splits of the training_configuration.yaml of the run
@@ -1835,14 +1833,15 @@ if __name__ == "__main__":
     # - a split folder of any task, holding 'data' and 'labels.json' (COCO images, samples, frames of the sequences
     #   and of the pairs)
     # - a folder of plain images, searched with its subfolders
-    # A folder given twice (a test split that is the validation folder) is embedded once
-    data_sources = ["run"]
+    # A folder given twice (a test split that is the validation folder) is embedded once. Here the 1,417 frames of the
+    # 200 test sequences of the synthetic moving shapes, shapes moving a little from one frame to the next
+    data_sources = [Path.home() / "Data" / "sequence_data" / "synthetic_moving_shapes" / "test"]
     # Layers stored and clustered, counted from 1: the convolution blocks of the backbone (their whole output before
     # their pooling, channels x height x width values per image, at most MAXIMUM_BLOCK_VALUES = 32,768: block 6 of the
-    # ficha runs at 512 pixels, 128 x 16 x 16, and not block 5, 128 x 32 x 32) and the hidden fully connected layers of
-    # a classification head (their output after their ReLU, the class logits layer excluded)
+    # README classifier at 512 pixels, 128 x 16 x 16, and not block 5, 64 x 32 x 32) and the hidden fully connected
+    # layers of a classification head (their output after their ReLU, the class logits layer excluded)
     convolution_block_indices = [6]
-    fully_connected_layer_indices = []
+    fully_connected_layer_indices = [1]
     # Images run together and loader worker processes reading them
     batch_size = 32
     number_workers = 2
@@ -1858,13 +1857,13 @@ if __name__ == "__main__":
     #   more isolated images) and cluster_selection_method ("eom" for the most stable clusters, "leaf" for smaller,
     #   more uniform ones)
     # - "dbscan": dense regions at a fixed distance eps between the prepared vectors (at most 2 between normalised
-    #   vectors), min_samples neighbours within eps making an image dense, the others being isolated; eps 0.16 lies
-    #   between the knees of the distance of every image to its 4th nearest neighbour on block 6 at PCA 200 of the
-    #   ficha empty bins train split, 0.192 for empty_bin and 0.142 for not_empty
+    #   vectors), min_samples neighbours within eps making an image dense, the others being isolated; eps 0.5 lies
+    #   between the knees of the distance of every frame of the data source above to its 4th nearest neighbour, 0.713
+    #   for block_6 at PCA 200 and 0.431 for fully_connected_1
     # - "kmeans": number_clusters clusters per category, every image in one, best of number_initializations runs
     clustering_algorithm = "dbscan"
     clustering_parameters = {"hdbscan": {"min_cluster_size": 10, "min_samples": 5, "cluster_selection_method": "eom"},
-                             "dbscan": {"eps": 0.16, "min_samples": 5},
+                             "dbscan": {"eps": 0.5, "min_samples": 5},
                              "kmeans": {"number_clusters": 200, "number_initializations": 3}}[clustering_algorithm]
     # Images kept by the clustering: the representatives of every cluster (its images closest to its centre) and the
     # isolated images, in no cluster, "all", "none" or a number drawn at random. As many images per category are kept
@@ -1873,20 +1872,21 @@ if __name__ == "__main__":
     isolated_image_selection = "all"
     # Regular expression giving the group of every image, searched in its file name relative to its data folder: the
     # first capturing group taking part in the match (the whole match without capturing group), the images it does not
-    # match forming the group "(no group)". Any pattern fits the file names of a dataset, e.g.
-    # r"^(video_t\d+_[\d-]+_[\d-]+)_" for the video of the ficha frames 'video_t0053_2026-09-25_05-51-30_0037018ms.jpg',
-    # r"^([^/]+)/" for the first subfolder of a folder of plain images, or r"^(video_\d+)_|^(camera_\d+)/" for one group
+    # match forming the group "(no group)". Any pattern fits the file names of a dataset, e.g. r"^([^/]+)/" for the
+    # first subfolder, here the sequence of every frame ('test_000012/000003.png'), r"^(camera_\d+_\d{4}-\d{2}-\d{2})_"
+    # for the camera and day of 'camera_3_2026-09-25_frame_0040.jpg', or r"^(video_\d+)_|^(camera_\d+)/" for one group
     # per alternative. The cluster summary counts the groups of every cluster, and the baseline evenly spaced per group
     # spreads its images evenly over the groups, the images of a group ordered by their names (digit runs compared as
     # numbers). None for no group and no such baseline
-    group_pattern = r"^(video_t\d+_[\d-]+_[\d-]+)_"
+    group_pattern = r"^([^/]+)/"
     # Seed of the draws (isolated images, images kept at random) and of k-means
     seed = 0
     # Images per row of the mosaic of a cluster, which shows at most as many rows, the images closest to the centre
     # first
     mosaic_grid_size = 6
-    # Root folder of the extractions, '<output_root>/<run name>/Iteration_<n>[_EMA]/<source>/'
-    output_root = experiment_folder.parent / "embeddings"
+    # Root folder of the extractions, '<output_root>/<run name>/Iteration_<n>[_EMA]/<source>/', outside the folder of
+    # the tutorial runs
+    output_root = Path.home() / "Data" / "embeddings"
 
     embed_and_cluster_sources(experiment_folder=experiment_folder, iteration=iteration,
                               use_averaged_weights=use_averaged_weights, data_sources=data_sources,

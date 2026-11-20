@@ -27,8 +27,8 @@ IMAGE_SIZE = 64
 
 def write_fake_split(split_folder: Path, samples: List[Dict[str, Any]]) -> None:
     """
-    Writes a split in the format of the ficha self-supervised layouts, a 'labels.json' of two categories whose samples
-    hold their truck in their groups, with a random image file for every sample.
+    Writes a split in the format of the self-supervised layouts holding groups, a 'labels.json' of two categories whose
+    samples hold their truck in their groups, with a random image file for every sample.
 
     Args:
         split_folder (Path): The split folder, receiving 'data/' and 'labels.json'.

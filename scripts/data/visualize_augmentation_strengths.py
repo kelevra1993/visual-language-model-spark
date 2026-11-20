@@ -54,11 +54,11 @@ EXPLAINED_NOISE_LEVELS = [10.0, 20.0, 30.0, 40.0]
 def select_example_images(split_folder: Path, number_images: int, seed: int) -> List[Dict[str, Any]]:
     """
     Chooses the example images of the figures among the labelled images of a split ('labels.json' of the
-    self-supervised and classification datasets, whose samples hold 'file_name', 'category_id' and, in the ficha
-    layouts, the 'truck' of their 'groups'), so that they show different trucks and waste streams: the samples are
-    shuffled with the seed, then taken in that order when their truck and their category are both new, the samples of a
-    new truck only completing the choice when the split holds fewer categories than images. A sample without groups
-    counts as its own truck.
+    self-supervised and classification datasets, whose samples hold 'file_name', 'category_id' and, in some layouts, the
+    'truck' of their 'groups', the source the image comes from), so that they show different sources and categories:
+    the samples are shuffled with the seed, then taken in that order when their truck and their category are both new,
+    the samples of a new truck only completing the choice when the split holds fewer categories than images. A sample
+    without groups counts as its own truck.
 
     Args:
         split_folder (Path): The split folder holding 'data/' and 'labels.json'.
@@ -441,14 +441,12 @@ def visualize_augmentation_strengths(configuration_path: Path, split_folder: Pat
 
 
 if __name__ == "__main__":
-    # Configuration giving the input size, the padding and the black-out grid: the SimCLR run on the ficha images
-    configuration_path = Path("/home/robert_kelevra/Projects/visual-language-model-spark/vision_training/"
-                              "configurations/ficha_configuration_files/contrastive_learning/"
-                              "configuration_contrastive_learning_simclr.yaml")
+    # Configuration giving the input size, the padding and the black-out grid: the synthetic shapes classifier
+    configuration_path = (Path(__file__).absolute().parents[2] / "vision_training" / "configurations" /
+                          "classification" / "configuration_synthetic_shapes.yaml")
     # Split the example images are chosen in, and the folder of the figures
-    split_folder = Path("/home/robert_kelevra/Data/ficha_data/contrastive_learning_data/ssl_pretraining_images/"
-                        "training_layout_v2/validation")
-    output_folder = Path("/home/robert_kelevra/Data/ficha_data/contrastive_learning_data/augmentation_examples")
+    split_folder = Path.home() / "Data" / "classifier_data" / "synthetic_shapes" / "validation"
+    output_folder = Path.home() / "Data" / "augmentation_examples" / "synthetic_shapes"
     # Number of example images, one per row of every figure, and the seed of their choice and of the draws
     number_images = 4
     seed = 0

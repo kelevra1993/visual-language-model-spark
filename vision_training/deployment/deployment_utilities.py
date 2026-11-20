@@ -132,12 +132,11 @@ def load_decoding_settings(experiment_folder: Path, iteration: Optional[int],
         configuration_path=experiment_folder / "training_configuration.yaml")
     if experiment_configuration["task"] != "frame_selection":
         return None
-    return build_decoding_settings(experiment_configuration=experiment_configuration,
-                                   model_configuration=model_configuration,
-                                   unselected_class_index=inference_model.model.get_unselected_class_index(),
-                                   checkpoint_path=get_checkpoint_path(experiment_folder=experiment_folder,
-                                                                       iteration=iteration),
-                                   experiment_folder=experiment_folder)
+    return build_decoding_settings(
+        experiment_configuration=experiment_configuration, model_configuration=model_configuration,
+        unselected_class_index=inference_model.model.get_unselected_class_index(),
+        checkpoint_path=get_checkpoint_path(experiment_folder=experiment_folder, iteration=iteration),
+        experiment_folder=experiment_folder)
 
 
 def get_served_model(specification: Dict[str, Any], export_format: str,

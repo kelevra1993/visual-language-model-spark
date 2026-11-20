@@ -233,8 +233,9 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
         raise ValueError(f"saved_thresholds_path {saved_thresholds_path} is only read with use_saved_temperature.")
 
     # PyTorch runs GPU convolutions in reduced-precision TF32 by default (about 3 significant digits instead of 7),
-    # while ONNX Runtime computes the exported model in exact FP32, so the two differ by about 1e-3 on scores even
-    # for a correct export. TF32 is switched off so that the reference is computed at full precision too.
+    # while ONNX Runtime computes the exported model in exact FP32, so the two differ even for a correct export, by up
+    # to about 1e-3 on the scores of a detector (5e-5 on the probabilities of a classifier). TF32 is switched off so
+    # that the reference is computed at full precision too.
     # The switch is global to the whole Python process: the previous values are saved here and restored at the end,
     # so that code calling this function does not silently keep slower full-precision GPU computations afterwards
     previous_cudnn_tf32, previous_matmul_tf32 = torch.backends.cudnn.allow_tf32, torch.backends.cuda.matmul.allow_tf32
@@ -369,12 +370,12 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
                                                                                    previous_matmul_tf32)
 
 if __name__ == "__main__":
-    # Trained experiment to export, holding 'Weights' and 'training_configuration.yaml' (the synthetic shapes classifier
-    # of the README)
-    run_name = "CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9"
-    experiment_folder = Path(__file__).absolute().parents[2] / "experiments" / "readme_screenshots" / run_name
+    # Trained experiment to export, holding 'Weights' and 'training_configuration.yaml' (the 35-class synthetic shapes
+    # classifier of the README, kept with the tutorial runs)
+    run_name = "CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35"
+    experiment_folder = Path.home() / "Data" / "tutorial_runs" / "readme_screenshots" / run_name
     # Iteration to export, None for the last one recorded in the 'full-checkpoint' registry
-    iteration = 1500
+    iteration = 2000
     # True exports the moving average of the weights stored in the checkpoint (runs with
     # Optimization.exponential_moving_average activated), False the trained weights
     use_averaged_weights = False

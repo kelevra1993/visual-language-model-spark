@@ -753,6 +753,7 @@ def run_perf_analyzer(model_name: str, batch_size: int, concurrency: int, transp
             failed, and the end of its output when it failed (empty otherwise).
     """
     report_path.parent.mkdir(parents=True, exist_ok=True)
+    # Arguments of perf_analyzer: the input shapes, the transport, and its container with inputs and report mounted
     shape_arguments = [argument for input_name, shape in shapes.items()
                        for argument in ["--shape", f"{input_name}:{','.join(str(size) for size in shape)}"]]
     transport_arguments = (["--shared-memory", "system", "--output-shared-memory-size", str(OUTPUT_SHARED_MEMORY_BYTES)]
@@ -766,6 +767,7 @@ def run_perf_analyzer(model_name: str, batch_size: int, concurrency: int, transp
                "--concurrency-range", str(concurrency), "--input-data", CONTAINER_INPUT_DATA_FOLDER,
                *shape_arguments, *transport_arguments, "-f", f"{CONTAINER_REPORT_FOLDER}/{report_path.name}",
                "--verbose-csv", "--collect-metrics", "--metrics-url", METRICS_ADDRESS]
+    # Run it with a longer measurement window after every failure, keeping the end of the output of the last one
     log_texts = []
     error = ""
     for attempt_index, window_milliseconds in enumerate(PERF_ANALYZER_WINDOWS_MILLISECONDS):
@@ -1057,6 +1059,7 @@ def measure_in_process_rows(model: Dict[str, Any], request: Dict[str, np.ndarray
             "torchscript_path": row_torchscript_path, "request": request, "batch_sizes": batch_sizes,
             "number_iterations": number_iterations, "number_warmup_iterations": number_warmup_iterations,
             "output_path": output_path})
+        # One result line per batch size, the images per second counting every frame of a sequence
         row_measures = json.loads(output_path.read_text())
         for planned_result, measure in zip(planned_results, row_measures["measures"]):
             append_result(results_path=results_path, result={
@@ -1114,6 +1117,7 @@ def measure_served_model(model: Dict[str, Any], request: Dict[str, np.ndarray], 
             shutil.rmtree(cached_path)
         else:
             cached_path.unlink()
+    # Memory available before the model loads, so that the memory the served model takes is the difference
     available_without_model_gigabytes = read_available_gigabytes()
     load_served_model(model_name=model_name, configuration=None)
     if not all(build_result_key(result=result) in completed_keys for result in first_request_results):
@@ -1127,6 +1131,7 @@ def measure_served_model(model: Dict[str, Any], request: Dict[str, np.ndarray], 
         print_color(color="blue", output=f"{model_name} ({precision_setting}) first requests : " +
                                          ", ".join(f"batch {batch_size} {seconds:.2f} s"
                                                    for batch_size, seconds in first_request_seconds.items()), indent=1)
+    # Configuration exported with the model, the base of every server setting below
     base_configuration = send_server_request(path=f"v2/models/{model_name}/config", body=None, timeout_seconds=30)
 
     for dynamic_batching, instance_count in server_settings:
@@ -1164,6 +1169,7 @@ def measure_served_model(model: Dict[str, Any], request: Dict[str, np.ndarray], 
                                                    concurrency=result["concurrency"], transport=result["transport"],
                                                    input_data_folder=benchmark_folder / "inputs" / model["name"] /
                                                    "perf_analyzer_data", shapes=shapes, report_path=raw_path)
+            # Result line of the load, also written when it failed, with the error
             measured_columns = {} if measure is None else {
                 **measure, "images_per_second": measure["inferences_per_second"] * frames_per_sample}
             append_result(results_path=results_path, result={
@@ -1232,6 +1238,7 @@ def run_serving_benchmark(models: List[Dict[str, Any]], benchmark_folder: Path,
                     "tensorrt_precision": precision_values["tensorrt_precision"],
                     "maximum_batch_size": maximum_batch_size})
 
+    # In-process rows of every model (eager and TorchScript), each timed in a child process
     if run_in_process:
         for model in models:
             measure_in_process_rows(model=model, request=requests[model["name"]], benchmark_folder=benchmark_folder,
@@ -1265,9 +1272,11 @@ def run_serving_benchmark(models: List[Dict[str, Any]], benchmark_folder: Path,
 if __name__ == "__main__":
     # Folder of every output of the benchmark, outside the repository (whose files not committed are cleaned)
     benchmark_folder = Path.home() / "Data" / "serving_benchmark"
-    # Trained runs, from their copies outside the repository: the README classifier, the reference of the detection
-    # benchmark (run_9) and the sequence labelling tutorial run, with the served checkpoint, the test split giving the
-    # sample sent to the models and the number of frames of that sample (None for images)
+    # Trained runs, from their copies outside the repository: the 9-class README classifier, the reference of the
+    # detection benchmark (run_9) and the sequence labelling tutorial run, with the served checkpoint, the test split
+    # giving the sample sent to the models and the number of frames of that sample (None for images). The three test
+    # splits were drawn again after the benchmark of 2026-11-17 (classification with 35 categories, of which the loaders
+    # keep the 9 of the run), so a new run measures the same shapes on other images
     tutorial_runs_folder = Path.home() / "Data" / "tutorial_runs"
     data_folder = Path.home() / "Data"
     models = [
