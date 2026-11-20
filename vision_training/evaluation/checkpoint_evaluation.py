@@ -35,7 +35,10 @@ def start_evaluation_tracking(trainer: BaseTrainer, experiment_folder: Path,
     '<evaluated run name>-evaluation' in the backend and experiment of the evaluated training, with the parameters of
     the trainer, tagged with the MLflow run of the evaluated training ('evaluation_of', absent for a run trained
     without tracking), the evaluated experiment folder, the evaluated test split and the evaluated iterations. The
-    training run is only read, so that an evaluation on another split never mixes into its curves.
+    backend is the one of the 'tracking_root' of the trainer, the experiments root folder of the configuration of the
+    run, which the launch panel names, so that the evaluation of a run moved or archived since its training stays
+    next to the training run it points to. The training run is only read, so that an evaluation on another split
+    never mixes into its curves.
 
     Args:
         trainer (BaseTrainer): The trainer of the evaluation, whose tracker receives the MLflow run.
@@ -46,7 +49,8 @@ def start_evaluation_tracking(trainer: BaseTrainer, experiment_folder: Path,
         ExperimentTracker: The tracker of the evaluation run, a DisabledTracker when the tracking is off.
     """
     evaluation_tracker = create_experiment_tracker(
-        tracking_configuration=trainer.tracking_configuration, tracking_root=experiment_folder.parent,
+        tracking_configuration=trainer.tracking_configuration,
+        tracking_root=trainer.experiment_configuration["tracking_root"],
         run_name=f"{experiment_folder.name}-evaluation", task=trainer.TASK_NAME, run_record_path=None)
 
     # Tags linking the evaluation to the evaluated training and to the evaluated split
@@ -71,8 +75,9 @@ def evaluate_checkpoints(trainer: BaseTrainer, experiment_folder: Path, iteratio
     every evaluation scalar, those of every class only with the per-class report and the averaged weights in 'ema_'
     columns, and 'evaluation_curves.png' drawn again next to it), then the best iteration according to the headline
     metric of the task is printed, for the trained and the averaged weights. A checkpoint listed in the registry but
-    deleted from the disk is skipped. When the tracking is on, the evaluations, the best headline metric, the summary
-    and the curves go to an MLflow run of their own (start_evaluation_tracking), closed whatever ends the evaluation.
+    deleted from the disk is skipped, and an error is raised when none of them is on the disk. When the tracking is on,
+    the evaluations, the best headline metric, the summary and the curves go to an MLflow run of their own
+    (start_evaluation_tracking), closed whatever ends the evaluation, as failed when nothing was evaluated.
 
     Args:
         trainer (BaseTrainer): The trainer of the run, built from its configuration, usually writing into the
@@ -83,6 +88,9 @@ def evaluate_checkpoints(trainer: BaseTrainer, experiment_folder: Path, iteratio
 
     Returns:
         Path: The evaluation summary of the folder of the evaluations.
+
+    Raises:
+        FileNotFoundError: If none of the checkpoints of the iterations is on the disk.
     """
     # The evaluations reported by the trainer, its summary and its curves are tracked in the MLflow run of the
     # evaluation
@@ -117,7 +125,11 @@ def summarise_checkpoint_evaluations(trainer: BaseTrainer, experiment_folder: Pa
 
     Returns:
         Path: The evaluation summary, which also keeps the rows of the earlier evaluations written into the same
-            folder, absent when no checkpoint was ever evaluated into it.
+            folder.
+
+    Raises:
+        FileNotFoundError: If none of the checkpoints of the iterations is on the disk, so that an evaluation of
+            nothing never ends as a finished one.
     """
     headline_metric, headline_in_percent = None, False
     headline_values: Dict[str, Dict[int, float]] = {}
@@ -146,13 +158,13 @@ def summarise_checkpoint_evaluations(trainer: BaseTrainer, experiment_folder: Pa
         for weights_label, weights_results in evaluated_weights.items():
             headline_values.setdefault(weights_label, {})[iteration] = weights_results["scalars"][headline_metric]
 
-    # Nothing evaluated when every listed checkpoint is missing from the disk
-    summary_path = trainer.evaluation_root / EVALUATION_SUMMARY_FILE_NAME
+    # Nothing evaluated when every listed checkpoint is missing from the disk, e.g. a run stopped before its first save
     if not headline_values:
-        print_color(color="yellow", output="No Checkpoint Evaluated.", add_separators=True)
-        return summary_path
+        raise FileNotFoundError(f"No Checkpoint Evaluated: none of the iterations {iterations} has its checkpoint in : "
+                                f"{format_path_link(path=experiment_folder / 'Weights')}")
 
     # The summary and the curves of the folder, then the best iterations of the evaluated checkpoints
+    summary_path = trainer.evaluation_root / EVALUATION_SUMMARY_FILE_NAME
     figure_path = Path(trainer.experiment_folder) / EVALUATION_CURVES_FIGURE_NAME
     print_color(color="green", output=f"Evaluation Summary Of {len(headline_values[''])} Checkpoints : "
                                       f"{format_path_link(path=summary_path)}", add_separators=True)

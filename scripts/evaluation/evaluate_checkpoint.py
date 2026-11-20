@@ -2,8 +2,10 @@
 When run, evaluates the last, a given or every checkpoint of a trained experiment on its test split (or another
 labelled split) through vision_training.evaluation.checkpoint_evaluation.evaluate_checkpoints, the trainer of the task
 being built from the copied configuration, the results written inside the run folder, in
-'<run>/Checkpoint_Evaluation/' next to the 'Evaluation' folder of the training, and, when the tracking is on, tracked
-in an MLflow run of their own. The precisions targeted by the class thresholds can be replaced, e.g. by
+'<run>/Checkpoint_Evaluation/' next to the 'Evaluation' folder of the training (another split in a folder of its own,
+e.g. '<run>/Checkpoint_Evaluation_split_synthetic_shapes_validation/', so that the evaluations of two splits never
+mix), and, when the tracking is on, tracked in an MLflow run of their own. A run without checkpoint stops the script
+before anything is written. The precisions targeted by the class thresholds can be replaced, e.g. by
 [0.99, 0.95, 0.90] to read the thresholds of a research report without training again; with the per-class report, a
 classifier gets its 'temperature_explorer.html' and 'class_logits.npz', served by
 scripts/evaluation/serve_temperature_explorer.py to choose, save and export the temperature of the checkpoint, and the
@@ -13,6 +15,8 @@ final non-maximum suppression of a detection run can be replaced, e.g. by DIoU-N
 benchmark, its evaluations going to a folder of their own, '<run>/Checkpoint_Evaluation_nms_<name>/'.
 """
 
+import json
+
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -20,11 +24,13 @@ from vision_training.core.task_registry import get_trainer_class
 from vision_training.configuration_processing.classification_checks import check_target_precisions
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.configuration_processing.detection_checks import check_nms_criterion_configuration
+from vision_training.data.data_record import DATA_RECORD_FILE_NAME
 from vision_training.data.manifest_cache import read_manifests_once
 from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME, evaluate_checkpoints
 from vision_training.models.model_transfer import disable_pretrained_settings
-from vision_training.trainers.checkpointing import get_checkpoint_iterations, get_last_checkpoint_iteration
-from vision_training.utilities.os_utilities import print_color
+from vision_training.trainers.checkpointing import (get_checkpoint_file, get_checkpoint_iterations,
+                                                    get_last_checkpoint_iteration)
+from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Tasks whose evaluation gives the thresholds of every class at several target precisions (the classification trainer
 # and the sequence trainers sharing its evaluation), the frame selection and the detection tasks keeping one
@@ -196,6 +202,112 @@ def apply_nms_criterion(model_configuration: Dict[str, Any], task: str, nms_crit
     return "" if evaluated_nms_name == run_nms_name else f"_nms_{evaluated_nms_name}"
 
 
+def apply_test_data_folder(experiment_configuration: Dict[str, Any],
+                           test_data_folder: Optional[Union[str, Path]]) -> str:
+    """
+    Replaces the test split of the evaluated run by another labelled split, e.g. the validation split of its dataset or
+    the test split of a newer dataset, and names the output subfolder of its evaluations after it, so that the
+    evaluations of two splits of a run never share a folder: their class thresholds, class metrics, data.json and
+    summary rows would otherwise replace each other, their error images and TensorBoard values mix, and the export, the
+    temperature explorer and compare_best_evaluations.py read whichever split ran last. The test split of the run,
+    given again, keeps the 'Checkpoint_Evaluation' folder of the run.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The loaded experiment configuration of the evaluated run, changed in
+            place.
+        test_data_folder (Optional[Union[str, Path]]): The evaluated labelled split, holding its 'labels.json', None to
+            keep the test split of the run.
+
+    Returns:
+        str: The suffix of the output subfolder of the evaluation, '_split_<parent folder>_<split folder>' of the
+            resolved split (e.g. '_split_synthetic_shapes_validation') when it is not the test split of the run, and
+            an empty suffix otherwise.
+    """
+    if test_data_folder is None:
+        return ""
+
+    # The test split of the run given again keeps its folder, both folders being compared once resolved
+    run_test_data_folder = Path(experiment_configuration["test_data_folder"]).resolve()
+    evaluated_test_data_folder = Path(test_data_folder).resolve()
+    experiment_configuration["test_data_folder"] = Path(test_data_folder)
+    if evaluated_test_data_folder == run_test_data_folder:
+        return ""
+
+    # Suffix naming the split by its folder and the folder holding it, e.g. the dataset of a 'validation' split
+    split_name_parts = [part for part in [evaluated_test_data_folder.parent.name, evaluated_test_data_folder.name]
+                        if part]
+    return "_split_" + "_".join(split_name_parts)
+
+
+def check_evaluation_folder_split(evaluation_folder: Path, test_data_folder: Union[str, Path]) -> None:
+    """
+    Refuses to write the evaluations of a split into a folder holding those of another split, before the trainer
+    replaces the data.json of the folder: two splits whose folders give the same subfolder name
+    (apply_test_data_folder), or a 'Checkpoint_Evaluation' folder written by the evaluation of another split before
+    every split had a folder of its own. The test split recorded in the data.json of the folder must be the evaluated
+    one; a new folder, or one written before the record of the data existed, holds no record and is accepted.
+
+    Args:
+        evaluation_folder (Path): The output folder of the evaluation, '<run>/Checkpoint_Evaluation<suffix>/'.
+        test_data_folder (Union[str, Path]): The evaluated split.
+
+    Raises:
+        ValueError: If the folder holds the evaluations of another split.
+    """
+    data_record_path = evaluation_folder / DATA_RECORD_FILE_NAME
+    if not data_record_path.is_file():
+        return
+
+    # Data folder of the test split of the record, resolved like the evaluated one (build_split_record)
+    data_record = json.loads(data_record_path.read_text(encoding="utf-8"))
+    recorded_test_data_folder = Path(data_record["splits"]["test"]["data_folder"]).resolve()
+    evaluated_test_data_folder = Path(test_data_folder).resolve()
+    if recorded_test_data_folder != evaluated_test_data_folder:
+        raise ValueError(f"{evaluation_folder} holds the evaluations of the split {recorded_test_data_folder} (test "
+                         f"split of its {DATA_RECORD_FILE_NAME}), not of the evaluated split "
+                         f"{evaluated_test_data_folder}: move or rename that folder, then launch again, so that the "
+                         f"evaluations of two splits never mix.")
+
+
+def list_evaluated_iterations(weights_directory: Path, iteration: Optional[Union[int, str]]) -> List[int]:
+    """
+    Lists the iterations of the evaluated checkpoints before the trainer is built, so that a run without checkpoint
+    stops the script before anything is written, as it stops the export tools, instead of an evaluation of nothing
+    ending normally: every checkpoint of the registry from the last saved one ("all"), so that the most trained
+    weights are evaluated first, the last saved one (None), or the given one. A checkpoint listed by the registry but
+    deleted from the disk is skipped by the evaluation (evaluate_checkpoints), as long as another one is evaluated.
+
+    Args:
+        weights_directory (Path): The 'Weights' folder of the evaluated run.
+        iteration (Optional[Union[int, str]]): The iteration to evaluate, None for the last saved one, or "all" for
+            every checkpoint of the registry, the intermediate ones included.
+
+    Returns:
+        List[int]: The iterations to evaluate, in the evaluation order.
+
+    Raises:
+        FileNotFoundError: If none of them has its weight file on the disk: a run stopped before its first save (no
+            registry nor complete checkpoint folder, the last iteration being then 0), or a given iteration without
+            checkpoint.
+    """
+    if iteration == "all":
+        evaluated_iterations = get_checkpoint_iterations(weights_directory=weights_directory)[::-1]
+    elif iteration is None:
+        last_iteration = get_last_checkpoint_iteration(weights_directory=weights_directory)
+        evaluated_iterations = [last_iteration] if last_iteration else []
+    else:
+        evaluated_iterations = [iteration]
+
+    # At least one weight file on the disk, the saved checkpoints being listed to choose another iteration
+    if not any(get_checkpoint_file(weights_directory=weights_directory, iteration=evaluated_iteration).is_file()
+               for evaluated_iteration in evaluated_iterations):
+        saved_iterations = get_checkpoint_iterations(weights_directory=weights_directory)
+        raise FileNotFoundError(f"No checkpoint to evaluate for iteration = {iteration!r} (checkpoints of the "
+                                f"registry: {saved_iterations}, iterations evaluated: {evaluated_iterations}) in : "
+                                f"{format_path_link(path=weights_directory)}")
+    return evaluated_iterations
+
+
 def point_to_checkpoint_evaluation(experiment_configuration: Dict[str, Any], experiment_folder: Path,
                                    folder_suffix: str) -> Path:
     """
@@ -211,8 +323,9 @@ def point_to_checkpoint_evaluation(experiment_configuration: Dict[str, Any], exp
         experiment_configuration (Dict[str, Any]): The loaded experiment configuration of the evaluated run, changed in
             place.
         experiment_folder (Path): The evaluated run folder.
-        folder_suffix (str): The suffix of the evaluation folder, '_nms_<name>' for a detection run evaluated with
-            another final NMS (apply_nms_criterion), empty otherwise.
+        folder_suffix (str): The suffix of the evaluation folder, '_split_<name>' for another split
+            (apply_test_data_folder) followed by '_nms_<name>' for a detection run evaluated with another final NMS
+            (apply_nms_criterion), empty otherwise.
 
     Returns:
         Path: The folder of the evaluation.
@@ -233,7 +346,8 @@ if __name__ == "__main__":
     # (the intermediate ones included, the last saved first), compared in
     # 'Checkpoint_Evaluation/evaluation_summary.csv'
     iteration = 1500
-    # Labelled split evaluated instead of the test split of the experiment, None to keep the experiment's one
+    # Labelled split evaluated instead of the test split of the experiment, None to keep the experiment's one, another
+    # split writing to its own '<run>/Checkpoint_Evaluation_split_<parent folder>_<split folder>/'
     test_data_folder = None
     # Batch size of the evaluation, which can be larger than the training one since no gradient is kept, None to
     # keep the experiment's one
@@ -267,12 +381,19 @@ if __name__ == "__main__":
     nms_criterion = None
     nms_distance_exponent = None
 
+    # Every checkpoint of the registry from the last saved one, so that the most trained weights are evaluated first,
+    # the last one, or the given one, listed before anything is written so that a run without checkpoint stops here
+    evaluated_iterations = list_evaluated_iterations(weights_directory=experiment_folder / "Weights",
+                                                     iteration=iteration)
+
     # Copied configuration of the run pointed to the evaluated split and settings, the files of the run being only read
     configuration_path = experiment_folder / "training_configuration.yaml"
     experiment_configuration, model_configuration = load_experiment_configuration(
         configuration_path=configuration_path)
-    if test_data_folder is not None:
-        experiment_configuration["test_data_folder"] = test_data_folder
+    # Another labelled split replacing the test split of the run, its evaluations written to a folder of their own,
+    # named after the split, when it is not the one of the run
+    split_folder_suffix = apply_test_data_folder(experiment_configuration=experiment_configuration,
+                                                 test_data_folder=test_data_folder)
     if batch_size is not None:
         experiment_configuration["batch_size"] = batch_size
     if track_evaluation is not None:
@@ -291,9 +412,12 @@ if __name__ == "__main__":
                                             nms_distance_exponent=nms_distance_exponent)
     # Results.txt, Tensorboard/Test and the iteration folders written in '<run>/Checkpoint_Evaluation/', next to the
     # 'Evaluation' folder of the training, where the export also looks for the thresholds saved from the temperature
-    # explorer of a classifier
-    point_to_checkpoint_evaluation(experiment_configuration=experiment_configuration,
-                                   experiment_folder=experiment_folder, folder_suffix=nms_folder_suffix)
+    # explorer of a classifier, a folder holding the evaluations of another split being refused
+    evaluation_folder = point_to_checkpoint_evaluation(experiment_configuration=experiment_configuration,
+                                                       experiment_folder=experiment_folder,
+                                                       folder_suffix=split_folder_suffix + nms_folder_suffix)
+    check_evaluation_folder_split(evaluation_folder=evaluation_folder,
+                                  test_data_folder=experiment_configuration["test_data_folder"])
 
     # The weights come from the evaluated checkpoints, so the pretrained components the run started from are not loaded
     disable_pretrained_settings(model_configuration=model_configuration)
@@ -303,14 +427,4 @@ if __name__ == "__main__":
     with read_manifests_once():
         trainer = trainer_class(experiment_configuration=experiment_configuration,
                                 model_configuration=model_configuration, configuration_path=configuration_path)
-
-    # Every checkpoint of the registry from the last saved one, so that the most trained weights are evaluated first,
-    # the last one, or the given one
-    weights_directory = experiment_folder / "Weights"
-    if iteration == "all":
-        evaluated_iterations = get_checkpoint_iterations(weights_directory=weights_directory)[::-1]
-    elif iteration is None:
-        evaluated_iterations = [get_last_checkpoint_iteration(weights_directory=weights_directory)]
-    else:
-        evaluated_iterations = [iteration]
     evaluate_checkpoints(trainer=trainer, experiment_folder=experiment_folder, iterations=evaluated_iterations)

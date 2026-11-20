@@ -5,17 +5,22 @@ with the columns and the best iteration of the averaged weights for a run keepin
 evaluation (scripts/evaluation/evaluate_checkpoint.py) writes only the Checkpoint_Evaluation folder of the run, its
 evaluation curves included, the summary of its folder keeping the rows of the earlier standalone evaluations, and the
 best checkpoint line writes as a percentage a headline metric kept outside the metrics grid (the keypoint detection).
+The evaluation of a run moved since its training is tracked in the backend the launch panel names, an evaluation of
+nothing fails with its MLflow run, and the error images of an earlier evaluation of the same weights are replaced.
 """
 
 import csv
 import functools
 import pytest
+import shutil
 
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from vision_training.core.contracts import EvaluationResults
+from vision_training.evaluation import checkpoint_evaluation
 from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME, evaluate_checkpoints
+from vision_training.tracking.experiment_tracker import FAILED_STATUS, DisabledTracker, ExperimentTracker
 from vision_training.trainers.checkpointing import get_checkpoint_file, get_checkpoint_iterations
 from tests.trainers.test_base_trainer import build_dummy_trainer
 
@@ -248,3 +253,167 @@ def describe_expected_best(summary_rows: List[Dict[str, str]], column_name: str)
     # The summary keeps the accuracy between 0 and 1, the console line writes it as a percentage
     assert 0.0 <= best_value <= 1.0
     return f"{iterations_description} (Accuracy {100.0 * best_value:.2f} %)"
+
+
+class RecordingTracker(DisabledTracker):
+    """
+    Tracker of the tests of the standalone evaluation, doing nothing like DisabledTracker in place of the MLflow
+    tracker built by create_experiment_tracker with the tracking on, but keeping the experiments root folder of the
+    backend it was created for and the status every close gave its run.
+    """
+
+    def __init__(self, tracking_root: Path) -> None:
+        """
+        Keeps the backend folder of the tracker, its run being closed later by the evaluation.
+
+        Args:
+            tracking_root (Path): The experiments root folder whose local database would receive the run.
+        """
+        self.tracking_root = tracking_root
+        self.closed_statuses: List[str] = []
+
+    def close(self, status: str) -> None:
+        """
+        Keeps the status the evaluation closes its MLflow run with.
+
+        Args:
+            status (str): The status of the run, e.g. FINISHED_STATUS or FAILED_STATUS.
+        """
+        self.closed_statuses.append(status)
+
+
+class RecordingTrackerFactory:
+    """
+    Replacement of create_experiment_tracker in the checkpoint evaluation module, giving a RecordingTracker and keeping
+    every tracker it gave, so that the tests read the backend and the closing status of the evaluation run without
+    MLflow.
+    """
+
+    def __init__(self) -> None:
+        """
+        Starts without any tracker given.
+        """
+        self.trackers: List[RecordingTracker] = []
+
+    def __call__(self, tracking_configuration: Dict[str, Any], tracking_root: Path, run_name: str, task: str,
+                 run_record_path: Optional[Path]) -> ExperimentTracker:
+        """
+        Gives the tracker of a standalone evaluation, with the arguments of create_experiment_tracker.
+
+        Args:
+            tracking_configuration (Dict[str, Any]): The 'ExperimentConfiguration.tracking' section, unused.
+            tracking_root (Path): The experiments root folder of the backend, kept by the tracker.
+            run_name (str): The name of the MLflow run, unused.
+            task (str): The task of the run, unused.
+            run_record_path (Optional[Path]): The record of the run, None for an evaluation, unused.
+
+        Returns:
+            ExperimentTracker: The recording tracker.
+        """
+        tracker = RecordingTracker(tracking_root=tracking_root)
+        self.trackers.append(tracker)
+        return tracker
+
+
+def test_evaluation_of_a_moved_run_is_tracked_in_the_backend_of_the_launch_panel(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that the standalone evaluation of a run moved to an archive folder after its training is tracked in the
+    backend of the experiments root folder of its configuration ('tracking_root', the one the launch panel names and
+    the training run was tracked in), not in a database of the archive folder.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture replacing the tracker factory of the evaluation.
+    """
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=5, view_input_images=False,
+                                  number_sample_images=0)
+    trainer.run_training_loop()
+    archived_run_folder = tmp_path / "archive" / trainer.experiment_folder.name
+    archived_run_folder.parent.mkdir()
+    shutil.move(src=trainer.experiment_folder, dst=archived_run_folder)
+
+    # Standalone evaluation of the archived run, pointed to it as scripts/evaluation/evaluate_checkpoint.py does
+    evaluation_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=5,
+                                             view_input_images=False, number_sample_images=0,
+                                             evaluated_run_folder=archived_run_folder)
+    tracker_factory = RecordingTrackerFactory()
+    monkeypatch.setattr(target=checkpoint_evaluation, name="create_experiment_tracker", value=tracker_factory)
+    evaluate_checkpoints(trainer=evaluation_trainer, experiment_folder=archived_run_folder, iterations=[5])
+    assert evaluation_trainer.experiment_configuration["tracking_root"] == tmp_path / "experiments"
+    assert [tracker.tracking_root for tracker in tracker_factory.trackers] == [tmp_path / "experiments"]
+
+
+def test_evaluation_without_any_checkpoint_on_the_disk_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that evaluating checkpoints that are all missing from the disk, e.g. those of a run stopped before its
+    first save, raises an error naming the Weights folder instead of ending normally, its MLflow run closed as failed.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture replacing the tracker factory of the evaluation.
+    """
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=5, view_input_images=False,
+                                  number_sample_images=0)
+    trainer.run_training_loop()
+    iterations = get_checkpoint_iterations(weights_directory=trainer.weights_directory)
+    for iteration in iterations:
+        get_checkpoint_file(weights_directory=trainer.weights_directory, iteration=iteration).unlink()
+
+    # Every listed checkpoint skipped, then the evaluation of nothing refused
+    tracker_factory = RecordingTrackerFactory()
+    monkeypatch.setattr(target=checkpoint_evaluation, name="create_experiment_tracker", value=tracker_factory)
+    with pytest.raises(expected_exception=FileNotFoundError, match="No Checkpoint Evaluated"):
+        evaluate_checkpoints(trainer=trainer, experiment_folder=trainer.experiment_folder, iterations=iterations[::-1])
+    assert tracker_factory.trackers[0].closed_statuses == [FAILED_STATUS]
+
+
+def add_errors_folder(original_create: Callable[..., Dict[str, Any]], trainer: Any,
+                      iteration: int) -> Dict[str, Any]:
+    """
+    Creates the evaluation accumulator of the dummy task with the folder and counts of the error images of the tasks
+    saving them (classification, detection, frame selection), so that the base trainer handles the 'Errors' folder
+    of its evaluations as it does for them.
+
+    Args:
+        original_create (Callable[..., Dict[str, Any]]): The create_evaluation_accumulator method of the dummy trainer.
+        trainer (Any): The dummy trainer, giving the evaluation folder of the iteration.
+        iteration (int): The training iteration of the evaluated checkpoint.
+
+    Returns:
+        Dict[str, Any]: The accumulator of the dummy task, with its 'errors_folder' and empty 'error_counts'.
+    """
+    return {**original_create(iteration=iteration),
+            "errors_folder": trainer.get_evaluation_folder(iteration=iteration) / "Errors", "error_counts": {}}
+
+
+@pytest.mark.parametrize(argnames="error_images_activated", argvalues=[True, False])
+def test_evaluation_saving_error_images_replaces_those_of_an_earlier_evaluation(tmp_path: Path,
+                                                                               error_images_activated: bool) -> None:
+    """
+    Verifies that a standalone evaluation saving error images first removes the error images an earlier evaluation of
+    the same checkpoint left in its 'Errors' folder (e.g. with a larger limit per pair of classes), so that the folder
+    never mixes two evaluations, and that an evaluation saving none leaves them.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        error_images_activated (bool): Whether the evaluation saves error images.
+    """
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=5, view_input_images=False,
+                                  number_sample_images=0)
+    trainer.run_training_loop()
+    evaluation_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=5,
+                                             view_input_images=False, number_sample_images=0,
+                                             evaluated_run_folder=trainer.experiment_folder)
+    evaluation_trainer.error_dumps_configuration = {"activated": error_images_activated, "maximum_per_class_pair": 1}
+    evaluation_trainer.create_evaluation_accumulator = functools.partial(
+        add_errors_folder, original_create=evaluation_trainer.create_evaluation_accumulator,
+        trainer=evaluation_trainer)
+
+    # Error image of an earlier evaluation of iteration 5, then the evaluation of the same checkpoint
+    earlier_image_path = (evaluation_trainer.get_evaluation_folder(iteration=5) / "Errors" / "positive-TO-negative" /
+                          "sample_3_0.91.png")
+    earlier_image_path.parent.mkdir(parents=True)
+    earlier_image_path.write_bytes(data=b"")
+    evaluate_checkpoints(trainer=evaluation_trainer, experiment_folder=trainer.experiment_folder, iterations=[5])
+    assert earlier_image_path.exists() != error_images_activated
