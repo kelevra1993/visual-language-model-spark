@@ -30,7 +30,7 @@ So that the stages read like those of the detection and instance segmentation be
 For every launch to see the same data and be judged the same way, these settings stay fixed (the user's choices of 2026-11-20):
 
 - `number_iterations` 10,000 with `batch_size` 64 images of 512 pixels (640,000 images, 2.6 passes over the 250,000 training images), the cosine decay over the 9,500 iterations after a warm-up of 500; stage 0 measures whether 64 images fit in memory next to a second launch;
-- `HRNet.base_width` 32, the width of HRNet-W32, not tested;
+- the channels capped by the user: at most 16 at the start, then 32 and 64, at most 128 anywhere and never 256, so `HRNet.base_width` 16 with four branches (16, 32, 64, 128 channels at strides 4, 8, 16, 32), not tested;
 - one evaluation every 1000 iterations (`weight_saving_iterations` 1000), 10 per launch, on the test split as fixed below;
 - Adam without weight decay, a moving average of the weights with a decay of 0.999;
 - the augmentation of `configuration_synthetic_shapes.yaml` (probability 0.4: crop, zoom-out, translation, rotation of at most 5 degrees and the photometric types), one loader worker per loader;
@@ -44,11 +44,11 @@ Two choices are made before the first launch, the first with the user.
 
 Before any stage, the architecture is defined together with the user (2026-11-20): the backbone stem, the HRNet stages and the keypoint head, then written into `run-1.yaml`. The HRNet is set by three numbers:
 
-- `base_width` C (32, fixed): the channels of the stride 4 branch, each lower branch having twice those of the branch above (32, 64, 128, 256);
+- `base_width` C (16, fixed by the channel cap): the channels of the stride 4 branch, each lower branch having twice those of the branch above (16, 32, 64, 128); the stem before it keeps its 3 x 3 convolutions and max pooling (16, 32 then 64 channels, 512 to 256 to 128 pixels), no strided convolution;
 - `modules_per_stage`: one number per stage, each stage adding one lower-resolution branch, so [1, 2, 2] gives 3 stages and the branches at strides 4 and 8 (stage 1), 4 to 16 (stage 2), 4 to 32 (stage 3); each number counts the exchange modules of its stage, where every branch runs its convolutions then receives the features of all the other branches, resized to its own resolution. [1, 4, 3], the counts of HRNet-W32, keeps the same branches with 8 modules instead of 5, so more convolutions and more exchanges;
 - `blocks_per_branch`: the pairs of 3 x 3 convolutions every branch runs in every module, 2 in the shipped configuration and 4 in HRNet-W32.
 
-The head reads the stride 4 branch only, its `hidden_width` 3 x 3 convolution (256 in the shipped configuration) giving one heatmap and one tag map per keypoint of every class (243 of each).
+The head reads the stride 4 branch only, its `hidden_width` 3 x 3 convolution (128, the channel cap, instead of the 256 of the shipped configuration) followed by a 1 x 1 convolution giving one heatmap and one tag map per keypoint of every class (243 of each, a count set by the data, not a choice).
 
 ### The Test Split
 
@@ -66,9 +66,9 @@ Before stage 0 is launched, `run-1.yaml` takes the values of `configuration_synt
 | Parameter | Value |
 |---|---|
 | `learning_rate` | 1e-3 |
-| `HRNet` | `base_width` 32, the stages and blocks agreed with the user |
+| `HRNet` | `base_width` 16 (branches 16, 32, 64, 128), the stages and blocks agreed with the user |
 | `KeypointHead.higher_resolution` | True (heatmaps at stride 2 averaged with those at stride 4) |
-| `KeypointHead.hidden_width` | 256, unless the agreed architecture sets it |
+| `KeypointHead.hidden_width` | 128 |
 | `KeypointHead.heatmap_sigma` | 2 cells |
 | `KeypointHead.tag_pull_weight`, `tag_push_weight` | 0.1, 0.1 |
 | `KeypointHead.inference` | `keypoint_threshold` 0.1, `tag_threshold` 1.0, 30 candidates per channel |
@@ -82,19 +82,19 @@ So that the order and the reason of every stage are seen at once, the table list
 | 0 | Reference and preflight | The agreed architecture with the starting values, one pair. Gives the score to beat, the gap between two launches of the same settings (the noise every later gap is judged against), the time of a pair and its memory at a batch of 64. |
 | 0a | Test split size (evaluation only) | The checkpoints of stage 0 on the first 10,000 test images against the 20,000. Decides whether the test split is cut to 10,000 (see The Test Split). |
 | 0b | Grouping thresholds (evaluation only) | `keypoint_threshold` 0.05, 0.1, 0.2 and `tag_threshold` 0.5, 1.0, 2.0 on the checkpoints of stage 0, no training. They decide which heatmap peaks become keypoints and which keypoints join the same object; a bad pair of thresholds would hide what later trainings gain. |
-| 1 | Learning rate | 1e-3 against 1e-4, 5e-4 and 2e-3. The first stage of every benchmark: with 10,000 iterations, a higher rate may converge sooner, while a lower one may train the tags more steadily; 1e-4 covers the case where the batch of 64 and the width of 32 train better slowly. |
+| 1 | Learning rate | 1e-3 against 1e-4, 5e-4 and 2e-3. The first stage of every benchmark: with 10,000 iterations, a higher rate may converge sooner, while a lower one may train the tags more steadily; 1e-4 covers the case where the batch of 64 trains better slowly. |
 | 2 | Heatmap sigma | 2 cells against 1.5 and 3. A narrower Gaussian marks the keypoint more sharply, which may lower the keypoint error (4.5 pixels in the tutorial run) and raise the mAP@0.95 (72.89 %); a wider one gives more positive cells per keypoint and an easier target, which may help the large objects. |
 | 3 | Tag loss weights | pull and push 0.1 against 0.5. The large objects score the lowest; their keypoints lie far apart, so their grouping relies most on the tags, which these weights train. A stronger tag loss may group them better, at the risk of a weaker heatmap loss. |
 | 4 | Higher-resolution branch | on against off. The HigherHRNet branch helps the small objects in its paper, but they already score 88.86 % here; turning it off saves its upsampling and refining blocks. A tie keeps it off. |
-| 5 | Head hidden width | 256 against 128 channels before the 1 x 1 heatmap and tag convolution, to be confirmed once the architecture is agreed. 256 covers the 243 heatmaps comfortably; 128 is cheaper and may suffice. A tie keeps 128. |
+| 5 | Head hidden width | 128 against 64 channels before the 1 x 1 heatmap and tag convolution. 128 is the channel cap; 64 is cheaper and may suffice for 243 heatmaps and tags. A tie keeps 64. |
 
-The time of a pair is measured by stage 0: the tutorial run trained about 8 images per second alone with a width of 16, so the 640,000 images of a launch at a width of 32 may take a day or more, which stage 0 tells before the other stages are planned in time; stages 0a and 0b only evaluate saved checkpoints.
+The time of a pair is measured by stage 0: the tutorial run trained about 8 images per second alone at a batch of 16, so the 640,000 images of a launch at a batch of 64 may take about a day, which stage 0 tells before the other stages are planned in time; stages 0a and 0b only evaluate saved checkpoints.
 
 ## Not Planned
 
 In case a later benchmark wants them, these were left out:
 
-- The HRNet width: fixed at 32 by the user.
+- The HRNet width: fixed at 16 by the channel cap of the user (branches 16 to 128).
 - The HRNet depth: part of the architecture agreed before stage 0.
 - The left-right and up-down flips: the code moves keypoints without renaming them (Fixed Settings), and renaming them would need the left and right keypoints of every shape, which neither the code nor the dataset describes.
 - A larger image size: it would change the images seen and the time of a pair together.
