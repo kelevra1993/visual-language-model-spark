@@ -105,7 +105,7 @@ So that a run can be checked against what it was fed long after its launch, with
 ```
 
 - **Every `information_dump` iterations**: the averages of the interval (samples seen, throughput, real frames per second of the sequences, losses, metrics, duration). A run resumed between two summaries has a shorter first interval. The rates are written as percentages, `94.03 %`, their change since the last summary in percentage points, `+0.52 %`: the accuracy of CLS, M2O, M2M, CMP and SEL, the pixel accuracy and mean IoU of SEG and the positive pair accuracy of SimCLR (SSL); the losses, the correlations and standard deviation of Barlow Twins keep 4 decimals, and DET, INS and KPT follow only losses. The decimal points of the values and of the changes and the `Best` markers fall in one column each (`format_metric_line` of `metric_tracking.py`): a percentage with 2 decimals and its sign has as many characters after its decimal point as a 4-decimal value, so that values and changes right-aligned in 10 characters (`METRIC_COLUMN_WIDTH`) share their decimal point column, up to the losses in the thousands of Barlow Twins.
-- **Dropped batches**: a batch that fails to load is skipped. Every distinct error is printed once in yellow, the first with its traceback, and the drops are counted under every summary:
+- **Dropped batches**: a batch that fails to load is skipped. Every distinct error is printed once in yellow, the first with its traceback, and the drops are counted under every summary. More than 20 dropped batches among the last 200 fetches of a split (`MAXIMUM_DROPPED_BATCHES_IN_WINDOW`, `DROPPED_BATCH_WINDOW`) stop the training:
 
 ```text
 Training Batch Dropped : The image cannot be read : <file>
@@ -118,7 +118,8 @@ Training Batch Dropped : The image cannot be read : <file>
 
 **Stopping**
 - Ctrl+C saves a checkpoint of the last step. A `weight_saving_iterations` checkpoint left unevaluated is announced (`The Checkpoint Of Iteration <n> Was Not Evaluated`), to evaluate with [evaluate_checkpoint.py](tools_reference.md#evaluating-checkpoints).
-- A failing iteration is reported in yellow and the training goes on; an iteration fails after 10 failed batch fetches in a row. More than 5 failing iterations in a row stop the training, with a checkpoint.
+- A failing iteration is reported in yellow and the training goes on; an iteration fails after 10 failed batch fetches in a row. A batch whose total loss is NaN or infinite is reported in red (`The loss of the batch of iteration <n> is not finite (...)`) and skipped without backward pass nor optimizer step, a failing iteration too. More than 5 failing iterations in a row stop the training, with a checkpoint.
+- A failed save (a full disk, or weights holding NaN or infinite values, which `save_checkpoint` refuses), a failed test evaluation (an unreadable test image) or a split dropping too many batches stop the training at once, with status FAILED: `Critical Error At Iteration <n>, Exiting: <error>` in red, then its traceback. The steps not saved yet are saved once more, a save failing again raising its error; a checkpoint whose evaluation failed is announced as not evaluated.
 - A split giving no batch (empty, or emptied by the label mapping) is refused at launch.
 
 **Resuming**

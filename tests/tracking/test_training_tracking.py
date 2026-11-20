@@ -207,13 +207,15 @@ def test_training_loop_feeds_the_tracker(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(argnames=["patched_method", "raised_error", "expected_status", "propagated_error"],
-                         argvalues=[("save_model", RuntimeError("disk full"), FAILED_STATUS, RuntimeError)])
+                         argvalues=[("save_model", RuntimeError("disk full"), FAILED_STATUS, RuntimeError),
+                                    ("run_test_evaluation", ValueError("unreadable test image"), FAILED_STATUS, None)])
 def test_run_status_follows_the_end_of_the_training(tmp_path: Path, patched_method: str,
                                                     raised_error: BaseException | type, expected_status: str,
                                                     propagated_error: Optional[type]) -> None:
     """
-    Verifies that the MLflow run is closed once with the status of the end of the training: FAILED when the final save
-    fails, the error stopping the final save being raised again once the run is closed.
+    Verifies that the MLflow run is closed once with the status of the end of the training: FAILED when the saves
+    fail, the error stopping the final save being raised again once the run is closed, and FAILED when the test
+    evaluation fails, which stops the training at once.
 
     Args:
         tmp_path (Path): The pytest temporary directory.

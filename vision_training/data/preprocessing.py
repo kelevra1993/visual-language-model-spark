@@ -26,10 +26,11 @@ def read_image(image_path: str | Path) -> np.ndarray:
     Reads an image as BGR, for the classification, COCO, segmentation and sequence datasets and the image folders of
     the inference clients: OpenCV gives None for a missing, unreadable or corrupted file, which would otherwise fail
     later with an unrelated error, so the file is named in the error. The training loop then drops the batch holding
-    it and prints the error once (BaseTrainer.get_next_batch), and a test evaluation stopped by it counts as an error
-    of its iteration, the training going on. A file of more than 8 bits per channel (e.g. a 16 bit PNG holding 12 bit
-    data) is read with 8 bits like before, its values divided by 256, with a yellow warning the first time a file of
-    its pixel type is read, since a source using fewer bits than its type loses most of its signal.
+    it and prints the error once (BaseTrainer.get_next_batch), stopping once a split drops too many batches, and a test
+    evaluation stopped by it stops the training with this error. A file of more than 8 bits per channel (e.g. a 16 bit
+    PNG holding 12 bit data) is read with 8 bits like before, its values divided by 256, with a yellow warning the
+    first time a file of its pixel type is read, since a source using fewer bits than its type loses most of its
+    signal.
 
     Args:
         image_path (str | Path): The image file.

@@ -191,7 +191,8 @@ In case a training has to stop, Ctrl+C saves a checkpoint of the last step, and 
 - The settings without a run name token (left box above) may change between resumptions: the changes are printed and the previous configuration is kept as `training_configuration_until_iteration_<n>.yaml`. A change of a setting with a run name token (right box) gives another run name, so a new run folder.
 - Changed labels (another SHA-256 of a `labels.json`) stop the resume, unless `ExperimentConfiguration.allow_data_change_on_resume` is true.
 - To train the same settings from scratch, give the run another `run_name_suffix` or `experiment_folder`, or move its run folder away.
-- A failing iteration is reported in yellow, with the traceback of its error the first time that error occurs in the run, and skipped, as is an unreadable batch; more than 5 failing iterations in a row stop the training, saving a checkpoint.
+- A failing iteration is reported in yellow, with the traceback of its error the first time that error occurs in the run, and skipped, as is an unreadable batch; a batch whose loss is NaN or infinite is reported in red and skipped without optimizer step, so the weights stay finite. More than 5 failing iterations in a row stop the training, saving a checkpoint.
+- A failed save (a full disk, or weights holding NaN, which are never saved), a failed test evaluation (an unreadable test image) or more than 20 dropped batches among the last 200 of a split stop the training at once with status FAILED and the traceback of the error, instead of training on without checkpoints, evaluations or most of the data.
 
 ### Console And TensorBoard
 So that a run can be followed live, the trainer prints at launch the run name, its folders as clickable links, the settings and data changed since the last start, the transferred components, the splits and the model summary.

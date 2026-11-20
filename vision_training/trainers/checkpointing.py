@@ -1,8 +1,8 @@
 """
 Checkpoint files of the training runs: the 'Weights/Iteration_<iteration>' layout, the registry of saved
-iterations, the save protected from keyboard interrupts, the load and the read of one stored value. Used by the
-general trainer to save and resume, and by the checkpoint evaluation, the model transfer, the exports and
-scripts/evaluation/evaluate_checkpoint.py to find and read the weights of a run.
+iterations, the save protected from keyboard interrupts and refusing non-finite weights, the load and the read of one
+stored value. Used by the general trainer to save and resume, and by the checkpoint evaluation, the model transfer, the
+exports and scripts/evaluation/evaluate_checkpoint.py to find and read the weights of a run.
 """
 
 import os
@@ -198,6 +198,22 @@ def update_checkpoint_registry(weights_directory: Path, iteration: int) -> None:
         raise
 
 
+def find_non_finite_tensors(state_dictionary: Dict[str, Any]) -> List[str]:
+    """
+    Names the floating point tensors of a model state holding NaN or infinite values, which save_checkpoint refuses to
+    save, so that the registry of a run never names weights a resume or an evaluation could not use (e.g. after a step
+    on NaN gradients, or batch normalization statistics updated on a NaN batch).
+
+    Args:
+        state_dictionary (Dict[str, Any]): The state of the model, its parameters and buffers by name.
+
+    Returns:
+        List[str]: The names of the non-finite tensors, in the order of the state, empty when every one is finite.
+    """
+    return [tensor_name for tensor_name, tensor in state_dictionary.items()
+            if isinstance(tensor, torch.Tensor) and tensor.is_floating_point() and not torch.isfinite(tensor).all()]
+
+
 def save_checkpoint(weights_directory: Path, iteration: int, model: nn.Module, optimizer: torch.optim.Optimizer,
                     metadata: Dict[str, Any], exponential_moving_average_state: Optional[Dict[str, Any]]) -> Path:
     """
@@ -209,7 +225,8 @@ def save_checkpoint(weights_directory: Path, iteration: int, model: nn.Module, o
     leave a corrupted checkpoint. The weights and then the registry are first written to temporary files, flushed to
     the disk and renamed (replace_durably), so a checkpoint on disk is always either complete or absent, even after a
     SIGKILL, the out-of-memory killer or a power cut. A write that fails (e.g. on a full disk) removes its temporary
-    file and raises its error.
+    file and raises its error. Weights holding NaN or infinite values are refused before anything is written, the
+    registry keeping its last checkpoint.
 
     Args:
         weights_directory (Path): The 'Weights' folder of the run.
@@ -223,7 +240,21 @@ def save_checkpoint(weights_directory: Path, iteration: int, model: nn.Module, o
 
     Returns:
         Path: The folder of the saved checkpoint.
+
+    Raises:
+        ValueError: If a tensor of the model holds NaN or infinite values, naming the first ones.
     """
+    # Weights holding NaN or infinite values are never saved, so that the last checkpoint of the registry, which a
+    # resume loads, stays the last finite one
+    model_state = model.state_dict()
+    non_finite_names = find_non_finite_tensors(state_dictionary=model_state)
+    if non_finite_names:
+        listed_names = ", ".join(non_finite_names[:5]) + (f" and {len(non_finite_names) - 5} more"
+                                                          if len(non_finite_names) > 5 else "")
+        raise ValueError(f"The checkpoint of iteration {iteration} is not saved: the weights of the model hold NaN or "
+                         f"infinite values (in {listed_names}), so the registry keeps naming the last checkpoint "
+                         f"saved.")
+
     checkpoint_path = get_checkpoint_file(weights_directory=weights_directory, iteration=iteration)
     checkpoint_path.parent.mkdir(exist_ok=True, parents=True)
     temporary_checkpoint_path = checkpoint_path.with_name(checkpoint_path.name + ".tmp")
@@ -232,7 +263,7 @@ def save_checkpoint(weights_directory: Path, iteration: int, model: nn.Module, o
     previous_interrupt_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
     try:
         # Checkpoint content, with the moving average of the weights of the runs that keep one
-        checkpoint = {"iteration": iteration, "model_state": model.state_dict(),
+        checkpoint = {"iteration": iteration, "model_state": model_state,
                       "optimizer_state": optimizer.state_dict(), "format_version": CHECKPOINT_FORMAT_VERSION,
                       **metadata}
         if exponential_moving_average_state is not None:
