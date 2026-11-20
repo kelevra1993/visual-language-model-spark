@@ -29,7 +29,7 @@ Before reading a result, find its row: every way of running an exported model th
 | 8 | Triton | Native TensorRT engine `model.plan` | FP16 | not implemented, not measured |
 
 ## Models
-To cover the three kinds of graphs TensorRT meets in the repository (a plain classifier, a detector with its NMS inside the model, a recurrent sequence model), the rows run on three trained runs, read from their copies outside the repository (`~/Data/tutorial_runs`, the same checkpoints as the copies in `experiments/` and `hyperparameter_experiments/`):
+To cover the three kinds of graphs TensorRT meets in the repository (a plain classifier, a detector with its NMS inside the model, a recurrent sequence model), the rows run on three trained runs, read from their copies outside the repository (`~/Data/tutorial_runs`, the detector's checkpoint being the same as in `hyperparameter_experiments/`):
 
 | Model | Run | Checkpoint | Input sent by `perf_analyzer` | Test split |
 |---|---|---|---|---|
