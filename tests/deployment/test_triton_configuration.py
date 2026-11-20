@@ -1,9 +1,14 @@
 """
 Tests of write_triton_configuration of vision_training/deployment/triton_configuration.py: the comparison configuration
 has one input line per member, each with its own varying number of frames, and the output names of the PyTorch backend,
-and a misspelled export format or TensorRT precision is refused instead of being served as plain ONNX Runtime.
+a misspelled export format or TensorRT precision is refused instead of being served as plain ONNX Runtime, and the
+TensorRT engines of an ONNX export are cached under a prefix naming its files, so that an export of other weights of
+the same graph never loads the engines built from an earlier export.
 """
 
+import re
+import numpy as np
+import onnx
 import pytest
 
 from pathlib import Path
@@ -18,6 +23,57 @@ from tests.fixtures.configuration_fixtures import get_sequence_comparison_model_
 CLASSIFIER_SPECIFICATION = {"inputs": [{"name": "images", "data_type": "TYPE_FP32", "dimensions": [3, 32, 32]}],
                             "outputs": [{"name": "class_probabilities", "data_type": "TYPE_FP32", "dimensions": [3],
                                          "reshape_to_scalar": False}]}
+
+# Line of a written config.pbtxt giving the prefix of the cached TensorRT engines of the export
+ENGINE_CACHE_PREFIX_PATTERN = r'key: "trt_engine_cache_prefix" value: "([^"]+)"'
+
+
+def write_onnx_export(version_directory: Path, weight_value: float) -> None:
+    """
+    Writes a stand-in ONNX export into a version folder as export_formats.export_onnx lays it out, the graph in
+    'model.onnx' and its weights in 'model.onnx.data', so that two exports of the same graph with other weights differ
+    only by their weights file, the case of another checkpoint of the same run exported into the same version.
+
+    Args:
+        version_directory (Path): The version folder of the export, created if missing.
+        weight_value (float): The value of every weight of the stand-in model.
+    """
+    version_directory.mkdir(parents=True, exist_ok=True)
+    weights = onnx.numpy_helper.from_array(np.full(shape=(3, 3), fill_value=weight_value, dtype=np.float32),
+                                           name="weights")
+    image_input = onnx.helper.make_tensor_value_info(name="images", elem_type=onnx.TensorProto.FLOAT, shape=[1, 3])
+    probabilities_output = onnx.helper.make_tensor_value_info(name="class_probabilities",
+                                                              elem_type=onnx.TensorProto.FLOAT, shape=[1, 3])
+    graph = onnx.helper.make_graph(nodes=[onnx.helper.make_node(op_type="MatMul", inputs=["images", "weights"],
+                                                                outputs=["class_probabilities"])],
+                                   name="main_graph", inputs=[image_input], outputs=[probabilities_output],
+                                   initializer=[weights])
+    onnx.save_model(proto=onnx.helper.make_model(graph=graph), f=str(version_directory / "model.onnx"),
+                    save_as_external_data=True, all_tensors_to_one_file=True, location="model.onnx.data",
+                    size_threshold=0)
+
+
+def read_engine_cache_prefix(model_directory: Path, model_version: int, weight_value: float,
+                             tensorrt_precision: str) -> str:
+    """
+    Writes a stand-in ONNX export of the given weights into a model folder, then its Triton configuration with
+    TensorRT, as export_experiment does, and reads back the prefix of its cached engines.
+
+    Args:
+        model_directory (Path): The model folder of the export.
+        model_version (int): The Triton version of the export.
+        weight_value (float): The value of every weight of the stand-in model.
+        tensorrt_precision (str): 'FP16' or 'FP32'.
+
+    Returns:
+        str: The trt_engine_cache_prefix of the written config.pbtxt.
+    """
+    write_onnx_export(version_directory=model_directory / str(model_version), weight_value=weight_value)
+    write_triton_configuration(model_directory=model_directory, model_name="image_classifier_onnx",
+                               model_version=model_version, export_format="onnx",
+                               specification=CLASSIFIER_SPECIFICATION, maximum_batch_size=8,
+                               tensorrt_precision=tensorrt_precision)
+    return re.findall(pattern=ENGINE_CACHE_PREFIX_PATTERN, string=(model_directory / "config.pbtxt").read_text())[0]
 
 
 def test_comparison_triton_configuration_has_one_line_per_member(tmp_path: Path) -> None:
@@ -92,9 +148,63 @@ def test_known_export_formats_get_their_platform(tmp_path: Path, export_format: 
         expected_lines (List[str]): The texts the configuration must hold.
         absent_lines (List[str]): The texts the configuration must not hold.
     """
+    # The model files are written before the configuration, as the export does
+    write_onnx_export(version_directory=tmp_path / "1", weight_value=1.0)
     write_triton_configuration(model_directory=tmp_path, model_name=f"image_classifier_{export_format}",
                                model_version=1, export_format=export_format, specification=CLASSIFIER_SPECIFICATION,
                                maximum_batch_size=8, tensorrt_precision=tensorrt_precision)
     triton_configuration = (tmp_path / "config.pbtxt").read_text()
     assert all(expected_line in triton_configuration for expected_line in expected_lines)
     assert not any(absent_line in triton_configuration for absent_line in absent_lines)
+
+
+def test_export_of_other_weights_gets_other_tensorrt_engines(tmp_path: Path) -> None:
+    """
+    Verifies that the TensorRT engines of an ONNX export are cached under a prefix naming its model, version, precision
+    and files: an export of other weights of the same graph into the same version, whose 'model.onnx' is unchanged,
+    gets another prefix, so that a server keeping its engine cache never serves the engine built from the weights of
+    the earlier export; the same files exported again keep their prefix (and their engines), and each precision and
+    version gets its own.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    first_prefix = read_engine_cache_prefix(model_directory=tmp_path / "first", model_version=1, weight_value=1.0,
+                                            tensorrt_precision="FP16")
+    other_weights_prefix = read_engine_cache_prefix(model_directory=tmp_path / "other_weights", model_version=1,
+                                                    weight_value=2.0, tensorrt_precision="FP16")
+
+    # Only the weights file differs between the two exports, the graph file being the same
+    assert ((tmp_path / "first" / "1" / "model.onnx").read_bytes() ==
+            (tmp_path / "other_weights" / "1" / "model.onnx").read_bytes())
+    assert re.fullmatch(pattern=r"image_classifier_onnx_1_fp16_[0-9a-f]{16}", string=first_prefix)
+    assert other_weights_prefix != first_prefix
+
+    # The same files keep their prefix, another precision or version gets its own (each export in a new folder, as in
+    # the staging folder of export_experiment, the ONNX writer appending to an existing weights file)
+    assert read_engine_cache_prefix(model_directory=tmp_path / "same_files", model_version=1, weight_value=1.0,
+                                    tensorrt_precision="FP16") == first_prefix
+    assert read_engine_cache_prefix(model_directory=tmp_path / "other_precision", model_version=1, weight_value=1.0,
+                                    tensorrt_precision="FP32") == first_prefix.replace("_fp16_", "_fp32_")
+    assert read_engine_cache_prefix(model_directory=tmp_path / "other_version", model_version=2, weight_value=1.0,
+                                    tensorrt_precision="FP16").startswith("image_classifier_onnx_2_fp16_")
+
+
+def test_tensorrt_configuration_before_the_model_file_is_refused(tmp_path: Path) -> None:
+    """
+    Verifies that the configuration of an ONNX model accelerated by TensorRT is refused while its version folder holds
+    no 'model.onnx', no configuration being written, its engine cache prefix being the hash of the exported files,
+    while the same model without TensorRT needs no file.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    with pytest.raises(expected_exception=FileNotFoundError, match="before its Triton configuration"):
+        write_triton_configuration(model_directory=tmp_path, model_name="image_classifier_onnx", model_version=1,
+                                   export_format="onnx", specification=CLASSIFIER_SPECIFICATION, maximum_batch_size=8,
+                                   tensorrt_precision="FP16")
+    assert not (tmp_path / "config.pbtxt").exists()
+    write_triton_configuration(model_directory=tmp_path, model_name="image_classifier_onnx", model_version=1,
+                               export_format="onnx", specification=CLASSIFIER_SPECIFICATION, maximum_batch_size=8,
+                               tensorrt_precision=None)
+    assert "trt_engine_cache" not in (tmp_path / "config.pbtxt").read_text()
