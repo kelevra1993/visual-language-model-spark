@@ -158,7 +158,7 @@ The sample images are chosen once from the test split, so every evaluation shows
 
 **Settings without a token**, which may change between two resumptions of a run (two runs differing only by them share a folder, unless one has a `run_name_suffix`):
 - the augmentation (with `shuffle_frames` and `independent_frames`), batch size, learning rate, warm-up and cosine schedule, `pretrained.learning_rate_multiplier`, `Optimization.exponential_moving_average`, the `batch_normalization_momentum` of the sections holding one, and the dropout rates (`ClassificationHead.dropout_rate`, `TemporalModel.dropout_rate`, `Fusion.dropout_rate`, `SegmentationDecoder.dropout_rate`);
-- `Optimization.loss_weights`, `Detector.nms_criterion` and `nms_distance_exponent` (DET, INS), `ClassificationHead.decorrelation` (CLS), `SegmentationLoss`, the deep supervision weights and `Data.tiling.overlap` (SEG), `Selection.decoding` (SEL), `Data.grouped_batches` (SSL), `MaskHead.inference.mask_threshold` (INS), and `KeypointHead.heatmap_sigma`, `ignore_unlabelled_objects`, `tag_pull_weight`, `tag_push_weight` and `inference` (KPT);
+- `Optimization.loss_weights`, `Detector.nms_criterion` and `nms_distance_exponent`, and the IoU thresholds, sample and proposal counts, NMS thresholds and `inference` settings of `RegionProposal` and `Detector` (DET, INS), `ClassificationHead.decorrelation` (CLS), `SegmentationLoss`, the deep supervision weights and `Data.tiling.overlap` (SEG), `Selection.decoding` (SEL), `Data.grouped_batches` (SSL), `MaskHead.inference.mask_threshold` (INS), and `KeypointHead.heatmap_sigma`, `ignore_unlabelled_objects`, `tag_pull_weight`, `tag_push_weight` and `inference` (KPT);
 - the evaluation settings.
 
 The optimizer keeps its token, as the state of one optimizer cannot be resumed by another.
@@ -243,17 +243,18 @@ The optimizer keeps its token, as the state of one optimizer cannot be resumed b
 
 The suffix starts a run of its own among runs of the same settings, and resuming it needs the same suffix: with `run_name_suffix: "v1"`, `self_supervised/configuration_synthetic_shapes.yaml` trains in `SSL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_PAVG.512.128-PBN_SIMCLR-T0.2_v1`. It holds letters, digits, `-` and `.` only.
 
-**Example of every task**
+**Example of every task**, the run name of its example configuration for DET, INS and KPT, and of its synthetic configuration for the other tasks
 
 | Task | Run name |
 |---|---|
 | DET | `DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567-NFPN64BN_A9.32-512.598295_RBN-R2x64-RPL_DSE-DRES-DBN-D7.2x64.256.128_BIN` |
 | INS | `INS_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512.598295_RBN-R2x64_DSE-DRES-DBN-D7.2x64.256.128_MRES-MBN-MUTC-M14.4x64-MR28_BIN` |
-| CLS | `CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128_MC4` |
-| M2O | `M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_GRU1x128-BI_HFLAT.64_MC4` |
-| CMP | `CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_MEAN_FDIF_HAVG.64_MC2` |
-| SEG | `SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9` |
-| SEL | `SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T12_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1` |
+| CLS | `CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC35` |
+| M2O | `M2O_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4` |
+| M2M | `M2M_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128_HAVG.64_MC71` |
+| CMP | `CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2` |
+| SEG | `SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC35` |
+| SEL | `SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1` |
 | SSL | `SSL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_PAVG.512.128-PBN_SIMCLR-T0.2` |
 | KPT | `KPT_IN-KAR-512_SE-RES-BN-B1x64.2x64.2x64_HRSE-HRRES-HRBN-HR32.1.4.3x4_K17-HH_MC1` |
 

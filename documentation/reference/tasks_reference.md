@@ -81,7 +81,7 @@ A category missing from the mapping is left out:
 | CLS multi-label | it is dropped from the classes of its samples |
 | M2M | its frames are ignored |
 | SEL | its frames become unselected |
-| DET, INS, KPT | its objects are ignored (DET and INS list these categories) |
+| DET, INS, KPT | its objects are left out (these categories are listed at launch) |
 | SEG | its pixels become background |
 
 ## Classification (CLS)
