@@ -145,7 +145,7 @@ def compute_embedding_standard_deviation(embeddings: torch.Tensor) -> torch.Tens
     and multiplied by the square root of the dimension D. Embeddings spread over the whole sphere give about 1, and
     collapsed embeddings, all equal whatever the image, give 0. The trainer also measures the representations of the
     test images with it, which are not negative after the ReLU and the pooling of the backbone: spread over their part
-    of the sphere, they stay well below 1 (about 0.6 to 0.8), only the trend and the fall to 0 telling a collapse.
+    of the sphere, they stay well below 1 (about 0.5 to 0.7), only the trend and the fall to 0 telling a collapse.
 
     Args:
         embeddings (torch.Tensor): The [N, D] embeddings of a batch, or the [N, F] representations of the test images.

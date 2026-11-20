@@ -10,7 +10,7 @@ The outputs of Stages 1 and 2 were computed again on 2026-10-24 with the current
 
 ## Read This First
 
-The self-supervised task (`task: "self_supervised"`, run name code `SSL`) trains the shared backbone without labels. Every training and validation image is drawn twice by the data augmentation (`Data.data_augmentation`, with the hard-coded `SELF_SUPERVISED_AUGMENTATION_STRENGTHS`); both views go through the backbone, a global pooling giving the **representation** of the image and a projection head giving its **embedding**, and the loss of `ProjectionHead.method` pulls the two views of an image together: InfoNCE over the 2N views of the batch (`simclr`) or the Barlow Twins cross-correlation pushed to the identity (`barlow_twins`). The labels of the `labels.json` manifests are only read by the test evaluation, a k-nearest neighbour classification of the labelled test images among a fixed sample of labelled training images by their representations, next to the effective rank that watches the collapse. Choose it to pre-train the backbone on images too many to label, then initialise any other task with `Backbone.pretrained` (the projection head is dropped); choose CLS when the images are labelled. The task reuses the dataset layout, the dataset and the loaders of CLS, and its metrics code for the k-NN scores; the exported encoder (`image_encoder`) returns L2-normalized representations for similarity searches.
+The self-supervised task (`task: "self_supervised"`, run name code `SSL`) trains the backbone without labels (one backbone design for every task). Every training and validation image is drawn twice by the data augmentation (`Data.data_augmentation`, with the hard-coded `SELF_SUPERVISED_AUGMENTATION_STRENGTHS`); both views go through the backbone, a global pooling giving the **representation** of the image and a projection head giving its **embedding**, and the loss of `ProjectionHead.method` pulls the two views of an image together: InfoNCE over the 2N views of the batch (`simclr`) or the Barlow Twins cross-correlation pushed to the identity (`barlow_twins`). The labels of the `labels.json` manifests are only read by the test evaluation, a k-nearest neighbour classification of the labelled test images among a fixed sample of labelled training images by their representations, next to the effective rank that watches the collapse. Choose it to pre-train the backbone on images too many to label, then initialise any other task with `Backbone.pretrained` (the projection head is dropped); choose CLS when the images are labelled. The task reuses the dataset layout, the dataset and the loaders of CLS, and its metrics code for the k-NN scores; the exported encoder (`image_encoder`) returns L2-normalized representations for similarity searches.
 
 ### The Task At A Glance
 
@@ -225,7 +225,7 @@ main()
 │       │       The 8 fixed test images of the sample images, spread over the classes.
 │       ├── build_model()
 │       │   └── SelfSupervisedModel.__init__()
-│       │       ├── build_backbone()              the shared backbone
+│       │       ├── build_backbone()              the backbone
 │       │       ├── global_pooling                AdaptiveAvgPool2d(1) + Flatten: the representation used downstream
 │       │       └── ProjectionHead()              FullyConnectedBlock + embedding_layer: the embedding of the loss,
 │       │                                         thrown away after training
@@ -543,7 +543,7 @@ Creates the `SelfSupervisedModel` from the model registry (`TASK_MODEL_CLASSES["
 
 ### Step 2.13 — `SelfSupervisedModel.__init__()`
 The model (in `vision_training/models/self_supervised/self_supervised_model.py`) has three parts:
-- `backbone`: the shared backbone (Step 2.14).
+- `backbone`: the backbone (Step 2.14).
 - `global_pooling`: the pooling of the last feature map into the **representation** that is kept after training (for a classifier or a retrieval index).
 - `projection_head`: the `ProjectionHead` that turns the representation into the **embedding** compared by the loss, thrown away after training.
 

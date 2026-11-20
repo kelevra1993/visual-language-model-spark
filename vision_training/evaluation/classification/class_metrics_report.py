@@ -124,7 +124,8 @@ def build_class_metrics_table(class_rows: List[Dict[str, Any]], target_precision
     'Samples', 'Positives' in multi-label mode, 'Frames' for sequence labelling), its precision, recall and F1, its ROC
     AUC and average precision when the rows hold them (with the per-class report), and, with a target precision, the
     threshold reaching it with the recall it keeps. A class without evaluated samples has no precision, recall nor F1
-    in the table, like in the macro averages, and is listed last. The classification report and the k-nearest
+    in the table and is listed last, although a class predicted without samples counts with an F1 of 0 in the macro
+    F1. The classification report and the k-nearest
     neighbour report of the self-supervised task write the rates as percentages ("94.03 %") and the target precision
     as "99 %", the thresholds staying between 0 and 1.
 
