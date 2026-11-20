@@ -147,9 +147,9 @@ def compute_bootstrap_recall_intervals(group_true_positives: np.ndarray, group_t
     variance, at most its true samples), is reduced by the squared ratio of the normal and Student quantiles at the
     degrees of freedom of the groups holding the class minus one, so that the interval widens when few groups hold
     it, and the bounds are the exact (Clopper-Pearson) interval of the recall at that size. When every resample gives
-    the same recall (a recall of 0 or 1 in every group, or a single group holding the class), the variance says
-    nothing and the bounds are the exact interval over the groups holding the class, each counted as one sample, so
-    that the interval never shrinks to a point.
+    the same recall (the same recall in every group, such as 0 or 1 everywhere, or a single group holding the class),
+    the variance says nothing and the bounds are the exact interval over the groups holding the class, each counted as
+    one sample, so that the interval never shrinks to a point.
 
     Args:
         group_true_positives (np.ndarray): The [G, K] true positives of every group and class.
