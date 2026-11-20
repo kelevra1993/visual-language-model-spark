@@ -28,11 +28,11 @@ SKIP_OUTPUT_PREFIX = "skip_"
 class Backbone(nn.Module):
     """
     Constructs the foundational feature extractor backbone consisting of multiple stacked ConvolutionBlocks.
-    
-    In the context of the visual language model pipeline, this module is responsible for ingesting the raw input 
-    images and iteratively downsampling their spatial dimensions while expanding their channel capacity. The resulting 
-    high-level semantic feature maps, as well as intermediate multi-scale representations (detection blocks), are 
-    subsequently passed to downstream modules like the Region Proposal Network and the Feature Pyramid Network 
+
+    In the context of the visual language model pipeline, this module is responsible for ingesting the raw input
+    images and iteratively downsampling their spatial dimensions while expanding their channel capacity. The resulting
+    high-level semantic feature maps, as well as intermediate multi-scale representations (detection blocks), are
+    subsequently passed to downstream modules like the Region Proposal Network and the Feature Pyramid Network
     to localize and identify objects.
     """
 
@@ -42,7 +42,7 @@ class Backbone(nn.Module):
                  skip_block_indices: Optional[List[int]] = None) -> None:
         """
         Initializes the Backbone with the specified convolution blocks and structural parameters.
-        
+
         Args:
             input_channels (int): The number of initial input channels for the images.
             convolutions (Dict[str, List[int]]): Dictionary mapping block indices to [number_layers, output_channels].
@@ -191,10 +191,10 @@ class Backbone(nn.Module):
     def print_summary(self) -> None:
         """
         Prints a structural summary of the Backbone architecture using the initialized input image size.
-        
-        This function creates a dummy tensor and passes it through the backbone blocks to trace 
-        and display the spatial and channel dimensions at each significant step of the feature 
-        extraction pipeline. This summary is crucial for visually verifying that the spatial resolutions 
+
+        This function creates a dummy tensor and passes it through the backbone blocks to trace
+        and display the spatial and channel dimensions at each significant step of the feature
+        extraction pipeline. This summary is crucial for visually verifying that the spatial resolutions
         and channel depths accurately align with the required downstream region proposal and detection modules.
         """
         # Initialize the rich console for formatted output, specifying a wide width to comfortably accommodate the panel
@@ -251,16 +251,16 @@ class Backbone(nn.Module):
 
     def compute_detection_input_information(self) -> Dict[str, Dict[str, int]]:
         """
-        Executes a dry-run forward pass with a dummy tensor to securely determine the 
-        spatial feature map sizes (assuming square maps) and channel depths for each 
+        Executes a dry-run forward pass with a dummy tensor to securely determine the
+        spatial feature map sizes (assuming square maps) and channel depths for each
         designated detection block using the initialized input image size.
-        
-        This dynamically resolves the exact structural dimensions required by the Region Proposal 
-        Network (and Anchors) during its initialization phase, avoiding error-prone 
+
+        This dynamically resolves the exact structural dimensions required by the Region Proposal
+        Network (and Anchors) during its initialization phase, avoiding error-prone
         hardcoded size calculations that could break if pooling logic or strides change.
-        
+
         Returns:
-            Dict[str, Dict[str, int]]: A dictionary mapping the stringified detection block index to 
+            Dict[str, Dict[str, int]]: A dictionary mapping the stringified detection block index to
             a dictionary containing 'feature_map_size' and 'number_channels'.
         """
         # Instantiate a dummy input tensor of the specified shape on self.device, in the precision of the weights so

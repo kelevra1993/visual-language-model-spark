@@ -2,12 +2,11 @@
 OpenCV drawing helpers: the conversion of the network inputs into the arrays every drawing starts from, bounding boxes
 of the detection sample and error images and anchors, the input viewer of the trainers (every image next to a black
 information panel listing its target, with tables such as the objects per class, and its augmentations, the windows
-centred on the screen, also saved as the input samples of every training launch), the frame grids of the
-sequence tasks, the caption bars of the evaluation error images, the class colours,
-mask overlays, error maps and sample grids of the semantic segmentation, the instance mask overlays of the instance
-segmentation, the keypoints of the objects of an image with their skeleton and the keypoint sample grids of the
-keypoint detection, the selection grids with their probability heat map of the frame selection, and the batch mosaic
-of the self-supervised input viewer. Used by the trainers.
+centred on the screen, also saved as the input samples of every training launch), the frame grids of the sequence tasks,
+the caption bars of the evaluation error images, the class colours, mask overlays, error maps and sample grids of the
+semantic segmentation, the instance mask overlays of the instance segmentation, the keypoints of the objects of an image
+with their skeleton and the keypoint sample grids of the keypoint detection, the selection grids with their probability
+heat map of the frame selection, and the batch mosaic of the self-supervised input viewer. Used by the trainers.
 """
 
 import importlib

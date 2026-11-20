@@ -33,14 +33,14 @@ ENCLOSING_DIAGONAL_EPSILON = 1e-7
 def get_area(boxes: torch.Tensor) -> torch.Tensor:
     """
     Computes the spatial area of a set of bounding boxes.
-    
-    This utility calculates the area coverage for a tensor of bounding boxes provided 
-    in [x_min, y_min, x_max, y_max] format. It uses vectorized operations across the 
+
+    This utility calculates the area coverage for a tensor of bounding boxes provided
+    in [x_min, y_min, x_max, y_max] format. It uses vectorized operations across the
     last dimension to efficiently support batched and unbatched tensors.
-    
+
     Args:
         boxes (torch.Tensor): A tensor of shape (..., 4) representing bounding boxes.
-        
+
     Returns:
         torch.Tensor: A tensor of shape (...,) containing the computed areas.
     """
@@ -153,16 +153,16 @@ def get_box_dimensions_and_centers(boxes: torch.Tensor) -> Tuple[
     torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Extracts the widths, heights, and center coordinates from a tensor of bounding boxes.
-    
-    This function processes bounding boxes in [x_min, y_min, x_max, y_max] format to compute 
-    their spatial dimensions and geometric centers. It utilizes ellipsis broadcasting to 
+
+    This function processes bounding boxes in [x_min, y_min, x_max, y_max] format to compute
+    their spatial dimensions and geometric centers. It utilizes ellipsis broadcasting to
     support arbitrary batch dimensions seamlessly.
-    
+
     Args:
         boxes (torch.Tensor): A tensor of shape (..., 4) containing the bounding boxes.
-        
+
     Returns:
-        Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: A tuple containing the 
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: A tuple containing the
         widths, heights, center_x, and center_y tensors, respectively, each of shape (...).
     """
     # Check that the last dimension is of shape 4 if not raise an error. The check is skipped while TorchScript traces
@@ -185,23 +185,23 @@ def get_box_dimensions_and_centers(boxes: torch.Tensor) -> Tuple[
 def apply_regression_predictions(regression_predictions: torch.Tensor, boxes: torch.Tensor) -> torch.Tensor:
     """
     Applies the predicted bounding box regression offsets to a set of reference boxes.
-    
+
     This function takes the predicted bounding box delta coordinates (dx, dy, dw, dh) from
     the Region Proposal Network or the final Detector and applies them to the base anchor
     boxes (or proposed region boxes) to yield the final predicted spatial bounding boxes.
-    The regression predictions must always be of shape (..., N, k, 4), where k=1 for region proposals 
-    and k=number of classes for final detections. This supports both unbatched (N, k, 4) 
+    The regression predictions must always be of shape (..., N, k, 4), where k=1 for region proposals
+    and k=number of classes for final detections. This supports both unbatched (N, k, 4)
     and batched (B, N, k, 4) inputs seamlessly. The predictions are the weighted offsets the heads are trained on,
     divided by BOX_REGRESSION_WEIGHTS before being applied.
-    
+
     Args:
-        regression_predictions (torch.Tensor): A tensor of shape (..., N, k, 4) containing the predicted 
+        regression_predictions (torch.Tensor): A tensor of shape (..., N, k, 4) containing the predicted
                                                offsets [dx, dy, dw, dh].
         boxes (torch.Tensor): A tensor of shape (..., N, 4) containing the reference bounding boxes
                               of shape [x_min, y_min, x_max, y_max].
-        
+
     Returns:
-        torch.Tensor: A tensor of shape (..., N, k, 4) containing the adjusted predicted 
+        torch.Tensor: A tensor of shape (..., N, k, 4) containing the adjusted predicted
                       bounding boxes in [x_min, y_min, x_max, y_max] format.
     """
 
@@ -243,16 +243,16 @@ def apply_regression_predictions(regression_predictions: torch.Tensor, boxes: to
 def clamp_boxes_to_image_boundaries(boxes: torch.Tensor, input_image_size: int) -> torch.Tensor:
     """
     Clamps bounding box coordinates to ensure they remain strictly within the image dimensions.
-    
-    During region proposal or bounding box regression, the predicted offsets can sometimes 
-    push the bounding box boundaries outside the actual image area. This utility function 
-    safely truncates any out-of-bounds coordinates to the image edge (0 to input_image_size). 
+
+    During region proposal or bounding box regression, the predicted offsets can sometimes
+    push the bounding box boundaries outside the actual image area. This utility function
+    safely truncates any out-of-bounds coordinates to the image edge (0 to input_image_size).
     Since the network processes square images, a single dimension size is sufficient for both width and height.
-    
+
     Args:
         boxes (torch.Tensor): A tensor of bounding boxes in [x_min, y_min, x_max, y_max] format, shape (..., 4).
         input_image_size (int): The spatial dimension (height and width) of the square input image.
-        
+
     Returns:
         torch.Tensor: The bounding boxes tensor with all coordinates clamped within [0, input_image_size], shape
             (..., 4).

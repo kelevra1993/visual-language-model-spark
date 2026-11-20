@@ -430,8 +430,8 @@ class SelfSupervisedTrainer(BaseTrainer):
         balanced accuracy, macro F1, and the precision, recall (with its exact confidence interval over the labelled
         test images of the class) and F1 of every class, saved in class_metrics.csv and shown in the per-class table,
         the per-class recall table and the scalars, the rates of both tables written as percentages ("94.03 %"). Above
-        MAXIMUM_DENSE_CONFUSION_CLASSES classes (ImageNet-22k), the metrics come from the non-zero
-        cells of the confusion matrix, which is never counted dense.
+        MAXIMUM_DENSE_CONFUSION_CLASSES classes (ImageNet-22k), the metrics come from the non-zero cells of the
+        confusion matrix, which is never counted dense.
 
         Args:
             representations (torch.Tensor): The [N, F] representations of the labelled test images.

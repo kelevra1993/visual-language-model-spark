@@ -3417,17 +3417,16 @@ if __name__ == "__main__":
                    "frame_selection": 256, "self_supervised": 512, "multi_label_classification": 512}
     # Number of images (or sequences, or pairs) of every split, all of them labelled, for every task. The 128000
     # training images of the instance segmentation are the 2000 iterations of 64 images of the synthetic object
-    # detection and instance segmentation configurations, every image being seen once. The 250000 training images of
-    # the keypoint detection, of 2 to 5 objects, are seen about 1.3 times by the 20000 iterations of 16 images of its
+    # detection and instance segmentation configurations, every image being seen once. The 250000 training images of the
+    # keypoint detection, of 2 to 5 objects, are seen about 1.3 times by the 20000 iterations of 16 images of its
     # synthetic configuration. The 250000 training sequences of the sequence labelling are seen about 1.5 times by the
     # 6000 iterations of 64 sequences of most launches of its experiment plan, about half a time by the 2000 iterations
-    # of its learning rate stage. The 500000
-    # training images of the self-supervised dataset are not labelled for the training, their shape counts only
-    # labelling the k-nearest neighbour evaluation of the test split. The 512000 training images of the multi-label
-    # classification are seen 5 times by the 10000 iterations of 256 images of its configuration
-    # (classification/configuration_synthetic_counted_shapes.yaml). The 512000 training images of the object
-    # detection are those of the detection benchmark. The 50000 training images of the semantic segmentation, for 35
-    # classes, are seen about 5 times by the 8000 iterations of 32 images of its tutorial run
+    # of its learning rate stage. The 500000 training images of the self-supervised dataset are not labelled for the
+    # training, their shape counts only labelling the k-nearest neighbour evaluation of the test split. The 512000
+    # training images of the multi-label classification are seen 5 times by the 10000 iterations of 256 images of its
+    # configuration (classification/configuration_synthetic_counted_shapes.yaml). The 512000 training images of the
+    # object detection are those of the detection benchmark. The 50000 training images of the semantic segmentation, for
+    # 35 classes, are seen about 5 times by the 8000 iterations of 32 images of its tutorial run
     split_sizes = {"object_detection": {"train": 512000, "validation": 50000, "test": 50000},
                    "instance_segmentation": {"train": 128000, "validation": 20000, "test": 20000},
                    "keypoint_detection": {"train": 250000, "validation": 50000, "test": 50000},

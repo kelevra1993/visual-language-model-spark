@@ -25,8 +25,8 @@ class ChannelLayerNormalizer(nn.Module):
     """
     Applies Layer Normalization over the channel dimension for 4D image tensors.
 
-    This class is required because PyTorch's native LayerNorm expects the 
-    normalized dimension to be the last dimension. This wrapper permutes 
+    This class is required because PyTorch's native LayerNorm expects the
+    normalized dimension to be the last dimension. This wrapper permutes
     the tensor so normalization is applied across the channel dimension correctly.
     """
 
@@ -46,10 +46,10 @@ class ChannelLayerNormalizer(nn.Module):
     def forward(self, input_tensor: torch.Tensor) -> torch.Tensor:
         """
         Performs the forward pass for channel-wise layer normalization.
-        
+
         Args:
             input_tensor (torch.Tensor): The input image tensor of shape (Batch, Channels, Height, Width).
-            
+
         Returns:
             torch.Tensor: The normalized tensor of shape (Batch, Channels, Height, Width).
         """

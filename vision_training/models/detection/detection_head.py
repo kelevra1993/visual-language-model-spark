@@ -21,11 +21,11 @@ class DetectionHead(nn.Module):
                  feature_map_size: int, dtype: torch.dtype, device: torch.device, modules: Dict[str, Any]) -> None:
         """
         Initializes the Detection Head module for a specific feature map scale.
-        
+
         This module receives pooled features from the ROI Align layer and processes them through
         convolutional blocks followed by fully connected layers. Finally, it outputs the
         class scores and bounding box regression offsets for the detected objects.
-        
+
         Args:
             detector_configuration (Dict[str, Any]): The configuration dictionary for this specific head scale.
             number_classes (int): The total number of classes to predict (including background).
@@ -49,7 +49,7 @@ class DetectionHead(nn.Module):
         self.feature_map_size = feature_map_size
         self.feature_map_normalization = feature_map_normalization
 
-        # The spatial scale is the ratio used by RoIAlign to map coordinates from the original 
+        # The spatial scale is the ratio used by RoIAlign to map coordinates from the original
         # input image space down into the downsampled feature map coordinate space (e.g., 32 / 1024 = 1/32)
         self.spatial_scale = self.feature_map_size / self.input_image_size
         self.roi_align_pool_size = detector_configuration["roi_align_pool_size"]
@@ -93,12 +93,12 @@ class DetectionHead(nn.Module):
                 input_tensor: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Executes the forward pass of the Detection Head.
-        
-        This method processes the sampled region proposals by cropping and aligning their corresponding 
-        features from the backbone's feature map using RoIAlign. The pooled features are then passed 
-        through a series of convolutional and fully connected layers to predict class probabilities 
+
+        This method processes the sampled region proposals by cropping and aligning their corresponding
+        features from the backbone's feature map using RoIAlign. The pooled features are then passed
+        through a series of convolutional and fully connected layers to predict class probabilities
         and bounding box refinements.
-        
+
         Args:
             proposal_boxes (torch.Tensor): A tensor of shape [K, 5] representing the sampled proposals across the
                 batch, where the first column is the batch index and the rest are [x1, y1, x2, y2].
@@ -133,7 +133,7 @@ class DetectionHead(nn.Module):
         flattened_enhanced_pooled_features = enhanced_pooled_features.flatten(start_dim=1)
 
         # Fully Connected Block: Deep feature extraction
-        # Input Shape: [K, Flattened_Dimension] 
+        # Input Shape: [K, Flattened_Dimension]
         # Output Shape: [K, FC_Out_Dimension]
         fully_connected_output_tensor = self.fully_connected_block(input=flattened_enhanced_pooled_features)
 

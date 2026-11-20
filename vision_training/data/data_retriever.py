@@ -17,7 +17,7 @@ def retrieve_dataset(dataset_name: Literal["open-images-v7", "coco-2017"], datas
     """
     Downloads and constructs a dataset using the FiftyOne Zoo API.
 
-    This function fetches the specified dataset from the FiftyOne Zoo with the desired splits 
+    This function fetches the specified dataset from the FiftyOne Zoo with the desired splits
     and label types. It bypasses an internal directory bug in FiftyOne by setting the global config
     and leverages multiprocessing to maximize the download speed.
 

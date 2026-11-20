@@ -179,11 +179,11 @@ class RegionProposal(nn.Module):
                  device: torch.device) -> None:
         """
         Initializes the Region Proposal module for a specific feature map scale.
-        
-        This module constructs convolutional layers to generate objectness scores and bounding box 
-        regression targets from the backbone's feature maps. It also generates the anchor boxes 
+
+        This module constructs convolutional layers to generate objectness scores and bounding box
+        regression targets from the backbone's feature maps. It also generates the anchor boxes
         necessary to convert relative regressions into absolute coordinates.
-        
+
         Args:
             convolutions (List[int]): The [number_layers, output_channels] of the convolution block of this level.
             input_channels (int): The number of channels output by the corresponding backbone layer.

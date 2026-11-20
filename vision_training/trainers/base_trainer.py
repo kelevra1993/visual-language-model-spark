@@ -1427,9 +1427,8 @@ class BaseTrainer(ABC):
                 return
 
             # Augment the training batch exactly as during training, so the viewer shows what the network receives
-            training_batch = self.augment_input_batch(batch={**training_batch,
-                                                             "images": training_batch["images"].to(
-                                                                 dtype=torch.float32)})
+            training_batch = self.augment_input_batch(
+                batch={**training_batch, "images": training_batch["images"].to(dtype=torch.float32)})
 
             # Display the training and validation samples at the same batch index next to each other
             for sample_index in range(number_samples):
@@ -2230,13 +2229,13 @@ class BaseTrainer(ABC):
     def shutdown_loader_workers(self) -> None:
         """
         Stops the worker processes of the training, validation and test loaders, and of the other loaders of the task
-        (list_dataloaders), once the training ends
-        (run_training_loop), whatever ended it, so that they free their memory at once instead of at the end of the
-        process. The workers are kept alive between the passes and evaluations of the training (persistent_workers of
-        build_native_loader). Left to the garbage collection of the trainer, the queues of a loader may be freed before
-        the loader itself, losing the stop message of its workers, which then wait the whole join timeout of PyTorch (5
-        seconds) before being terminated: 30 seconds for the 6 workers of a trainer, in a process running several
-        trainings such as the tests. A loader iterated again afterwards starts new workers.
+        (list_dataloaders), once the training ends (run_training_loop), whatever ended it, so that they free their
+        memory at once instead of at the end of the process. The workers are kept alive between the passes and
+        evaluations of the training (persistent_workers of build_native_loader). Left to the garbage collection of the
+        trainer, the queues of a loader may be freed before the loader itself, losing the stop message of its workers,
+        which then wait the whole join timeout of PyTorch (5 seconds) before being terminated: 30 seconds for the 6
+        workers of a trainer, in a process running several trainings such as the tests. A loader iterated again
+        afterwards starts new workers.
         """
         for dataloader in self.list_dataloaders():
             # Only a DataLoader has workers, the loaders of a task being any iterable of batches (build_dataloaders)
