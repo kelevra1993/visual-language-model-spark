@@ -900,8 +900,6 @@ Each time a build ends, it writes `index.html` next to the series folders: one p
   <img src="README/tutorial_index_page.png" width="100%" />
 </p>
 
-Should you look for what the videos do not show yet, `documentation/tutorial_backlog.md` lists implemented features the built videos leave out or show only in part, where each one is documented and which chapter could take it; the list is not exhaustive.
-
 ## Deployment
 In order to serve a trained run to other programs, read the parts below in order: the words of deployment followed on one run ([From A Checkpoint To A Served Model](#from-a-checkpoint-to-a-served-model)), the number formats behind reduced precision ([Number Formats](#number-formats)), then the [export](#export), its [input contract](#input-contract), the [Triton server](#triton-server) and the measured [serving formats](#serving-formats-and-precision).
 
@@ -1483,8 +1481,7 @@ To find your way in the code, the diagram follows the packages along the path of
 │   ├── presentation/                  # Slide deck of the repository: deck.json, deck.css, one HTML file per slide and the figures made for it
 │   ├── reference/                     # Training, tasks, configurations, tools and pretraining (ImageNet-22k, order of the T to XL sizes) in detail
 │   ├── task workflows/                # One run of every task followed function by function
-│   ├── suggestions.md                 # Proposed improvements and repository audit
-│   └── tutorial_backlog.md            # Implemented features the tutorials do not show yet (not exhaustive)
+│   └── suggestions.md                 # Proposed improvements and repository audit
 ├── vision_training/                   # Training framework
 │   ├── main.py                        # Entry point of the trainings
 │   ├── check_configuration.py         # Check of configuration files without training, for pipelines

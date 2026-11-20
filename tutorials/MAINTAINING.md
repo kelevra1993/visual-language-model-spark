@@ -191,7 +191,6 @@ So that every chapter stays true and consistent, these rules apply on top of the
 - **Summaries**: seven items at most.
 - **Old runs**: a fact outdated only because its run used older code is reworded so that it does not contradict the code, and the run is listed for retraining or re-evaluation at the next rebuild; nothing is retrained or re-evaluated without the owner's approval, and runs trained only to verify code use very small models and few iterations.
 - **Drift is silent**: the reference check catches renames and the placeholders follow the code, but a number kept in `literal_numbers`, a claim without a number and a new section are not checked. A commit changing a behaviour a tutorial shows also searches the storyboards and the workflow documents for the old value and updates them in the same change.
-- **Backlog**: a feature that lands without tutorial coverage gets an entry in `documentation/tutorial_backlog.md` (see its Adding An Entry section), removed once a rebuilt chapter shows it.
 
 ## Review And Rebuild Workflow
 Every two to four weeks, or before a rebuild, review the storyboards and the workflow documents against the code:
