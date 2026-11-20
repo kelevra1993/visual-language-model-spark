@@ -461,7 +461,6 @@ def draw_figure_header(canvas: Image.Image, text: str, fonts: Dict[str, ImageFon
     ImageDraw.Draw(im=canvas).text(xy=(12, 14), text=text, fill=DIM_TEXT_COLOUR, font=fonts["monospace"])
 
 
-
 def read_main_block_settings(script_path: str, setting_names: List[str]) -> Dict[str, Any]:
     """
     Reads settings typed in the main block of a script of the repository (the `if __name__ == "__main__":` block of the

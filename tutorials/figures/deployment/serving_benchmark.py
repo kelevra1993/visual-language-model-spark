@@ -228,16 +228,19 @@ def parse_count(cell: str) -> int:
 
 def describe_speed(result_rows: List[Dict[str, str]], batch_sizes: List[int]) -> Dict[str, Any]:
     """
-    Gives the speed facts of every model and row with the exported server configuration and one client: the p50 of
-    every batch size and the images per second at the largest batch over shared memory (in the process for the rows
-    in the process), the images per second at the largest batch over gRPC, the memory, and the first requests.
+    Gives the speed facts of every model and row with the exported server configuration and one client, quoted by the
+    serving benchmark chapter and drawn by draw_speed_figure: the p50 and the images per second of every batch size
+    over shared memory (in the process for the rows in the process), the images per second at the largest batch over
+    gRPC, the memory, the first requests with the top of their axis, and the gains of TensorRT FP16 at the largest batch
+    over the eager model and over TensorRT FP32.
 
     Args:
         result_rows (List[Dict[str, str]]): The rows of serving_benchmark_results.csv.
         batch_sizes (List[int]): The client batch sizes of the sweep, in increasing order.
 
     Returns:
-        Dict[str, Any]: The facts speed.<model>.<row>.* and first_request.<model>.<row>.batch_<size>.
+        Dict[str, Any]: The facts speed.<model>.<row>.*, speed.<model>.fp16_over_<row>,
+            first_request.<model>.<row>.batch_<size> and first_request.<model>.axis_maximum.
     """
     facts = {}
     largest_batch_size = batch_sizes[-1]
@@ -284,15 +287,17 @@ def describe_speed(result_rows: List[Dict[str, str]], batch_sizes: List[int]) ->
 def describe_server_settings(result_rows: List[Dict[str, str]], concurrencies: List[int]) -> Dict[str, Any]:
     """
     Gives the images per second of TensorRT FP16 at batch 1 under the four server settings and every concurrency, over
-    both transports, and the queue time of the server with one client with and without the dynamic batcher.
+    both transports, drawn by draw_server_settings_figure, and the queue time of the server and the p50 of one client
+    with and without the dynamic batcher, the cost of the batcher the serving benchmark chapter quotes.
 
     Args:
         result_rows (List[Dict[str, str]]): The rows of serving_benchmark_results.csv.
         concurrencies (List[int]): The concurrencies of the sweep, in increasing order.
 
     Returns:
-        Dict[str, Any]: The facts settings.<model>.<transport>.<setting>.concurrency_<n> and
-            settings.<model>.queue_milliseconds_batching_<on|off>.
+        Dict[str, Any]: The facts settings.<model>.<transport>.<setting>.concurrency_<n>,
+            settings.<model>.queue_milliseconds_batching_<on|off> and
+            settings.<model>.p50_milliseconds_batching_<on|off>.
     """
     facts = {}
     for model, model_name in MODEL_NAMES.items():
@@ -691,6 +696,7 @@ def draw_server_settings_figure(facts: Dict[str, Any], output_path: Path, concur
     Returns:
         Dict[str, Any]: The pixel boxes of the panels, figures.settings.<model>_box.
     """
+    # One panel per model side by side, the top of the figure left to the legend of the four server settings
     register_fonts()
     figure, axes_row = pyplot.subplots(nrows=1, ncols=3, figsize=(CHART_WIDTH / DOTS_PER_INCH,
                                                                   chart_height / DOTS_PER_INCH),
@@ -702,6 +708,8 @@ def draw_server_settings_figure(facts: Dict[str, Any], output_path: Path, concur
         axes = axes_row[model_index]
         group_positions = numpy.arange(len(concurrencies), dtype=float)
         maximum = 0.0
+
+        # One bar per server setting in the group of every concurrency, the legend labels taken from the first panel
         for setting_index, (server_setting, setting_label) in enumerate(SERVER_SETTINGS.items()):
             setting_name = f"batching_{'on' if server_setting[0] == 'True' else 'off'}_instances_{server_setting[1]}"
             values = [facts[f"settings.{model_name}.shared_memory.{setting_name}.concurrency_{concurrency}"]
@@ -735,7 +743,9 @@ def draw_server_settings_figure(facts: Dict[str, Any], output_path: Path, concur
 
 def make_serving_benchmark_figures(output_folder: Path, experiments_folder: Path) -> Dict[str, Any]:
     """
-    Makes the figures and facts of the serving benchmark chapter.
+    Makes the figures and facts of the serving benchmark chapter of the deployment series: reads the committed results,
+    test metrics, plan and loads of the detector exported again, gives the facts of the sweep and of every family, then
+    draws the speed, parity and server settings figures into the benchmark folder of the series.
 
     Args:
         output_folder (Path): The figures folder of the series.

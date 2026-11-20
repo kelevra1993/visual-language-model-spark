@@ -64,10 +64,10 @@ EVALUATION_FOLDER_NAME = CHECKPOINT_EVALUATION_FOLDER_NAME
 TEST_SCALARS = {"Accuracy": "accuracy", "Balanced Accuracy": "balanced_accuracy", "Macro F1": "macro_f1",
                 "Macro ROC AUC": "macro_roc_auc", "Macro Average Precision": "macro_average_precision"}
 
-# Pairs whose sample images the scene compares: the loss pair of the first chapter, which the run gets wrong and which is
-# not one of the fixed test samples of the evaluation (none of them is wrong), drawn by the code of the sample images,
-# and a fixed test sample keeping its objects that the run gets right, drawn the same way and checked equal to its saved
-# sample image
+# Pairs whose sample images the scene compares: the loss pair of the first chapter, which the run gets wrong and which
+# is not one of the fixed test samples of the evaluation (none of them is wrong), drawn by the code of the sample
+# images, and a fixed test sample keeping its objects that the run gets right, drawn the same way and checked equal to
+# its saved sample image
 WRONG_SAMPLE = SHOWN_TEST_PAIR
 RIGHT_SAMPLE = "test_000000"
 
@@ -208,6 +208,8 @@ def draw_probability_figure(output_path: Path, predictions: List[Dict[str, str]]
                                    dpi=DOTS_PER_INCH)
     figure.patch.set_facecolor(SURFACE_COLOUR)
     figure.subplots_adjust(left=0.07, right=0.985, top=0.84, bottom=0.13)
+
+    # Histogram of every true class on the probability of same_number_of_objects, the two bars of a bin side by side
     same_name = class_names[1]
     bin_width = PROBABILITY_BINS[1] - PROBABILITY_BINS[0]
     for class_index, class_name in enumerate(class_names):
@@ -249,7 +251,11 @@ def make_pair_evaluation_figures(output_folder: Path, run_folder: Path, log_path
                                  image_settings: Dict[str, Any], sequence_settings: Dict[str, Any],
                                  label_dictionary: Dict[int, int], number_sample_images: int) -> Dict[str, Any]:
     """
-    Makes the training and evaluation figures of the comparison run and gives their facts.
+    Makes the training and evaluation figures of the third chapter from the comparison run (the console figures, the
+    curves, the evaluation images, the probability histogram and the sample images of a wrong and a right pair) and
+    gives their facts, after checking what the narration states of them: the last evaluation is the last checkpoint,
+    the wrong pairs are those looked at, no fixed test sample is wrong, and the sample image drawn for the right pair
+    equals the saved one.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -270,6 +276,10 @@ def make_pair_evaluation_figures(output_folder: Path, run_folder: Path, log_path
     Returns:
         Dict[str, Any]: The facts, named launch.*, console.*, training.*, evaluation.*, probabilities.*, errors.* and
             samples.*.
+
+    Raises:
+        ValueError: If a property the narration states of the run does not hold.
+        OSError: If a sample image cannot be written.
     """
     facts = {}
 
@@ -290,6 +300,9 @@ def make_pair_evaluation_figures(output_folder: Path, run_folder: Path, log_path
                                         highlight_patterns={"header": rf"Iteration:\s+{information_dump}\b",
                                                             "interval": r"Interval Of"})
     facts.update({f"console.{name}": box for name, box in console_boxes.items()})
+
+    # Throughputs of the first interval and of the later ones, the first and last interval losses, and the duration of
+    # the first interval as its last line prints it
     summaries = read_interval_summaries(log_path=log_path)
     throughputs = [summary["throughput"] for summary in summaries[1:]]
     frame_throughputs = [summary["frame_throughput"] for summary in summaries[1:]]
@@ -356,6 +369,9 @@ def make_pair_evaluation_figures(output_folder: Path, run_folder: Path, log_path
             facts[f"errors.{true_class}.{predicted_class}"] = sum(
                 int(row["true_class"] == true_class and row["predicted_class"] == predicted_class)
                 for row in wrong_rows)
+
+    # Every wrong pair by its index in name order, and the most confident one, with its classes, member lengths and
+    # probability
     named_errors = {f"pair_{error_index}": row for error_index, row in enumerate(wrong_rows)}
     if wrong_rows:
         named_errors["most_confident"] = max(wrong_rows, key=read_predicted_probability)
@@ -413,6 +429,7 @@ def make_pair_evaluation_figures(output_folder: Path, run_folder: Path, log_path
         sample_image = draw_pair_sample_image(test_dataset=test_dataset, pair_name=pair_name, prediction_row=sample_row)
         if not cv2.imwrite(filename=str(sample_paths[role]), img=sample_image):
             raise OSError(f"The sample image {sample_paths[role]} could not be written.")
+        # Name, classes, probability and member lengths of the pair, quoted by the sample scene
         facts[f"samples.{role}.name"] = pair_name
         facts[f"samples.{role}.number"] = int(pair_name.split("_")[-1])
         facts[f"samples.{role}.true_class"] = sample_row["true_class"]

@@ -207,7 +207,8 @@ def read_checkpoint_bytes(run_folder: Path, iteration: int) -> int:
 
 def read_scalar_curve(run_folder: Path, split: str, tag: str) -> Tuple[numpy.ndarray, numpy.ndarray]:
     """
-    Reads every value of one scalar of the TensorBoard logs of a run, the curve TensorBoard draws for it.
+    Reads every value of one scalar of the TensorBoard logs of a run, the curve TensorBoard draws for it, for the
+    training loss figures and the evaluation metric facts of the sequence classification and comparison series.
 
     Args:
         run_folder (Path): The run folder, or the Checkpoint_Evaluation folder of a run evaluated again, whose
@@ -588,10 +589,10 @@ def extract_launch_block(log_path: Path, last_line_start: str) -> List[str]:
 
 def read_generator_setting(setting_name: str, task: str) -> Any:
     """
-    Reads a setting of the main block of the synthetic generator (vision_training/data/synthetic/
-    create_synthetic_dataset.py), a dictionary keyed by task assigned under `if __name__ == "__main__":`, from the
-    source of the module with ast.literal_eval, without running it, so that the facts of the current generator (the
-    size of its frames) follow the script.
+    Reads a setting of the main block of the synthetic generator
+    (vision_training/data/synthetic/create_synthetic_dataset.py), a dictionary keyed by task assigned under
+    `if __name__ == "__main__":`, from the source of the module with ast.literal_eval, without running it, so that the
+    facts of the current generator (the size and the range of frames of its sequences) follow the script.
 
     Args:
         setting_name (str): The name of the dictionary in the main block, e.g. "image_sizes".

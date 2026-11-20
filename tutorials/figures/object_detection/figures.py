@@ -141,6 +141,8 @@ def describe_run_settings(run_configuration: Dict[str, Any]) -> Dict[str, Any]:
     experiment_configuration = run_configuration["ExperimentConfiguration"]
     region_proposal_configuration = run_configuration["RegionProposal"]
     detector_configuration = run_configuration["Detector"]
+
+    # Schedule and evaluation of the run, its neck, and the deployment threshold and final suppression of its detections
     return {"run.number_iterations": experiment_configuration["number_iterations"],
             "run.evaluation_interval": experiment_configuration["weight_saving_iterations"],
             "run.learning_rate": experiment_configuration["learning_rate"],
@@ -151,6 +153,8 @@ def describe_run_settings(run_configuration: Dict[str, Any]) -> Dict[str, Any]:
             "run.detector_nms_threshold": detector_configuration["nms_iou_threshold"],
             "run.nms_criterion": detector_configuration["nms_criterion"],
             "run.nms_distance_exponent": detector_configuration["nms_distance_exponent"],
+            # Overlap thresholds and sampling of the anchor labels, the proposal selection and filter, then the
+            # sampling of the proposals the detection heads are trained on
             "run.anchor_foreground_minimum": region_proposal_configuration["foreground_iou_threshold"]["min"],
             "run.anchor_background_minimum": region_proposal_configuration["background_iou_threshold"]["min"],
             "run.anchor_background_maximum": region_proposal_configuration["background_iou_threshold"]["max"],
@@ -491,15 +495,20 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
     metric_tracker = build_console_metric_tracker(run_folder=run_folder, trainer_class=DetectionTrainer,
                                                   trainer_attributes={})
     for position_name, iteration in zip(["first", "last"], iterations["console_iterations"]):
-        summary_lines = write_console_summary_listing(log_path=run_folder.parent / CONSOLE_LOG_NAME,
-                                                      iteration=iteration,
-                                                      output_path=listings_folder / f"console_{position_name}.txt",
-                                                      metric_tracker=metric_tracker)
+        summary_lines = write_console_summary_listing(
+            log_path=run_folder.parent / CONSOLE_LOG_NAME, iteration=iteration,
+            output_path=listings_folder / f"console_{position_name}.txt", metric_tracker=metric_tracker)
         console_facts.update(read_console_summary_facts(summary_lines=summary_lines,
                                                         fact_prefix=f"console.{position_name}"))
+
+    # Model built untrained from the configuration of the run, for the architecture facts and the class count the
+    # first detection classification loss is checked against
     model = load_untrained_run_model(run_folder=run_folder)
     check_classification_loss_curve(run_folder=run_folder, last_iteration=checkpoint_iteration,
                                     number_classes=model.number_classes)
+
+    # Facts of every figure family: the console summaries and confusion notes, the data, the inference on the test
+    # image, the architecture and the levels
     facts = merge_facts(fact_groups=[
         console_facts,
         read_confusion_notes(run_folder=run_folder, iterations=iterations["sample_iterations"]),
@@ -508,6 +517,7 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
                                         iteration=checkpoint_iteration, force=force),
         describe_model(model=model),
         describe_run_levels(run_folder=run_folder, run_configuration=run_configuration),
+        # Training losses, then the sample images and headline metrics of the compared evaluations
         draw_loss_curves_figure(run_folder=run_folder, panels=LOSS_PANELS,
                                 output_path=output_folder / "training" / "loss_curves.png", fact_prefix="losses",
                                 last_iteration=checkpoint_iteration),
@@ -519,14 +529,16 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
         draw_metric_iterations_figure(run_folder=run_folder, panels=METRIC_PANELS,
                                       output_path=output_folder / "evaluation" / "map_iterations.png",
                                       fact_prefix="metrics"),
+        # Last checkpoint evaluated again with the current code: classes, confusion matrix, report and proposal recall
         draw_class_average_precision_figure(evaluation_folder=evaluation_folder,
                                             output_path=output_folder / "evaluation" / "class_average_precision.png"),
-        draw_confusion_matrix_figure(evaluation_folder=evaluation_folder,
-                                     score_threshold=run_settings["run.score_threshold"],
-                                     output_path=output_folder / "evaluation" / "confusion_matrix.png"),
+        draw_confusion_matrix_figure(
+            evaluation_folder=evaluation_folder, score_threshold=run_settings["run.score_threshold"],
+            output_path=output_folder / "evaluation" / "confusion_matrix.png"),
         write_report_listings(results_path=run_folder / EVALUATION_FOLDER_NAME / "Results.txt",
                               iteration=checkpoint_iteration, output_folder=listings_folder),
         read_proposal_recall(evaluation_folder=evaluation_folder),
+        # Proposal selections of the detection benchmark, the box loss beta, the settings and iterations of the run
         make_proposal_selection_facts(experiments_folder=experiments_folder),
         describe_box_loss_beta(), run_settings,
         {"run.test_scalar_count": count_scalar_tags(log_folder=run_folder / "Tensorboard" / "Test"),

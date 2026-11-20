@@ -1,6 +1,6 @@
 """
-Figures and facts of the sequence comparison (CMP) series of the tutorial videos, made by make_figures.py (python -m
-tutorials.figures.make_figures --series sequence_comparison) at every build, from the README run of
+Figures and facts of the sequence comparison (CMP) series of the tutorial videos, made by make_figures.py
+(python -m tutorials.figures.make_figures --series sequence_comparison) at every build, from the README run of
 tutorials/tutorial_sources.yaml, its object loss pairs dataset and the code of the repository: the dataset figures and
 listings, the animated pair batch encoded by the trained comparator on the CPU, the sizes of the components of the
 comparator, and the training and evaluation figures. Every figure family is a module of this folder writing into a
@@ -177,6 +177,7 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
                                           input_channels=run_configuration["Backbone"]["input_channels"]),
         read_run_setting_facts(run_configuration=run_configuration, label_dictionary=label_dictionary),
         read_code_facts(),
+        # Figure families of the series: the dataset, the animated pair batch, then the training and evaluation
         make_pair_dataset_figures(output_folder=output_folder, train_folder=train_folder,
                                   label_dictionary=label_dictionary, batch_size=experiment_configuration["batch_size"]),
         make_pair_batch_animation(output_folder=output_folder, model=model, train_folder=train_folder,

@@ -187,6 +187,8 @@ def draw_class_average_precision_figure(evaluation_folder: Path, output_path: Pa
              "classes.without_threshold_count": len(without_threshold),
              "classes.without_threshold_text": join_words(words=[describe_class_name(class_name=class_name)
                                                                  for class_name in without_threshold])}
+
+    # Values of every class by name, its threshold and recall only when it reaches the target precision
     for row in rows:
         facts[f"classes.{row['class']}.ap_50"] = round_fact(value=row["average_precision_50"])
         facts[f"classes.{row['class']}.ap_75"] = round_fact(value=row["average_precision_75"])
@@ -265,6 +267,7 @@ def draw_confusion_matrix_figure(evaluation_folder: Path, score_threshold: float
     largest_cell = (int(predicted_index) + 1, int(true_index) + 1)
     axes.add_patch(Rectangle(xy=(largest_cell[0] - 0.5, largest_cell[1] - 0.5), width=1.0, height=1.0, fill=False,
                              edgecolor=SERIES_COLOURS[2], linewidth=3 * POINTS_PER_PIXEL))
+
     # Totals of the four outcomes on the right of the matrix, the background row and column first
     diagonal = numpy.diag(counts)[1:]
     outcomes = [("right class", int(diagonal.sum()), SERIES_COLOURS[0]),
@@ -407,6 +410,9 @@ def read_proposal_recall(evaluation_folder: Path) -> Dict[str, Any]:
         for column in ["objects", "recall_50", "recall_70", "proposals_per_image"]:
             if row[column] != "":
                 facts[f"proposal_recall.{group}.{column}"] = round_fact(value=float(row[column]))
+
+    # Bars of the proposal recall scene: the proposals and the recall of every block in block order, with their
+    # labels, then the recall of every object size
     blocks = sorted([group for group in rows if group.startswith("block_")], key=lambda group: int(group.split("_")[1]))
     facts["proposal_recall.block_labels"] = [block.replace("_", " ") for block in blocks]
     facts["proposal_recall.proposals_per_block"] = [round_fact(value=float(rows[block]["proposals_per_image"]))

@@ -265,6 +265,8 @@ def make_dataset_figures(output_folder: Path, train_folder: Path, batch_size: in
                                                                          task=GENERATOR_TASK),
                   "dataset.generator_minimum_frames": generator_frame_range[0],
                   "dataset.generator_maximum_frames": generator_frame_range[1]})
+
+    # Class and frames of the shown sequence, the lengths on disk, then the padding share of every batch size
     facts.update({"dataset.shown_sequence": SHOWN_SEQUENCE_NAME,
                   "dataset.shown_class": category_names[shown_sequence["category_id"]],
                   "dataset.shown_frames": len(shown_sequence["frames"]),
@@ -282,6 +284,8 @@ def make_dataset_figures(output_folder: Path, train_folder: Path, batch_size: in
     facts.update({"lengths.padding_share_run": round_fact(value=padding_shares[batch_size]),
                   "lengths.padding_batch_small": SMALL_PADDING_BATCH_SIZE,
                   "lengths.padding_share_batch_small": round_fact(value=padding_shares[SMALL_PADDING_BATCH_SIZE])})
+
+    # Sequences, frames and smallest and largest class of every split
     for split_name, manifest in manifests.items():
         class_counts = Counter(category_names[sequence["category_id"]] for sequence in manifest["sequences"])
         facts[f"dataset.{split_name}_sequences"] = len(manifest["sequences"])

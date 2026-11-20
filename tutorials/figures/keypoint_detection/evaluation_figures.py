@@ -112,7 +112,8 @@ def crop_limits(centre: Tuple[float, float], crop_width: float, aspect_ratio: fl
 
 def class_channels(channel_table: numpy.ndarray, class_index: int) -> List[int]:
     """
-    Gives the heatmap channels of the keypoints of one class, in their keypoint order.
+    Gives the heatmap channels of the keypoints of one class, in their keypoint order, for the rows of the heatmap
+    figure and the traced grouping of the pair.
 
     Args:
         channel_table (numpy.ndarray): The channel of every keypoint of every class.
@@ -273,6 +274,8 @@ def draw_heatmap_figure(output_folder: Path, sample_record: Dict[str, Any], infe
         candidate_positions = arrays["candidate_positions"][channels][candidate_scores > keypoint_threshold]
         labelled_positions = numpy.concatenate([find_labelled_positions(sample_object=item) for item in objects
                                                 if item["class_index"] == class_index])
+
+        # The four panels of the row, the labelled keypoints and the candidates drawn on the average one
         for column_index, panel in enumerate(panels):
             panel_left = column_index * (panel_width + HEATMAP_COLUMN_GAP)
             axes = figure.add_axes(rect=(panel_left / CHART_WIDTH, 1.0 - (panel_top + panel_height) / CHART_HEIGHT,
@@ -283,17 +286,22 @@ def draw_heatmap_figure(output_folder: Path, sample_record: Dict[str, Any], infe
                 axes.imshow(X=panel, cmap=HEATMAP_COLOUR_MAP, vmin=0.0, vmax=1.0, interpolation="nearest",
                             extent=(0, image_size, image_size, 0))
             if column_index == 3:
-                axes.scatter(labelled_positions[:, 0], labelled_positions[:, 1], marker="+", s=(14 * POINTS_PER_PIXEL)
-                             ** 2, color=TEXT_PRIMARY_COLOUR, linewidths=2 * POINTS_PER_PIXEL, zorder=3)
+                axes.scatter(labelled_positions[:, 0], labelled_positions[:, 1], marker="+",
+                             s=(14 * POINTS_PER_PIXEL) ** 2, color=TEXT_PRIMARY_COLOUR, linewidths=2 * POINTS_PER_PIXEL,
+                             zorder=3)
                 axes.scatter(candidate_positions[:, 0], candidate_positions[:, 1], s=(9 * POINTS_PER_PIXEL) ** 2,
                              facecolors="none", edgecolors="#%02x%02x%02x" % NAMED_COLOURS["accent"],
                              linewidths=2 * POINTS_PER_PIXEL, zorder=4)
+
+            # Every panel cropped to the region of the class, without ticks, framed in the border grey
             axes.set_xlim(left=limits[0], right=limits[1])
             axes.set_ylim(bottom=limits[2], top=limits[3])
             axes.set_xticks(ticks=[])
             axes.set_yticks(ticks=[])
             for spine in axes.spines.values():
                 spine.set_color("#%02x%02x%02x" % NAMED_COLOURS["border"])
+
+        # Boxes of the row and of its average panel, in pixels of the figure, for the highlights of the scene
         facts[f"heatmaps_{role}_row_box"] = [0, round(panel_top) - 4, CHART_WIDTH, round(panel_top + panel_height) + 4]
         facts[f"heatmaps_{role}_average_box"] = [round(3 * (panel_width + HEATMAP_COLUMN_GAP)) - 4,
                                                  round(panel_top) - 4, CHART_WIDTH, round(panel_top + panel_height) + 4]
@@ -358,6 +366,8 @@ def trace_class_grouping(candidate_positions: numpy.ndarray, candidate_scores: n
                                     "object": object_index, "starts_object": starts_object,
                                     "rounded_distances": [int(numpy.round(abs(float(tags[candidate_index]) - mean)))
                                                           for mean in means_before]})
+
+        # Step of the keypoint: its candidates with their objects, and the mean tag of every object after it
         steps.append({"keypoint_index": keypoint_index, "candidates": step_candidates,
                       "object_means": [round_fact(value=numpy.mean(tags_of_object)) for tags_of_object in object_tags]})
     return {"steps": steps, "objects": [{"keypoints": keypoints, "scores": scores,
@@ -554,6 +564,8 @@ def describe_object_keypoint_similarity(sample_record: Dict[str, Any], inference
     sample = sample_record["sample"]
     areas = compute_box_areas(boxes=sample["bounding_boxes"].to(dtype=torch.float64))
     distances = torch.tensor(data=OKS_DISTANCES, dtype=torch.float64)
+
+    # Similarity of a visible keypoint at every distance of the chart, for the box area of each object
     facts = {}
     for name, object_index in [("large", story_objects["largest"]), ("small", story_objects["smallest"])]:
         area = areas[object_index]
@@ -564,6 +576,8 @@ def describe_object_keypoint_similarity(sample_record: Dict[str, Any], inference
                                                                                   fill_value=2),
             areas=area.expand(len(OKS_DISTANCES)), sigmas=torch.full(size=(len(OKS_DISTANCES), 1),
                                                                       fill_value=default_sigma))
+
+        # Distance at which the similarity falls to one half, on a fine grid, and the PCK tolerance of the longest side
         fine_distances = torch.linspace(start=0.0, end=float(OKS_DISTANCES[-1]), steps=3001, dtype=torch.float64)
         fine_similarities = compute_object_keypoint_similarity(
             squared_distances=(fine_distances ** 2)[:, None], visibilities=torch.full(size=(3001, 1), fill_value=2),
@@ -580,6 +594,8 @@ def describe_object_keypoint_similarity(sample_record: Dict[str, Any], inference
         if fine_similarities[-1] >= 0.5:
             raise ValueError(f"The similarity of the {facts[f'oks_{name}_label']} is still one half at "
                              f"{OKS_DISTANCES[-1]} pixels, the end of the OKS chart.")
+
+    # Sigma of the run and the constant k = 2 sigma of the similarity formula shown by the scene
     facts["oks_default_sigma"] = default_sigma
     facts["oks_constant"] = round_fact(value=2 * default_sigma)
     return facts
@@ -657,7 +673,8 @@ def describe_metrics(run_folder: Path) -> Dict[str, Any]:
 
 def read_metric_rows(csv_path: Path) -> List[Dict[str, str]]:
     """
-    Reads the rows of a metrics file of an evaluation of the run (class_metrics.csv or keypoint_metrics.csv).
+    Reads the rows of a metrics file of an evaluation of the run (class_metrics.csv or keypoint_metrics.csv), for the
+    worst classes and keypoints figure.
 
     Args:
         csv_path (Path): The CSV file.
@@ -760,6 +777,8 @@ def draw_worst_figure(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
                   values=[float(row["oks_average_precision_50"]) for row in class_rows],
                   value_labels=[format_percentage(value=float(row["oks_average_precision_50"])) for row in class_rows],
                   colour=SERIES_COLOURS[0], title="Worst classes, OKS AP@0.5", x_label="AP@0.5")
+
+    # Worst keypoints by PCK@0.05, every value followed by the mean error of the keypoint in pixels
     draw_dot_plot(axes=keypoint_axes, labels=[f"{row['class'].replace('_', ' ')} · {row['keypoint'].replace('_', ' ')}"
                                               for row in keypoint_rows],
                   values=[float(row["percentage_correct_keypoints"]) for row in keypoint_rows],
@@ -768,6 +787,8 @@ def draw_worst_figure(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
                   colour=SERIES_COLOURS[1], title="Worst key points, PCK@0.05 · mean error", x_label="PCK@0.05")
     save_figure(figure=figure, output_path=output_folder / "evaluation" / "worst_classes_and_keypoints.png")
     pyplot.close(fig=figure)
+
+    # Worst class and keypoint quoted by the narration, and the number of classes and keypoints of the evaluation
     return {"worst_class": class_rows[0]["class"].replace("_", " "),
             "worst_class_ap": round_fact(value=float(class_rows[0]["oks_average_precision_50"])),
             "worst_class_error": round_fact(value=float(class_rows[0]["mean_error_pixels"])),

@@ -99,6 +99,8 @@ def draw_sample_iterations_figure(run_folder: Path, image_name: str, iterations:
     panels = [("Ground truth", "", sample_paths[-1], GROUND_TRUTH_PANEL_LEFT)]
     panels += [(f"Iteration {iteration:,}", f"{metric_label} {format_percentage(value=metric_by_iteration[iteration])}",
                 sample_path, PREDICTION_PANEL_LEFT) for iteration, sample_path in zip(iterations, sample_paths)]
+
+    # Every panel cropped from its sample image and pasted under its heading and above its note, its box kept as a fact
     facts = {}
     for panel_index, (heading, note, sample_path, crop_left) in enumerate(panels):
         left = panel_index * (SAMPLE_PANEL_SIDE + SAMPLE_PANEL_GAP)
@@ -112,6 +114,8 @@ def draw_sample_iterations_figure(run_folder: Path, image_name: str, iterations:
         draw.text(xy=(left, SAMPLE_HEADING_HEIGHT + SAMPLE_PANEL_SIDE + SAMPLE_NOTE_HEIGHT // 2), text=note,
                   fill=DIM_TEXT_COLOUR, font=note_font, anchor="lm")
         facts[f"{fact_prefix}.panel_{panel_index + 1}_box"] = [left, 0, left + SAMPLE_PANEL_SIDE, canvas.height]
+
+    # Headline metric of every iteration and the box of the whole figure
     for iteration in iterations:
         facts[f"{fact_prefix}.metric_{iteration}"] = round_fact(value=metric_by_iteration[iteration])
     facts[f"{fact_prefix}.figure_box"] = [0, 0, canvas.width, canvas.height]
@@ -166,6 +170,9 @@ def draw_loss_curves_figure(run_folder: Path, panels: List[Tuple[str, List[Tuple
                                                                              CHART_HEIGHT / DOTS_PER_INCH))
     figure.subplots_adjust(left=0.05, right=0.98, top=0.88, bottom=0.12, wspace=0.16)
     axes_list = numpy.atleast_1d(axes_list)
+
+    # Every loss of a panel: its raw values drawn faintly under its curve smoothed like TensorBoard, its first, last
+    # and last smoothed values kept as facts
     facts = {}
     for panel_index, ((title, losses), axes) in enumerate(zip(panels, axes_list)):
         maximum_value = 0.0

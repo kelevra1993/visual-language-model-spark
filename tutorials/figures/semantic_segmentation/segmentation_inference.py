@@ -147,6 +147,9 @@ def run_segmentation_inference(output_folder: Path, run_folder: Path, sample_rec
                                numpy.float16),
                            **{f"map_{name}": activation_map.astype(numpy.float16)
                               for name, activation_map in recorder.maps.items()})
+
+    # Facts of the model scenes: the recorded shapes, the parameters of every component, the receptive field, the
+    # losses of the image and the pixel accuracy of its class map over the labelled pixels
     receptive_field = model.backbone.compute_receptive_field_information()[-1]["receptive_field"]
     facts = {"inference_shapes": recorder.shapes,
              "inference_parameters": {name: sum(parameter.numel() for parameter in component.parameters())
@@ -164,5 +167,7 @@ def run_segmentation_inference(output_folder: Path, run_folder: Path, sample_rec
                                      "decoder": [block.count_residual_additions() for block in
                                                  model.segmentation_decoder.convolution_blocks.values()]},
              "inference_checkpoint_iteration": CHECKPOINT_ITERATION}
+
+    # Facts kept next to the arrays, so that the next build reuses both
     write_reused_facts(facts_path=facts_path, figure_paths=[arrays_path], facts=facts)
     return facts

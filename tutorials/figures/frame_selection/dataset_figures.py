@@ -201,9 +201,9 @@ def make_dataset_figures(output_folder: Path, run_folder: Path) -> Dict[str, Any
     experiment_configuration, model_configuration = read_run_sections(run_folder=run_folder)
     test_dataset = build_test_dataset(run_folder=run_folder, label_type="selection")
     facts = draw_sequence_strip(dataset=test_dataset, output_path=output_folder / "dataset" / "sequence_strip.png")
-    facts.update(write_label_listings(experiment_configuration=experiment_configuration,
-                                      model_configuration=model_configuration,
-                                      listings_folder=output_folder / "listings"))
+    facts.update(write_label_listings(
+        experiment_configuration=experiment_configuration, model_configuration=model_configuration,
+        listings_folder=output_folder / "listings"))
 
     # Frames of every class in every split, from the record of the run
     data_record = json.loads((run_folder / "data.json").read_text(encoding="utf-8"))

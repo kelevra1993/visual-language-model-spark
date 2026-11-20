@@ -1,15 +1,16 @@
 """
 Helpers shared by the figure scripts of the tutorial videos (tutorials/figures/<series>/), which make_figures.py runs
 with the Python of the repository at every build: the real runs and repository files the figures are drawn from, named
-in tutorials/tutorial_sources.yaml; the palette, the chart size and the Inter and Hack fonts of the video frames
+in tutorials/tutorial_sources.yaml, or their committed copies in tutorials/run_snapshots (dataset paths pointed at its
+datasets/ folder, outputs of the families that need a checkpoint or a file the snapshot leaves out restored from its
+figure_reuse/ folder); the palette, the chart size and the Inter and Hack fonts of the video frames
 (tutorial_builder/layout.py and its fonts folder, of the tutorial-video-builder package the build puts on the import
-path), so that a chart sits on the card of an image scene like the text around
-it; the PNG files written at their exact pixel size and the pixel boxes of their panels, which the storyboards use as
-highlight boxes and reveal regions through the facts; the trained model of the classification run, read on the CPU with
-its input images, for the model figures of the foundations and classification series; the metric lines of a console
-summary cut from the log of a run written again by the console formatter of the current code with their logged values,
-for the console summary scenes; and the reuse of the expensive figures between builds unless forced, their facts kept
-in a small JSON file next to them.
+path), so that a chart sits on the card of an image scene like the text around it; the PNG files written at their exact
+pixel size and the pixel boxes of their panels, which the storyboards use as highlight boxes and reveal regions through
+the facts; the trained model of the classification run, read on the CPU with its input images, for the model figures
+of the foundations and classification series; the metric lines of a console summary cut from the log of a run written
+again by the console formatter of the current code with their logged values, for the console summary scenes; and the
+reuse of the expensive figures between builds unless forced, their facts kept in a small JSON file next to them.
 """
 
 import functools
@@ -706,8 +707,9 @@ def find_star_image(run_configuration: Dict[str, Any]) -> Path:
     image_categories = [category_names[sample["category_id"]] for sample in manifest["samples"]
                         if sample["file_name"] == STAR_IMAGE_NAME]
     if image_categories != [STAR_CATEGORY_NAME]:
-        raise ValueError(f"The test star {STAR_IMAGE_NAME} is labelled {image_categories} in {test_folder}/labels.json, "
-                         f"expected [{STAR_CATEGORY_NAME!r}]: pick STAR_IMAGE_NAME again among the stars of that split.")
+        raise ValueError(f"The test star {STAR_IMAGE_NAME} is labelled {image_categories} in "
+                         f"{test_folder}/labels.json, expected [{STAR_CATEGORY_NAME!r}]: pick STAR_IMAGE_NAME again "
+                         f"among the stars of that split.")
     return image_path
 
 

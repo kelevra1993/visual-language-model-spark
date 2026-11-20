@@ -54,6 +54,7 @@ def read_run_setting_facts(run_folder: Path) -> Dict[str, Any]:
     return {"run.batch_size": experiment_configuration["batch_size"],
             "run.validation_iteration_ratio": experiment_configuration["validation_iteration_ratio"],
             "run.maximum_sequence_length": model_configuration["Data"]["sequence_settings"]["maximum_sequence_length"],
+            # Backbone, temporal module and head of the model the chapters draw
             "run.input_channels": model_configuration["Backbone"]["input_channels"],
             "run.backbone_block_count": len(convolutions),
             "run.temporal_hidden_size": temporal_configuration["hidden_size"],
@@ -68,6 +69,7 @@ def read_run_setting_facts(run_folder: Path) -> Dict[str, Any]:
             "run.head_normalization": head_configuration["fully_connected_normalization"],
             "run.global_pooling": head_configuration["global_pooling"],
             "run.class_weighting": head_configuration["class_weighting"],
+            # Pre-trained backbone the run starts from, its moving average of the weights and its schedule
             "run.pretrained_run": Path(pretrained_configuration["experiment_folder"]).name
             if pretrained_configuration["experiment_folder"] else None,
             "run.pretrained_iteration": pretrained_configuration["iteration"],

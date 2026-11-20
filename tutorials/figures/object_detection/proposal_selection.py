@@ -6,13 +6,13 @@ of every level and the proposal counts of the benchmark detector, built untraine
 a per-level launch (the anchors and counts do not depend on the weights, so no checkpoint is read); the proposals
 per image and the proposal recall of every level of the averaged weights at the compared iteration, read from the test
 curves of the two launches of each selection (the object_detection_benchmark_* runs of tutorials/tutorial_sources.yaml);
-the test mAP of the averaged weights at every evaluation, read from the committed
-results of the benchmark (object_detection_benchmark_results, object_detection_results.csv), averaged over the two
-launches of each selection as the plan compares them, with the gap between the two launches of a selection (the noise
-of a training); and the inference-only preview of the per-level selection on the weights of a joint launch. Nothing
-is drawn: the scenes draw the values as pipelines, bars and curves, the labels of the recalls and the ticks of the mAP
-written as the percentages of the reports of the repository ("94.03 %", "30 %") and the lead and gap in percentage
-points, the facts keeping the rates and their differences between 0 and 1.
+the test mAP of the averaged weights at every evaluation, read from the committed results of the benchmark
+(object_detection_benchmark_results, object_detection_results.csv), averaged over the two launches of each selection as
+the plan compares them, with the gap between the two launches of a selection (the noise of a training); and the
+inference-only preview of the per-level selection on the weights of a joint launch. Nothing is drawn: the scenes draw
+the values as pipelines, bars and curves, the labels of the recalls and the ticks of the mAP written as the percentages
+of the reports of the repository ("94.03 %", "30 %") and the lead and gap in percentage points, the facts keeping the
+rates and their differences between 0 and 1.
 """
 
 import csv
@@ -276,6 +276,8 @@ def describe_training_comparison(results_path: Path) -> Dict[str, Any]:
     # lead and margin in mAP points up to the next tick
     map_maximum = math.ceil(max(means["per_level"] + means["joint"]) * 10) / 10
     points_maximum = POINTS_TICK_STEP * math.ceil(convert_to_percentage(value=max(leads + margins)) / POINTS_TICK_STEP)
+
+    # Launches of the selections, the mean mAP curve of each, and the lead and margin curves in percentage points
     return {"proposal_selection.compared_iteration": COMPARED_ITERATION,
             "proposal_selection.launches_per_selection": len(SELECTION_LAUNCHES["joint"]),
             "proposal_selection.joint_launches": list(SELECTION_LAUNCHES["joint"].values()),
@@ -289,6 +291,7 @@ def describe_training_comparison(results_path: Path) -> Dict[str, Any]:
             "proposal_selection.margin_points_curve": [
                 [iteration, round_fact(value=convert_to_percentage(value=margin))]
                 for iteration, margin in zip(iterations, margins)],
+            # Values at the compared iteration, the largest lead and the first evaluation won beyond the margin
             "proposal_selection.joint_map": round_fact(value=means["joint"][-1]),
             "proposal_selection.per_level_map": round_fact(value=means["per_level"][-1]),
             "proposal_selection.lead": round_fact(value=leads[-1]),
@@ -296,6 +299,7 @@ def describe_training_comparison(results_path: Path) -> Dict[str, Any]:
             "proposal_selection.maximum_lead": round_fact(value=max(leads)),
             "proposal_selection.maximum_lead_iteration": iterations[leads.index(max(leads))],
             "proposal_selection.first_win_iteration": iterations[first_win_index],
+            # Ranges and ticks of the iteration, mAP and percentage point axes of the two curves
             "proposal_selection.iteration_range": [0, COMPARED_ITERATION],
             "proposal_selection.iteration_ticks": make_axis_ticks(maximum=COMPARED_ITERATION, step=ITERATION_TICK_STEP,
                                                                   in_percent=False),
@@ -354,9 +358,9 @@ def make_proposal_selection_facts(experiments_folder: Path) -> Dict[str, Any]:
                    for selection_name, launches in SELECTION_LAUNCHES.items()}
     level_facts = describe_benchmark_levels(run_folder=run_folders["per_level"][0])
     return {**level_facts,
-            **describe_measured_proposals(run_folders=run_folders,
-                                          level_names=level_facts["proposal_selection.level_names"],
-                                          post_nms_proposals=level_facts["proposal_selection.inference_post_nms"]),
+            **describe_measured_proposals(
+                run_folders=run_folders, level_names=level_facts["proposal_selection.level_names"],
+                post_nms_proposals=level_facts["proposal_selection.inference_post_nms"]),
             **describe_training_comparison(results_path=find_repository_file(
                 file_key="object_detection_benchmark_results")),
             **describe_inference_preview(experiments_folder=experiments_folder)}

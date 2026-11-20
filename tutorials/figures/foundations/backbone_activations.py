@@ -222,7 +222,7 @@ def make_backbone_figures(output_folder: Path, run_folder: Path, force: bool) ->
                                                         for block_number in SHOWN_BLOCK_NUMBERS]
 
     # A run without its checkpoint (read from the run snapshots) takes the committed outputs of the family, which it
-    # cannot make again, even when forced; a run with its checkpoint behaves as before
+    # cannot make again, even when forced; a run with its checkpoint makes them or reuses those of the previous build
     checkpoint_available = has_last_checkpoint(run_folder=run_folder)
     if not checkpoint_available and not restore_committed_figures(output_folder=output_folder,
                                                                   family_folder=MODEL_FAMILY_FOLDER):

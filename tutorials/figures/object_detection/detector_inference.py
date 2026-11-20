@@ -470,7 +470,8 @@ def compute_detector_targets(model: TwoStageDetector, training_filter: Dict[str,
 
 def draw_panel_figure(image: Image.Image, panels: List[Dict[str, Any]], output_path: Path) -> List[List[int]]:
     """
-    Draws a figure of three panels of the test image, each with its heading above it, its note below it, and its
+    Draws a figure of three panels of the test image (the proposal filter and the anchor label figures of the chapters
+    on the proposals and on the training targets), each with its heading above it, its note below it, and its
     boxes: those with a transparency drawn thin on a transparent layer (the hundreds of proposals or anchors of a
     panel), the others opaque with their caption (the objects and detections). The figure has the size of the card of
     an image scene.
@@ -578,6 +579,9 @@ def describe_model(model: TwoStageDetector) -> Dict[str, Any]:
         raise ValueError("The backbone of the detector has no max pooling layer, whose stride the chapter on the "
                          "levels quotes.")
     pooling_stride = pooling_layers[0].stride
+
+    # Parameters of every component and of the heads of block 5, the RoIAlign and flattened size of the detection
+    # heads, the classes, the stride of the max pooling and the region proposal layers the diagrams draw
     facts = {"inference.model.total_parameters": count_parameters(module=model),
              "inference.model.backbone_parameters": count_parameters(module=model.backbone),
              "inference.model.region_proposal_parameters": count_parameters(module=model.region_proposer_dictionary),
@@ -591,6 +595,8 @@ def describe_model(model: TwoStageDetector) -> Dict[str, Any]:
              "inference.model.number_classes": model.number_classes,
              "inference.model.backbone_pooling_stride": int(pooling_stride if isinstance(pooling_stride, int) else
                                                             pooling_stride[0]),
+             # Kernel and output channels of the last convolution of the region proposal head of block 5, then of its
+             # objectness and box regression output layers
              "inference.model.region_proposal_last_kernel_size":
                  region_proposal_head.region_proposal_last_convolution.kernel_size[0],
              "inference.model.region_proposal_last_channels":
@@ -767,10 +773,9 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, itera
     object_entries = [{"box": box.tolist(), "colour": white, "caption": ""} for box in object_boxes]
     top_entries = [{"box": box.tolist(), "colour": hexadecimal_to_rgb(colour=LEVEL_COLOURS[int(level)]), "alpha": 0.55}
                    for box, level in zip(evaluation_filter["top_boxes"], evaluation_filter["top_levels"])]
-    kept_entries = [{"box": box.tolist(), "colour": hexadecimal_to_rgb(colour=LEVEL_COLOURS[int(level)]),
-                     "alpha": 0.8} for box, level, valid in zip(evaluation_filter["kept_boxes"],
-                                                                evaluation_filter["kept_levels"],
-                                                                evaluation_filter["valid_mask"]) if bool(valid)]
+    kept_entries = [{"box": box.tolist(), "colour": hexadecimal_to_rgb(colour=LEVEL_COLOURS[int(level)]), "alpha": 0.8}
+                    for box, level, valid in zip(evaluation_filter["kept_boxes"], evaluation_filter["kept_levels"],
+                                                 evaluation_filter["valid_mask"]) if bool(valid)]
     detection_entries = [{"box": detection["box"], "colour": hexadecimal_to_rgb(colour=SERIES_COLOURS[2]),
                           "caption": f"{detection['name']} {detection['score']:.2f}"} for detection in detections]
 
@@ -779,6 +784,7 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, itera
         entry["caption_below"] = any(abs(entry["box"][0] - other["box"][0]) < 24 and
                                      abs(entry["box"][1] - other["box"][1]) < 24
                                      for other in detection_entries[:detection_index])
+
     # Heading of the best proposals naming the per-level selection, whose best proposals are those of every level
     selection_wording = "by objectness" if proposal_selection == "joint" else "by level"
     proposal_panel_boxes = draw_panel_figure(image=rgb_image, panels=[
@@ -808,6 +814,8 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, itera
         ignored_note += f" · below {background_minimum:g}: {anchor_labels['ignored_low']}"
     negative_entries = [{"box": box.tolist(), "colour": hexadecimal_to_rgb(colour=BACKGROUND_COLOUR), "alpha": 0.55}
                         for box in anchors[anchor_labels["sampled_negative_mask"]]]
+
+    # Three panels over the objects: the foreground anchors, the ignored band and the sampled background anchors
     label_panel_boxes = draw_panel_figure(image=rgb_image, panels=[
         {"heading": f"{anchor_labels['foreground']} foreground anchors",
          "note": f"IoU >= {foreground_minimum:g}: {anchor_labels['overlap_foreground']} · best anchor only: "
@@ -834,6 +842,9 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, itera
              "inference.level_names_text": join_words(words=[entry["name"] for entry in level_descriptions]),
              "inference.anchor_cell_object_text": describe_class_name(class_name=object_names[cell_object_index]),
              **inference_key}
+
+    # Objects matched by the fallback or by their overlap, the boxes of the panels of both figures, and the anchor
+    # settings of every level
     facts["inference.fallback_count"] = len(facts["inference.fallback_objects"])
     facts["inference.overlap_object_count"] = len(object_descriptions) - facts["inference.fallback_count"]
     for panel_index, (proposal_box, label_box) in enumerate(zip(proposal_panel_boxes, label_panel_boxes)):
@@ -873,6 +884,8 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, itera
     facts.update(describe_sample_iterations(run_folder=run_folder, input_tensor=input_tensor,
                                             object_boxes=object_boxes, object_classes=object_classes,
                                             category_names=category_names))
+
+    # Counts of the proposal filter in evaluation and in training, in all and by level
     for mode_name, mode_filter in [("evaluation", evaluation_filter), ("training", training_filter)]:
         facts[f"inference.{mode_name}_filter.top_count"] = int(mode_filter["top_boxes"].shape[0])
         facts[f"inference.{mode_name}_filter.survivor_count"] = mode_filter["survivor_count"]
@@ -881,6 +894,8 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, itera
             facts[f"inference.{mode_name}_filter.top_level_{level}"] = count
         for level, count in mode_filter["kept_by_level"].items():
             facts[f"inference.{mode_name}_filter.kept_level_{level}"] = count
+
+    # Counts of the anchor labels and of the detector targets, in all and by level, and every detection by name
     for key in ["foreground", "background", "ignored", "ignored_low", "ignored_band", "overlap_foreground",
                 "fallback_foreground", "sampled_positives", "sampled_negatives"]:
         facts[f"inference.anchor_labels.{key}"] = anchor_labels[key]
@@ -894,6 +909,7 @@ def make_detector_inference_figures(output_folder: Path, run_folder: Path, itera
         facts[f"inference.detection_{detection_index + 1}.name"] = detection["name"]
         facts[f"inference.detection_{detection_index + 1}.score"] = round_fact(value=detection["score"])
 
+    # Facts written next to the figures, so that the next build reuses the inference while its key holds
     write_reused_facts(facts_path=facts_path, figure_paths=[image_path, figure_folder / "proposal_filter.png",
                                                             figure_folder / "anchor_labels.png"], facts=facts)
     return facts

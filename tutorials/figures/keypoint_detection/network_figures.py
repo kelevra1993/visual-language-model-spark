@@ -23,8 +23,8 @@ from typing import Any, Dict, List
 
 from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, POINTS_PER_PIXEL,
                                                 REVEAL_MARGIN, SERIES_COLOURS, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR,
-                                                compute_pixel_box, format_thousands,
-                                                register_fonts, round_fact, save_figure, style_chart_panel)
+                                                compute_pixel_box, format_thousands, register_fonts, round_fact,
+                                                save_figure, style_chart_panel)
 from tutorials.figures.keypoint_detection.keypoint_inference import build_sample_targets, split_heatmap_loss
 from tutorials.figures.keypoint_detection.keypoint_sources import OBJECT_COLOURS, write_json
 from tutorials.figures.keypoint_detection.scalar_logs import (SMOOTHING_WEIGHT, draw_smoothed_curve, read_scalars,
@@ -323,8 +323,8 @@ def draw_training_curves(output_folder: Path, run_folder: Path, with_curves: boo
     """
     register_fonts()
     log_folder = run_folder / "Tensorboard" / "Train"
-    curves = {tag: read_scalars(log_folder=log_folder, tag=tag) for tag in [*LOSS_CURVES, *TAG_CURVES,
-                                                                              *FACT_ONLY_CURVES]}
+    curves = {tag: read_scalars(log_folder=log_folder, tag=tag)
+              for tag in [*LOSS_CURVES, *TAG_CURVES, *FACT_ONLY_CURVES]}
     last_iteration = int(curves["Total Loss"][0][-1])
     figure = pyplot.figure(figsize=(CHART_WIDTH / DOTS_PER_INCH, CHART_HEIGHT / DOTS_PER_INCH), dpi=DOTS_PER_INCH,
                            facecolor=SURFACE_COLOUR)
@@ -393,6 +393,8 @@ def draw_training_curves(output_folder: Path, run_folder: Path, with_curves: boo
                          f"{heatmap_share:.3f} (at least {HEATMAP_LOSS_SHARE}), pull loss of the last window "
                          f"{pull_share:.3f} of the first (at most {PULL_LOSS_FALL_SHARE}), push loss {push_share:.3f} "
                          f"(at least {PUSH_LOSS_KEPT_SHARE}).")
+
+    # Boxes of the panels with their labels for the highlights, and without them for the reveal regions of the overlay
     figure.canvas.draw()
     facts["curves_loss_panel_box"] = compute_pixel_box(figure=figure, axes=loss_axes, with_labels=True, margin=6)
     facts["curves_tag_panel_box"] = compute_pixel_box(figure=figure, axes=tag_axes, with_labels=True, margin=6)

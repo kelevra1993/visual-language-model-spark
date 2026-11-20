@@ -172,6 +172,8 @@ def describe_test_image_story(facts: Dict[str, Any]) -> Dict[str, Any]:
     if len(duplicated) != 1 or len(duplicated[0]) != 2:
         raise ValueError(f"{SAMPLE_IMAGE_NAME}: the chapters say one object is found twice, but the detections per "
                          f"object are {[len(value) for value in detections_by_object.values()]}.")
+
+    # The two detections of that object, one right and one of another class, with their levels and tiles
     duplicate_right = [detection for detection in duplicated[0] if detection in right_detections]
     duplicate_wrong = [detection for detection in duplicated[0] if detection["name"] != detection["object"]]
     if len(duplicate_right) != 1 or len(duplicate_wrong) != 1:
@@ -321,10 +323,14 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
                                                       metric_tracker=metric_tracker)
         console_facts.update(read_console_summary_facts(summary_lines=summary_lines,
                                                         fact_prefix=f"console.{iteration}"))
+
+    # Facts of every figure family: the console summaries, the geometry and settings of the run, the mask figures and
+    # the confusion notes
     facts = merge_facts(fact_groups=[
         console_facts, describe_mask_geometry(run_folder=run_folder), describe_run_settings(run_folder=run_folder),
         make_mask_figures(output_folder=output_folder, run_folder=run_folder, force=force),
         read_confusion_notes(run_folder=run_folder, iterations=EVALUATED_ITERATIONS),
+        # Losses, sample images and mask metrics of the evaluations, drawn by the run figures of the detection series
         draw_loss_curves_figure(run_folder=run_folder, panels=LOSS_PANELS,
                                 output_path=output_folder / "training" / "loss_curves.png", fact_prefix="losses"),
         draw_sample_iterations_figure(run_folder=run_folder, image_name=SAMPLE_IMAGE_NAME,
@@ -335,6 +341,7 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
         draw_metric_iterations_figure(run_folder=run_folder, panels=METRIC_PANELS,
                                       output_path=output_folder / "evaluation" / "mask_map_iterations.png",
                                       fact_prefix="metrics"),
+        # Last checkpoint evaluated again with the current code: classes, report tables, proposal recall and settings
         draw_mask_box_figure(evaluation_folder=evaluation_folder,
                              output_path=output_folder / "evaluation" / "mask_box_average_precision.png"),
         write_mask_report_listings(results_path=run_folder / EVALUATION_FOLDER_NAME / "Results.txt",

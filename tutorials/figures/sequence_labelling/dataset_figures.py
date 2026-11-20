@@ -291,6 +291,8 @@ def draw_padded_batch(dataset: Any, output_path: Path) -> Dict[str, Any]:
                   font=fonts["monospace"], anchor="rm")
         draw.text(xy=(grid_left - 24, row_top + BATCH_FRAME_SIZE / 2 + 16), text=f"{real_frames} real frames",
                   fill=DIM_TEXT_COLOUR, font=fonts["caption"], anchor="rm")
+
+        # Every frame slot of the row: its thumbnail, outlined and captioned when it is padding, its label under it
         for frame_index in range(batch["images"].shape[1]):
             frame_left = grid_left + frame_index * column_width
             label = int(batch["labels"][sequence_index, frame_index])
@@ -440,6 +442,8 @@ def make_dataset_figures(output_folder: Path, run_folder: Path, force: bool) -> 
     if reused_facts is not None:
         facts.update(reused_facts)
         return facts
+
+    # Class balance made again from the class frames of data.json and the frame labels of the training labels.json
     data_record = json.loads((run_folder / "data.json").read_text(encoding="utf-8"))
     class_frames = [record["frames"]["train"] for record in sorted(data_record["classes"],
                                                                      key=operator.itemgetter("class_index"))]

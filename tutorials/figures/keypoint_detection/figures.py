@@ -51,8 +51,7 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
     configuration = read_repository_configuration(run_folder=run_folder)
     test_split = find_test_split(configuration=configuration)
     label_dictionary = read_label_dictionary(configuration=configuration)
-    channel_table, channel_names, keypoint_categories = read_channel_table(run_folder=run_folder,
-                                                                           test_split=test_split,
+    channel_table, channel_names, keypoint_categories = read_channel_table(run_folder=run_folder, test_split=test_split,
                                                                            label_dictionary=label_dictionary)
     sample_record = load_test_sample(configuration=configuration, test_split=test_split,
                                      label_dictionary=label_dictionary, maximum_keypoints=int(channel_table.shape[1]))
@@ -88,6 +87,8 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
          "sample_image_name": sample_record["image_record"]["file_name"],
          "checkpoint_iteration": inference_facts["inference_checkpoint_iteration"],
          "augmentation_maximum_rotation_degrees": SUPERVISED_AUGMENTATION_STRENGTHS["maximum_rotation_degrees"]},
+
+        # Labels listing, channel table and targets of the first chapter
         write_labels_listing(output_folder=output_folder, sample_record=sample_record, objects=objects,
                              story_objects=story_objects),
         write_channel_table(output_folder=output_folder, channel_table=channel_table,
@@ -95,6 +96,8 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
         make_target_figures(output_folder=output_folder, sample_record=sample_record, channel_table=channel_table,
                             objects=objects, story_objects=story_objects,
                             heatmap_sigma=head_configuration["heatmap_sigma"]),
+
+        # Shapes, parameters, heatmap losses, tags, stem and training curve axes of the second chapter
         describe_network(inference_facts=inference_facts, configuration=configuration, output_folder=output_folder),
         describe_heatmap_losses(inference_facts=inference_facts, sample_record=sample_record,
                                 channel_table=channel_table, heatmap_sigma=head_configuration["heatmap_sigma"]),
@@ -102,6 +105,8 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
         describe_stem_and_run(configuration=configuration, run_folder=run_folder),
         draw_training_curves(output_folder=output_folder, run_folder=run_folder, with_curves=False,
                              tag_loss_weight=architecture_facts["tag_loss_weight"]),
+
+        # Heatmaps, grouping, similarity, metrics, worst keypoints and sample image of the third chapter
         draw_heatmap_figure(output_folder=output_folder, sample_record=sample_record, inference_facts=inference_facts,
                             channel_table=channel_table,
                             keypoint_threshold=head_configuration["inference"]["keypoint_threshold"],

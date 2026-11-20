@@ -58,6 +58,8 @@ MOVING_AVERAGE_LAUNCHES = ["run_37", "run_38"]
 # last evaluated iteration up to which the optimization chapter quotes their largest accuracy
 STALLED_LEARNING_RATES = ["5e-4", "1e-3", "2e-3"]
 STALLED_LAST_ITERATION = 750
+
+# Six launches with squeeze and excitation off and six with it on, of the repeat stage, drawn by the launch noise chart
 LAUNCH_NOISE_LAUNCHES = {"squeeze-and-excitation off": ["run_23", "run_23b", "run_23c", "run_24", "run_24b", "run_24c"],
                          "squeeze-and-excitation on": ["run_13", "run_13b", "run_13c", "run_14", "run_14b", "run_14c"]}
 
@@ -552,8 +554,8 @@ def draw_moving_average_window(axes_list: List[matplotlib.axes.Axes], decay: flo
                      linewidth=0, zorder=0)
 
     # Bracket of the window under the curves of the labelled panel, the formula above it in the primary grey and the
-    # decay it is computed with below the formula in the secondary grey, both right-aligned on the last evaluation;
-    # the decay has 4 decimals and the window is rounded to the tens, which the exact decay and the written one both give
+    # decay it is computed with below the formula in the secondary grey, both right-aligned on the last evaluation; the
+    # decay has 4 decimals and the window is rounded to the tens, which the exact decay and the written one both give
     labelled_axes = axes_list[-1]
     bottom, top = labelled_axes.get_ylim()
     bracket_height = bottom + 0.12 * (top - bottom)

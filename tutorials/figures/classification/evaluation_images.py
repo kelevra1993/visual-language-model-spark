@@ -185,8 +185,8 @@ def describe_sample_predictions(run_folder: Path, sample_names: List[str]) -> Di
     if (facts[f"{first_prefix}.wrong_count"] != FIRST_SAMPLE_ERRORS or facts[f"{last_prefix}.wrong_count"] != 1 or
             facts[f"{last_prefix}.wrong_1.image_number"] != facts[f"{first_prefix}.wrong_1.image_number"]):
         wrong_images = {name: value for name, value in facts.items() if name.endswith("image_number")}
-        raise ValueError(f"The sample scene of 02_judging_and_shipping.yaml narrates {FIRST_SAMPLE_ERRORS} wrong sample "
-                         f"images at iteration {SAMPLE_ITERATIONS[0]}, the first one alone still wrong at "
+        raise ValueError(f"The sample scene of 02_judging_and_shipping.yaml narrates {FIRST_SAMPLE_ERRORS} wrong "
+                         f"sample images at iteration {SAMPLE_ITERATIONS[0]}, the first one alone still wrong at "
                          f"{SAMPLE_ITERATIONS[-1]}, but the wrong images are {wrong_images}: rewrite its narration.")
     return facts
 
@@ -287,7 +287,8 @@ def read_error_counts(evaluation_folder: Path) -> Dict[str, int]:
         ValueError: If the report has no block of ERROR_ITERATION or no error image line in it.
     """
     report_text = (evaluation_folder / "Results.txt").read_text(encoding="utf-8")
-    block_starts = {int(match.group("iteration")): match.start() for match in REPORT_BLOCK_PATTERN.finditer(report_text)}
+    block_starts = {int(match.group("iteration")): match.start()
+                    for match in REPORT_BLOCK_PATTERN.finditer(report_text)}
     if ERROR_ITERATION not in block_starts:
         raise ValueError(f"{evaluation_folder}/Results.txt has no block of iteration {ERROR_ITERATION}, only "
                          f"{sorted(block_starts)}.")

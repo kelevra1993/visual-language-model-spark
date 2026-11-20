@@ -197,6 +197,8 @@ def draw_training_curves(output_folder: Path, run_folder: Path, with_curves: boo
     figure = pyplot.figure(figsize=(CHART_WIDTH / DOTS_PER_INCH, CHART_HEIGHT / DOTS_PER_INCH), dpi=DOTS_PER_INCH,
                            facecolor=SURFACE_COLOUR)
     facts = {}
+
+    # Every panel: the training and validation values of its scalar read from the TensorBoard logs of the run
     for panel_index, panel in enumerate(CURVE_PANELS):
         axes = figure.add_axes(rect=(0.06 + panel_index * 0.33, 0.14, 0.26, 0.72))
         train_iterations, train_values = read_scalars(log_folder=run_folder / "Tensorboard" / "Train",
@@ -206,6 +208,8 @@ def draw_training_curves(output_folder: Path, run_folder: Path, with_curves: boo
         last_iteration = int(train_iterations[-1])
         style_chart_panel(axes=axes, title=panel["title"], x_label="Iteration", y_label=panel["y_label"])
         axes.set_xlim(left=0, right=last_iteration)
+
+        # Value axis holding the values and the reference line, the iteration ticks spaced for the length of the run
         reference_value = {"info_nce": references["info_nce"],
                            "positive_pair_accuracy": references["positive_pair_accuracy"]}.get(panel["name"], 1.0)
         bottom, top = fit_axis_limits(limits=panel["limits"], values=[train_values, validation_values,
@@ -251,6 +255,8 @@ def draw_training_curves(output_folder: Path, run_folder: Path, with_curves: boo
                       f"curves.{panel['name']}_last_smoothed": round_fact(value=smoothed_values[-1]),
                       f"curves.{panel['name']}_validation_last": round_fact(value=validation_values[-1]),
                       f"curves.{panel['name']}_validation_first": round_fact(value=validation_values[0])})
+
+        # Boxes of the panel measured on the drawn figure, and the iterations of the run and of its validations
         figure.canvas.draw()
         facts[f"curves.{panel['name']}_panel_box"] = compute_pixel_box(figure=figure, axes=axes, with_labels=True,
                                                                      margin=6)
@@ -259,6 +265,8 @@ def draw_training_curves(output_folder: Path, run_folder: Path, with_curves: boo
         facts["curves.last_iteration"] = last_iteration
         facts["curves.validation_step"] = int(validation_iterations[0])
         facts["curves.validation_count"] = int(len(validation_values))
+
+    # Batch and view counts and the values of random embeddings, the references the narration compares the run with
     facts.update({"curves.batch_size": batch_size, "curves.view_count": 2 * batch_size,
                   "curves.other_view_count": 2 * batch_size - 1,
                   "curves.random_info_nce": round_fact(value=references["info_nce"]),
@@ -309,6 +317,8 @@ def draw_early_validation(output_folder: Path, run_folder: Path) -> Dict[str, An
             drawn_values.append(numpy.array([math.log(2 * batch_size - 1)]))
         bottom, top = fit_axis_limits(limits=limits, values=drawn_values)
         axes.set_ylim(bottom=bottom, top=top)
+
+        # Training values as a line, validation values as dots, and the loss of random embeddings on the loss panel
         axes.plot(train_iterations[train_kept], train_values[train_kept], color=SERIES_COLOURS[0],
                   linewidth=2 * POINTS_PER_PIXEL, label="training batches (batch statistics)")
         axes.plot(validation_iterations[validation_kept], validation_values[validation_kept], color=SERIES_COLOURS[3],

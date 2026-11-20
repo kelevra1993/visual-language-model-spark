@@ -479,6 +479,8 @@ def compute_prediction_facts(predictions: pandas.DataFrame, frame_positions: num
     true_classes = predictions["true_class"].to_numpy()
     predicted_classes = predictions["predicted_class"].to_numpy()
     later_no_change = true_classes[~first_frames] == NO_CHANGE_CLASS_NAME
+
+    # Probability of no_change on the first and on the later frames, the later ones split by their true class
     return {"frame_count": len(predictions), "first_frame_count": int(first_frames.sum()),
             "later_frame_count": int((~first_frames).sum()),
             "first_minimum": round_fact(value=no_change_probabilities[first_frames].min()),
@@ -492,6 +494,7 @@ def compute_prediction_facts(predictions: pandas.DataFrame, frame_positions: num
             "later_change_frames_mean": round_fact(
                 value=no_change_probabilities[~first_frames][~later_no_change].mean()),
             "later_true_no_change_count": int(later_no_change.sum()),
+            # Frames predicted no_change, the classes predicted at all and the accuracies of the first and later frames
             "predicted_no_change_frames": int((predicted_classes == NO_CHANGE_CLASS_NAME).sum()),
             "predicted_no_change_share": round_fact(value=(predicted_classes == NO_CHANGE_CLASS_NAME).mean()),
             "predicted_class_count": int(len(numpy.unique(predicted_classes))),
@@ -499,6 +502,7 @@ def compute_prediction_facts(predictions: pandas.DataFrame, frame_positions: num
             "first_frame_accuracy": round_fact(value=(true_classes == predicted_classes)[first_frames].mean()),
             "later_no_change_recall": round_fact(value=(predicted_classes[~first_frames][later_no_change] ==
                                                         NO_CHANGE_CLASS_NAME).mean()),
+            # Macro ROC AUC on every frame, then on the later frames only, where the position no longer gives the class
             "macro_roc_auc_all_frames": round_fact(value=compute_macro_roc_auc(
                 predictions=predictions, class_names=class_names,
                 frame_selection=numpy.ones(shape=len(predictions), dtype=bool))),
@@ -651,6 +655,8 @@ def make_sample_facts(source: Dict[str, Any], test_labels: Dict[str, Any], outpu
     true_classes = chosen["rows"]["true_class"].tolist()
     predicted_classes = chosen["rows"]["predicted_class"].tolist()
     captions = build_sample_captions(true_classes=true_classes, predicted_classes=predicted_classes)
+
+    # Frames predicted wrong and the caption bar the trainer writes above the grid, which place the boxes of the scene
     with Image.open(fp=figure_path) as sample_image:
         image_size = list(sample_image.size)
     wrong_frames = [index for index, (true_class, predicted_class) in enumerate(zip(true_classes, predicted_classes))
@@ -755,6 +761,7 @@ def compute_model_facts(run_folder: Path, iteration: int) -> Dict[str, Any]:
             "model.flatten_features": int(backbone_maps[0].numel()),
             "model.temporal_features": int(temporal_features.shape[2]),
             "model.residual_blocks": residual_blocks, "model.residual_block_count": len(residual_blocks),
+            # Parameters of every component, then the shape of every stage of the padded batch
             "model.backbone_parameters": parameters["backbone"],
             "model.temporal_parameters": parameters["temporal_module"],
             "model.head_parameters": parameters["classification_head"], "model.total_parameters": parameters["total"],
