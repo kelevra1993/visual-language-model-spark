@@ -1,7 +1,8 @@
 """
 Tests of the Triton deployment client of vision_training/deployment/deployment_utilities.py, with a recording stand-in
 for the gRPC client: the request built for the comparison (the two halves of the folder), the folders longer than the
-sequences of the training refused, and the inputs written in shared memory at their offsets.
+sequences of the training refused, a segmentation run trained on tiles refused while one trained on whole images gets
+its letterboxed images, and the inputs written in shared memory at their offsets.
 """
 
 import json
@@ -201,6 +202,30 @@ def test_sequence_folders_that_do_not_fit_are_refused(tmp_path: Path, task: str,
     write_test_experiment(experiment_folder=tmp_path / "experiment", task=task, maximum_sequence_length=4)
     with pytest.raises(expected_exception=ValueError, match=expected_message):
         load_inference_inputs(image_folder=tmp_path / "inference_data", experiment_folder=tmp_path / "experiment")
+
+
+@pytest.mark.parametrize(argnames=("tiling_activated", "refused"), argvalues=[(True, True), (False, False)])
+def test_segmentation_runs_trained_on_tiles_are_refused(tmp_path: Path, tiling_activated: bool, refused: bool) -> None:
+    """
+    Verifies that the deployment client refuses a semantic segmentation run trained on tiles, whose loaders scale the
+    image and cut tiles of the network size, instead of timing one whole image squeezed into a single tile, while a
+    run trained on whole images still gets one letterboxed image per request.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        tiling_activated (bool): The 'Data.tiling.activated' of the experiment.
+        refused (bool): True when the run must be refused.
+    """
+    write_inference_folder(image_folder=tmp_path / "inference_data", number_images=2)
+    write_test_experiment(experiment_folder=tmp_path / "experiment", task="semantic_segmentation",
+                          tiling_configuration={"activated": tiling_activated, "scale": 0.5, "overlap": 8})
+    if refused:
+        with pytest.raises(expected_exception=ValueError, match="was trained on tiles"):
+            load_inference_inputs(image_folder=tmp_path / "inference_data", experiment_folder=tmp_path / "experiment")
+    else:
+        requests = load_inference_inputs(image_folder=tmp_path / "inference_data",
+                                         experiment_folder=tmp_path / "experiment")
+        assert [request["images"].shape for request in requests] == [(1, 3, TEST_IMAGE_SIZE, TEST_IMAGE_SIZE)] * 2
 
 
 def test_triton_requests_write_every_input_at_its_offset() -> None:
