@@ -73,10 +73,10 @@ def test_metrics_of_a_known_confusion_matrix() -> None:
 
 def test_class_painted_without_true_pixel_lowers_the_mean_iou() -> None:
     """
-    Verifies the case found by the audit of 2026-10-20: masks of classes 0 and 1, class 2 painted on a quarter of the pixels (half of
-    class 0), give the IoU [0.5, 1, 0] and a mean IoU of 0.5 as in mmseg and Cityscapes (every class with a non-empty
-    union) instead of the 0.75 of the classes present only, the mean Dice counting class 2 as well, and a class neither
-    present nor predicted staying out of both means.
+    Verifies the case found by the audit of 2026-10-20: masks of classes 0 and 1, class 2 painted on a quarter of the
+    pixels (half of class 0), give the IoU [0.5, 1, 0] and a mean IoU of 0.5 as in mmseg and Cityscapes (every class
+    with a non-empty union) instead of the 0.75 of the classes present only, the mean Dice counting class 2 as well, and
+    a class neither present nor predicted staying out of both means.
     """
     confusion_matrix = torch.tensor(data=[[2, 0, 2, 0], [0, 4, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]])
     metrics = compute_segmentation_metrics(confusion_matrix=confusion_matrix)

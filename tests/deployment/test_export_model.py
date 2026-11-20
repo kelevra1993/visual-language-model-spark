@@ -138,6 +138,11 @@ def test_saved_temperature_is_read_from_the_evaluation_of_the_checkpoint(
     """
     Verifies that the saved thresholds are found in the evaluation of the exported iteration and averaged weights in
     the Checkpoint_Evaluation folder of the run, and that their temperature is read.
+
+    Args:
+        tmp_path (Path): The pytest temporary folder holding the run and its evaluations.
+        evaluation_subfolder (str): The evaluation folder, relative to the temporary folder.
+        use_averaged_weights (bool): Whether the moving average of the weights is expected.
     """
     saved_path = write_evaluation(evaluation_folder=tmp_path / evaluation_subfolder,
                                   saved_thresholds=build_thresholds(logit_temperature=2.5, number_classes=3),
@@ -154,6 +159,9 @@ def test_thresholds_saved_in_both_folders_are_refused(tmp_path: Path) -> None:
     """
     Verifies that thresholds saved for the exported checkpoint in both the Evaluation and the Checkpoint_Evaluation
     folders of the run stop the export, so that the deployed temperature is never picked silently between two saves.
+
+    Args:
+        tmp_path (Path): The pytest temporary folder holding the run and its evaluations.
     """
     for evaluation_subfolder in [f"{RUN_NAME}/Evaluation/Iteration_6",
                                  f"{RUN_NAME}/Checkpoint_Evaluation/Iteration_6"]:
@@ -175,6 +183,13 @@ def test_saved_thresholds_of_another_evaluation_or_model_are_refused(
     """
     Verifies that saved thresholds holding another number of classes than the exported classifier stop the export, the
     error naming the mismatch.
+
+    Args:
+        tmp_path (Path): The pytest temporary folder holding the run and its evaluations.
+        saved_thresholds (Dict[str, Any]): The content of the saved thresholds file.
+        evaluated_classes (int): The number of classes of the evaluated model.
+        exported_classes (int): The number of classes of the exported model.
+        expected_message (str): The start of the expected error message.
     """
     saved_path = write_evaluation(evaluation_folder=tmp_path / RUN_NAME / "Evaluation" / "Iteration_6",
                                   saved_thresholds=saved_thresholds, number_classes=evaluated_classes)
@@ -199,6 +214,12 @@ def test_given_saved_thresholds_must_be_those_of_the_exported_checkpoint(tmp_pat
     exported run, iteration and weights, in its Evaluation or Checkpoint_Evaluation folder, and refused from the
     evaluation of another iteration, of the other weights, of another run or from the former evaluations folder next to
     the run.
+
+    Args:
+        tmp_path (Path): The pytest temporary folder holding the run and its evaluations.
+        saved_subfolder (str): The evaluation folder the thresholds are saved in.
+        use_averaged_weights (bool): Whether the moving average of the weights is expected.
+        accepted (bool): Whether the export accepts the saved thresholds.
     """
     experiment_folder = tmp_path / RUN_NAME
     saved_path = tmp_path / saved_subfolder / SAVED_THRESHOLDS_FILE_NAME

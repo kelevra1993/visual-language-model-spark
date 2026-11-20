@@ -37,6 +37,13 @@ def test_evaluation_folder_gives_its_run_iteration_and_weights(tmp_path: Path, e
     """
     Verifies that the evaluation of the training and that of evaluate_checkpoint.py (in the Checkpoint_Evaluation
     folder of the run) both give the run folder holding the weights, the iteration and the weights of the checkpoint.
+
+    Args:
+        tmp_path (Path): The pytest temporary folder holding the run and its evaluations.
+        evaluation_subfolder (str): The evaluation folder, relative to the temporary folder.
+        run_subfolder (str): The run folder expected, relative to the temporary folder.
+        iteration (int): The iteration expected.
+        use_averaged_weights (bool): Whether the moving average of the weights is expected.
     """
     assert describe_evaluation_folder(evaluation_folder=tmp_path / evaluation_subfolder) == {
         "run_folder": tmp_path / run_subfolder, "iteration": iteration, "use_averaged_weights": use_averaged_weights}
@@ -49,6 +56,10 @@ def test_evaluation_folder_gives_its_run_iteration_and_weights(tmp_path: Path, e
 def test_folders_other_than_an_evaluation_are_refused(tmp_path: Path, evaluation_subfolder: str) -> None:
     """
     Verifies that a folder not laid out as the evaluation of an iteration is refused with the expected layout.
+
+    Args:
+        tmp_path (Path): The pytest temporary folder holding the run and its evaluations.
+        evaluation_subfolder (str): The evaluation folder, relative to the temporary folder.
     """
     with pytest.raises(expected_exception=ValueError, match="Expected an evaluation folder"):
         describe_evaluation_folder(evaluation_folder=tmp_path / evaluation_subfolder)
@@ -58,6 +69,9 @@ def test_exports_of_a_checkpoint_get_their_own_folders(tmp_path: Path) -> None:
     """
     Verifies the export folder of every weights and temperature, and that the exports of a checkpoint are listed
     without those of the other weights or iteration and without an unfinished export.
+
+    Args:
+        tmp_path (Path): The pytest temporary folder holding the run and its evaluations.
     """
     run_folder = tmp_path / RUN_NAME
     assert build_export_folder(run_folder=run_folder, iteration=800, use_averaged_weights=True,
@@ -87,6 +101,10 @@ def test_exports_of_a_checkpoint_get_their_own_folders(tmp_path: Path) -> None:
 def test_export_settings_of_the_page_are_checked(settings: Dict[str, Any], expected_message: str) -> None:
     """
     Verifies that every wrong setting of the export form is refused with its reason before any export starts.
+
+    Args:
+        settings (Dict[str, Any]): The export settings sent by the page.
+        expected_message (str): The start of the expected error message.
     """
     with pytest.raises(expected_exception=ValueError, match=expected_message):
         check_export_settings(**{"formats": ["torchscript"], "model_version": 1, "maximum_batch_size": 4,
@@ -122,6 +140,9 @@ def test_exports_at_two_temperatures_keep_their_own_folders(tmp_path: Path) -> N
     Exports/Iteration_1_T2.5 with its record, its console output and the saved thresholds next to every model, that a
     temperature of 3 saved afterwards goes to its own folder, the first export staying, and that exporting 2.5 again
     replaces its folder.
+
+    Args:
+        tmp_path (Path): The pytest temporary folder holding the run and its evaluations.
     """
     hide_known_export_warnings()
     run_folder = tmp_path / RUN_NAME

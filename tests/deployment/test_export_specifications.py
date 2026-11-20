@@ -477,7 +477,8 @@ def test_detector_onnx_suppression_keeps_the_boxes_in_the_image(tmp_path: Path) 
     image_size = inference_model.input_image_size
     proposal_boxes, detection_boxes = outputs[-2:]
     assert proposal_boxes.shape[0] == TEST_MAXIMUM_BATCH_SIZE
-    assert detection_boxes.shape[0] % TEST_MAXIMUM_BATCH_SIZE == 0 and detection_boxes.shape[0] > TEST_MAXIMUM_BATCH_SIZE
+    assert (detection_boxes.shape[0] % TEST_MAXIMUM_BATCH_SIZE == 0
+            and detection_boxes.shape[0] > TEST_MAXIMUM_BATCH_SIZE)
     for boxes in [proposal_boxes, detection_boxes]:
         assert boxes.min() >= 0.0 and boxes.max() <= image_size
     assert specification["compare_outputs"](reference=reference_outputs, candidate=outputs[:len(reference_outputs)],

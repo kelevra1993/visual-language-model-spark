@@ -319,8 +319,11 @@ file; the fixed and dropped ones were removed from both files.
 ## Coding Standards
 
 The rules of the global `CLAUDE.md` and of the project memory, checked on the 266 Python files of `vision_training/`,
-`scripts/` and `tests/`, the 48 tracked configuration files and the README. The violations found were all corrected and
-are removed from this file.
+`scripts/` and `tests/`, the 48 tracked configuration files and the README, then on 2026-11-20 on the 394 tracked Python
+files (with `tutorials/` and `documentation/presentation/`) and the 120 tracked YAML files, by a sweep of every rule
+followed by thirteen reviewers. The violations found were corrected (syntax trees compared before and after, so that no
+formatting change altered the code) and are removed from this file; the sweep keeps 115 hits, all listed below as
+accepted.
 
 ### Respected Everywhere
 - A module docstring at the top of every Python file.
@@ -368,6 +371,18 @@ are removed from this file.
   references) or through the `SystemExit` of the checker.
 - **`imagenet_download.py:474`** (`check_split_sizes`, moved from the ImageNet-1k download on 2026-11-11): prints a
   count, not a path.
+- **Imports after `matplotlib.use("Agg")`** in the figure scripts of `documentation/presentation/figures/`: the backend
+  is chosen before `pyplot` is imported.
+- **Library names kept:** `state_dict` and `load_state_dict` of `weight_averaging.py` (the PyTorch module interface),
+  `obj` and `f` of `write_partial_file_then_fail` in `test_checkpointing.py` (it stands in for `torch.save`).
+- **Dictionaries that are not configurations read with `.get`:** the Triton model configuration of
+  `benchmark_serving_formats.py` and the planned file options of `make_run_snapshots.py`.
+- **`predict_tile_probabilities(tiles)`** (`sliding_window.py:69`): a callable passed as an argument, not a repository
+  function.
+- **"px" drawn in an image** of `tutorials/figures/keypoint_detection/evaluation_figures.py`: a table label of a figure,
+  not a console unit.
+- **One argument per line where no two fit in 120 characters:** 80 calls, mostly in the tests, besides the places
+  listed above.
 
 ## Suggested Order
 

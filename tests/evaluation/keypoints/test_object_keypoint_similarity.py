@@ -213,9 +213,9 @@ def test_ground_truth_objects_are_matched_by_the_largest_total_similarity() -> N
 
 def test_a_far_prediction_is_neither_matched_nor_measured() -> None:
     """
-    Verifies the case found by the audit of 2026-10-20: a 20x20 rectangle whose only prediction lies 60 pixels away has a similarity
-    above 0 (it only underflows about 4 box sides away) but far below the minimum, so the object is missed: Matched
-    Objects 0, PCK 0, and no mean keypoint error instead of the 60 pixels of the far prediction.
+    Verifies the case found by the audit of 2026-10-20: a 20x20 rectangle whose only prediction lies 60 pixels away
+    has a similarity above 0 (it only underflows about 4 box sides away) but far below the minimum, so the object is
+    missed: Matched Objects 0, PCK 0, and no mean keypoint error instead of the 60 pixels of the far prediction.
     """
     rectangle = [[1.0, 1.0], [19.0, 1.0], [19.0, 19.0], [1.0, 19.0]]
     far_rectangle = [[keypoint_x + 60.0, keypoint_y] for keypoint_x, keypoint_y in rectangle]
