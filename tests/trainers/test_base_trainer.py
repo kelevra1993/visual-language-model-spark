@@ -3,15 +3,19 @@ Tests of BaseTrainer of vision_training/trainers/base_trainer.py on the dummy ta
 resumes from its checkpoints, the interval averages of a run resumed between two summaries cover the iterations it
 really ran, a resumed run records and keeps the data it changed, the final checkpoint is evaluated on the weights it
 holds, and the moving average of the weights is saved, evaluated next to the trained weights and resumed. A resumed
-run keeps the classes saved in its folder, a fresh start moves the previous training of the same settings aside,
-unreadable images and failed evaluations never stop the training, a training whose data vanished ends with a final
-checkpoint, and a split without batch is refused. A training without validation builds no validation loader, which
-the input viewer still gets, and a task whose validation loader does not follow that setting is refused. The launch
-gives the heap memory it freed back to the system once it ends, before any loader worker is forked.
+run keeps the classes saved in its folder, a fresh start moves the previous training of the same settings aside, a
+few unreadable images never stop the training while a split dropping too many batches, a failed save and a failed
+evaluation stop it at once, a non-finite loss skips its step and stops the training after too many in a row, a
+training whose data vanished ends with a final checkpoint, and a split without batch is refused. A training without
+validation builds no validation loader, which the input viewer still gets, and a task whose validation loader does not
+follow that setting is refused. The launch gives the heap memory it freed back to the system once it ends, before any
+loader worker is forked.
 """
 
 import copy
+import errno
 import json
+import math
 import pytest
 import torch
 
@@ -101,6 +105,79 @@ class VanishingDataset(DummyDataset):
         if self.number_read_samples > self.readable_samples:
             raise OSError("The data folder is not mounted")
         return super().__getitem__(sample_index=sample_index)
+
+
+class NonFiniteLossInjector:
+    """
+    Replaces the forward pass of a trainer to make the losses of chosen training steps NaN, as a diverging training or
+    a corrupted batch would, so that a test can check that their backward pass and optimizer step are skipped. The
+    validation passes, run in evaluation mode, keep their losses.
+    """
+
+    def __init__(self, trainer: DummyTrainer, non_finite_steps: List[int]) -> None:
+        """
+        Keeps the trainer, its original forward pass and the training steps whose losses become NaN.
+
+        Args:
+            trainer (DummyTrainer): The trainer whose losses are made NaN.
+            non_finite_steps (List[int]): The training forward passes, counted from 1, whose losses become NaN.
+        """
+        self.trainer = trainer
+        self.original_forward_pass: Callable[..., Dict[str, Any]] = trainer.forward_pass
+        self.non_finite_steps = non_finite_steps
+        self.number_training_passes = 0
+
+    def __call__(self, batch: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Runs the original forward pass, then multiplies the losses of the chosen training steps by NaN, keeping their
+        computation graph.
+
+        Args:
+            batch (Dict[str, Any]): The prepared batch.
+
+        Returns:
+            Dict[str, Any]: The outputs of the forward pass, with NaN losses for the chosen training steps.
+        """
+        model_outputs = self.original_forward_pass(batch=batch)
+        if not self.trainer.model.training:
+            return model_outputs
+        self.number_training_passes += 1
+        if self.number_training_passes not in self.non_finite_steps:
+            return model_outputs
+        return {output_key: output_value * float("nan") if output_key.endswith("_loss") else output_value
+                for output_key, output_value in model_outputs.items()}
+
+
+class FailingSave:
+    """
+    Replaces the save of a trainer by a save failing from an iteration on, as on a disk filling up during the run, so
+    that a test can check that the training stops instead of going on without checkpoints.
+    """
+
+    def __init__(self, trainer: DummyTrainer, first_failing_iteration: int) -> None:
+        """
+        Keeps the original save of the trainer and the first iteration whose save fails.
+
+        Args:
+            trainer (DummyTrainer): The trainer whose saves fail.
+            first_failing_iteration (int): The first iteration whose save fails, every later one failing too.
+        """
+        self.original_save: Callable[..., None] = trainer.save_model
+        self.first_failing_iteration = first_failing_iteration
+
+    def __call__(self, iteration: int) -> None:
+        """
+        Saves the checkpoint of an iteration before the first failing one, and fails as on a full disk from it on.
+
+        Args:
+            iteration (int): The training iteration of the checkpoint.
+
+        Raises:
+            OSError: From first_failing_iteration on, with the error number of a full disk.
+        """
+        if iteration >= self.first_failing_iteration:
+            raise OSError(errno.ENOSPC, "No space left on device")
+        self.original_save(iteration=iteration)
 
 
 def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_input_images: bool,
@@ -498,14 +575,36 @@ def test_unreadable_images_drop_their_batches_without_stopping_the_training(tmp_
     assert all(parameter_state["step"] == 6 for parameter_state in checkpoint["optimizer_state"]["state"].values())
 
 
-def test_failed_evaluation_keeps_its_checkpoint_and_the_training_going(tmp_path: Path,
-                                                                       capsys: pytest.CaptureFixture) -> None:
+def test_split_dropping_too_many_batches_stops_the_training(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
-    Verifies that a test evaluation failing at a weight saving iteration (e.g. an unreadable test image) is counted as
-    an error of its iteration without stopping the training: the checkpoint of the iteration, saved right after its
-    step and before the evaluation, holds its 4 steps, the next iterations train and save as usual, and the last
-    checkpoint, whose evaluation failed too, is announced as not evaluated instead of being saved again. The error is
-    printed with its traceback the first time, then alone.
+    Verifies that a training split dropping half of its batches (one unreadable image in every other batch, never 10
+    failed fetches in a row) stops the training once more than MAXIMUM_DROPPED_BATCHES_IN_WINDOW (20) of its last
+    DROPPED_BATCH_WINDOW fetches were dropped, instead of training on what is left: the 21st dropped batch, the 41st
+    fetch, stops the iteration 21 with the counts, and the checkpoint of iteration 20 stays the last one.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
+    """
+    # Unshuffled batches [0, 1], [2, 3], [4, 5], [6, 7]: the first and third batches of every pass are dropped
+    training_dataset = DummyDataset(sample_identifiers=list(range(8)), seed=0, unreadable_identifiers=[1, 5])
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=30, view_input_images=False,
+                                  number_sample_images=0, training_dataset=training_dataset)
+    trainer.run_training_loop()
+    console_output = capsys.readouterr().out
+    assert "Critical Error At Iteration 21, Exiting: 21 of the last 41 Training batches failed to load and were " \
+           "dropped" in console_output
+    assert "Last Checkpoint Saved At Iteration 20. Exiting Training." in console_output
+    assert (trainer.weights_directory / "full-checkpoint").read_text().splitlines()[0] == (
+        'model_checkpoint_path: "Iteration_20"')
+
+
+def test_failed_evaluation_stops_the_training(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that a test evaluation failing at a weight saving iteration (e.g. an unreadable test image) stops the
+    training at once with its error instead of being skipped at every evaluation: the checkpoint of the iteration,
+    saved right after its step and before the evaluation, holds its 4 steps and stays the last one, announced as not
+    evaluated, and no later iteration trains.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -517,26 +616,109 @@ def test_failed_evaluation_keeps_its_checkpoint_and_the_training_going(tmp_path:
                       side_effect=ValueError("The image cannot be read : test.png")):
         trainer.run_training_loop()
     console_output = capsys.readouterr().out
-    assert "Error encountered during iteration 4." in console_output
-    assert "Error encountered during iteration 8." in console_output
-    assert console_output.count("Traceback (most recent call last)") == 1
-    assert "ValueError: The image cannot be read : test.png" in console_output
-    assert console_output.count("Exception: The image cannot be read : test.png") == 1
-    assert "The Checkpoint Of Iteration 8 Was Not Evaluated" in console_output
+    assert "Critical Error At Iteration 4, Exiting: The evaluation of the checkpoint of iteration 4 failed: " \
+           "ValueError: The image cannot be read : test.png" in console_output
+    assert "Last exception:\nTraceback (most recent call last)" in console_output
+    assert "Error encountered during iteration" not in console_output
+    assert "The Checkpoint Of Iteration 4 Was Not Evaluated" in console_output
     assert sorted(path.name for path in trainer.weights_directory.glob(pattern="Iteration_*")) == [
-        "Iteration_2", "Iteration_4", "Iteration_6", "Iteration_8"]
+        "Iteration_2", "Iteration_4"]
     assert (trainer.weights_directory / "full-checkpoint").read_text().splitlines()[0] == (
-        'model_checkpoint_path: "Iteration_8"')
+        'model_checkpoint_path: "Iteration_4"')
     checkpoint = torch.load(f=trainer.weights_directory / "Iteration_4" / "model_000004.pt", map_location="cpu",
                             weights_only=True)
     assert all(parameter_state["step"] == 4 for parameter_state in checkpoint["optimizer_state"]["state"].values())
 
 
+def test_failed_save_stops_the_training(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that a checkpoint failing to save (a full disk from iteration 4 on) stops the training at once instead of
+    training on without checkpoints: no step is taken after iteration 4, the final save of its steps fails the same way
+    and raises its error, and the registry keeps naming the checkpoint of iteration 2.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
+    """
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=8, view_input_images=False,
+                                  number_sample_images=0)
+    trainer.save_model = FailingSave(trainer=trainer, first_failing_iteration=4)
+    with pytest.raises(expected_exception=OSError, match="No space left on device"):
+        trainer.run_training_loop()
+    console_output = capsys.readouterr().out
+    assert "Critical Error At Iteration 4, Exiting: The checkpoint of iteration 4 could not be saved: OSError: " \
+           "[Errno 28] No space left on device" in console_output
+    assert "Error encountered during iteration" not in console_output
+    assert all(parameter_state["step"] == 4 for parameter_state in trainer.optimizer.state.values())
+    assert (trainer.weights_directory / "full-checkpoint").read_text().splitlines()[0] == (
+        'model_checkpoint_path: "Iteration_2"')
+
+
+def test_non_finite_loss_skips_its_step(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that a NaN loss at the third training step is printed in red and skipped without backward pass nor
+    optimizer step, the training going on: every checkpoint keeps finite weights, the last one 5 steps of the 6
+    iterations, and the interval of the summary of iteration 4 averages its other batch only.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
+    """
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=6, view_input_images=False,
+                                  number_sample_images=0)
+    trainer.forward_pass = NonFiniteLossInjector(trainer=trainer, non_finite_steps=[3])
+    with patch.object(target=trainer, attribute="log_interval_metrics",
+                      wraps=trainer.log_interval_metrics) as interval_mock:
+        trainer.run_training_loop()
+    console_output = capsys.readouterr().out
+    assert "The loss of the batch of iteration 3 is not finite (total_loss nan, first_loss nan, second_loss nan): " \
+           "the batch is skipped" in console_output
+    assert "Critical Error" not in console_output
+
+    # The skipped batch is left out of the interval averages
+    interval_calls = {interval_call.kwargs["iteration"]: interval_call.kwargs["training_trackers"]
+                      for interval_call in interval_mock.call_args_list}
+    assert interval_calls[4][INTERVAL_BATCHES_KEY] == 1 and math.isfinite(interval_calls[4]["total_loss"])
+
+    # Every checkpoint keeps finite weights, the step of iteration 3 being skipped
+    for iteration, number_steps in [(2, 2), (4, 3), (6, 5)]:
+        checkpoint = torch.load(f=trainer.weights_directory / f"Iteration_{iteration}" / f"model_{iteration:06}.pt",
+                                map_location="cpu", weights_only=True)
+        assert all(torch.isfinite(parameter_value).all() for parameter_value in checkpoint["model_state"].values())
+        assert all(parameter_state["step"] == number_steps
+                   for parameter_state in checkpoint["optimizer_state"]["state"].values())
+
+
+def test_non_finite_losses_in_a_row_stop_the_training(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that NaN losses from the third training step on stop the training after more than 5 of them in a row,
+    with no step taken on them: the checkpoint of iteration 2 stays the last one, with finite weights.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
+    """
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=12, view_input_images=False,
+                                  number_sample_images=0)
+    trainer.forward_pass = NonFiniteLossInjector(trainer=trainer, non_finite_steps=list(range(3, 13)))
+    trainer.run_training_loop()
+    console_output = capsys.readouterr().out
+    assert "(Consecutive Errors: 5/5)" in console_output
+    assert "Critical Error: Over 5 consecutive errors encountered during training iterations. Exiting." in (
+        console_output)
+    assert "Last Checkpoint Saved At Iteration 2. Exiting Training." in console_output
+    assert sorted(path.name for path in trainer.weights_directory.glob(pattern="Iteration_*")) == ["Iteration_2"]
+    checkpoint = torch.load(f=trainer.weights_directory / "Iteration_2" / "model_000002.pt", map_location="cpu",
+                            weights_only=True)
+    assert all(torch.isfinite(parameter_value).all() for parameter_value in checkpoint["model_state"].values())
+
+
 def test_vanished_data_ends_the_training_with_a_final_checkpoint(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
-    Verifies that a training whose data disappears (every sample read failing after the third batch) stops after its
-    consecutive errors instead of leaving the process, printing the traceback of the last error, and saves a final
-    checkpoint of the steps taken since its last one: the third step, after the intermediate checkpoint of iteration 2.
+    Verifies that a training whose data disappears (every sample read failing after the third batch) stops instead of
+    leaving the process: two iterations fail on 10 failed fetches in a row, then the 21st dropped batch stops the
+    training, printing the traceback of the last error, and a final checkpoint saves the steps taken since the last
+    one: the third step, after the intermediate checkpoint of iteration 2.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -551,7 +733,7 @@ def test_vanished_data_ends_the_training_with_a_final_checkpoint(tmp_path: Path,
     console_output = capsys.readouterr().out
     assert "10 fetches of a Training batch failed in a row, the last one with: The data folder is not mounted" in (
         console_output)
-    assert "Critical Error" in console_output
+    assert "Critical Error At Iteration 6, Exiting: 21 of the last 24 Training batches failed to load" in console_output
     assert "Last exception:\nTraceback (most recent call last)" in console_output
     assert "Last Checkpoint Saved At Iteration 3. Exiting Training." in console_output
     checkpoint = torch.load(f=trainer.weights_directory / "Iteration_3" / "model_000003.pt", map_location="cpu",

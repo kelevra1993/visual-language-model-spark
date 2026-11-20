@@ -19,7 +19,7 @@ import numpy as np
 import torch
 
 from abc import ABC, abstractmethod
-from collections import Counter
+from collections import Counter, deque
 from contextlib import contextmanager
 from datetime import datetime
 from functools import partial
@@ -118,6 +118,54 @@ AVERAGED_WEIGHTS_METRIC_PREFIX = "test_ema"
 # Passes over a split ending without any batch after which the fetch of a batch gives up, an empty loader restarting
 # forever otherwise (get_next_batch)
 MAXIMUM_EMPTY_PASSES = 2
+
+# Last fetches of a split over which its dropped batches are counted, and the number of them dropped above which the
+# training stops (get_next_batch): more than 20 of the last 200 batches failing to load (e.g. 1 % of unreadable images
+# in batches of 64 drop about 47 % of them) mean broken data rather than a few bad files
+DROPPED_BATCH_WINDOW = 200
+MAXIMUM_DROPPED_BATCHES_IN_WINDOW = 20
+
+
+class NonFiniteLossError(RuntimeError):
+    """
+    Error of a training or validation batch whose total loss is NaN or infinite (run_model_iteration), raised before
+    its metrics are tracked and before its backward pass, so that a diverging step or a corrupted batch never spreads
+    NaN into the weights, the optimizer state and the checkpoints. The training loop counts it with the failing
+    iterations (run_training_iterations): the batch is skipped, and too many in a row stop the training.
+    """
+
+
+class TrainingStopError(RuntimeError):
+    """
+    Error after which the training cannot go on, raised from its original error: a checkpoint that cannot be saved or
+    a test evaluation that fails (stop_training_on_error, e.g. a full disk or an unreadable test image), or a split
+    dropping too many batches (get_next_batch). The training loop stops at once on it with status FAILED instead of
+    counting it with the failing iterations (run_training_iterations), which would otherwise go on training without
+    checkpoints or evaluations.
+    """
+
+
+@contextmanager
+def stop_training_on_error(failure_description: str) -> Iterator[None]:
+    """
+    Runs a step of the training loop whose failure must stop the training (the save of a checkpoint, the evaluation of
+    the test split), turning any error it raises into a TrainingStopError that names the step, chained to the original
+    error so that its traceback is printed. A Ctrl+C is left as it is.
+
+    Args:
+        failure_description (str): What failed, opening the message of the error, e.g. 'The checkpoint of iteration 4
+            could not be saved'.
+
+    Yields:
+        None: Control to the step of the training loop.
+
+    Raises:
+        TrainingStopError: If the step raises an error.
+    """
+    try:
+        yield
+    except Exception as error:
+        raise TrainingStopError(f"{failure_description}: {type(error).__name__}: {error}") from error
 
 
 class BaseTrainer(ABC):
@@ -273,6 +321,10 @@ class BaseTrainer(ABC):
         # already printed, every distinct one being printed once in the run (get_next_batch)
         self.dropped_batch_counts = Counter()
         self.reported_fetch_errors = set()
+
+        # Outcomes of the last DROPPED_BATCH_WINDOW fetches of every split, True for a dropped batch, which stop the
+        # training when too many of them were dropped (get_next_batch)
+        self.recent_fetch_drops: Dict[str, deque] = {}
 
         # Errors of failed training iterations whose traceback was already printed, every distinct one being printed
         # whole once in the run (report_iteration_error)
@@ -2060,7 +2112,9 @@ class BaseTrainer(ABC):
         at the end of every pass over its split, which reshuffles it. A batch whose loading fails (e.g. an unreadable
         image, named by its dataset) is dropped and the next one taken, so that a few bad files never stop a training:
         every distinct error is printed the first time it occurs, and the dropped batches of every split are counted
-        and printed with the next console summary (report_dropped_batches).
+        and printed with the next console summary (report_dropped_batches). More than
+        MAXIMUM_DROPPED_BATCHES_IN_WINDOW batches dropped among the last DROPPED_BATCH_WINDOW fetches of the split
+        stop the training, the data being broken rather than holding a few bad files.
 
         Args:
             dataloader_iterator (_BaseDataLoaderIter): The current iterator for the dataloader.
@@ -2078,12 +2132,19 @@ class BaseTrainer(ABC):
             RuntimeError: If maximum_consecutive_errors fetches fail in a row, or if MAXIMUM_EMPTY_PASSES passes over
                 the split end without any batch, an error which the training loop counts like the other errors of an
                 iteration and after which it still saves its last checkpoint.
+            TrainingStopError: If more than MAXIMUM_DROPPED_BATCHES_IN_WINDOW of the last DROPPED_BATCH_WINDOW
+                fetches of the split were dropped, which stops the training at once, its last checkpoint still saved.
         """
+        # Outcomes of the last fetches of the split, kept over the whole launch
+        if split_name not in self.recent_fetch_drops:
+            self.recent_fetch_drops[split_name] = deque(maxlen=DROPPED_BATCH_WINDOW)
+        recent_drops = self.recent_fetch_drops[split_name]
+
         consecutive_errors = 0
         empty_passes = 0
         while True:
             try:
-                return next(dataloader_iterator), dataloader_iterator
+                batch = next(dataloader_iterator)
             except StopIteration:
                 # A pass ends: the loader restarts, unless the passes keep ending without any batch, which would
                 # otherwise loop forever on an empty split
@@ -2096,10 +2157,25 @@ class BaseTrainer(ABC):
                 # The batch is dropped and counted for the next console summary, its error printed the first time
                 consecutive_errors += 1
                 self.dropped_batch_counts[split_name] += 1
+                recent_drops.append(True)
                 self.report_fetch_error(exception=exception, split_name=split_name)
+
+                # Too many dropped batches among the last fetches of the split stop the training, which would
+                # otherwise go on with what is left of its data
+                number_recent_drops = sum(recent_drops)
+                if number_recent_drops > MAXIMUM_DROPPED_BATCHES_IN_WINDOW:
+                    raise TrainingStopError(
+                        f"{number_recent_drops} of the last {len(recent_drops)} {split_name} batches failed to load "
+                        f"and were dropped, above the limit of {MAXIMUM_DROPPED_BATCHES_IN_WINDOW} in "
+                        f"{DROPPED_BATCH_WINDOW} ({100 * MAXIMUM_DROPPED_BATCHES_IN_WINDOW / DROPPED_BATCH_WINDOW:.0f} "
+                        f"%): fix or remove the files named above, then launch the run again to resume it.") \
+                        from exception
                 if consecutive_errors >= maximum_consecutive_errors:
                     raise RuntimeError(f"{consecutive_errors} fetches of a {split_name} batch failed in a row, the "
                                        f"last one with: {exception}") from exception
+            else:
+                recent_drops.append(False)
+                return batch, dataloader_iterator
 
     def report_fetch_error(self, exception: Exception, split_name: str) -> None:
         """
@@ -2194,8 +2270,9 @@ class BaseTrainer(ABC):
         """
         Trains the model (see run_training_iterations), then stops the worker processes of its loaders
         (shutdown_loader_workers) and closes its MLflow run whatever ends the training: FINISHED once the training ends
-        normally, KILLED when the user stops it (Ctrl+C), FAILED after too many consecutive errors or on an unexpected
-        error, which is raised again once the run is closed.
+        normally, KILLED when the user stops it (Ctrl+C), FAILED after too many consecutive errors, a failed save or
+        test evaluation, a split dropping too many batches, or on an unexpected error (e.g. the final save failing
+        again), which is raised again once the run is closed.
 
         Args:
             maximum_consecutive_errors (int): The maximum number of consecutive exceptions allowed before the training
@@ -2257,7 +2334,10 @@ class BaseTrainer(ABC):
         passes, console summaries, the evaluation of the test split at every weight_saving_iterations checkpoint, last
         of its iteration, and a final checkpoint of the steps taken since the last one, whatever ends the loop. The
         MLflow run of the training is opened once the loader workers exist, and receives the interval averages of
-        every console summary and the test evaluations.
+        every console summary and the test evaluations. A failing iteration (e.g. a batch with a non-finite loss,
+        skipped without step) is printed and skipped, more than maximum_consecutive_errors of them in a row ending the
+        loop; a failed save or test evaluation (e.g. a full disk) and a split dropping too many batches end it at once,
+        since the training would otherwise go on without checkpoints, evaluations or most of its data.
 
         Args:
             maximum_consecutive_errors (int): The maximum number of consecutive exceptions allowed before the training
@@ -2265,7 +2345,8 @@ class BaseTrainer(ABC):
 
         Returns:
             str: The status of the MLflow run: FINISHED_STATUS, or KILLED_STATUS when the user stopped the training,
-                or FAILED_STATUS when it stopped after too many consecutive errors.
+                or FAILED_STATUS when it stopped after too many consecutive errors, a failed save or test evaluation,
+                or a split dropping too many batches.
         """
         # A run resumed from a checkpoint at or beyond its total of iterations has nothing left to train
         if self.start_iteration > self.training_iterations:
@@ -2316,12 +2397,15 @@ class BaseTrainer(ABC):
 
                 # Save the model right after the step of every weight saving iteration (evaluated at the end of the
                 # iteration) and of the more frequent intermediate weight saving iterations in between (none when
-                # intermediate_weight_saving_iterations is 0), so that the checkpoint of iteration k holds its k steps
+                # intermediate_weight_saving_iterations is 0), so that the checkpoint of iteration k holds its k steps.
+                # A failed save (e.g. a full disk) stops the training instead of letting it go on without checkpoints
                 is_evaluated_iteration = training_iteration % self.weight_saving_iterations == 0
                 is_intermediate_iteration = self.intermediate_weight_saving_iterations > 0 and \
                     training_iteration % self.intermediate_weight_saving_iterations == 0
                 if is_evaluated_iteration or is_intermediate_iteration:
-                    self.save_model(iteration=training_iteration)
+                    with stop_training_on_error(
+                            failure_description=f"The checkpoint of iteration {training_iteration} could not be saved"):
+                        self.save_model(iteration=training_iteration)
                     last_saved_iteration = training_iteration
 
                 # Validation phase gated by the configurable validation_iteration_ratio.
@@ -2358,9 +2442,12 @@ class BaseTrainer(ABC):
                         validation_trackers = self.metric_tracker.create_trackers()
 
                 # Evaluate the checkpoint of a weight saving iteration on the test split, last in the iteration so that
-                # a failing evaluation (e.g. an unreadable test image) leaves the rest of the iteration done
+                # a failing evaluation (e.g. an unreadable test image or a full disk) finds the rest of the iteration
+                # done; it stops the training instead of failing again at every later evaluation
                 if is_evaluated_iteration:
-                    self.run_test_evaluation(iteration=training_iteration)
+                    with stop_training_on_error(failure_description=f"The evaluation of the checkpoint of iteration "
+                                                                    f"{training_iteration} failed"):
+                        self.run_test_evaluation(iteration=training_iteration)
                     last_evaluated_iteration = training_iteration
 
                 # Reset the consecutive errors counter after a fully successful iteration
@@ -2370,6 +2457,14 @@ class BaseTrainer(ABC):
                 print_color(color="red", output=f"Training Interrupted by User at iteration {training_iteration}.",
                             add_separators=True)
                 stopped_status = KILLED_STATUS
+                break
+            except TrainingStopError as error:
+                # A failed save or test evaluation, or a split dropping too many batches, ends the training at once
+                # instead of being counted with the failing iterations, with the whole traceback of its error
+                print_color(color="red", output=f"Critical Error At Iteration {training_iteration}, Exiting: {error}",
+                            add_separators=True)
+                print("Last exception:\n" + "".join(traceback.format_exception(error)), end="")
+                stopped_status = FAILED_STATUS
                 break
             except Exception as error:
                 # Increment error counter when an exception occurs inside the training iteration loop
@@ -2383,6 +2478,11 @@ class BaseTrainer(ABC):
                     print("Last exception:\n" + "".join(traceback.format_exception(error)), end="")
                     stopped_status = FAILED_STATUS
                     break
+                elif isinstance(error, NonFiniteLossError):
+                    # A batch with a non-finite loss, skipped without step, is printed in red on one line
+                    print_color(color="red", output=f"{error} (Consecutive Errors: {consecutive_errors}/"
+                                                    f"{maximum_consecutive_errors})", add_separators=True)
+                    continue
                 else:
                     print_color(color="yellow", output=f"Error encountered during iteration {training_iteration}."
                                                        f" Continuing... (Consecutive Errors: "
@@ -2392,7 +2492,8 @@ class BaseTrainer(ABC):
                     continue
 
         # Final checkpoint of the steps taken since the last save, whatever ended the loop (its last iteration, a stop
-        # by the user or too many errors), a checkpoint already saved after the last step being kept as it is
+        # by the user, too many errors, a failed save, tried once more here, or a failed evaluation), a checkpoint
+        # already saved after the last step being kept as it is
         if last_stepped_iteration > last_saved_iteration:
             self.save_model(iteration=last_stepped_iteration)
             last_saved_iteration = last_stepped_iteration
@@ -2593,6 +2694,7 @@ class BaseTrainer(ABC):
         the training runs: the model in training mode with its gradients cleared, the forward pass of
         run_model_iteration (batch moved to the device, augmented, bfloat16 losses tracked), the backward pass, then
         the optimizer step with the learning rate of the iteration and the update of the moving average of the weights.
+        A batch whose total loss is not finite stops in run_model_iteration, before the backward pass and the step.
 
         Args:
             batch (Dict[str, Any]): The batch yielded by the training loader.
@@ -2602,6 +2704,9 @@ class BaseTrainer(ABC):
 
         Returns:
             torch.Tensor: The total training loss of the batch.
+
+        Raises:
+            NonFiniteLossError: If the total loss of the batch is NaN or infinite, the weights being left unchanged.
         """
         self.set_training_mode()
         self.zero_gradients()
@@ -2622,7 +2727,9 @@ class BaseTrainer(ABC):
         Executes one forward pass of the model on a training or validation batch, the same for every task: the batch
         is prepared (and augmented for training), the model returns its losses, which are summed into the total loss,
         each multiplied by its weight when the task weights its losses (get_loss_weights), and the tracked metrics are
-        accumulated and written to TensorBoard, the losses unweighted and the total loss weighted.
+        accumulated and written to TensorBoard, the losses unweighted and the total loss weighted. A total loss that is
+        NaN or infinite raises before anything is tracked, so that the interval averages stay finite and the training
+        step never back-propagates it.
 
         Args:
             batch (Dict[str, Any]): The batch dictionary yielded by a loader.
@@ -2636,6 +2743,9 @@ class BaseTrainer(ABC):
 
         Returns:
             Tuple[torch.Tensor, Dict[str, Any]]: A tuple containing the total loss and the model outputs.
+
+        Raises:
+            NonFiniteLossError: If the total loss of the batch is NaN or infinite, with the value of every loss.
         """
         # Move the batch to the device and precision of the model
         batch = self.prepare_batch(batch=batch)
@@ -2654,6 +2764,16 @@ class BaseTrainer(ABC):
         metric_dictionary = {key: value for key, value in model_outputs.items() if key.endswith(LOSS_KEY_SUFFIX)}
         total_loss = sum(loss_value if self.loss_weights is None else self.loss_weights[loss_key] * loss_value
                          for loss_key, loss_value in metric_dictionary.items())
+
+        # A NaN or infinite total loss (a diverging step, a corrupted batch) stops the batch before it is tracked or
+        # back-propagated, which would turn every weight into NaN; the tracked metrics synchronise with the device
+        # right after anyway, so the check costs no extra wait
+        if not torch.isfinite(total_loss).item():
+            loss_values = ", ".join(f"{loss_key} {loss_value.item():.4g}" for loss_key, loss_value in
+                                    [("total_loss", total_loss)] + list(metric_dictionary.items()))
+            raise NonFiniteLossError(f"The loss of the batch of iteration {iteration} is not finite ({loss_values}): "
+                                     f"the batch is skipped, without backward pass nor optimizer step, the weights "
+                                     f"staying those of the previous step.")
 
         # Insert the total loss and the batch metrics of the task into the tracked metrics
         metric_dictionary["total_loss"] = total_loss

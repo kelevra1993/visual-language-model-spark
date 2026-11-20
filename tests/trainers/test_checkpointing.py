@@ -1,7 +1,7 @@
 """
 Tests of vision_training/trainers/checkpointing.py: the checkpoint registry naming the last checkpoint and keeping the
-history, a registry that cannot be read replaced by the complete checkpoint folders, and a failed save leaving no
-temporary file.
+history, a registry that cannot be read replaced by the complete checkpoint folders, a failed save leaving no
+temporary file, and weights holding NaN or infinite values never saved.
 """
 
 import errno
@@ -141,4 +141,29 @@ def test_failed_save_leaves_no_temporary_file(tmp_path: Path) -> None:
             save_checkpoint(weights_directory=weights_directory, iteration=6, model=model, optimizer=optimizer,
                             metadata={}, exponential_moving_average_state=None)
     assert not list(weights_directory.rglob(pattern="*.tmp"))
+    assert get_last_checkpoint_iteration(weights_directory=weights_directory) == 2
+
+
+def test_save_refuses_non_finite_weights(tmp_path: Path) -> None:
+    """
+    Verifies that weights holding a NaN value are neither saved nor recorded: the save raises an error naming the
+    tensor, writes no file, and the registry keeps naming the last checkpoint saved, which a resume loads.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, used as the run folder.
+    """
+    model = nn.Linear(in_features=2, out_features=2)
+    optimizer = torch.optim.Adam(params=model.parameters())
+    weights_directory = tmp_path / "Weights"
+    save_checkpoint(weights_directory=weights_directory, iteration=2, model=model, optimizer=optimizer, metadata={},
+                    exponential_moving_average_state=None)
+
+    # A NaN bias, as left by a step on NaN gradients, is refused before anything is written
+    with torch.no_grad():
+        model.bias[0] = float("nan")
+    with pytest.raises(expected_exception=ValueError, match=r"The checkpoint of iteration 4 is not saved: the weights "
+                                                            r"of the model hold NaN or infinite values \(in bias\)"):
+        save_checkpoint(weights_directory=weights_directory, iteration=4, model=model, optimizer=optimizer,
+                        metadata={}, exponential_moving_average_state=None)
+    assert not (weights_directory / "Iteration_4").exists()
     assert get_last_checkpoint_iteration(weights_directory=weights_directory) == 2
