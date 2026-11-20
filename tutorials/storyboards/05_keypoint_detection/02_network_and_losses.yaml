@@ -1,4 +1,5 @@
-# Keypoint detection, chapter 2: the network of the keypoint detector (the stem of the shared backbone, the high
+# Keypoint detection, chapter 2: the network of the keypoint detector (the stem block by block, the three keys of the
+# high resolution network and the inside of one module, the stem of the shared backbone, the high
 # resolution network and its exchanges, the prediction head and the higher resolution branch, with the shapes of the
 # trained network on the test image), the focal heatmap loss and its split on the test image, the tag losses with the
 # tags of the trained network, and the training curves of the synthetic keypoint run. Coordinates of the html scenes are
@@ -52,6 +53,151 @@ scenes:
       - "The high resolution network has a base width of {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#HRNet.base_width}}, {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#HRNet.modules_per_stage[0]:words}}, {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#HRNet.modules_per_stage[1]:words}} and {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#HRNet.modules_per_stage[2]:words}} exchange modules in its {{keypoint_detection.network_stage_count:words}} stages, and {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#HRNet.blocks_per_branch:words}} residual pairs per branch."
       - "With {{keypoint_detection.network_stage_count:words}} stages its lowest branch has a stride of {{keypoint_detection.network_lowest_stride}}, so the image size must be a multiple of {{keypoint_detection.network_lowest_stride}}."
       - "Should you want to change sigma, the tag weights or the grouping thresholds, a resumed run accepts it: they give no token to the run name."
+
+  - kind: html
+    page: diagram
+    title: "The stem, block by block"
+    code_reference: "vision_training/models/backbones/backbone.py · build_backbone"
+    # The names of the stem blocks (the keys of Backbone.convolutions) and the kernel and stride of their convolutions
+    literal_numbers: ["1", "2", "3", "3x3", three, one]
+    elements:
+      - {type: box, box: [20, 105, 175, 235], text: "image\n{{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#Data.image_settings.size}} × {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#Data.image_settings.size}}", font: diagram_small, outline: dim}
+      - {type: arrow, points: [[175, 170], [215, 170]], colour: blue}
+      - {type: box, box: [215, 105, 390, 235], text: "block 1\n{{keypoint_detection.stem_block_1_layers}} conv 3x3\n{{keypoint_detection.stem_block_1_channels}} channels\n{{keypoint_detection.stem_block_1_side}} × {{keypoint_detection.stem_block_1_side}}", font: diagram_small, outline: blue}
+      - {type: arrow, points: [[390, 170], [430, 170]], colour: blue, appear: 1}
+      - {type: box, box: [430, 105, 585, 235], text: "max pooling\nside halved\n{{keypoint_detection.stem_block_1_pooled_side}} × {{keypoint_detection.stem_block_1_pooled_side}}", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[585, 170], [625, 170]], colour: blue, appear: 1}
+      - {type: box, box: [625, 105, 800, 235], text: "block 2\n{{keypoint_detection.stem_block_2_layers}} conv 3x3\n{{keypoint_detection.stem_block_2_channels}} channels\n{{keypoint_detection.stem_block_2_side}} × {{keypoint_detection.stem_block_2_side}}", font: diagram_small, outline: blue, appear: 1}
+      - {type: arrow, points: [[800, 170], [840, 170]], colour: blue, appear: 1}
+      - {type: box, box: [840, 105, 995, 235], text: "max pooling\nside halved\n{{keypoint_detection.stem_block_2_pooled_side}} × {{keypoint_detection.stem_block_2_pooled_side}}", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[995, 170], [1035, 170]], colour: blue, appear: 2}
+      - {type: box, box: [1035, 105, 1210, 235], text: "block 3\n{{keypoint_detection.stem_block_3_layers}} conv 3x3\n{{keypoint_detection.stem_block_3_channels}} channels\n{{keypoint_detection.stem_block_3_side}} × {{keypoint_detection.stem_block_3_side}}", font: diagram_small, outline: blue, appear: 2}
+      - {type: arrow, points: [[1210, 170], [1250, 170]], colour: blue, appear: 2}
+      - {type: box, box: [1250, 105, 1405, 235], text: "no pooling\nlast block\n{{keypoint_detection.stem_output_side}} × {{keypoint_detection.stem_output_side}}", font: diagram_small, outline: dim, appear: 2, highlight: [2]}
+      - {type: arrow, points: [[1405, 170], [1445, 170]], colour: blue, appear: 2}
+      - {type: box, box: [1445, 105, 1600, 235], text: "to the HRNet\n{{keypoint_detection.stem_output_channels}} channels\n{{keypoint_detection.stem_output_side}} × {{keypoint_detection.stem_output_side}}", font: diagram_small, outline: aqua, appear: 2}
+      - type: listing
+        box: [20, 300, 860, 600]
+        source:
+          file: vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml
+          keys: [Backbone.convolutions, Backbone.last_max_pooling]
+          comments: false
+        highlights:
+          - {key: Backbone.convolutions, sentences: [0]}
+          - {key: Backbone.last_max_pooling, sentences: [2]}
+      - {type: box, box: [920, 300, 1740, 600], text: "one entry per block: [3x3 convolutions, output channels]\na 3x3 convolution of stride one keeps the side\nonly the max pooling after a block halves it\nlast_max_pooling False: none after the last block", font: diagram_small, outline: yellow}
+      - {type: text, position: [880, 670], text: "convolutions and max pooling only, no strided convolution", font: diagram_bold, anchor: ma, appear: 3, highlight: [3]}
+    narration:
+      - "Suppose you read the backbone convolutions of the configuration: every entry is one block of the stem, written as its number of three by three convolutions, then the channels they give."
+      - "A three by three convolution of stride one keeps the side of the map, so only the max pooling after a block halves it: the {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#Data.image_settings.size}} pixel image becomes {{keypoint_detection.stem_block_1_pooled_side}} cells a side, then {{keypoint_detection.stem_block_2_pooled_side}}."
+      - "Since last max pooling is false, no pooling follows the last block, so the stem ends with {{keypoint_detection.stem_output_channels}} channels on {{keypoint_detection.stem_output_side}} by {{keypoint_detection.stem_output_side}} cells, a quarter of the image."
+      - "There is no strided convolution: the poolings alone bring the image to a quarter, and the checks refuse a stem that ends elsewhere."
+
+  - kind: html
+    page: diagram
+    title: "Three keys build the network"
+    code_reference: "vision_training/models/keypoints/hrnet.py · HighResolutionNetwork"
+    # The names of the branches and stages, numbered from the first one, and the three keys of the HRNet section
+    literal_numbers: ["1", "2", "3", "4", three]
+    elements:
+      - type: listing
+        box: [20, 10, 760, 150]
+        source:
+          file: vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml
+          keys: [HRNet.base_width, HRNet.modules_per_stage, HRNet.blocks_per_branch]
+          comments: false
+        highlights:
+          - {key: HRNet.base_width, sentences: [1]}
+          - {key: HRNet.modules_per_stage, sentences: [2, 3, 4]}
+          - {key: HRNet.blocks_per_branch, sentences: [0]}
+      # One row per branch: its stride, side and channels
+      - {type: text, position: [20, 262], text: "branch 1 · stride {{keypoint_detection.branch_1_stride}} · {{keypoint_detection.branch_1_side}} × {{keypoint_detection.branch_1_side}} · {{keypoint_detection.branch_1_channels}} ch", font: diagram_small, colour: blue, anchor: lm, appear: 1}
+      - {type: text, position: [20, 362], text: "branch 2 · stride {{keypoint_detection.branch_2_stride}} · {{keypoint_detection.branch_2_side}} × {{keypoint_detection.branch_2_side}} · {{keypoint_detection.branch_2_channels}} ch", font: diagram_small, colour: aqua, anchor: lm, appear: 1}
+      - {type: text, position: [20, 462], text: "branch 3 · stride {{keypoint_detection.branch_3_stride}} · {{keypoint_detection.branch_3_side}} × {{keypoint_detection.branch_3_side}} · {{keypoint_detection.branch_3_channels}} ch", font: diagram_small, colour: yellow, anchor: lm, appear: 1}
+      - {type: text, position: [20, 562], text: "branch 4 · stride {{keypoint_detection.branch_4_stride}} · {{keypoint_detection.branch_4_side}} × {{keypoint_detection.branch_4_side}} · {{keypoint_detection.branch_4_channels}} ch", font: diagram_small, colour: violet, anchor: lm, appear: 1}
+      # Stage 1: two branches
+      - {type: text, position: [720, 195], text: "stage 1 · adds branch 2", font: diagram_small, anchor: ma, appear: 2}
+      - {type: box, box: [600, 232, 840, 292], text: "modules: {{keypoint_detection.stage_1_modules}}", font: diagram_small, outline: blue, appear: 2, highlight: [3]}
+      - {type: box, box: [600, 332, 840, 392], text: "modules: {{keypoint_detection.stage_1_modules}}", font: diagram_small, outline: aqua, appear: 2, highlight: [3]}
+      - {type: arrow, points: [[540, 262], [600, 262]], colour: blue, appear: 2}
+      - {type: arrow, points: [[560, 272], [600, 350]], colour: aqua, appear: 2}
+      # Stage 2: three branches
+      - {type: text, position: [1000, 195], text: "stage 2 · adds branch 3", font: diagram_small, anchor: ma, appear: 2}
+      - {type: box, box: [880, 232, 1120, 292], text: "modules: {{keypoint_detection.stage_2_modules}}", font: diagram_small, outline: blue, appear: 2, highlight: [3]}
+      - {type: box, box: [880, 332, 1120, 392], text: "modules: {{keypoint_detection.stage_2_modules}}", font: diagram_small, outline: aqua, appear: 2, highlight: [3]}
+      - {type: box, box: [880, 432, 1120, 492], text: "modules: {{keypoint_detection.stage_2_modules}}", font: diagram_small, outline: yellow, appear: 2, highlight: [3]}
+      - {type: arrow, points: [[840, 262], [880, 262]], colour: blue, appear: 2}
+      - {type: arrow, points: [[840, 362], [880, 362]], colour: aqua, appear: 2}
+      - {type: arrow, points: [[840, 380], [880, 450]], colour: yellow, appear: 2}
+      # Stage 3: four branches
+      - {type: text, position: [1280, 195], text: "stage 3 · adds branch 4", font: diagram_small, anchor: ma, appear: 2}
+      - {type: box, box: [1160, 232, 1400, 292], text: "modules: {{keypoint_detection.stage_3_modules}}", font: diagram_small, outline: blue, appear: 2, highlight: [3]}
+      - {type: box, box: [1160, 332, 1400, 392], text: "modules: {{keypoint_detection.stage_3_modules}}", font: diagram_small, outline: aqua, appear: 2, highlight: [3]}
+      - {type: box, box: [1160, 432, 1400, 492], text: "modules: {{keypoint_detection.stage_3_modules}}", font: diagram_small, outline: yellow, appear: 2, highlight: [3]}
+      - {type: box, box: [1160, 532, 1400, 592], text: "modules: {{keypoint_detection.stage_3_modules}}", font: diagram_small, outline: violet, appear: 2, highlight: [3]}
+      - {type: arrow, points: [[1120, 262], [1160, 262]], colour: blue, appear: 2}
+      - {type: arrow, points: [[1120, 362], [1160, 362]], colour: aqua, appear: 2}
+      - {type: arrow, points: [[1120, 462], [1160, 462]], colour: yellow, appear: 2}
+      - {type: arrow, points: [[1120, 480], [1160, 550]], colour: violet, appear: 2}
+      # Only the first branch goes on to the heads
+      - {type: arrow, points: [[1400, 262], [1460, 262]], colour: blue, appear: 2}
+      - {type: box, box: [1460, 232, 1740, 292], text: "to the heads", font: diagram_small, outline: blue, appear: 2}
+      - {type: text, position: [880, 680], text: "list length → branches  ·  each number → modules of its stage", font: diagram_bold, anchor: ma, appear: 4, highlight: [4]}
+    narration:
+      - "Should you need to read the HRNet section, three keys build the network: base width, modules per stage, and blocks per branch, which the next scene opens."
+      - "Base width is the channel count of the first branch, the one at a quarter of the image: {{keypoint_detection.branch_1_channels}} channels on {{keypoint_detection.branch_1_side}} by {{keypoint_detection.branch_1_side}} cells; every branch below has half the side and twice the channels, down to {{keypoint_detection.branch_4_channels}} channels on {{keypoint_detection.branch_4_side}} by {{keypoint_detection.branch_4_side}} cells."
+      - "Modules per stage holds one number per stage, and every stage adds one branch below the others, so its {{keypoint_detection.network_stage_count:words}} numbers give {{keypoint_detection.network_branch_count:words}} branches."
+      - "Each number is how many times its stage repeats its exchange module: {{keypoint_detection.stage_1_modules:words}}, then {{keypoint_detection.stage_2_modules:words}}, then {{keypoint_detection.stage_3_modules:words}}, {{keypoint_detection.network_total_modules:words}} modules in all."
+      - "So the length of the list decides the branches and their resolutions, while its numbers only decide how deep each stage is."
+
+  - kind: html
+    page: diagram
+    title: "Inside one module"
+    code_reference: "vision_training/models/keypoints/hrnet.py · ExchangeModule"
+    # The kernel of the branch convolutions, typed in ExchangeModule
+    literal_numbers: ["3x3", three]
+    elements:
+      - {type: text, position: [880, 30], text: "one residual pair, repeated {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#HRNet.blocks_per_branch}} times (blocks_per_branch) on every branch", font: diagram_bold, anchor: ma, highlight: [0]}
+      - {type: text, position: [40, 325], text: "input", font: diagram_small, colour: dim, anchor: la}
+      - {type: arrow, points: [[40, 300], [160, 300]], colour: blue}
+      - {type: box, box: [160, 230, 480, 370], text: "3x3 convolution\nbatch norm\nsqueeze and excitation\nReLU", font: diagram_small, outline: blue}
+      - {type: arrow, points: [[480, 300], [530, 300]], colour: blue}
+      - {type: box, box: [530, 230, 850, 370], text: "3x3 convolution\nbatch norm\nsqueeze and excitation", font: diagram_small, outline: blue}
+      - {type: arrow, points: [[850, 300], [920, 300]], colour: blue}
+      - {type: box, box: [920, 250, 1060, 350], text: "add\nReLU", font: diagram_small, outline: yellow, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[110, 300], [110, 160], [990, 160], [990, 250]], colour: yellow, label: "shortcut: the input added back", label_position: [550, 105], label_anchor: ma, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[1060, 300], [1140, 300]], colour: blue, appear: 2}
+      - {type: box, box: [1140, 220, 1740, 380], text: "exchange: every other branch,\nbrought to this resolution and width,\nis added, then a ReLU", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
+      - {type: box, box: [160, 480, 1740, 620], text: "{{keypoint_detection.module_convolutions}} convolutions per branch in one module  ·  {{keypoint_detection.network_total_modules}} modules\n{{keypoint_detection.branch_1_convolutions}} convolutions on the first branch before the heads", font: diagram_text, outline: dim, appear: 3, highlight: [3]}
+    narration:
+      - "Inside one module, every branch runs the same layers at its own resolution: residual pairs of three by three convolutions, as many as blocks per branch, here {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#HRNet.blocks_per_branch:words}}."
+      - "Each pair adds its input back to its output, the shortcut of residual nets, so that a pair learns a small correction instead of a whole new map."
+      - "The module then ends with the exchange of the next scenes: every branch receives all the others, brought to its own resolution and width, and adds them."
+      - "With {{keypoint_detection.module_convolutions:words}} convolutions per branch in each of the {{keypoint_detection.network_total_modules:words}} modules, the first branch runs {{keypoint_detection.branch_1_convolutions:words}} convolutions before the heads read it."
+
+  - kind: html
+    page: diagram
+    title: "Two lists, the same branches"
+    code_reference: "vision_training/models/keypoints/hrnet.py · HighResolutionNetwork"
+    example: true
+    elements:
+      - {type: text, position: [20, 70], text: "[1, 2, 2]", font: diagram_monospace, colour: blue, anchor: lm}
+      - {type: box, box: [300, 30, 600, 110], text: "stage 1\n1 module", font: diagram_small, outline: blue}
+      - {type: box, box: [640, 30, 940, 110], text: "stage 2\n2 modules", font: diagram_small, outline: blue}
+      - {type: box, box: [980, 30, 1280, 110], text: "stage 3\n2 modules", font: diagram_small, outline: blue}
+      - {type: box, box: [1320, 30, 1740, 110], text: "5 modules\n20 convolutions per branch", font: diagram_small, outline: dim}
+      - {type: text, position: [20, 230], text: "[1, 4, 3]", font: diagram_monospace, colour: aqua, anchor: lm}
+      - {type: box, box: [300, 190, 600, 270], text: "stage 1\n1 module", font: diagram_small, outline: aqua}
+      - {type: box, box: [640, 190, 940, 270], text: "stage 2\n4 modules", font: diagram_small, outline: aqua, highlight: [2]}
+      - {type: box, box: [980, 190, 1280, 270], text: "stage 3\n3 modules", font: diagram_small, outline: aqua, highlight: [2]}
+      - {type: box, box: [1320, 190, 1740, 270], text: "8 modules\n32 convolutions per branch", font: diagram_small, outline: dim, appear: 2, highlight: [2]}
+      - {type: box, box: [20, 340, 1740, 470], text: "both lists have 3 numbers → 3 stages → the same 4 branches:\nstride 4 (16 channels), 8 (32), 16 (64), 32 (128)", font: diagram_text, outline: yellow, appear: 1, highlight: [1]}
+      - {type: box, box: [20, 520, 1740, 650], text: "[1, 2, 2, 2] would add a fifth branch, stride 64 with 256 channels:\nthe length changes the branches, the numbers only the depth", font: diagram_text, outline: red, appear: 3, highlight: [3]}
+    narration:
+      - "Picture two settings of modules per stage: one, two, two, and one, four, three."
+      - "Both lists have three numbers, so both build three stages and the same four branches, at the same resolutions and with the same channels."
+      - "The second repeats more modules, eight instead of five: with two residual pairs per branch, the first branch runs thirty-two convolutions instead of twenty, so the network is deeper and exchanges more often, for more computation."
+      - "A fourth number would add a fifth branch at a sixteenth of the quarter map, with twice the channels of the fourth one: the length changes the branches, the numbers only the depth."
 
   - kind: html
     page: diagram
@@ -222,7 +368,8 @@ scenes:
   - kind: summary
     title: "Recap"
     items:
-      - {text: "Stem at {{keypoint_detection.heatmap_fraction}}, then an HRNet of {{keypoint_detection.network_branch_count}} branches exchanging after every module"}
+      - {text: "Stem at {{keypoint_detection.heatmap_fraction}} by convolutions and max pooling, then an HRNet of {{keypoint_detection.network_branch_count}} branches exchanging after every module"}
+      - {text: "modules_per_stage: its length sets the branches, its numbers the modules; blocks_per_branch: residual pairs per module"}
       - {text: "Head at {{keypoint_detection.heatmap_fraction}}: {{keypoint_detection.network_prediction_channels}} channels, {{keypoint_detection.channels_total}} heat map logits then {{keypoint_detection.channels_total}} tags"}
       - {text: "Higher resolution branch: {{keypoint_detection.channels_total}} more heat maps at {{keypoint_detection.branch_fraction}}"}
       - {text: "hidden_width {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#KeypointHead.hidden_width}}, heat map bias at logit({{constant:vision_training/models/keypoints/keypoint_detector.py#HEATMAP_PRIOR_PROBABILITY}})"}
