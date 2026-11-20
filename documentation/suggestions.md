@@ -1,96 +1,13 @@
 # Suggestions
 
-> Proposed improvements of the object detection (DET) and instance segmentation (INS) tasks that are not implemented
-> yet, kept in `documentation/` so that we can come back to them and decide what to implement. They were checked
-> against the code on 2026-10-15, and again on 2026-11-13, together with the findings of the
-> [Repository Audit For Instance Segmentation](#repository-audit-for-instance-segmentation), which they do not repeat.
-> The repository audit is kept at the end of this file. The items
-> taken from Mask R-CNN come from a comparison with its Keras / TensorFlow 1 implementation (matterport, commit
-> `3deaec5`) written on 2026-10-12 and merged here: "Mask R-CNN" means that repository, and "the paper" He et al.,
-> 2017. Its file references (`model.py`, `utils.py`, `config.py`, `coco.py`, `nucleus.py`, `visualize.py`) are those of
-> `mrcnn/` and of its samples. An item is removed from this list once it is implemented, or as soon as we decide not
-> to do it.
->
-> The items implemented since the first version of this list were removed:
-> - mAP evaluation, checkpoint evaluation script, run names, dataset sizes at startup, README;
-> - split of the detector and loader code;
-> - AdamW / warm-up / cosine, mixed precision (the gradient clipping added with them was removed on 2026-11-11,
->   no run having used it);
-> - He initialisation (removed after stage 12 of the experiment), pre-activation residual pairs;
-> - moving average of the weights, its export, best value and summary columns;
-> - confusion matrix, class thresholds and error images of the detector;
-> - batched target assignment, sampling and proposal selection of the training, exact box overlap;
-> - crowd annotations kept as ordinary objects by DET and INS, which no longer leave them out;
-> - record of the images of every split (`data.json`);
-> - configurable mask heads;
-> - covered objects left out of the synthetic DET images;
-> - average precision by object size;
-> - recall of the anchors at launch and of the proposals at every evaluation;
-> - object fragments left by the crop and the rotation removed (25 % of their area);
-> - per-level settings grouped in `DetectionLevels`;
-> - ground truth boxes added to the proposals of the detection heads;
-> - instance segmentation boxes taken from the masks, without the annotation `bbox`;
-> - detector with fewer anchors than proposals or candidates than detections, in training and in the exports;
-> - zoom-out augmentation (`random_zoom_out`), on in the DET and INS `configuration_example.yaml`;
-> - translation augmentation (`random_translation`) along the width, the height or both, up to 25 % of each side, for
->   every task, off in every configuration file;
-> - region proposal negatives down to IoU 0 (audit H1), the DET configurations back at 0.1 since 2026-11-12, kept by
->   stage 2 of the detection benchmark, without warning;
-> - NMS at 0.7 for the region proposals and 0.5 for the detections (audit M4);
-> - box regression weights of both stages kept at (1, 1, 1, 1) (`BOX_REGRESSION_WEIGHTS`),
->   the (10, 10, 5, 5) of torchvision giving about 2.5 times lower box and mask mAP@0.5 on the synthetic shapes;
-> - INS evaluation at the original resolution of the test images (`evaluation.original_resolution`) and mean
->   average recall of the boxes and masks by object size, for DET and INS (item 12), not compared with pycocotools;
-> - a weight per loss of DET and INS in the total loss (`Optimization.loss_weights`), tested: the weights of 1
->   everywhere gave the best results and are kept (2026-11-05);
-> - the decorrelation of the hidden features of the classification head (`ClassificationHead.decorrelation`, item 18,
->   whose experiment is left);
-> - the keypoint candidates placed within their cell by the parabola of the log-heatmap (item 17, whose measure on
->   COCO is left);
-> - the objects without labelled keypoint left out of the keypoint heatmap loss
->   (`KeypointHead.ignore_unlabelled_objects`, item 16, whose experiment is left);
-> - the ImageNet-22k download, which replaced the Tencent ML-Images downloader on 2026-11-06, the only ImageNet script
->   since 2026-11-11 (`imagenet_download.py`: every shard in train, one held-out image per class as validation and
->   test; the ImageNet-1k download and the merge of both datasets removed);
-> - the neck of DET and INS (`Neck.type`: `feature_pyramid`, `path_aggregation`, items 1 and 37), on 2026-11-07, the
->   feature pyramid kept by stage 3 on 2026-11-08 and set in the object detection configurations on 2026-11-12
->   (`none` in the instance segmentation ones), path aggregation tied with it by stage 4 on 2026-11-09 and kept in the
->   code for projects with very small objects;
-> - a CIoU box loss for the detection heads (`Detector.box_loss: "complete_iou"`, item 36), below the smooth L1 in
->   stage 5 (0.7974 against 0.8079) and off in every configuration, `RegionProposal.box_loss` removed on 2026-11-10;
-> - DIoU-NMS of the final detections (item 38), kept by stage 5b with the exponent 0.6 and set in the object
->   detection configurations on 2026-11-10, the exports running it too;
-> - the region proposals selected per level (`RegionProposal.proposal_selection: "per_level"`, item 3 and audit M3),
->   the proposals clamped to an empty box left out (audit L7), kept by stage 7 (+0.0104) and set in the object
->   detection configurations on 2026-11-12, the instance segmentation ones keeping `"joint"`;
-> - the audit items C3, C4, H2, H3, M1, M2, M4, M6, M8, M14, M15, M17, M20, L2, L5, L10, L13 and L18, fixed since
->   2026-10-10 (M7 gone with `resume_training`), recorded in the table of `bug_standards.md`; H6, M5, M9, M13, L7, L17,
->   L19 and L22 keep only their open part below.
->
-> Dropped without being implemented:
-> - the masked proposal padding of the training;
-> - the partial freezing of a pretrained backbone;
-> - `torch.compile`, after a measurement on the GB10 showed no speed-up;
-> - the predictions file of the detector;
-> - the dropout and the global average pooling of the detection head;
-> - the watch for the CUDA crash seen with DALI;
-> - the crowd regions ignored by the targets and the evaluation (audit M12), the crowds being ordinary objects;
-> - the COCO matching of the mAP (audit L6), the VOC matching being kept;
-> - the box-aware mosaic / copy-paste augmentation, the tiles at native resolution for DET and INS, and the projection
->   shortcuts of the channel-changing residual blocks (audit H4), dropped on 2026-11-05;
-> - the anchors centred on the cell centres (audit L1), tied with the cell corners in stage 8 of the detection
->   benchmark (0.7757 against 0.7765 at 8500) and removed on 2026-11-13;
-> - the float32 against bfloat16 comparison of the COCO keypoint training (item 15), no longer possible since
->   `Optimization.mixed_precision` was removed, every task training under the bfloat16 autocast.
-> - the fix of `run_benchmarking_loop` (audit L14), the loop being removed on 2026-11-14: only a commented line of
->   `main.py` called it, and it crashed at its first step with every shipped configuration.
->
-> Tested and reverted:
-> - the region proposal negatives mixing a share of easy anchors below `background_iou_threshold.min` with the hard
->   ones above it (`RegionProposal.easy_negative_fraction`, c3068e3): tested in stage 2b of
->   `architecture_benchmarking/object_detection_experiment_plan.md` (share 0.25, run_7 and run_8 against run_3 and
->   run_4), not conclusive, 0.25 being 0.0190 behind at 12,500 with boxes about half as tight at mAP@0.95, so the code
->   was reverted on 2026-11-07.
+> Proposed improvements that are not implemented yet, kept in `documentation/` so that we can come back to them and
+> decide what to implement. They were checked against the code on 2026-10-15 and again on 2026-11-13, together with the
+> findings of the [Repository Audit For Instance Segmentation](#repository-audit-for-instance-segmentation), kept at the
+> end of this file, which they do not repeat. The items taken from Mask R-CNN come from a comparison with its Keras /
+> TensorFlow 1 implementation (matterport, commit `3deaec5`) written on 2026-10-12: "Mask R-CNN" means that repository,
+> and "the paper" He et al., 2017. Its file references (`model.py`, `utils.py`, `config.py`, `coco.py`, `nucleus.py`,
+> `visualize.py`) are those of `mrcnn/` and of its samples. An item is removed from this list once it is implemented,
+> or as soon as we decide not to do it.
 
 ## Table Of Content
 - [A. Detector architecture](#a-detector-architecture)
@@ -115,8 +32,8 @@
   - [Suggested Order Of Fixes](#suggested-order-of-fixes)
 
 ## A. Detector architecture
-1. **A transferable neck**: the feature pyramid and path aggregation of this item are implemented (`Neck.type`, see
-   the list above), but heads trained after a neck are refused by `compare_detection_heads`, the neck not being
+1. **A transferable neck**: the feature pyramid and path aggregation of this item are implemented (`Neck.type`),
+   but heads trained after a neck are refused by `compare_detection_heads`, the neck not being
    transferable. A `Neck.pretrained` block would need entries in `TRANSFERABLE_COMPONENTS` (appended last, its order
    setting the optimizer groups), `PRETRAINED_COMPONENT_NAMES`, `PRETRAINED_TOKEN_PREFIXES` and `COMPONENT_NAMES`.
 2. **Choosing the detection level by box size** (the FPN rule `k = k₀ + log₂(√(wh)/224)`), instead of the level of
@@ -473,7 +390,7 @@ whether the self-supervised backbone learns not only how many shapes an image ho
     `random_erasing` and `random_plasma_shadow` off on the same probes.
 
 ## K. README screenshots and synthetic runs: left to redo
-The 20 images of `README/` were taken on 2026-10-23 (S11 of `bug_standards.md`) from runs of shortened copies of the
+The 20 images of `README/` were taken on 2026-10-23 from runs of shortened copies of the
 synthetic configurations in `experiments/readme_screenshots/` (MLflow database `mlflow.db`, console logs `<task>.log`
 kept with their colours). The helpers that made them are in `experiments/readme_screenshots/helpers/` (not
 committed): every image can be taken again from them without training, except where a new run is needed below.
@@ -540,8 +457,7 @@ committed): every image can be taken again from them without training, except wh
 > the code. Most were reproduced with small scripts, or with short trainings on the synthetic datasets or the dummy
 > task. The critical and high findings were checked a second time by hand.
 >
-> **Open items only:** the items fixed or dropped since were removed on 2026-11-13 (see the list at the top of this
-> file and the table of `bug_standards.md`). The line numbers are those of `84ac325`, except in the items updated on
+> **Open items only:** the items fixed or dropped since were removed. The line numbers are those of `84ac325`, except in the items updated on
 > 2026-11-13 (H6, M5, M9, L15, L17, L22).
 >
 > **Confidence:** every finding is VERIFIED (code paths read end to end, or reproduced) unless it is marked PLAUSIBLE

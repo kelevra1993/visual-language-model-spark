@@ -104,7 +104,7 @@ uv run python -m vision_training.deployment.export_model
 - A flip or a large rotation never renames a keypoint: after a left-right flip `left_hand` lies on the right and is still trained in the `left_hand` channel, so these types only suit names that depend neither on the side nor on the orientation (`DataAugmenter.augment_batch()` of `augmentations.py`; [tasks reference, Keypoint Detection](../reference/tasks_reference.md#keypoint-detection-kpt), Augmentation). The comment of `create_synthetic_dataset.py` saying that a flip swaps them is wrong (`bug_standards.md` B28).
 - `residual_nets: True` adds no shortcut in the stem: its three blocks all change the channel count (`ConvolutionBlock.count_residual_additions()`; `bug_standards.md` H4, dropped, Step 2.11); only the HRNet branches and the refinement of the higher resolution branch have residual pairs.
 - A keypoint head transferred from another run is checked on its class names and tensor shapes only, so keypoints in another order land on the wrong channels (`model_transfer.py`; `bug_standards.md` B10). The export writes no channel names either: a client rebuilds the channel table from the training `labels.json` (`suggestions.md` G14).
-- `Matched Objects` and `Mean Keypoint Error (pixels)` match a ground truth object to an object found with an OKS of at least 0.5, the overlap of the OKS mAP@0.5 (`MINIMUM_MATCH_SIMILARITY` of `object_keypoint_similarity.py`). Before 2026-10-25 any OKS above 0 matched, however far the object (`bug_standards.md` B51), so older evaluations can give more matched objects and larger errors.
+- `Matched Objects` and `Mean Keypoint Error (pixels)` match a ground truth object to an object found with an OKS of at least 0.5, the overlap of the OKS mAP@0.5 (`MINIMUM_MATCH_SIMILARITY` of `object_keypoint_similarity.py`). Before 2026-10-25 any OKS above 0 matched, however far the object, so older evaluations can give more matched objects and larger errors.
 - `export_experiment()` loads the checkpoint on CUDA, hard-coded, so the export needs a GPU (`export_model.py`, Step 6.1).
 
 ## Table of Contents
@@ -1042,7 +1042,7 @@ Matched Objects 0.0111   PCK@0.05 0.0017   Mean OKS 0.0014   Mean Keypoint Error
 ```
 Only 1 of the 90 objects is matched, a hollow trapezoid, with 1 of its 8 keypoints found (bottom_left, √5 = 2.24 pixels from its ground truth) and an OKS of 0.1223. The mean error only counts the keypoints found, so its 2.24 pixels describe this single keypoint; `Matched Objects` and `PCK@0.05` show that nearly everything is missed. The same split with the checkpoint of iteration 2000 gives Matched Objects 100.00 %, PCK@0.05 94.57 %, Mean OKS 93.37 % and a mean error of 6.1648 pixels.
 
-> These outputs were recorded before 2026-10-25, when a match still needed only an OKS above 0. Since then a match needs an OKS of at least 0.5 (`MINIMUM_MATCH_SIMILARITY`, `bug_standards.md` B51), so the hollow trapezoid of OKS 0.1223 is missed: at iteration 60 `Matched Objects`, `PCK@0.05` and `Mean OKS` are 0 and the mean keypoint error has no value, like the other CPU checkpoints.
+> These outputs were recorded before 2026-10-25, when a match still needed only an OKS above 0. Since then a match needs an OKS of at least 0.5 (`MINIMUM_MATCH_SIMILARITY`), so the hollow trapezoid of OKS 0.1223 is missed: at iteration 60 `Matched Objects`, `PCK@0.05` and `Mean OKS` are 0 and the mean keypoint error has no value, like the other CPU checkpoints.
 
 ### Step 4.8 — `summarise_average_precisions(overlap_type="keypoints")`
 The average precision of `object_detection_workflow.md` on the OKS overlaps instead of the box IoU, with `title_prefix="OKS"`, `name_prefix="OKS "` and `column_prefix="oks_"`: the three methods (area, 11 point, 101 point) at OKS 0.5, 0.75, 0.95 and 0.5 to 0.95, the COCO object sizes by box area, the mean average recall, the per-class APs, and the OKS recall of every class at 0.5 and 0.75 with the bounds of its exact (Clopper-Pearson) 95 % confidence interval over the ground truth objects (`oks_recall_50` to `oks_recall_75_upper`, the `OKS Per Class Recall` table, `object_detection_workflow.md`, Step 4.11). As for the boxes, the objects found are taken by decreasing score, and each one is a true positive when its OKS with its best ground truth object reaches the threshold and no more confident object took that ground truth (the PASCAL VOC rule): the AP is high when the objects found are placed well and the false positives have low scores, like the objects 2 to 5 of Step 4.3.
@@ -1157,7 +1157,7 @@ The base_right keypoint of the hollow semicircle comes last with no value: none 
 
 The averaged weights follow the trained weights a few iterations behind (the n-th update uses the decay min(0.999, (1 + n) / (10 + n)), 0.87 at the 60th update), so at iteration 60 they match no object yet.
 
-> Recorded before the minimum OKS of a match (2026-10-25, B51): the row of iteration 60 is now 0.00 %, 0.00 %, 0.00 % and —, and the row of the GPU run can count fewer matched objects if some object was matched below an OKS of 0.5; the OKS mAPs are unchanged.
+> Recorded before the minimum OKS of a match (2026-10-25): the row of iteration 60 is now 0.00 %, 0.00 %, 0.00 % and —, and the row of the GPU run can count fewer matched objects if some object was matched below an OKS of 0.5; the OKS mAPs are unchanged.
 
 **Example: the run folder after the training**
 ```text
@@ -1226,7 +1226,7 @@ iteration   OKS mAP@0.5/area   Keypoint Accuracy/Matched Objects   Keypoint Accu
    30       0.0                0.000000                            0.000000                     0.000000                     NaN                                              0.0
    15       0.0                0.000000                            0.000000                     0.000000                     NaN                                              0.0
 ```
-The checkpoint of iteration 60 matched one object when this file was written, but its OKS of 0.12 is below the 0.5 of the mAP@0.5, so the four checkpoints tie; since the minimum OKS of a match (2026-10-25, B51) it matches none, and its row is 0.0, 0, 0, 0 and NaN like the others. The mean keypoint error is NaN when no labelled keypoint was found.
+The checkpoint of iteration 60 matched one object when this file was written, but its OKS of 0.12 is below the 0.5 of the mAP@0.5, so the four checkpoints tie; since the minimum OKS of a match (2026-10-25) it matches none, and its row is 0.0, 0, 0, 0 and NaN like the others. The mean keypoint error is NaN when no labelled keypoint was found.
 
 **Example: the evaluation folder**
 ```text
