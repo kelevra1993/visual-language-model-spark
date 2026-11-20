@@ -15,7 +15,7 @@ The examples of Stages 1 and 2 and of the steps of one batch come from real runs
 > - the configurations have the `Neck` section of the detection (`type: "none"`, no layer, the outputs unchanged), among the model sections of Steps 1.2 and 1.3 and printed in a `Neck Architecture` panel by the summary;
 > - the synthetic configuration loads one instance index map per image (`Data.instance_index_maps: True`, Step 2.9) instead of one mask per object, so its loader batches hold `instance_index_maps` [B, S, S] uint8 where the examples show lists of `instance_masks`; `prepare_batch()` expands the maps on the device into the same `instance_masks` (Step 3.7), which every later step reads; the compressed run length encodings are decoded with numpy (`decode_compressed_counts()`), same run lengths, faster.
 >
-> The synthetic configuration now trains on the full synthetic dataset with blocks of 16 and 32 filters, two anchor scales per level and smaller heads (mask heads `[3, 32]`), batch size 64 and 2000 iterations: `Read This First` describes it with a run of `experiments/readme_screenshots`, and Stages 3 to 5 show the outputs of its 5000-iteration copy. The detector sections have since gained settings that every output of this document runs with by default: `RegionProposal.proposal_selection: "joint"` (one top-k and one NMS of the proposals over all the levels), `Detector.box_loss: "smooth_l1"` and `Detector.nms_criterion: "iou"` (the greedy final NMS, `nms_distance_exponent` being read by `"distance_iou"` only). The instance segmentation configurations keep these values, with no neck, a learning rate of 2e-4 and `RegionProposal.background_iou_threshold.min: 0.0`, until their own benchmark; the object detection configurations, which ship the winners of the detection benchmark, select the proposals per level (`"per_level"`), suppress with DIoU-NMS (`"distance_iou"`, exponent 0.6) and train with the feature pyramid (`Neck.type: "feature_pyramid"`), a learning rate of 1e-3 and a background minimum of 0.1.
+> The synthetic configuration trains on the full synthetic dataset with blocks of 16 and 32 filters, two anchor scales per level and smaller heads (mask heads `[3, 32]`), batch size 64 and 2000 iterations: What A Run Writes and the Pitfalls quote the INS run of `experiments/readme_screenshots`, which adds the settings listed there, and Stages 3 to 5 show the outputs of its 5000-iteration copy. The detector sections have since gained settings that every output of this document runs with by default: `RegionProposal.proposal_selection: "joint"` (one top-k and one NMS of the proposals over all the levels), `Detector.box_loss: "smooth_l1"` and `Detector.nms_criterion: "iou"` (the greedy final NMS, `nms_distance_exponent` being read by `"distance_iou"` only). The shipped instance segmentation configurations keep these values, with no neck, a learning rate of 2e-4, `RegionProposal.background_iou_threshold.min: 0.0` and the mask heads `[3, 32]`, although the instance segmentation benchmark ran with the detection settings named next and kept the mask heads `[4, 64]` (stage 3) and the image branch of design A (stage 3b, chosen on 2026-11-19, `documentation/architecture_benchmarking/instance_segmentation_experiment_plan.md`); the object detection configurations, which ship the winners of the detection benchmark, select the proposals per level (`"per_level"`), suppress with DIoU-NMS (`"distance_iou"`, exponent 0.6) and train with the feature pyramid (`Neck.type: "feature_pyramid"`), a learning rate of 1e-3 and a background minimum of 0.1.
 
 ## Read This First
 The instance segmenter learns to find every object of an image with its box, class and score, like the detector of DET, and the pixel mask of every detection. It is the two-stage detector of `object_detection_workflow.md` (backbone, anchors, region proposal and detection heads of every level of `DetectionLevels`) with one mask head per level, in the style of Mask R-CNN without feature pyramid by default (`Neck.type: "none"`; with `feature_pyramid` or `path_aggregation` every head reads the merged levels): the mask head of the level of a detection pools its refined box and predicts one 28 x 28 mask per class, of which the channel of the detected class is kept. The input is a COCO split whose objects have a `segmentation` (a run length encoding or polygons), the box of every object being taken from its mask; the output is the detections of DET with the mask probabilities of every detection in the frame of its box, pasted into the image by the evaluation and by the clients. Choose INS when the pixels of every object matter (touching or overlapping objects, their areas or outlines); DET when boxes are enough, without mask annotations; SEG (`semantic_segmentation_workflow.md`) when the class of every pixel is enough at the resolution of the image and the objects of a class need not be told apart; KPT for keypoints.
@@ -78,12 +78,14 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 ```
 
 ### Configuration Keys To Know First
+Before changing the synthetic configuration, these are the keys that change the mask heads, the detector or the evaluation the most.
+
 | Key | Value in the synthetic configuration | Effect |
 |---|---|---|
 | `MaskHead.mask_resolution` | 28 | side of the masks of every level, the `MR28` token of the run name and the `[D, 28, 28]` of the exported `detection_masks` |
-| `DetectionLevels.<5, 6, 7>.mask_head` | `roi_align_pool_size: 14`, `convolutions: [3, 32]` | RoIAlign and convolution block of the mask head of every level (`M14.3x32`), the pool doubled once to 28 (`count_mask_upsamplings()`); the pool size must not exceed the mask resolution; on the benchmark dataset, the pool of 14 with the resolution of 28 beat a pool of 22 (resolution 44) and a resolution of 56 (stages 1 and 2 of `documentation/architecture_benchmarking/instance_segmentation_experiment_plan.md`) |
+| `DetectionLevels.<5, 6, 7>.mask_head` | `roi_align_pool_size: 14`, `convolutions: [3, 32]` | RoIAlign and convolution block of the mask head of every level (`M14.3x32`), the pool doubled once to 28 (`count_mask_upsamplings()`); the pool size must not exceed the mask resolution; on the benchmark dataset, the pool of 14 with the resolution of 28 beat a pool of 22 (resolution 44) and a resolution of 56 (stages 1 and 2 of `documentation/architecture_benchmarking/instance_segmentation_experiment_plan.md`), and the heads `[4, 64]` beat `[3, 32]` by 2.62 points of mask mAP@[0.5:0.95] with the averaged weights (stage 3), not written into the shipped configurations |
 | `MaskHead.upsampling` | `"transposed"` | a 2 x 2 transposed convolution of stride 2 per doubling (`MUTC`), or `"bilinear"`, a bilinear doubling followed by a 3 x 3 convolution (`MUBL`) |
-| `MaskHead.skip_blocks_at_pool_size`, `image_branch_convolutions`, `skip_blocks_at_mask_resolution`, `fusion_convolutions` | `[]`, `[0, 0]`, `[]`, `[0, 0]` (off; this document runs without them) | finer inputs of the mask heads (stage 3b of the instance segmentation benchmark): backbone blocks before their pooling pooled at the pool size (`MSP`), an image branch of plain 3 x 3 convolutions on the RoIAlign crop of the normalized input image (`MIB`) and blocks pooled at the mask resolution (`MSM`), both concatenated after the doublings, and plain 3 x 3 fusion convolutions before the predictor (`MF`) |
+| `MaskHead.skip_blocks_at_pool_size`, `image_branch_convolutions`, `skip_blocks_at_mask_resolution`, `fusion_convolutions` | `[]`, `[0, 0]`, `[]`, `[0, 0]` (off; this document runs without them) | finer inputs of the mask heads (stage 3b of the instance segmentation benchmark): backbone blocks before their pooling pooled at the pool size (`MSP`), an image branch of plain 3 x 3 convolutions on the RoIAlign crop of the normalized input image (`MIB`) and blocks pooled at the mask resolution (`MSM`), both concatenated after the doublings, and plain 3 x 3 fusion convolutions before the predictor (`MF`); the benchmark kept the image branch `[5, 32]` with the fusion `[1, 64]` (design A, +7.19 points over stage 3, chosen on 2026-11-19), off in the shipped configurations |
 | `MaskHead.modules`, `MaskHead.normalization` | residual shortcuts on, squeeze-and-excitation and inception off; batch normalization | the convolution blocks of the mask heads (`MRES-MBN`) |
 | `MaskHead.inference.mask_threshold` | 0.5 | pixels of a pasted mask kept for the mask IoU, the confusion matrix and the sample and error images; the exported model returns the probabilities without it |
 | `Optimization.loss_weights.mask_loss` | 1.0 (1.0 for the four detection losses too) | weight of the mask loss in the total loss, the losses being tracked unweighted |
@@ -93,10 +95,14 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 | `ExperimentConfiguration.evaluation.score_threshold`, `target_precision` | 0.05, 0.99 | detections kept for the mask and box mAP; precision of the class thresholds, found on the mask average precisions |
 
 ### What A Run Writes
+Whenever a run is launched or a checkpoint evaluated, the run folder, TensorBoard and MLflow receive the following, with the results of the two runs this document quotes.
+
 - At every launch, `anchor_recall.csv` in the run folder: the share of the training objects with a foreground anchor, per level and size, the boxes being those of the segmentations (Step 2.18).
+- Before the first iteration, `Input_Samples/` with `samples.json`: the first 10 images of every loader as the network receives them, with their masks, the training ones augmented, so `Training/` and `Test/` only when `validation_iteration_ratio` is 0 (`training_reference.md`, Run Folder).
+- After every evaluation, `Evaluation/evaluation_summary.csv` (one row per checkpoint, the averaged weights in `ema_` columns) and `evaluation_curves.png` next to `Results.txt`, drawn again from it.
 - At every `weight_saving_iterations` checkpoint, in `Evaluation/Iteration_<n>/`: `class_metrics.csv` (37 columns: the box AP of every class at 0.5, 0.75, 0.95 and 0.5:0.95 and by size, its box recall at 0.5 and 0.75 with their 95 % confidence intervals, the same columns prefixed with `mask_`, then the threshold and recall at the target precision), `class_thresholds.json`, `confusion_matrix.csv` and `.png` (the detections matched to the objects by mask IoU 0.5), `proposal_recall.csv`, `Samples/<image>.png` (the ground truth masks and boxes next to the detections reaching 0.5 with their masks), `Errors/` with `error_dumps`, and the same files in `EMA/` for the moving average of the weights.
 - `Results.txt`: one block per evaluation (two with the moving average) with eleven tables, the mask then box mAP by method and by size, the mask and box mean average recall, the proposal recall and the mask and box per-class tables, each followed by its per-class recall table, every average precision and recall written as a percentage (`63.72 %`) while the counts, score thresholds and proposals per image keep their values, the files, TensorBoard and MLflow keeping the rates between 0 and 1; `Tensorboard/Train` holds the total loss, the five losses and the learning rate, `Tensorboard/Test` and `Test_EMA` 126 evaluation scalars for 20 classes, the 8 samples and the confusion matrix.
-- In the INS run of `experiments/readme_screenshots`, the run of the instance segmentation tutorials (trained from random weights on the dataset generated on 2026-11-18 with the settings the instance segmentation benchmark kept: feature pyramid, blocks 4 to 7, anchors from 16 to 384 pixels, per-level proposal selection, DIoU-NMS, learning rate 1e-3, mask heads `[4, 64]`; evaluated every 1000 iterations on the first 5,000 test images, planned for 10,000 iterations and stopped after its evaluation at 6000), iteration 6000 gives `Mask mAP@0.5/area` 82.96 % (88.09 % with the averaged weights), `Mask mAP@[0.5:0.95]/area` 60.97 % (68.52 %), a box `mAP@0.5/area` of 83.54 %, a mask `mAR@0.5` of 96.81 %, and 20,452 right detections, 2,886 of the wrong class, 3,029 false positives and 4,110 missed objects at the deployment threshold, matched on the masks.
+- In the INS run of `experiments/readme_screenshots`, the run of the instance segmentation tutorials (trained from random weights on the dataset generated on 2026-11-18 with the synthetic configuration plus the detection settings of the benchmarks, feature pyramid, per-level proposal selection, DIoU-NMS 0.6, learning rate 1e-3 and background minimum 0.1, the mask heads `[4, 64]` of stage 3, and a level on block 4 (anchors of 16 and 32 pixels) with the anchor scale 384 on block 7, which no shipped configuration holds, without the image branch of stage 3b; evaluated every 1000 iterations on the first 5,000 test images, planned for 10,000 iterations and stopped after its evaluation at 6000), iteration 6000 gives `Mask mAP@0.5/area` 82.96 % (88.09 % with the averaged weights), `Mask mAP@[0.5:0.95]/area` 60.97 % (68.52 %), a box `mAP@0.5/area` of 83.54 %, a mask `mAR@0.5` of 96.81 %, and 20,452 right detections, 2,886 of the wrong class, 3,029 false positives and 4,110 missed objects at the deployment threshold, matched on the masks.
 - In the run of `run_configurations/instance_segmentation_workflow_run.yaml` shown in Stages 3 to 5 (the synthetic configuration trained to 5000 iterations from scratch, evaluated every 500), iteration 5000 gives `Mask mAP@0.5/area` 63.72 % with the trained weights and 73.64 % with the averaged weights, a box `mAP@0.5/area` of 64.04 % (73.93 %), and 32,850 right detections, 8,650 of the wrong class, 3,549 false positives and 28,182 missed objects at the deployment threshold; the trained weights had their best `Mask mAP@0.5/area`, 69.49 %, at iteration 4500 (Step 4.7).
 
 ### Pitfalls
@@ -143,13 +149,14 @@ main()
 │           │                                                    convolutions, normalization, modules, mask_threshold,
 │           │                                                    pretrained, and the finer inputs
 │           │                                                    (check_mask_head_fine_inputs)
-│           └── check_boolean_flags()                            evaluation.original_resolution
+│           └── check_boolean_flags()                            Data.instance_index_maps,
+│                                                                evaluation.original_resolution
 │
 ├── get_trainer_class(task)  -> InstanceSegmentationTrainer
 │
 ├── InstanceSegmentationTrainer(experiment_configuration, model_configuration, configuration_path)   [STAGE 2]
-│   │   LOAD_INSTANCE_MASKS = True, MATCHING_OVERLAP_TYPE = "masks", reads MaskHead.inference.mask_threshold and
-│   │   evaluation.original_resolution.
+│   │   LOAD_INSTANCE_MASKS = True, MATCHING_OVERLAP_TYPE = "masks", reads MaskHead.inference.mask_threshold,
+│   │   evaluation.original_resolution and Data.instance_index_maps.
 │   │
 │   └── DetectionTrainer.__init__()
 │       │   Reads evaluation.score_threshold, Detector.inference.score_threshold, target_precision, error_dumps.
@@ -188,8 +195,12 @@ main()
 │           ├── get_loss_weights() / get_tracked_metrics()           5 losses + Total Loss
 │           ├── print_experiment_information() / print_summary()     backbone, neck, RPN, detection, mask, receptive field,
 │           │                                                        model size panels
+│           ├── diagnose_data_splits()                               anchor recall of every split
+│           │                                                        (only with compute_anchor_coverage)
 │           ├── view_input_batches() -> show_input_samples() -> build_input_windows() -> get_input_sample_image() ->
 │           │   overlay_instance_masks()                             (only with view_input_images)
+│           ├── benchmark_speed()                                    (only with benchmark_speed); any of these three
+│           │                                                        modes then exits, without run folder
 │           ├── analyse_training_data()                              anchor recall on the boxes of the segmentations
 │           │   └── gather_object_boxes() -> select_image_objects(boxes_from_segmentation=True) ->
 │           │       compute_segmentation_bounding_box()              the box of every object read from its polygons
@@ -198,6 +209,7 @@ main()
 │
 └── trainer.run_training_loop()   [STAGE 3]
     └── run_training_iterations()
+        ├── save_input_samples()   Input_Samples/: the first 10 images of every loader, drawn as the viewer draws them
         ├── for each training_iteration, from start_iteration to number_iterations (the total of the run):
         │   ├── get_next_batch() -> CocoDetectionDataset.__getitem__() + collate_function()
         │   │   │   read_image(); a batch failing to load is dropped and the next one taken
@@ -235,8 +247,8 @@ main()
 run_test_evaluation(iteration)   [STAGE 4]
 └── evaluate_test_split(), for the trained weights, then again within use_averaged_weights() for the moving average
     │   of the weights (Optimization.exponential_moving_average on: Evaluation/Iteration_<n>/EMA/, Tensorboard/Test_EMA)
-    ├── evaluation_context()                                 score threshold lowered to evaluation.score_threshold
     ├── create_evaluation_accumulator()
+    ├── evaluation_context()                                 score threshold lowered to evaluation.score_threshold
     ├── for each test batch:
     │   ├── prepare_batch() + predict_batch() -> InstanceSegmenter.forward() without ground truth
     │   │   │                                    (test maps expanded into instance_masks, as in training)
@@ -260,7 +272,9 @@ run_test_evaluation(iteration)   [STAGE 4]
     │   ├── save_proposal_recall()                               proposal_recall.csv
     │   ├── write_class_metrics_file()                           box and mask columns of every class
     │   └── save_error_analysis()                                thresholds of the mask APs, confusion matrix
-    └── report_evaluation() -> report_evaluation_results() + track_evaluation()      headline 'Mask mAP@0.5/area'
+    └── report_evaluation() -> report_evaluation_results() + track_evaluation() + update_evaluation_curves()
+            headline 'Mask mAP@0.5/area'; the row of the checkpoint added to evaluation_summary.csv,
+            evaluation_curves.png drawn again
 
 scripts/evaluation/evaluate_checkpoint.py   [STAGE 5]
 └── evaluate_checkpoints() -> start_evaluation_tracking() + summarise_checkpoint_evaluations()
@@ -320,7 +334,7 @@ dict: {1: 1, 2: 2, 3: 3, ..., 19: 19, 20: 20, 'background': 0}
 ```
 
 ### Step 1.5 — `check_configuration()`
-The common checks run first, then `check_instance_segmentation_configuration()`: the checks of the detection (`check_detection_configuration()`, which also requires a `mask_head` in every detection level, refuses `random_perspective` and `random_jigsaw`, whose moves the boxes and the masks cannot follow, and checks the weight of the `mask_loss` with the four others), `check_mask_head_configuration()` (with `check_mask_head_fine_inputs()`: the `[layers, channels]` of the image branch and of the fusion convolutions both positive or `[0, 0]`, the skip blocks distinct numbers from 0, the normalized input image, to the last backbone block, held to the U-Net layout by `check_skip_block_strides()` (block b before its pooling being at stride 2 ** (b - 1): every skip finer than the finest detection level, block 5 (stride 16) at most with the levels 5 to 7 of this run (finest stride 32), every skip at the mask resolution finer than every skip at the pool size, and no block in both lists), and no image branch with mask heads initialised by another run, the branch not being transferred with them), and a boolean `evaluation.original_resolution`. The RoIAlign pool size of every level must not exceed `MaskHead.mask_resolution`, since the mask head only enlarges the pooled features.
+The common checks run first, then `check_instance_segmentation_configuration()`: the checks of the detection (`check_detection_configuration()`, which also requires a `mask_head` in every detection level, refuses `random_perspective` and `random_jigsaw`, whose moves the boxes and the masks cannot follow, and checks the weight of the `mask_loss` with the four others), `check_mask_head_configuration()` (with `check_mask_head_fine_inputs()`: the `[layers, channels]` of the image branch and of the fusion convolutions both positive or `[0, 0]`, the skip blocks distinct numbers from 0, the normalized input image, to the last backbone block, held to the U-Net layout by `check_skip_block_strides()` (block b before its pooling being at stride 2 ** (b - 1): every skip finer than the finest detection level, block 5 (stride 16) at most with the levels 5 to 7 of this run (finest stride 32), every skip at the mask resolution finer than every skip at the pool size, and no block in both lists), and no image branch with mask heads initialised by another run, the branch not being transferred with them), and the booleans `Data.instance_index_maps` and `evaluation.original_resolution`. The RoIAlign pool size of every level must not exceed `MaskHead.mask_resolution`, since the mask head only enlarges the pooled features.
 
 **Example: output with `MaskHead.upsampling: nearest` and `DetectionLevels.5.mask_head.roi_align_pool_size: 32` in the YAML**
 ```text
@@ -345,11 +359,12 @@ get_trainer_class(task="instance_segmentation") -> <class 'vision_training.train
 > The examples below are real outputs from building the trainer on the redirected `configuration_synthetic_shapes.yaml` (512 pixel images, batch size 40), with the run folder redirected to a temporary folder. The whole construction took 16.4 s on CPU.
 
 ### Step 2.1 — `InstanceSegmentationTrainer.__init__()` → `DetectionTrainer.__init__()`
-The instance segmentation trainer is the detection trainer with two class attributes of its own (next to `TASK_NAME`), two settings, and a module constant:
+The instance segmentation trainer is the detection trainer with two class attributes of its own (next to `TASK_NAME`), three settings, and a module constant:
 - `LOAD_INSTANCE_MASKS = True`: the COCO loaders return the mask of every object (Step 2.9).
 - `MATCHING_OVERLAP_TYPE = "masks"`: the detections are matched to the objects by the IoU of their masks, for the confusion matrix and the error images (Step 4.5).
 - `self.mask_threshold`, read from `MaskHead.inference.mask_threshold`: the probability from which a pixel of a pasted mask belongs to its object, in the evaluation and the sample images.
 - `self.original_resolution`, read from `evaluation.original_resolution` before the loaders are built: the test loader then also gives the objects at the original resolution, where the boxes and masks are scored (Step 4.7).
+- `self.instance_index_maps`, read from `Data.instance_index_maps` (`True` in the synthetic configuration, absent from the configuration of these examples): the loaders then give one instance index map per image, expanded into the masks on the device (Step 2.9).
 - `MASK_OVERLAP_CHUNK_SIZE = 16` of `instance_segmentation_trainer.py`: the detections whose masks are pasted at once for a 1024 x 1024 image when the mask overlaps are computed, scaled inversely to the pixels of the image (`MASK_OVERLAP_REFERENCE_PIXELS`), 64 at 512 pixels (Step 4.5).
 
 The detection constructor then reads the two score thresholds, the target precision and the error images settings (see `object_detection_workflow.md`, Step 2.1).
@@ -495,6 +510,7 @@ detection_input_information:  {'5': {'feature_map_size': 16, 'number_channels': 
                                '7': {'feature_map_size': 8, 'number_channels': 128}}
 anchors: (3456, 4)
 ```
+A model built by the current code also has a `neck` (`FeatureNeck`, no parameter with `Neck.type: "none"`) after the backbone and a `mask_fine_inputs` (`MaskFineInputs`, no parameter with the finer inputs off) before the mask heads, as the shipped synthetic configuration gives on the CPU (`neck` 0, `mask_fine_inputs` 0, `mask_heads_dictionary` 99,756 parameters).
 
 ### Step 2.13 — `MaskHead.__init__()` → `count_mask_upsamplings()`
 A mask head is a small fully convolutional network applied to every box:
@@ -692,7 +708,7 @@ We Generate A New Model That Will Be Trained From Scratch.
 
 ## Stage 3 — Training Loop
 
-> The outputs of the run below (Steps 3.1 to 3.5, 3.14, 3.17 and 3.18) are real outputs of the 5000-iteration run of [`run_configurations/instance_segmentation_workflow_run.yaml`](run_configurations/instance_segmentation_workflow_run.yaml), trained on the GPU on 2026-10-24. The commands of `Run It` launch the synthetic configuration, which differs only by its 2000 iterations, its checkpoint evaluated every 250 iterations (an intermediate one every 125), its MLflow tracking turned off, its experiment folder and its augmentation probabilities (0.25 for `random_haze`, 0.3 in this run). The run name is `INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20`, written `<run>` below; with batches of 64 images an epoch is 2000 iterations, a console summary is printed every 1000 iterations (`information_dump`) and no validation batch runs (`validation_iteration_ratio: 0`). The 5000 iterations with their 20 evaluations took 2 h 32 min, from 15:19 to 17:51, the GPU being shared with the DET run of `object_detection_workflow.md` until 16:15.
+> The outputs of the run below (Steps 3.1 to 3.5, 3.14, 3.17 and 3.18) are real outputs of the 5000-iteration run of [`run_configurations/instance_segmentation_workflow_run.yaml`](run_configurations/instance_segmentation_workflow_run.yaml), trained on the GPU on 2026-10-24. The commands of `Run It` launch the synthetic configuration, which differs only by its 2000 iterations, its checkpoint evaluated every 250 iterations (an intermediate one every 125), its MLflow tracking turned off, its experiment folder, its augmentation probabilities (0.25 for `random_haze`, 0.3 in this run) and `Data.instance_index_maps` (`True`, `False` in this run, both giving the same masks). The run name is `INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L567_A6.32-256.e7b72c_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.3x32-MR28_MC20`, written `<run>` below; with batches of 64 images an epoch is 2000 iterations, a console summary is printed every 1000 iterations (`information_dump`) and no validation batch runs (`validation_iteration_ratio: 0`). The 5000 iterations with their 20 evaluations took 2 h 32 min, from 15:19 to 17:51, the GPU being shared with the DET run of `object_detection_workflow.md` until 16:15.
 >
 > The examples of one batch going through the model (Steps 3.6 to 3.13, 3.15 and 3.16) come from the earlier run on CPU of the redirected configuration of Stages 1 and 2 shortened to batch size 2, 12 iterations, a checkpoint every 6 iterations, a console summary every 4 iterations, a validation batch every 10 iterations, 2 loading workers, with the MLflow tracking on. Its model is the one of Stages 1 and 2 (64 and 128 filters, 9 anchors per position, 3456 anchors, mask heads of `[4, 64]`, run name of Step 2.4).
 
@@ -725,7 +741,7 @@ Tensorboard/Test_EMA/     the same tags for the averaged weights                
 - MLflow Tracking         : sqlite:///.../experiments/workflow_runs/mlflow.db                <- launch information
 MLflow Run Created In The Experiment 'instance_segmentation' : 4c0f509b4cfd43ccac007e094fb5769e (Browse : mlflow ui --backend-store-uri sqlite:///.../experiments/workflow_runs/mlflow.db)
 ```
-The identifiers are also written in `<run>/mlflow_run.json` (`tracking_uri`, `experiment_id` "2", `run_id`), so that a resumed run logs to the same MLflow run, and a standalone evaluation (Stage 5) tags its own MLflow run with it (`evaluation_of`).
+The identifiers are also written in `<run>/mlflow_run.json` (`tracking_uri`, `experiment_id` "2", `run_id`), so that a resumed run logs to the same MLflow run, and a standalone evaluation (Stage 5) tags its own MLflow run with it (`evaluation_of`). With the current code, the `Input_Samples/` written before the first iteration are sent as soon as the run is open, next to the configuration, `anchor_recall.csv` and `data.json`.
 
 ### Step 3.4 — `save_model()` → `save_checkpoint()`
 Saved right after the training step of every multiple of 250 (the 10 evaluated checkpoints every 500 iterations and the 10 intermediate ones between them), so that the checkpoint of iteration N holds N steps (see `classification_workflow.md`, Step 3.6), with the label dictionary of the run (`label_dictionary`). The checkpoint holds the source run of every transferable component of the task, here four: `pretrained_backbone`, `pretrained_region_proposer_dictionary`, `pretrained_detector_heads_dictionary` and `pretrained_mask_heads_dictionary` (None without transfer). A run keeping a moving average of the weights, as the synthetic configuration does, also saves its state (`exponential_moving_average_state`).
@@ -750,6 +766,7 @@ model_state: 402 tensors, 75 of them in the mask heads
 optimizer_state: {'state', 'param_groups'}
 exponential_moving_average_state: {'model_state', 'number_updates'}, number_updates 5000
 ```
+The checkpoints written by the current code also hold `pretrained_backbone_blocks` (the backbone blocks loaded from a shorter source backbone, `classification_workflow.md`, Step 2.19), which would be `None` for this run.
 
 ### Step 3.5 — `run_test_evaluation()`
 At every multiple of 500, last in the iteration, after its checkpoint and its summary (see `classification_workflow.md`, Step 3.7), once for the trained weights and once for the moving average of the weights, see Stage 4.
@@ -1271,7 +1288,7 @@ confusion_matrix.png:   2640 x 2602 pixels with the current cells, 1852 x 1815 w
 On the diagonal, no octagon, rhombus, trapezoid or nonagon is right at the deployment threshold, 12 kites and 23 heptagons are; the octagons go to the background column (2,834 of 3,454 missed) or are found as heptagons (507).
 
 ### Step 4.10 — `report_evaluation()` → `report_evaluation_results()` + `track_evaluation()`
-The report of Step 4.7 is printed and appended to `<run>/Results.txt`, the scalars, class scalars and images go to `Tensorboard/Test/` and to MLflow (see `object_detection_workflow.md`, Step 4.13).
+The report of Step 4.7 is printed and appended to `<run>/Results.txt`, the scalars, class scalars and images go to `Tensorboard/Test/` and to MLflow (see `object_detection_workflow.md`, Step 4.13). With the current code, `update_evaluation_curves()` then adds the row of the checkpoint to `Evaluation/evaluation_summary.csv`, draws `evaluation_curves.png` again next to `Results.txt` and sends both to the root of the MLflow run.
 
 **Example: the test curves and the MLflow metrics after the 20 evaluations**
 ```text
@@ -1335,7 +1352,7 @@ Evaluation Summary Of 20 Checkpoints : evaluation_summary.csv
   - Best Checkpoint : iteration 4500 (Mask mAP@0.5/area 70.29 %)
   - Best Checkpoint (EMA Weights) : iteration 5000 (Mask mAP@0.5/area 74.24 %)
 ```
-The best value is written like in the report, as a percentage, since `percent_metrics` names the headline metric (Step 4.7); `evaluation_summary.csv` keeps every scalar between 0 and 1.
+The best value is written like in the report, as a percentage, since `percent_metrics` names the headline metric (Step 4.7); `evaluation_summary.csv` keeps every scalar between 0 and 1. With the current code, a `  - Evaluation Curves : evaluation_curves.png` line follows the title, the figure being drawn in `Checkpoint_Evaluation/`, and the summary ends with `ema_number_updates`, the number of updates of the averaged weights (254 columns for this run).
 
 **Example: `<run>/Checkpoint_Evaluation/evaluation_summary.csv`** (253 columns: the iteration, the 126 scalars of the trained weights, that is the 86 box, mask and proposal recall scalars of Step 4.10 and the box and mask `AP@0.5` of the 20 classes, then the same 126 prefixed with `ema_`; a few columns, values rounded to 4 decimals)
 ```text

@@ -101,7 +101,11 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 | `Data.image_settings.size` | 512 | network input; the anchor scales must fit in it |
 
 ### What A Run Writes
+So that a run folder can be read without opening the code, these are the files a detection run writes, with the results of the two runs this document quotes.
+
 - At every launch, `anchor_recall.csv` in the run folder: the share of the training objects with a foreground anchor, per level and size (Step 2.21).
+- Before the first iteration, `Input_Samples/` with `samples.json`: the first 10 images of every loader as the network receives them, the training ones augmented, so `Training/` and `Test/` only when `validation_iteration_ratio` is 0 (`training_reference.md`, Run Folder).
+- After every evaluation, `Evaluation/evaluation_summary.csv` (one row per checkpoint, the averaged weights in `ema_` columns) and `evaluation_curves.png` next to `Results.txt`, drawn again from it.
 - At every `weight_saving_iterations` checkpoint, in `Evaluation/Iteration_<n>/`: `class_metrics.csv` (AP of every class at 0.5, 0.75, 0.95 and 0.5:0.95, by size, recall at 0.5 and 0.75 with its 95 % confidence interval, threshold and recall at the target precision), `class_thresholds.json`, `confusion_matrix.csv` and `.png` (a `background` row for the false positives and column for the missed objects), `proposal_recall.csv`, `Samples/<image>.png` (the ground truth boxes next to the detections reaching 0.5), `Errors/` with `error_dumps`, and the same files in `EMA/` for the moving average of the weights.
 - `Results.txt`: one block per evaluation (two with the moving average) with the confusion matrix note and the tables of the methods, object sizes, mean average recall, proposal recall and classes, then the per-class recall table, every average precision and recall written as a percentage (`71.51 %`) while the counts, score thresholds and proposals per image keep their values, the files, TensorBoard and MLflow keeping the rates between 0 and 1; `Tensorboard/Train` holds the total loss, the four losses and the learning rate, `Tensorboard/Test` and `Test_EMA` the evaluation scalars (72 for the 20 classes and three levels of the run of Stages 3 to 5, 90 for the 35 classes and four levels of the DET run of `experiments/tutorials`), the 8 samples and the confusion matrix.
 - In the DET run of `experiments/tutorials`, the run of the object detection tutorials (trained from random weights on the dataset generated on 2026-11-18 with the synthetic configuration plus a level on block 4 (anchors of 16 and 32 pixels) and the anchor scale 384 on block 7, so anchors from 16 to 384 pixels; evaluated every 1000 iterations on the first 5,000 test images, planned for 8000 iterations and stopped after its evaluation at 5000), iteration 5000 gives `mAP@0.5/area` 75.25 % (77.78 % with the averaged weights), `mAP@[0.5:0.95]` 55.05 % (63.55 %), a proposal recall at 0.5 of 98.39 % and 17,096 right detections, 2,347 of the wrong class, 1,775 false positives and 8,005 missed objects at the deployment threshold (`Checkpoint_Evaluation`).
@@ -135,7 +139,7 @@ main()
 ├── load_experiment_configuration(configuration_path)
 │   │   Splits the YAML into experiment_configuration ('ExperimentConfiguration') and model_configuration (Optimization,
 │   │   Data, Backbone, DetectionLevels, Neck, RegionProposal, Detector), converts the types, adds tracking_root, run_name
-│   │   (None), label_mode and label_dictionary.
+│   │   (None), standalone_evaluation_folder (None), label_mode and label_dictionary.
 │   │
 │   ├── load_configuration(configuration_path)
 │   ├── build_label_dictionary(label_mapping_configuration, task)
@@ -192,8 +196,9 @@ main()
 │       ├── get_loss_weights() / get_tracked_metrics() + MetricTracker()
 │       ├── print_experiment_information() -> describe_split() -> count_split_images_and_annotations()
 │       ├── print_summary() / print_receptive_field_summary() / print_model_size_summary()
-│       ├── diagnose_data_splits()   anchor recall of every split, then exit   (only with compute_anchor_coverage)
+│       ├── diagnose_data_splits()   anchor recall of every split   (only with compute_anchor_coverage)
 │       ├── view_input_batches() -> show_input_samples()   (only with view_input_images)
+│       ├── benchmark_speed()   (only with benchmark_speed); any of these three modes then exits, without run folder
 │       ├── analyse_training_data()   anchor recall of the training objects, anchor_recall.csv
 │       │   └── measure_anchor_recall(): gather_object_boxes() + get_level_anchor_generators() +
 │       │       compute_best_anchor_overlaps() + summarise_anchor_recall()
@@ -201,6 +206,7 @@ main()
 │
 └── trainer.run_training_loop()  [STAGE 3]
     └── run_training_iterations()
+        ├── save_input_samples()   Input_Samples/: the first 10 images of every loader, drawn as the viewer draws them
         ├── for each training_iteration, from start_iteration to number_iterations (the total of the run):
         │   ├── get_next_batch() -> CocoDetectionDataset.__getitem__() + collate_function()
         │   │       images [B, 3, H, W] uint8, bounding_boxes and labels as lists (a different number per image); a
@@ -236,8 +242,8 @@ main()
 run_test_evaluation(iteration)  [STAGE 4]
 └── evaluate_test_split(), for the trained weights, then again within use_averaged_weights() for the moving average
     │   of the weights (Optimization.exponential_moving_average on: Evaluation/Iteration_<n>/EMA/, Tensorboard/Test_EMA)
-    ├── evaluation_context()                the score threshold of the model lowered to evaluation.score_threshold
     ├── create_evaluation_accumulator()     the detections and ground truths of every test image, the confusion matrix
+    ├── evaluation_context()                the score threshold of the model lowered to evaluation.score_threshold
     ├── for each test batch:
     │   ├── prepare_batch() / predict_batch()   TwoStageDetector.forward() without ground truth ->
     │   │                                       postprocess_detections()
@@ -265,7 +271,8 @@ run_test_evaluation(iteration)  [STAGE 4]
     │   ├── save_proposal_recall() -> summarise_proposal_recall() + write_class_metrics_file()   proposal_recall.csv
     │   ├── write_class_metrics_file()                                                     class_metrics.csv
     │   └── save_error_analysis()      class_thresholds.json, confusion_matrix.csv and .png, the notes of the report
-    └── report_evaluation() -> report_evaluation_results() + track_evaluation()
+    └── report_evaluation() -> report_evaluation_results() + track_evaluation() + update_evaluation_curves()
+            the row of the checkpoint added to evaluation_summary.csv, evaluation_curves.png drawn again
 
 scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
 └── same as every task: evaluate_checkpoints() -> start_evaluation_tracking() + summarise_checkpoint_evaluations()
@@ -610,7 +617,7 @@ We Generate A New Model That Will Be Trained From Scratch.            -> start_i
 ```
 
 ### Step 2.21 — `analyse_training_data()` → anchor recall
-Called by `BaseTrainer.__init__()` between `view_input_batches()` and `restore_last_model()` (Step 2.20), at every launch, resumes included, and never in a diagnosis mode that exits (`view_input_images`, `compute_anchor_coverage`). The hook of the general trainer writes nothing; the detection one measures how many training objects the anchors can learn. `measure_anchor_recall()` does the work: `gather_object_boxes()` reads the boxes of the training split from its annotations (`select_image_objects()`, the background left out, as in `__getitem__()`), placed in network input pixels by `preprocess_boxes()` without loading any image and without the augmentations. `compute_best_anchor_overlaps()` gives the overlap of the best anchor of every object in every level from the anchor generator of the level (`TwoStageDetector.get_level_anchor_generators()`): for one anchor shape, the intersection only shrinks as the anchor centre moves away from the object centre along x or y, so `Anchors.compute_best_overlaps()` takes the grid anchor nearest the object centre for every scale and aspect ratio, on the cell corners, the exact best of all the anchors from one overlap per anchor shape, in float64 on the CPU. `summarise_anchor_recall()` counts the objects whose best anchor reaches `RegionProposal.foreground_iou_threshold.min`, in every level alone and in all of them, since the region proposal network assigns the objects to the anchors of all the levels at once. An object under the threshold everywhere only gets its single best anchor as foreground (the fallback assignment). The table is printed with the layout of the report, its recalls written as percentages (`89.74 %`) and its counts as they are, and `anchor_recall.csv` is written in the run folder with the recalls between 0 and 1, then sent to the `analysis` folder of the MLflow run by `start_experiment_tracking()` (Step 3.3), as `anchor_recall_resume_<n>.csv` for a resume.
+Called by `BaseTrainer.__init__()` between `view_input_batches()` and `restore_last_model()` (Step 2.20), at every launch, resumes included, and never in a diagnosis mode that exits (`view_input_images`, `benchmark_speed`, `compute_anchor_coverage`). The hook of the general trainer writes nothing; the detection one measures how many training objects the anchors can learn. `measure_anchor_recall()` does the work: `gather_object_boxes()` reads the boxes of the training split from its annotations (`select_image_objects()`, the background left out, as in `__getitem__()`), placed in network input pixels by `preprocess_boxes()` without loading any image and without the augmentations. `compute_best_anchor_overlaps()` gives the overlap of the best anchor of every object in every level from the anchor generator of the level (`TwoStageDetector.get_level_anchor_generators()`): for one anchor shape, the intersection only shrinks as the anchor centre moves away from the object centre along x or y, so `Anchors.compute_best_overlaps()` takes the grid anchor nearest the object centre for every scale and aspect ratio, on the cell corners, the exact best of all the anchors from one overlap per anchor shape, in float64 on the CPU. `summarise_anchor_recall()` counts the objects whose best anchor reaches `RegionProposal.foreground_iou_threshold.min`, in every level alone and in all of them, since the region proposal network assigns the objects to the anchors of all the levels at once. An object under the threshold everywhere only gets its single best anchor as foreground (the fallback assignment). The table is printed with the layout of the report, its recalls written as percentages (`89.74 %`) and its counts as they are, and `anchor_recall.csv` is written in the run folder with the recalls between 0 and 1, then sent to the `analysis` folder of the MLflow run by `start_experiment_tracking()` (Step 3.3), as `anchor_recall_resume_<n>.csv` for a resume.
 
 With `diagnosis_modes.compute_anchor_coverage: { activated: True, iou_threshold: <threshold> }`, `diagnose_data_splits()` runs `measure_anchor_recall()` on the training, validation and test splits at `iou_threshold`, each with a progress bar over its images (`Gathering The <Split> Objects`), prints the three tables and exits before `analyse_training_data()`: no run folder is created and no file is written, the input viewer following when `view_input_images` is also on.
 
@@ -675,7 +682,7 @@ Tensorboard/Test_EMA/     the same tags for the averaged weights                
 - MLflow Tracking         : sqlite:///.../experiments/workflow_runs/mlflow.db                <- launch information
 MLflow Run Created In The Experiment 'object_detection' : 8e53387f20e24434973626e4c0394a2c (Browse : mlflow ui --backend-store-uri sqlite:///.../experiments/workflow_runs/mlflow.db)
 ```
-The MLflow run is created by a background thread. In this run it existed before the first checkpoint, so the 20 checkpoints hold its identifier; a checkpoint saved while the run is still being created holds `mlflow_run_id: None`. The configuration, `anchor_recall.csv` of Step 2.21 (folder `analysis`) and `data.json` are sent as soon as the run is open.
+The MLflow run is created by a background thread. In this run it existed before the first checkpoint, so the 20 checkpoints hold its identifier; a checkpoint saved while the run is still being created holds `mlflow_run_id: None`. The configuration, `anchor_recall.csv` of Step 2.21 (folder `analysis`) and `data.json` are sent as soon as the run is open, with the current code also the `Input_Samples/` written before the first iteration.
 
 ### Step 3.4 — `save_model()` → `save_checkpoint()`
 Saved right after the training step of every multiple of 250 (the 10 evaluated checkpoints every 500 iterations and the 10 intermediate ones between them), so that the checkpoint of iteration N holds N steps (see `classification_workflow.md`, Step 3.6), with the label dictionary of the run and the source run of every transferable component of the task, None without transfer: `pretrained_backbone`, `pretrained_region_proposer_dictionary` and `pretrained_detector_heads_dictionary`. A run keeping a moving average of the weights, as the synthetic configuration does, also saves its state (`exponential_moving_average_state`).
@@ -697,6 +704,7 @@ model_state: 327 tensors, the first 'backbone.convolution_blocks.0.squeeze_and_e
 exponential_moving_average_state: {'model_state', 'number_updates'}, number_updates 5000
 mlflow_run_id: '8e53387f20e24434973626e4c0394a2c' in the 20 checkpoints
 ```
+The checkpoints written by the current code also hold `pretrained_backbone_blocks` (the backbone blocks loaded from a shorter source backbone, `classification_workflow.md`, Step 2.19), which would be `None` for this run.
 
 ### Step 3.5 — `run_test_evaluation()`
 At every multiple of 500, last in the iteration, after its checkpoint and its summary (see `classification_workflow.md`, Step 3.7), once for the trained weights and once for the moving average of the weights, see Stage 4.
@@ -1233,7 +1241,7 @@ artifacts: Results.txt, configuration/training_configuration.yaml, metric_names.
            evaluation/iteration_<500|1000|...|5000>/confusion_matrix.png, class_metrics.csv, class_thresholds.json,
            proposal_recall.csv and the same files in ema/
 ```
-`sanitise_metric_name()` writes `@` as `_at_`, drops the brackets and writes `:` as `-`, so `mAP@[0.5:0.95]/area` becomes `mAP_at_0.5-0.95/area` in MLflow (the original names are kept in `metric_names.json`). `best_` follows the headline metric only. The `Tensorboard/Test` writer holds 72 scalars per evaluation for 20 classes: 12 mAP (4 thresholds x 3 methods), 6 by size, 16 mAR, 18 proposal recall values and 20 `AP@0.5/<class>`, with the 8 sample images and the confusion matrix, and `Tensorboard/Test_EMA` the same tags for the moving average of the weights. The proposal recall file is sent with the other small evaluation files (`TRACKED_EVALUATION_FILES`).
+`sanitise_metric_name()` writes `@` as `_at_`, drops the brackets and writes `:` as `-`, so `mAP@[0.5:0.95]/area` becomes `mAP_at_0.5-0.95/area` in MLflow (the original names are kept in `metric_names.json`). `best_` follows the headline metric only. The `Tensorboard/Test` writer holds 72 scalars per evaluation for 20 classes: 12 mAP (4 thresholds x 3 methods), 6 by size, 16 mAR, 18 proposal recall values and 20 `AP@0.5/<class>`, with the 8 sample images and the confusion matrix, and `Tensorboard/Test_EMA` the same tags for the moving average of the weights. The proposal recall file is sent with the other small evaluation files (`TRACKED_EVALUATION_FILES`). With the current code, `update_evaluation_curves()` also prints `Evaluation Curves : <run>/evaluation_curves.png` after every report and sends `evaluation_summary.csv` and `evaluation_curves.png` to the root of the MLflow run, next to `Results.txt`.
 
 ### Step 4.14 — `select_object_size_detections()` + `build_object_size_table()`
 `evaluate_detections()` computes the same mean average precisions again for the small, medium and large objects of COCO, with every method and threshold, reusing the gathered detections of Step 4.8 and the matching of Step 4.9. The size of an object is the area of its box in network input pixels (`OBJECT_SIZE_RANGES` in `object_sizes.py`): small below 32², medium from 32² to 96², large from 96². `select_object_size_detections()` keeps the detections of a class that count for a size with the COCO rule: the ground truths of the other sizes are ignored, and so are the detections matched to them (their best ground truth reaching the threshold) and the unmatched detections whose own box is of another size. A detection whose best ground truth of the size was already taken by a more confident detection stays a false positive, as without the sizes. A class without any object of the size is left out of the mean of that size, and a size without any object has no mAP: `—` in the table and no scalar. `build_object_size_table()` shows the mAPs of the area method of every size with its number of objects, after the table of the methods. The scalars `mAP@0.5 By Size/<size>` and `mAP@[0.5:0.95] By Size/<size>` go to TensorBoard and MLflow, and the values of every class to `class_metrics.csv` (Step 4.11). The instance segmentation has two of these tables, by mask area for the mask AP and by box area for the box AP.
@@ -1346,7 +1354,7 @@ Evaluation Summary Of 20 Checkpoints : evaluation_summary.csv
   - Best Checkpoint : iteration 5000 (mAP@0.5/area 72.10 %)
   - Best Checkpoint (EMA Weights) : iteration 5000 (mAP@0.5/area 72.87 %)
 ```
-The best value is written like in the report, as a percentage, since `percent_metrics` names the headline metric (Step 4.7); `evaluation_summary.csv` keeps every scalar between 0 and 1.
+The best value is written like in the report, as a percentage, since `percent_metrics` names the headline metric (Step 4.7); `evaluation_summary.csv` keeps every scalar between 0 and 1. With the current code, a `  - Evaluation Curves : evaluation_curves.png` line follows the title, the figure being drawn in `Checkpoint_Evaluation/`, and the summary ends with `ema_number_updates`, the number of updates of the averaged weights (146 columns for this run).
 
 **Example: `<run>/Checkpoint_Evaluation/evaluation_summary.csv`** (145 columns: the iteration, the 72 scalars of the trained weights, that is the 52 of Step 4.7 and the `AP@0.5` of the 20 classes, then the same 72 prefixed with `ema_`; a few columns, values rounded to 4 decimals)
 ```text
