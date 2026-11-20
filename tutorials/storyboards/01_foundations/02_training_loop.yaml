@@ -173,6 +173,7 @@ scenes:
       - "Launched again, the run always restarts from its last checkpoint with its optimizer state, and prints every setting changed since the previous start."
       - "Let's consider a run stopped at five thousand and resumed with eight thousand iterations: the number of iterations being the total of the run, it trains the last three thousand."
       - "A failed iteration is skipped with a yellow message, the traceback of its error printed the first time that error occurs, and more than five failures in a row stop the training, which still saves a last checkpoint."
+      - "A loss that is not a number counts as such a failure, its batch skipped before the backward pass, while a failed save or evaluation, or a split dropping too many batches, stops the training at once."
 
   - kind: html
     page: diagram
