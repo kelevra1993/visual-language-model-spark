@@ -130,7 +130,8 @@ main()
 │               ├── check_sequence_settings()             maximum_sequence_length: a positive integer, the
 │               │                                         longest sequence fed whole
 │               ├── check_temporal_model_configuration()  an ordered module only (GRU, LSTM, transformer, temporal
-│               │                                         convolution); causal allowed
+│               │                                         convolution); causal allowed, but not with the
+│               │                                         sequence normalization
 │               └── check_selection_configuration()       unselected_category, decoding, frames_per_class,
 │                                                         selection_loss_weight
 │
@@ -264,7 +265,7 @@ dict: {1: 0, 2: 1, 3: 2, 4: 3}       <- categories unselected, circle, triangle,
 ```
 
 ### Step 1.5 — `check_configuration()`
-The common checks run first, then `check_frame_selection_configuration()`: the checks of the sequence labelling, `Data.sequence_settings` taking only `maximum_sequence_length` as for every sequence task, with a single `evaluation.target_precision` (a list is refused, the deployed decoder keeping one threshold per class) and a positive integer `evaluation.top_k`, then `check_selection_configuration()` checks the `Selection` section. Whether the unselected category is in the manifests is checked later, by the dataset (Step 2.8).
+The common checks run first, then `check_frame_selection_configuration()`: the checks of the sequence labelling (a causal module, `causal: True` or a GRU or LSTM that is not bidirectional, being refused with `Backbone.normalization.feature_map_normalization: "sequence"`, whose statistics come from the whole sequence), `Data.sequence_settings` taking only `maximum_sequence_length` as for every sequence task, with a single `evaluation.target_precision` (a list is refused, the deployed decoder keeping one threshold per class) and a positive integer `evaluation.top_k`, then `check_selection_configuration()` checks the `Selection` section. Whether the unselected category is in the manifests is checked later, by the dataset (Step 2.8).
 
 **Example: output with `Selection.decoding: "beam"` and `Selection.selection_loss_weight: -1.0` in the YAML**
 ```text

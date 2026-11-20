@@ -58,13 +58,15 @@ def check_temporal_model_configuration(model_configuration: Dict[str, Any], vali
     """
     Verifies the 'TemporalModel' section of the sequence tasks: the module type allowed by the task, its sizes, its
     dropout, the consistency of the causal and bidirectional flags (a causal model never looks at the future frames,
-    so it cannot read the sequence backwards), the positional embedding flag of the transformer, and the 'pretrained'
-    settings initialising the module with the one of another run, which the poolings without weights cannot use.
+    so it cannot read the sequence backwards, nor follow the sequence normalization of the backbone, whose statistics
+    come from the whole sequence), the positional embedding flag of the transformer, and the 'pretrained' settings
+    initialising the module with the one of another run, which the poolings without weights cannot use.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model sections.
         valid_types (List[str]): The temporal module types the task can use.
-        allow_causal (bool): Whether the task can use causal modules (many to many only).
+        allow_causal (bool): Whether the task can use causal modules (sequence labelling and frame selection); a
+            causal module of these tasks is refused with the sequence normalization of the backbone.
 
     Returns:
         List[str]: The description of every inconsistency found.
@@ -109,6 +111,18 @@ def check_temporal_model_configuration(model_configuration: Dict[str, Any], vali
         errors.append("'TemporalModel.bidirectional' must be False when 'TemporalModel.causal' is True: reading the "
                       "sequence backwards looks at the future frames.")
 
+    # A causal module of the per-frame tasks (the causal flag, or a GRU or LSTM reading the frames forwards only)
+    # cannot follow the sequence normalization of the backbone, whose statistics come from every frame of the
+    # sequence, the later ones included, in training and in inference
+    feature_map_normalization = get_configuration_value(configuration=model_configuration,
+                                                        key_path="Backbone.normalization.feature_map_normalization")
+    forward_recurrent = temporal_type in ["gru", "lstm"] and bidirectional is False
+    if not flag_errors and allow_causal and (causal or forward_recurrent) and feature_map_normalization == "sequence":
+        errors.append("'Backbone.normalization.feature_map_normalization' cannot be 'sequence' with a causal temporal "
+                      "module ('TemporalModel.causal' True, or a GRU or LSTM that is not bidirectional): the "
+                      "statistics of every backbone layer come from the whole sequence, so every frame would still "
+                      "see the frames after it. Use 'batch', 'layer' or 'none'.")
+
     # Module possibly initialised by the one of another run, which needs weights to transfer
     errors += check_pretrained_configuration(model_configuration=model_configuration, section_name="TemporalModel")
     pretrained_experiment_folder = get_configuration_value(configuration=model_configuration,
@@ -151,7 +165,8 @@ def check_sequence_labelling_configuration(experiment_configuration: Dict[str, A
     """
     Runs every check specific to the sequence labelling task (many to many): the data settings, classification head
     and evaluation settings shared with the classification task, the sequence settings, and a temporal module keeping
-    one vector per frame (the order-blind poolings summarise a whole sequence), possibly causal.
+    one vector per frame (the order-blind poolings summarise a whole sequence), possibly causal, then without the
+    sequence normalization of the backbone.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -284,7 +299,8 @@ def check_frame_selection_configuration(experiment_configuration: Dict[str, Any]
     settings shared with the classification task (with a single target precision, the deployment keeping one threshold
     per class), the number of candidate frames of every class given by its deployment ('evaluation.top_k', also the k
     of its top-k selection accuracy), the sequence settings (the largest number of frames of a sequence), a temporal
-    module keeping one vector per frame, possibly causal, and the selection settings.
+    module keeping one vector per frame, possibly causal (then without the sequence normalization of the backbone),
+    and the selection settings.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.

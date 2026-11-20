@@ -271,7 +271,7 @@ TemporalModel:
   # Reads the sequence both ways (GRU, LSTM), every frame also seeing the later frames (offline use). False when causal.
   bidirectional: False
   # Every frame only sees the earlier frames (transformer, temporal convolution), for online use without future frames;
-  # GRU and LSTM are causal unless bidirectional.
+  # GRU and LSTM are causal unless bidirectional; a causal module refuses the "sequence" feature map normalization.
   causal: False
   # Learned position embedding added to every frame vector, so the transformer uses the frame order. False treats a
   # sequence as a set (weights independent of maximum_sequence_length); a causal transformer still sees the order.

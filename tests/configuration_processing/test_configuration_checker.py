@@ -1061,6 +1061,53 @@ def test_causal_transformer_is_accepted_for_sequence_labelling(tmp_path: Path, c
             in capsys.readouterr().out)
 
 
+@pytest.mark.parametrize(argnames=("task_folder", "temporal_settings", "refused"), argvalues=[
+    ("sequence_labelling", {"type": "transformer", "causal": True, "bidirectional": False}, True),
+    ("sequence_labelling", {"type": "gru", "causal": False, "bidirectional": False}, True),
+    ("frame_selection", {"type": "temporal_convolution", "causal": True, "bidirectional": False}, True),
+    ("frame_selection", {"type": "lstm", "causal": False, "bidirectional": False}, True),
+    ("sequence_labelling", {"type": "lstm", "causal": False, "bidirectional": True}, False),
+    ("frame_selection", {"type": "transformer", "causal": False, "bidirectional": False}, False),
+    ("sequence_classification", {"type": "gru", "causal": False, "bidirectional": False}, False)])
+def test_causal_temporal_module_refuses_the_sequence_normalization(
+        tmp_path: Path, capsys: pytest.CaptureFixture, task_folder: str, temporal_settings: Dict[str, Any],
+        refused: bool) -> None:
+    """
+    Verifies that the sequence labelling and frame selection refuse a causal temporal module (the causal flag, or a GRU
+    or LSTM reading the frames forwards only) with the sequence normalization of the backbone, whose statistics come
+    from every frame of the sequence, so that a model meant for live streams never sees the frames after a frame,
+    while the modules seeing the whole sequence, and the sequence classification summarising it, keep this
+    normalization.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+        task_folder (str): The folder of the configurations of the task.
+        temporal_settings (Dict[str, Any]): The type and direction flags given to the temporal module.
+        refused (bool): Whether the configuration must be refused.
+    """
+    # The example configuration of the task with the temporal module of the case and the sequence normalization
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder=task_folder,
+                                                  configuration_name="configuration_example.yaml",
+                                                  modify_function=None)
+    configuration = yaml.safe_load(stream=configuration_path.read_text())
+    configuration["TemporalModel"].update(temporal_settings)
+    configuration["Backbone"]["normalization"]["feature_map_normalization"] = "sequence"
+    configuration_path.write_text(data=yaml.safe_dump(data=configuration))
+    expected_message = ("'Backbone.normalization.feature_map_normalization' cannot be 'sequence' with a causal "
+                        "temporal module")
+
+    # A causal module stops the loading with the message of the normalization, the others load without it
+    if refused:
+        with pytest.raises(expected_exception=SystemExit):
+            load_experiment_configuration(configuration_path=configuration_path)
+        assert expected_message in capsys.readouterr().out
+    else:
+        _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
+        assert model_configuration["Backbone"]["normalization"]["feature_map_normalization"] == "sequence"
+        assert expected_message not in capsys.readouterr().out
+
+
 @pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml"])
 def test_frame_selection_configurations_are_consistent(tmp_path: Path, configuration_name: str) -> None:
     """
