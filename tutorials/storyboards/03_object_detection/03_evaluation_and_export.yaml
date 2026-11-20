@@ -219,7 +219,6 @@ scenes:
         lines:
           - "mAP@[0.5:0.95]: VOC matching, not COCO's"
           - "2-layer heads changing channels: no shortcut"
-          - "eager forward: padding copies not masked"
     narration:
       - "To close, the pitfalls: even at the finest stride, {{object_detection.inference.level_4.stride}} pixels, only {{object_detection.anchor_recall.small.recall_all_levels:percent}} of the small objects get an anchor reaching the foreground threshold, and the anchors sit on the cell corners; and the joint selection of older configurations fills only {{object_detection.proposal_selection.joint_proposals_per_image:.0f}} of the {{object_detection.proposal_selection.inference_post_nms}} slots of the benchmark with real proposals, the rest with copies."
       - "The mAP from 0.5 to 0.95 is not the COCO one; and a two-layer head whose first convolution changes the channel count adds no shortcut."
