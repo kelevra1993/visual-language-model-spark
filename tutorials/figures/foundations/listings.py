@@ -319,7 +319,7 @@ def describe_data_pipeline(data_configuration: Dict[str, Any]) -> Dict[str, Any]
     # Activated types in their order of application, the geometric types first
     activated_types = []
     for type_name in AUGMENTATION_TYPES:
-        type_settings = augmentation["types"].get(type_name, {"activated": False})
+        type_settings = augmentation["types"][type_name]
         if type_settings["activated"]:
             activated_types.append({"name": type_name, "probability": float(type_settings["probability"]),
                                     "geometric": type_name in GEOMETRIC_AUGMENTATION_TYPES})

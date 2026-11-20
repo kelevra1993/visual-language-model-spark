@@ -177,11 +177,15 @@ def build_test_dataset(run_folder: Path, label_type: str) -> SequenceDataset:
     experiment_configuration, model_configuration = read_run_sections(run_folder=run_folder)
     test_folder = Path(experiment_configuration["test_data_folder"])
     image_settings = model_configuration["Data"]["image_settings"]
+
+    # Unselected category and frames per wanted class, configured by the frame selection runs alone, as the loaders
+    # read them
+    selection_settings = model_configuration["Selection"] if label_type == "selection" else None
     return SequenceDataset(data_directory=str(test_folder / "data"), labels_file=str(test_folder / "labels.json"),
                            image_size=image_settings["size"], keep_ratio=image_settings["keep_ratio"],
                            label_dictionary=model_configuration["Data"]["label_dictionary"],
                            sequence_settings=model_configuration["Data"]["sequence_settings"], label_type=label_type,
-                           split_name="Test", selection_settings=model_configuration.get("Selection"), shuffle=False)
+                           split_name="Test", selection_settings=selection_settings, shuffle=False)
 
 
 def collate_named_sequences(dataset: SequenceDataset, sequence_names: List[str]) -> Dict[str, Any]:
