@@ -28,6 +28,8 @@ from PIL import Image, ImageDraw
 from pathlib import Path
 from typing import List, Tuple
 
+from vision_training.utilities.os_utilities import format_path_link
+
 # Frames of the sequence: side, number of frames, background and shape grey levels, and the triangle drawn in them
 FRAME_SIDE, NUMBER_FRAMES = 128, 8
 BACKGROUND_LEVEL, SHAPE_LEVEL = 30, 230
@@ -64,8 +66,9 @@ def draw_sequence_frames() -> np.ndarray:
     for frame_index in range(NUMBER_FRAMES):
         frame = Image.new(mode="L", size=(FRAME_SIDE, FRAME_SIDE), color=BACKGROUND_LEVEL)
         left = FIRST_LEFT + STEP_PIXELS * frame_index
-        ImageDraw.Draw(frame).polygon(xy=[(left, TRIANGLE_TOP + TRIANGLE_SIDE), (left + TRIANGLE_SIDE // 2, TRIANGLE_TOP),
-                                          (left + TRIANGLE_SIDE, TRIANGLE_TOP + TRIANGLE_SIDE)], fill=SHAPE_LEVEL)
+        ImageDraw.Draw(frame).polygon(
+            xy=[(left, TRIANGLE_TOP + TRIANGLE_SIDE), (left + TRIANGLE_SIDE // 2, TRIANGLE_TOP),
+                (left + TRIANGLE_SIDE, TRIANGLE_TOP + TRIANGLE_SIDE)], fill=SHAPE_LEVEL)
         frames.append(np.asarray(frame, dtype=np.float32) / 255.0)
     return np.stack(frames)
 
@@ -116,7 +119,8 @@ def compute_cosine_similarities(vectors: torch.Tensor) -> np.ndarray:
     return (normalized @ normalized.T).numpy()
 
 
-def draw_similarity_matrix(axis: plt.Axes, similarities: np.ndarray, shown_frames: int, colour: str, title: str) -> None:
+def draw_similarity_matrix(axis: plt.Axes, similarities: np.ndarray, shown_frames: int, colour: str,
+                           title: str) -> None:
     """
     Draws the similarity matrix of one pooling, filled up to the frames already played, every cell written with its
     value.
@@ -223,7 +227,8 @@ def draw_animation_frame(frames: np.ndarray, feature_maps: torch.Tensor, pooled_
     for spine in pooled_axis.spines.values():
         spine.set_visible(False)
     pooled_axis.set_title(label=f"average pooling: {channels} values", color=TEXT_COLOUR, fontsize=11.5, pad=6)
-    pooled_axis.text(x=0.5, y=-0.16, s="frames so far overlaid, same 4\nvalues in every frame: the position\nof the shape is lost",
+    pooled_axis.text(x=0.5, y=-0.16, s="frames so far overlaid, same 4\nvalues in every frame: the position\n"
+                                       "of the shape is lost",
                      transform=pooled_axis.transAxes, ha="center", va="top", fontsize=9.5, color=MUTED_COLOUR)
 
     # Flattened vector of every frame so far, one row per frame: its values of the map rows the shape crosses, in the
@@ -232,6 +237,8 @@ def draw_animation_frame(frames: np.ndarray, feature_maps: torch.Tensor, pooled_
                      for row in SHAPE_ROWS for column in range(columns)]
     flattened_rows = np.full((NUMBER_FRAMES, len(shown_indices)), np.nan)
     flattened_rows[:frame_index + 1] = flattened_vectors[:frame_index + 1, shown_indices].numpy()
+
+    # Rows drawn as an image, the channels split by vertical lines and named under the middle of their cells
     flatten_axis = figure.add_subplot(grid[0, 3])
     flatten_colours = LinearSegmentedColormap.from_list(name="flatten", colors=["#16203A", FLATTEN_COLOUR, "#DCEBFF"])
     flatten_colours.set_bad(color=BACKGROUND_COLOUR)
@@ -247,10 +254,12 @@ def draw_animation_frame(frames: np.ndarray, feature_maps: torch.Tensor, pooled_
     flatten_axis.set_ylabel(ylabel="frame", color=MUTED_COLOUR, fontsize=10)
     for spine in flatten_axis.spines.values():
         spine.set_visible(False)
+
+    # Title with the length of the whole vector, and the note under the axis on the part of it shown
     flatten_axis.set_title(label=f"flatten: {flattened_vectors.shape[1]} values, one row per frame",
                            color=TEXT_COLOUR, fontsize=11.5, pad=6)
-    flatten_axis.text(x=0.5, y=-0.16, s=f"the {len(shown_indices)} values of the rows the shape crosses\n(the rest is 0): the lit "
-                                         f"cells move with the shape",
+    flatten_axis.text(x=0.5, y=-0.16, s=f"the {len(shown_indices)} values of the rows the shape crosses\n"
+                                         f"(the rest is 0): the lit cells move with the shape",
                       transform=flatten_axis.transAxes, ha="center", va="top", fontsize=9.5, color=MUTED_COLOUR)
 
     # Similarity matrices of both poolings, filled up to the current frame
@@ -284,7 +293,8 @@ def draw_pooling_similarity_animation(output_path: Path) -> None:
     flattened_similarities = compute_cosine_similarities(vectors=flattened_vectors)
     print(f"Average pooled vectors equal in every frame: {torch.allclose(pooled_vectors, pooled_vectors[0:1])}, "
           f"smallest similarity {pooled_similarities.min():.4f}; flatten: neighbours "
-          f"{np.diag(flattened_similarities, k=1).round(2).tolist()}, first to last {flattened_similarities[0, -1]:.2f}")
+          f"{np.diag(flattened_similarities, k=1).round(2).tolist()}, "
+          f"first to last {flattened_similarities[0, -1]:.2f}")
 
     # One animation frame per sequence frame, written as a looping GIF
     animation_frames: List[Image.Image] = [
@@ -295,7 +305,7 @@ def draw_pooling_similarity_animation(output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     animation_frames[0].save(output_path, save_all=True, append_images=animation_frames[1:], loop=0, optimize=True,
                              duration=[STEP_DURATION] * (NUMBER_FRAMES - 1) + [LAST_DURATION])
-    print(f"Wrote {output_path} ({len(animation_frames)} frames)")
+    print(f"Wrote {format_path_link(path=output_path)} ({len(animation_frames)} frames)")
 
 
 if __name__ == "__main__":

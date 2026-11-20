@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import List, Tuple
 
 from vision_training.trainers.weight_averaging import compute_recent_updates_weight, compute_update_decay
+from vision_training.utilities.os_utilities import format_path_link
 
 # Colour of the averaged weights as the trainer computes them (the accent of the moving average figures), colour of
 # the same decay used from the first update without warm-up, and the dark grey of the reference lines and their labels
@@ -251,7 +252,7 @@ def plot_moving_average_window(output_path: Path, decay: float, last_iteration: 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(output_path)
     plt.close(figure)
-    print(f"Wrote {output_path}")
+    print(f"Wrote {format_path_link(path=output_path)}")
 
 
 if __name__ == "__main__":
