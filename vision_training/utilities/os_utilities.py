@@ -27,24 +27,29 @@ torch.set_printoptions(linewidth=1000)
 
 def read_json(path: str) -> dict[str, Any] | list[Any]:
     """
-    Reads and parses a JSON file.
-
-    This function is used throughout the project to load records, manifests,
-    and other metadata stored in JSON format.
+    Reads and parses a JSON file: the data records of the runs (data.json, compared when a run resumes and read by the
+    transfers between runs), the dataset manifests read by the data scripts, and the pair lists of the comparison
+    manifests. A missing file raises FileNotFoundError, and a malformed one (a data.json truncated by an interrupted
+    write) raises with the file and the position of the error instead of returning None to callers that index it.
 
     Args:
         path (str): The file path to the .json file.
 
     Returns:
         Dict[str, Any] | List[Any]: The parsed JSON data.
+
+    Raises:
+        FileNotFoundError: If the file does not exist.
+        ValueError: If the file is not valid JSON, naming the file and the line and column of the error.
     """
-    json_data = None
+    with open(path, "r") as file:
+        file_content = file.read()
+
+    # A parse error names the file, the position alone not telling which of the run files is broken
     try:
-        with open(path, "r") as file:
-            json_data = json.loads(file.read())
-        return json_data
-    except JSONDecodeError:
-        return json_data
+        return json.loads(file_content)
+    except JSONDecodeError as error:
+        raise ValueError(f"The JSON file {format_path_link(path=path)} cannot be parsed: {error}.") from error
 
 
 # ANSI escape codes of the console colours available to color_text and print_color
