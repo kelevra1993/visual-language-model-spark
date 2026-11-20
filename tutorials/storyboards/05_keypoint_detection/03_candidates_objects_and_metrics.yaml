@@ -21,7 +21,6 @@ references:
   - "vision_training/deployment/export_specifications.py · compare_keypoints"
   - "vision_training/deployment/deployment_utilities.py · load_inference_inputs"
   - "vision_training/deployment/input_contract.py · write_preprocessing_file"
-  - "documentation/bug_standards.md"
 scenes:
   - kind: title_card
     heading: "From candidates to objects"

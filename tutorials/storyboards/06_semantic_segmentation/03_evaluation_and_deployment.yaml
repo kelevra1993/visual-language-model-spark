@@ -20,7 +20,6 @@ references:
   - "vision_training/models/segmentation/sliding_window.py · segment_image_by_tiles"
   - "vision_training/deployment/export_specifications.py · compare_segmentations"
   - "vision_training/deployment/input_contract.py · build_input_contract"
-  - "documentation/bug_standards.md"
 scenes:
   - kind: title_card
     heading: "Evaluation and deployment"

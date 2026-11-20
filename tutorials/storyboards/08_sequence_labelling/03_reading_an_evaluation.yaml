@@ -26,7 +26,6 @@ references:
   - "documentation/architecture_benchmarking/sequence_labelling_experiment_plan.md"
   - "documentation/architecture_benchmarking/sequence_labelling_results.csv"
   - "vision_training/deployment/input_contract.py · build_input_contract"
-  - "documentation/bug_standards.md"
 scenes:
   - kind: title_card
     heading: "Reading an evaluation"

@@ -15,7 +15,6 @@ references:
   - "vision_training/trainers/sequence_comparison_trainer.py · SequenceComparisonTrainer.describe_split"
   - "vision_training/trainers/classification_trainer.py · ClassificationTrainer.compute_evaluation_results"
   - "vision_training/evaluation/classification"
-  - "documentation/bug_standards.md"
   - "vision_training/configurations/sequence_comparison/configuration_synthetic_pairs.yaml"
 scenes:
   - kind: title_card

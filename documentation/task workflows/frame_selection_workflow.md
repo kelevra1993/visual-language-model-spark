@@ -480,7 +480,7 @@ MetricTracker: batch_size 16, validation_iteration_ratio 25, sample_name 'Sequen
 ```
 
 ### Step 2.14 — `print_summary()` / `view_input_batches()` / `restore_last_model()`
-The summary panels are those of the sequence labelling, the temporal module panel giving `Output Features : 256` and the head panel `Input Features : 256` and `Number Of Classes : 4`. In the backbone panel, blocks 2 and 4 change the channel count with 2 layers, so they add no residual shortcut and list `Squeeze-and-Excitation` alone (`ConvolutionBlock.count_residual_additions()`, `bug_standards.md` H4, dropped). With `view_input_images`, the frames of the wanted classes are captioned with their number and their class and the unselected frames with their number only, their caption being empty (`get_frame_captions()`), and the information panel of the sequence starts with the frame of every wanted class (`get_sample_caption()`).
+The summary panels are those of the sequence labelling, the temporal module panel giving `Output Features : 256` and the head panel `Input Features : 256` and `Number Of Classes : 4`. In the backbone panel, blocks 2 and 4 change the channel count with 2 layers, so they add no residual shortcut and list `Squeeze-and-Excitation` alone (`ConvolutionBlock.count_residual_additions()`). With `view_input_images`, the frames of the wanted classes are captioned with their number and their class and the unselected frames with their number only, their caption being empty (`get_frame_captions()`), and the information panel of the sequence starts with the frame of every wanted class (`get_sample_caption()`).
 
 **Example: the modules and shapes of the backbone panel, and the model size panel** (the model rebuilt on the CPU)
 ```text

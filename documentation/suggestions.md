@@ -13,7 +13,6 @@
 - [A. Detector architecture](#a-detector-architecture)
 - [B. Instance segmentation](#b-instance-segmentation)
 - [C. Evaluation and deployment](#c-evaluation-and-deployment)
-- [E. Mask R-CNN on the open audit items](#e-mask-r-cnn-on-the-open-audit-items)
 - [F. Reference: Mask R-CNN compared stage by stage](#f-reference-mask-r-cnn-compared-stage-by-stage)
 - [G. Keypoint detection](#g-keypoint-detection)
 - [H. Classification](#h-classification)
@@ -135,15 +134,6 @@
       matched ground truth.
     - **Cost and risk:** (b) is small, (a) medium. No number changes.
 
-## E. Mask R-CNN on the open audit items
-What Mask R-CNN does for the items of the [repository audit](#repository-audit-for-instance-segmentation) that are still open:
-- **M10 (weight decay):** Mask R-CNN skips the BN scales and offsets but still decays the biases
-  (`model.py:2179-2183`). It also divides each L2 term by the tensor size, an unusual scaling not to copy.
-- **L7 (zero-area boxes):** Mask R-CNN removes the zero-area detections when restoring them to the image
-  (`model.py:2460-2469`). It keeps the small proposals on purpose, citing a loss on small objects
-  (`model.py:313-315`).
-- **L19 (full-resolution masks through the loaders):** Mask R-CNN's answer is the mini masks (item 8).
-
 ## F. Reference: Mask R-CNN compared stage by stage
 **The mask branch is the same design.** Both use RoIAlign 14 × 14, a stack of 3 × 3 convolutions, a 2 × 2 transposed
 convolution to 28 × 28 and one sigmoid mask per class. The loss is a binary cross entropy on the channel of the ground
@@ -177,11 +167,11 @@ average recall by object size and the recall of the anchors and of the proposals
 | Postprocessing | Class = argmax of each RoI. Score ≥ 0.7, per-class NMS 0.3, top 100. Boxes clipped to the image window, padding excluded (`model.py:684-779`). | Every foreground class of every RoI is a candidate. Score ≥ 0.5 (0.05 in evaluation), batched per-class NMS 0.5 (greedy in INS, DIoU-NMS with the exponent 0.6 in DET, item 38), fixed top 100, boxes clamped to the whole input, padding included (item 9). |
 | Masks at inference | Mask head on the final boxes. Each 28 × 28 mask is resized to its integer box in the original image, then thresholded at 0.5 (`model.py:2417-2480`, `utils.py:560-576`). | Mask head on the final boxes. `paste_instance_masks` samples at pixel centres with sub-pixel boxes. The INS evaluation pastes them at the original resolution with `evaluation.original_resolution` (at the network resolution otherwise), and the clients paste at the original resolution. |
 | Ground truth boxes | Always the tight box of the mask, the dataset boxes being ignored (`model.py:1269`). | The same: the tight box of the mask at the network resolution, the INS annotations needing no `bbox`. |
-| Ground truth masks in memory | Optional 56 × 56 crops in the box (`config.py:103-104`, `utils.py:517-552`). | One `[N, S, S]` uint8 mask per object at the network resolution (item 8, audit L19), or one `[S, S]` uint8 map of object numbers per image with `Data.instance_index_maps`, expanded on the GPU. |
-| Crowds | Kept with a negative class id, kept out of the negatives, ignored by pycocotools (audit M12). | Ordinary objects, learnt and scored like the others. |
+| Ground truth masks in memory | Optional 56 × 56 crops in the box (`config.py:103-104`, `utils.py:517-552`). | One `[N, S, S]` uint8 mask per object at the network resolution (item 8), or one `[S, S]` uint8 map of object numbers per image with `Data.instance_index_maps`, expanded on the GPU. |
+| Crowds | Kept with a negative class id, kept out of the negatives, ignored by pycocotools. | Ordinary objects, learnt and scored like the others. |
 | Objects lost by the resizing | Skipped at original resolution when under 1 pixel (`coco.py:248-250`). Masks emptied by the resize are dropped from the training targets (`model.py:1263-1265`). The evaluation keeps them, since it runs on the original images. | INS masks emptied by the resize are dropped from the training and validation targets, and from the test ground truth unless `evaluation.original_resolution` keeps them, so that they count as missed. |
 | Augmentation | imgaug pipeline with a list of mask-safe augmenters (flips, crop-and-pad, Affine, PiecewiseAffine; `model.py:1232-1259`). COCO uses horizontal flips only, nucleus flips, 90° rotations, brightness and blur. | `DataAugmenter` on the GPU: crop, aspect crop, zoom-out, translation, flips, ±5° and 90° rotations, eighteen photometric types, masks moved and boxes recomputed, fragments of objects removed. |
-| Optimisation | SGD momentum 0.9, learning rate 0.001. Each gradient tensor clipped at norm 5 (Keras `clipnorm`). L2 1e-4 except the BN scales and offsets. Weight per loss (`config.py:177-211`, `model.py:2153-2199`). | Adam / AdamW / SGD Nesterov, warm-up, cosine, no gradient clipping. One weight decay for every parameter (audit M10). One weight per loss (`Optimization.loss_weights`), 1 in every configuration file, the weights of 1 kept after a test. |
+| Optimisation | SGD momentum 0.9, learning rate 0.001. Each gradient tensor clipped at norm 5 (Keras `clipnorm`). L2 1e-4 except the BN scales and offsets. Weight per loss (`config.py:177-211`, `model.py:2153-2199`). | Adam / AdamW / SGD Nesterov, warm-up, cosine, no gradient clipping. One weight decay for every parameter. One weight per loss (`Optimization.loss_weights`), 1 in every configuration file, the weights of 1 kept after a test. |
 | Training schedule | Stages selected by layer regular expressions: `heads`, `3+`, `4+`, `5+`, `all` (`model.py:2313-2322`, `coco.py:498-521`). | One stage per run. A loaded component can be frozen whole or given a learning rate multiplier; a schedule needs successive runs. |
 | Batch normalization | `TRAIN_BN: False` by default: the stored statistics are used and never updated (batches of 2). | Trained, with the momentum fixed at 0.1 (`BATCH_NORMALIZATION_MOMENTUM`). `layer` normalization is available for small batches. |
 | Evaluation | `compute_ap` with mask IoU and COCO matching (`utils.py:656-751`). COCO sample: pycocotools `COCOeval` for boxes and masks at the original resolution (`coco.py:342-385`). | Own mAP (area, 11 and 101 points) at 0.5, 0.75 and 0.5:0.95 with VOC matching (kept, audit L6), mean average recall, both by object size, box and mask results per class, proposal recall, at every checkpoint, at the network resolution or, for INS, at the original resolution (`evaluation.original_resolution`). |
@@ -455,12 +445,12 @@ committed): every image can be taken again from them without training, except wh
 
 | Task | Findings |
 |---|---|
-| All tasks (training loop, backbone, data, configuration) | C1, H5, H6, M9, M10, L15–L17 |
-| DET | M13, M16, M21, L7, L8 |
-| INS | Everything DET has, plus M5 (augmented masks), L19 |
-| CLS | C2, L3, L4, L9 |
-| SEG | C2, M5, M13, L20 |
-| M2O, M2M, CMP, SEL | C2, M18 (CMP), L11 (M2M) |
+| All tasks (training loop, data) | C1, H5, H6 |
+| DET, INS, KPT, SEL (class thresholds) | L3 |
+| DET | M21 |
+| INS, SEG | M5 |
+| CLS | L3, L9 |
+| M2M | L11 |
 
 ---
 
@@ -484,31 +474,6 @@ committed): every image can be taken again from them without training, except wh
   - Compute the norm of all the gradients together, skip the step when it is not finite and log the norm to
     TensorBoard.
   - Refuse to save or register a checkpoint whose parameters are not finite.
-
-#### C2. Label smoothing combined with class weights trains the model to predict the rarest class
-- **Where:** `cross_entropy(..., weight=class_weights, label_smoothing=...)` in:
-  - `vision_training/losses/classification_losses.py:31-32`
-  - `vision_training/losses/segmentation_losses.py:38-40`
-  - `vision_training/losses/sequence_losses.py:29-31`
-- **What is wrong:** PyTorch also applies the class weights inside the smoothing term:
-  `(1-ε)·w_y·(-log p_y) + ε/K·Σ_c w_c·(-log p_c)`. With the inverse-frequency weights of
-  `compute_balanced_class_weights` (`classification_losses.py:57-70`), every sample is pulled towards the heavily
-  weighted rare classes.
-  - For SEG the weights come from pixel counts, so ratios of 1000× are common.
-  - A class with no sample gets the weight N/K because of the clamp to 1.
-- **Effect (reproduced):**
-  - Weights `[1, 20, 1000]` with ε = 0.1: the loss of a class-0 target is minimised by the probabilities
-    `[0.027, 0.019, 0.954]`, so the argmax is the rarest class. With ε = 0 it is `[1, 0, 0]`.
-  - This happens whenever `label_smoothing > 0` and `class_weighting: "balanced"` are both set, in CLS, SEG and the
-    sequence tasks. The checker accepts the combination. The shipped configurations use ε = 0, so they are not
-    affected yet.
-- **Fix:** compute the smoothed loss without weights, then weight each sample by its target class only:
-  ```python
-  losses = F.cross_entropy(input=logits, target=targets, ignore_index=IGNORED_LABEL_INDEX, label_smoothing=epsilon,
-                           reduction="none")
-  sample_weights = class_weights[targets.clamp(min=0)] * (targets != IGNORED_LABEL_INDEX)
-  loss = (losses * sample_weights).sum() / sample_weights.sum().clamp(min=1e-12)
-  ```
 
 ---
 
@@ -563,53 +528,6 @@ committed): every image can be taken again from them without training, except wh
 - **Fix:** use `cv2.INTER_NEAREST_EXACT` in the SEG dataset, `InterpolationMode.NEAREST_EXACT` for the masks of the
   crops and the zoom-out, and `mode="nearest-exact"` for the restored class maps.
 
-#### M9. Training-step errors are swallowed as long as they are not consecutive
-- **Where:** `base_trainer.py`, the `except Exception` of the training loop: the counter of consecutive errors resets
-  after every good iteration. The traceback of every distinct error is printed once (`report_iteration_error`), and
-  the final save after the error limit names the last iteration that stepped.
-- **Effect (reproduced):** an error on every other forward pass gives a FINISHED run with half the optimizer steps,
-  e.g. an OOM on large detection batches, or a bug that only some inputs trigger.
-- **Fix:** abort on an error rate over a rolling window, and report the skipped iterations in the summary.
-
-#### M10. Weight decay applies to every parameter, biases and normalization scales included (latent)
-- **Where:** `base_trainer.py:431-440`: one `weight_decay` for every group.
-- **Effect:** none today (`weight_decay: 0.0` everywhere). As soon as AdamW with 0.05 is used, the batch and layer norm
-  scales are pulled towards 0 and the biases are decayed, which costs accuracy on long runs.
-- **Fix:** split every group into decayed and non-decayed parameters (`ndim <= 1` get `weight_decay=0`). This changes
-  the group layout, which is acceptable since no run uses weight decay yet.
-
-#### M13. The decoded image size is never compared with the annotation size (EXIF orientation, resized copies) — PLAUSIBLE
-- **Where:**
-  - `coco_dataset.py:139` and `171` use the decoded shape and ignore the JSON width and height.
-  - RLE masks are letterboxed with their own `size` (`coco_masks.py:215-217`), checked against the image only at the
-    original resolution and by the instance index maps.
-  - SEG masks are read with `IMREAD_UNCHANGED`, images with `IMREAD_COLOR`.
-- **Effect:**
-  - OpenCV's `IMREAD_COLOR` applies the EXIF orientation (checked), `IMREAD_UNCHANGED` does not. Boxes annotated on the
-    stored pixels land on a rotated image.
-  - A SEG mask of a JPEG with orientation 3 passes the shape check and is upside down relative to its image.
-  - Images downscaled after annotation give boxes off by the scale factor.
-- **Fix:** compare `image.shape[:2]` with the JSON size (and the RLE `size`) and raise on a mismatch. Choose one EXIF
-  policy for the images (`read_image`, shared by the training and the deployment) and the SEG masks.
-
-#### M16. The DET and INS export comparison probably compares only padding — PLAUSIBLE
-- **Where:** `export_specifications.py:278-302` and `333-355`: random-noise inputs, with the deployment
-  `score_threshold` (0.5) applied.
-- **Effect:** a trained detector very likely returns 0 detections on noise, so the comparison passes whatever the box
-  decoding, the NMS or the mask path do.
-- **Fix:** compare with `score_threshold = 0`, or compare the raw head outputs and the proposals, and assert that
-  `number_detections > 0`.
-
-#### M18. CMP member frames are ordered as text — PLAUSIBLE
-- **Where:** `data/sequence/pair_list_manifests.py:59-60` uses `get_image_paths`, which sorts the paths as strings
-  (`utilities/os_utilities.py:207`).
-- **Effect (reproduced on names):**
-  - `frame_1, 2, 3, 9, 10, 11, 12` come out as `[1, 10, 11, 12, 2, 3, 9]`, the order in which the member is fed
-    whole (the evenly spaced pick of frames of the audit left with the windows on 2026-10-18).
-  - Any dataset with unpadded frame numbers trains the order-sensitive temporal modules (the GRU of the example) on
-    scrambled sequences.
-- **Fix:** sort with a natural key (digit runs compared as integers), or refuse unpadded numbered names.
-
 #### M21. TensorRT FP16 is never validated, and the engine cache may serve old weights — PLAUSIBLE
 - **Where:**
   - `export_experiment` (`export_model.py`) checks the export only with ONNX Runtime on the CPU in FP32.
@@ -634,34 +552,6 @@ committed): every image can be taken again from them without training, except wh
   on the target precision, so new data will likely fall below it.
 - **Fix:** among the valid cuts, take the first one reaching the maximum number of true positives.
 
-#### L4. `class_weighting: "balanced"` does not balance positives against negatives in multi-label mode
-- **Where:** `classification_losses.py:35-37`: one weight per class column multiplies both its positive and negative
-  terms.
-- **Effect:** the per-class optimum is unchanged, so the recall of rare classes is not improved.
-- **Fix:** use `pos_weight = (N - p_c) / p_c` in multi-label mode, or document what the option does.
-
-#### L7. Zero-area proposals of the joint selection and zero-area detections are never removed
-- **Where:** `region_proposer.py:217-220` (TODO), and the padding by duplication at `262-278`.
-- **Effect:**
-  - A proposal regressed out of the image becomes zero-area after clamping, and torchvision NMS keeps identical
-    zero-area boxes.
-  - In the training-model eval path (the test mAP), padding could duplicate them into false-positive detections,
-    until the eager detector masked the padding copies like the deployed one (2026-11-20).
-- **Fix:** mask boxes narrower or shorter than 1e-3 px after clamping, in both filters and in the postprocessing.
-- **Status (2026-11-12):** `RegionProposal.proposal_selection: "per_level"`, in the object detection configurations
-  since stage 7, leaves out the proposals narrower or shorter than 1e-3 px, `"joint"` keeping them for its runs. On
-  the 15,000 checkpoint of run_9 (300 test images) no kept proposal and no final detection was empty (41 empty
-  candidates of 1,200,000 per level in the training counts, none kept), so the final detections get no filter.
-
-#### L8. DET boxes are only cleaned on augmented samples
-- **Where:** `clean_bounding_boxes` runs only in `augment_sample` (`augmentations.py:214-217`);
-  `coco_dataset.py:160-161` neither clips nor filters.
-- **Effect (reproduced):**
-  - A 0.4 px wide box (`[150.0, 190.0, 150.2, 215.0]`) and a box past the image edge (`x2 = 350 > 320`) reach the
-    targets of non-augmented samples and the test ground truth.
-  - Thin boxes give extreme log targets through forced matches.
-- **Fix:** clip to `[0, S]` and drop boxes under 1 px (with their labels and masks) in `CocoDetectionDataset`.
-
 #### L9. Multi-label classification keeps samples whose categories are all unmapped, as all-negative targets
 - **Where:** `classification_dataset.py:61`.
 - **Effect:**
@@ -679,42 +569,6 @@ committed): every image can be taken again from them without training, except wh
   - Sequences without labels count as exact matches.
 - **Fix:** sum the losses and divide by `clamp(number of labelled frames, 1)`. Drop these sequences from training and
   from the exact match.
-
-#### L15. Loader workers are forked from a multi-threaded process — PLAUSIBLE deadlock
-- **Where:** `base_trainer.py:984-986`.
-  - The TensorBoard writer already runs a thread before `iter(train_dataloader)`.
-  - The persistent test workers are forked at the first evaluation, after MLflow started its thread (the training and
-    validation workers are now forked before it).
-  - Python 3.13 warns about it.
-- **Fix:** `multiprocessing_context="forkserver"` for the loaders, or create every loader iterator before any thread
-  starts. Correct the comment.
-
-#### L16. A host–GPU synchronisation between forward and backward at every step — PLAUSIBLE throughput loss
-- **Where:** `metric_tracking.py:124-127` and `157-158`: `.item()` per metric before `backward()`.
-- **Fix:** keep the interval sums as detached GPU tensors, and call `.item()` only at the summaries.
-
-#### L17. Ragged last batch and averages over batches
-- **Where:** `loaders.py` (`drop_last` only for the self-supervised loaders and the batch-normalized classification
-  heads, the other training loaders keeping their ragged last batch), `metric_tracking.py` (means over batches).
-- **Effect:**
-  - A short last batch weighs as much as a full one in the interval means.
-  - A 1-sample batch reaching 1×1 feature maps makes batch norm raise, and that step is skipped silently (M9).
-- **Fix:** `drop_last=True` for every training loader, and weight the means by the sample count.
-
-#### L19. INS sends full-resolution object masks through shared memory — PLAUSIBLE, FIXED FOR DISJOINT MASKS (2026-11-13)
-- **Where:** `coco_dataset.py:214-222`: one uint8 `[N, S, S]` array per image.
-- **Effect:** at S = 1024, batch 40, 8 workers and prefetch 2, about 4.7 GiB of masks are in flight. On the unified
-  memory of the GB10 this competes with the GPU, and a small `/dev/shm` kills workers.
-- **Fix:** send polygons, RLE or box-cropped masks from the workers and rasterise on the device, or pack the bits.
-- **Done for disjoint masks:** `Data.instance_index_maps` sends one uint8 map of object numbers per image, expanded on
-  the device by `prepare_batch` (a ninth of the bytes on the instance segmentation benchmark dataset). Overlapping
-  masks (COCO) still go one per object.
-
-#### L20. GPU memory peaks in the original-resolution SEG evaluation — PLAUSIBLE
-- **Where:** `segmentation_trainer.py:352-362`: a float32 `[K, H, W]` probability map per image at the original
-  resolution.
-- **Effect:** a 6000×4000 image with 20 classes needs about 1.9 GB per image.
-- **Fix:** interpolate in class chunks with a running max and argmax, or in bfloat16.
 
 ---
 
@@ -790,8 +644,5 @@ misspelled keys are silently ignored, only the removed settings and the augmenta
 
 ### Suggested Order Of Fixes
 
-1. **Training safety, all tasks:** C1 (NaN guard), H5 and H6 (swallowed save and evaluation, dropped batches), M9
-   (error handling). These protect long runs and change no model.
-2. **Correctness of the targets:** C2 (smoothing with weights), M5 (exact nearest resizing), M13 (image sizes against
-   the annotations), L8 (boxes of the samples without augmentation), L7 (empty proposals of the joint selection of INS).
-3. **Evaluation and deployment:** M16 (export check), M21 (TensorRT), L3 and the statements of the last table.
+The user chose on 2026-11-20 to fix the items left here and dropped the others: C1, H5 and H6 first (training safety),
+then M5, L9 and L11 (targets and metrics), then L3 and M21 (evaluation and deployment).
