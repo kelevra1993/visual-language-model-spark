@@ -166,12 +166,12 @@ scenes:
       - {match: "reshape|ignore_index", sentences: [0]}
       - {match: "weight=class_weights", sentences: [1]}
       - {match: "label_smoothing=label_smoothing", sentences: [2]}
-      - {match: "ignore_index", sentences: [3]}
+      - {match: "frame_weights = |frame_losses.sum", sentences: [3]}
     narration:
       - "The loss is the cross entropy of every frame, the logits flattened to one row per frame, with the ignore index {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}: padding and unmapped frames drop out of the mean."
       - "Balanced class weights, those of the run of this series, give every class the frames over the number of classes times its frames: {{sequence_labelling.dataset.balanced_weight_no_change:.2f}} for no change against {{sequence_labelling.dataset.balanced_weight_change_minimum:.2f}} to {{sequence_labelling.dataset.balanced_weight_change_maximum:.2f}} for a change class on this training split."
       - "Suppose you add label smoothing on top: those weights also enter the smoothing term and pull every frame towards the rarest classes."
-      - "Take a batch without any labeled frame: its loss is not a number, the mean having nothing to average."
+      - "Take a batch without any labeled frame: its frame losses are divided by a weight kept above the smallest float, so its loss vanishes instead of becoming not a number."
 
   - kind: html
     page: diagram
