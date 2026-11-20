@@ -202,8 +202,8 @@ def test_every_file_is_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     printed_output = capsys.readouterr().out
     assert printed_output.count("Invalid Configuration File : ") == 4
     for expected_problem in [IMAGE_SIZE_PROBLEM, "  - ValueError: Error parsing YAML file at",
-                             "FileNotFoundError: Label mapping file not found at", "FileNotFoundError: Configuration "
-                             "file not found at"]:
+                             "FileNotFoundError: Label mapping file not found at",
+                             "FileNotFoundError: Configuration file not found at"]:
         assert expected_problem in printed_output
     assert "\n  - while parsing a flow sequence" not in printed_output
     assert printed_output.count("Valid Configuration File : ") == 1
