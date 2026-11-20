@@ -2,7 +2,7 @@
 
 > Proposed improvements of the object detection (DET) and instance segmentation (INS) tasks that are not implemented
 > yet, kept in `documentation/` so that we can come back to them and decide what to implement. They were checked
-> against the code on 2026-10-15, and again on 2026-11-13, together with the findings of the
+> against the code on 2026-10-15, and again on 2026-11-13 and 2026-11-20, together with the findings of the
 > [Repository Audit For Instance Segmentation](#repository-audit-for-instance-segmentation), which they do not repeat.
 > The repository audit is kept at the end of this file. The items
 > taken from Mask R-CNN come from a comparison with its Keras / TensorFlow 1 implementation (matterport, commit
@@ -33,7 +33,8 @@
 > - detector with fewer anchors than proposals or candidates than detections, in training and in the exports;
 > - zoom-out augmentation (`random_zoom_out`), on in the DET and INS `configuration_example.yaml`;
 > - translation augmentation (`random_translation`) along the width, the height or both, up to 25 % of each side, for
->   every task, off in every configuration file;
+>   every task, on in the keypoint configurations and in the classic, small and large classification ones, off in the
+>   others;
 > - region proposal negatives down to IoU 0 (audit H1), the DET configurations back at 0.1 since 2026-11-12, kept by
 >   stage 2 of the detection benchmark, without warning;
 > - NMS at 0.7 for the region proposals and 0.5 for the detections (audit M4);
@@ -63,9 +64,19 @@
 > - the region proposals selected per level (`RegionProposal.proposal_selection: "per_level"`, item 3 and audit M3),
 >   the proposals clamped to an empty box left out (audit L7), kept by stage 7 (+0.0104) and set in the object
 >   detection configurations on 2026-11-12, the instance segmentation ones keeping `"joint"`;
+> - finer inputs for the masks of the small objects (item 5): backbone blocks read before their pooling (U-Net skips),
+>   an image branch on the crop of the input image and fusion convolutions (`MaskHead.skip_blocks_at_pool_size`,
+>   `image_branch_convolutions`, `skip_blocks_at_mask_resolution`, `fusion_convolutions`, main 0ef5cbd, off by
+>   default), the image branch of design A chosen by stage 3b of `instance_segmentation_experiment_plan.md` on
+>   2026-11-19 (0.8865 against 0.8145 for stage 3); the other ways of the item were measured or dropped there: larger
+>   pools and masks behind in stages 1 and 2, the finer map of stride 8 (stage 7) dropped by the user on 2026-11-19, a
+>   boundary refinement in the style of PointRend not planned;
+> - the synthetic moving shapes generated again on 2026-11-18 with sequences of 2 to 12 frames (item 32), the flatten
+>   pooling learning on them at 256 pixels (99.00 % at iteration 500);
 > - the audit items C3, C4, H2, H3, M1, M2, M4, M6, M8, M14, M15, M17, M20, L2, L5, L10, L13 and L18, fixed since
->   2026-10-10 (M7 gone with `resume_training`), recorded in the table of `bug_standards.md`; H6, M5, M9, M13, L7, L17,
->   L19 and L22 keep only their open part below.
+>   2026-10-10 (M7 gone with `resume_training`), and L22 (the client recipe of the tools reference restoring the boxes
+>   with `clip=False` since 2026-11-18), recorded in the table of `bug_standards.md`; H6, M5, M9, M13, L7, L17 and L19
+>   keep only their open part below.
 >
 > Dropped without being implemented:
 > - the masked proposal padding of the training;
@@ -131,26 +142,13 @@
      (`add_ground_truth_proposals`); they would follow the same rule.
    - The export already runs the mask head of every level on every detection and selects per detection with
      `torch.where` (`inference_instance_segmenter.py`). Only the selector would change.
+   - **For the masks, dropped:** stage 6 of `instance_segmentation_experiment_plan.md`, which tested this rule for the
+     mask heads, was dropped by the user on 2026-11-19, the image branch of design A (stage 3b) cropping every box
+     from the image; the rule stays open for the detection heads.
 39. **Spatial pyramid pooling (SPP) after the backbone**: the last feature map concatenated with its max pools of 5, 9
     and 13, widening the receptive field of the deepest level at little cost (YOLOv4).
 
 ## B. Instance segmentation
-5. **Sharper masks for small objects**: the mask heads pool every box from the backbone feature map of its level
-   (RoIAlign 14 × 14, upsampled to 28 × 28), never from the image, so a small object on a coarse level (blocks 5–7
-   of the examples, strides 32, 64 and 64 at 1024 pixels) is interpolated from a handful of feature cells and gets
-   blurry borders: a 32-pixel object, the smallest anchor, spans one feature cell of its level. Mask R-CNN pools from
-   P2–P5, at strides 4 to 32, with the context of the FPN. In order of cost:
-   - an earlier, finer level in `DetectionLevels` (more anchors and heads to train);
-   - the feature pyramid (`Neck.type: "feature_pyramid"`, set in the object detection configurations, `none` in the
-     instance segmentation ones), whose finest level gets the context of the deeper ones (the stride 4 level of
-     Mask R-CNN);
-   - a mask head reading a finer block than its detection level, e.g. the box pooled from block 4 for the masks
-     while the detection head reads block 5;
-   - larger masks (`MaskHead.mask_resolution` 56, a second doubling of the pooled features) or a larger pool size on
-     the coarse levels (`DetectionLevels.<level>.mask_head.roi_align_pool_size`), useful only once the pooled
-     features themselves are fine enough;
-   - a boundary refinement in the style of PointRend, predicting the uncertain border points again from finer
-     features.
 7. **One mask head shared by the levels**:
    - **Mask R-CNN:** `build_fpn_mask_graph` is built once (`model.py:956-1005`) and receives the RoIs of every level
      through `PyramidROIAlign`. The box head and the region proposal head are shared the same way
@@ -187,9 +185,9 @@
    - **Mask R-CNN:** `refine_detections_graph` clips the refined boxes to the image window, the letterbox without its
      padding (`model.py:711`), and the mask head then runs on those boxes (`model.py:2043-2052`).
    - **Here:** `postprocess_detections` clamps the boxes to the whole input, padding included. With `keep_ratio`, a
-     box can reach into the padding: its mask is predicted over that box, and the box is clipped again when restored
-     to the original image, which squeezes the mask (audit L22). In the network-resolution evaluation, such boxes also
-     lose IoU.
+     box can reach into the padding: its mask is predicted over that box, part of it over the padding, and the clients
+     restore the box unclipped (`clip=False`, audit L22) so that the mask is not squeezed. In the network-resolution
+     evaluation, such boxes also lose IoU.
    - **Change:** clamp to the letterbox window (`compute_letterbox_region`, `preprocessing.py`) before the mask head;
      the trainer knows the original sizes from `labels.json`. The exported model would need the windows as a second
      input (`[B, 4]`); otherwise the clients keep the L22 fix, pasting with the unclipped boxes.
@@ -239,15 +237,13 @@ What Mask R-CNN does for the items of the [repository audit](#repository-audit-f
   (`model.py:2460-2469`). It keeps the small proposals on purpose, citing a loss on small objects
   (`model.py:313-315`).
 - **L19 (full-resolution masks through the loaders):** Mask R-CNN's answer is the mini masks (item 8).
-- **L22 (masks squeezed at the border):** Mask R-CNN clips the refined boxes to the image window before the mask head
-  runs on them (`model.py:711, 2043-2052`), so the mask is predicted on the box that is later pasted (item 9).
 
 ## F. Reference: Mask R-CNN compared stage by stage
 **The mask branch is the same design.** Both use RoIAlign 14 × 14, a stack of 3 × 3 convolutions, a 2 × 2 transposed
 convolution to 28 × 28 and one sigmoid mask per class. The loss is a binary cross entropy on the channel of the ground
 truth class, over the positive proposals only, and at inference the masks are predicted on the final refined boxes. The
-differences lie in what feeds the mask branch (resolution and context of the levels, items 2 and 5, and the neck,
-`none` in the INS configurations) and in how the
+differences lie in what feeds the mask branch (resolution and context of the levels, item 2, the finer inputs of the
+mask heads, off by default, and the neck, `none` in the INS configurations) and in how the
 heads are shared (item 7).
 
 **Where this repository does more than Mask R-CNN:** the export (fixed-shape TorchScript / ONNX), the mask pasting
@@ -269,7 +265,7 @@ average recall by object size and the recall of the anchors and of the proposals
 | RoI pooling | `PyramidROIAlign`: level `4 + round(log2(√(wh) / 224))`, clamped to P2–P5, then `crop_and_resize`, one bilinear sample per bin (`model.py:344-447`). | `roi_align` with `aligned=True` and adaptive sampling, on the level of the anchor that produced the proposal (item 2). |
 | Box head | Shared: 7 × 7 conv to 1024 + BN, 1 × 1 conv 1024 + BN, then class and per-class box layers (`model.py:900-953`). | Per level (`DetectionLevels.<level>.detector`): `ConvolutionBlock`, flattened, fully connected layers without normalization, then class and per-class box layers. |
 | Box regression | Targets divided by [0.1, 0.1, 0.2, 0.2] on both stages. Smooth L1 with β = 1, averaged over the coordinates of the positives (`model.py:575, 1047-1073, 1112-1140`). | Targets left unscaled, fixed weights (1, 1, 1, 1) on both stages (`BOX_REGRESSION_WEIGHTS`), (10, 10, 5, 5) giving about 2.5 times lower mAP@0.5 on the synthetic shapes. Smooth L1 with β = 1/9, summed per box and divided by the positives, or 1 - CIoU on the detection heads (`Detector.box_loss`, item 36, off). |
-| Mask head | Shared: 4 × (3 × 3 conv 256 + BN + ReLU), 2 × 2 transposed conv 256, 1 × 1 conv to one sigmoid per class (`model.py:956-1005`). | Per level (`DetectionLevels.<level>.mask_head`, item 7): `ConvolutionBlock` of `[layers, channels]` with module options, configurable pool size, mask resolution and upsampling, 1 × 1 conv per class. |
+| Mask head | Shared: 4 × (3 × 3 conv 256 + BN + ReLU), 2 × 2 transposed conv 256, 1 × 1 conv to one sigmoid per class (`model.py:956-1005`). | Per level (`DetectionLevels.<level>.mask_head`, item 7): `ConvolutionBlock` of `[layers, channels]` with module options, configurable pool size, mask resolution and upsampling, optional finer inputs (backbone skips, an image branch on the crop of the input image, fusion convolutions), 1 × 1 conv per class. |
 | Mask targets | `crop_and_resize` of the matched mask (full or mini) inside the positive RoI, rounded at 0.5 (`model.py:577-606`). | `roi_align` (aligned) of the matched full-resolution mask inside the positive proposal, thresholded at 0.5. |
 | Mask loss | BCE of the ground truth class channel, mean over the positives (`model.py:1143-1179`). | Same, computed in float32. |
 | Postprocessing | Class = argmax of each RoI. Score ≥ 0.7, per-class NMS 0.3, top 100. Boxes clipped to the image window, padding excluded (`model.py:684-779`). | Every foreground class of every RoI is a candidate. Score ≥ 0.5 (0.05 in evaluation), batched per-class NMS 0.5 (greedy in INS, DIoU-NMS with the exponent 0.6 in DET, item 38), fixed top 100, boxes clamped to the whole input, padding included (item 9). |
@@ -294,7 +290,7 @@ pyramid, background IoU minimum 0.1, proposal selection per level, DIoU-NMS 0.6 
 | Setting | Mask R-CNN | INS example | Note |
 |---|---|---|---|
 | Input | 800–1024, padded to 1024 | 1024 letterboxed | |
-| Strides of the head levels | 4, 8, 16, 32 (region proposals also 64) | 32, 64, 64 | Item 5 |
+| Strides of the head levels | 4, 8, 16, 32 (region proposals also 64) | 32, 64, 64 | The finer inputs of the mask heads read the image and the finer blocks |
 | Anchor scales | 32, 64, 128, 256, 512 (one per level) | 32–128, 64–256, 128–512 | |
 | Region proposal positive IoU | ≥ 0.7 | ≥ 0.5 | |
 | Region proposal negative IoU | < 0.3 | < 0.3 | Same |
@@ -450,8 +446,10 @@ The synthetic counted shapes dataset (`/home/robert_kelevra/Data/self_supervised
 500,000 training, 10,000 validation and 10,000 test images of 5 to 10 shapes at 512 pixels, drawn like the sequence
 labelling frames) and its two configurations (`self_supervised/configuration_counted_shapes_simclr.yaml` and
 `configuration_counted_shapes_barlow_twins.yaml`, the backbone and flattened feature map of the launches of
-`sequence_labelling_experiment_plan.md`) are ready, but no run has been trained on them yet. The goal is to see
-whether the self-supervised backbone learns not only how many shapes an image holds but also which ones.
+`sequence_labelling_experiment_plan.md`) were written, but no run has been trained on them, and the dataset folder
+was empty on 2026-11-20: the dataset is to be generated again first (`task = "self_supervised"` of
+`create_synthetic_dataset.py`). The goal is to see whether the self-supervised backbone learns not only how many shapes
+an image holds but also which ones.
 
 24. **The two self-supervised trainings**: SimCLR and Barlow Twins trained until the k-NN accuracy of the shape count
     (6 classes, `5_shapes` to `10_shapes`) stops rising, the input viewer checking the two views first.
@@ -473,9 +471,9 @@ whether the self-supervised backbone learns not only how many shapes an image ho
     `random_erasing` and `random_plasma_shadow` off on the same probes.
 
 ## K. README screenshots and synthetic runs: left to redo
-The 20 images of `README/` were taken on 2026-10-23 (S11 of `bug_standards.md`) from runs of shortened copies of the
-synthetic configurations in `experiments/readme_screenshots/` (MLflow database `mlflow.db`, console logs `<task>.log`
-kept with their colours). The helpers that made them are in `experiments/readme_screenshots/helpers/` (not
+The first 20 images of `README/` were taken on 2026-10-23 (S11 of `bug_standards.md`) from runs of shortened copies of
+the synthetic configurations in `experiments/readme_screenshots/` (MLflow database `mlflow.db`, console logs
+`<task>.log` kept with their colours). The helpers that made them are in `experiments/readme_screenshots/helpers/` (not
 committed): every image can be taken again from them without training, except where a new run is needed below.
 
 28. **Throughput of the inference on an idle GPU** (`README/run_inference_output.png`): it was measured while three
@@ -494,24 +492,22 @@ committed): every image can be taken again from them without training, except wh
     one class out of 71). The sequence labelling experiment plan kept balanced class weights at its learning rate, 1e-3
     (`configuration_example.yaml`); the synthetic configuration could take them too.
 30. **Synthetic detection runs long enough for their samples**: the detection and instance segmentation configurations
-    stop at 2000 iterations, where their detections rarely reach the 0.50 score threshold of the sample images
-    (mAP@0.5 of 0.31 and 0.40), the samples showing empty predictions. The README samples come from the same runs
-    resumed to 5000 iterations (0.75 and 0.76). Either raise `number_iterations` of both synthetic configurations or
-    say in the README that their samples show detections only after a longer training.
+    stop at 2000 iterations, where their detections rarely reach the 0.50 score threshold of the sample images, the
+    samples showing few predictions: on the datasets generated on 2026-11-18, the README runs of both tasks (the
+    synthetic configurations with a feature pyramid and a level on block 4) read at 2000 a mAP@0.5 of 37.81 % (DET,
+    23,478 objects missed at that score) and a mask mAP@0.5 of 40.96 % (INS), against 75.24 % at 5000 and 82.96 % at
+    6000, the checkpoints of the samples of `README/tasks_overview.png`. Either raise `number_iterations` of both
+    synthetic configurations or say in the README that their samples show detections only after a longer training.
 31. **Flatten pooling on real sequences**: flatten became the default of the sequence classification on 2026-10-23
     (`12075e7`), checked on the synthetic moving shapes only, at 128 pixels (accuracy 1.000; at 512 pixels its 65536
-    features per frame stayed at chance). The example configuration for real data keeps 256 pixels, a frame vector of
-    16384 features and about 12.6 million GRU weights, and was not trained: to try on a real dataset, with a smaller
-    input or `average` when the class does not depend on where the objects are in the frames.
-32. **The synthetic moving shapes dataset against its documentation**: the README and
-    `sequence_classification_workflow.md` describe sequences of 2 to 12 frames, the length drawn by
-    `create_synthetic_dataset.py`, but every sequence of `synthetic_moving_shapes` (the dataset read by
-    `configuration_synthetic_sequences.yaml`) has 8 frames, so the dataset predates the variable lengths. To create it
-    again and check that the flatten default still learns with padded sequences of different lengths.
+    features per frame stayed at chance), and at 256 pixels on the dataset generated on 2026-11-18 (99.00 % at
+    iteration 500). The example configuration for real data keeps 256 pixels, a frame vector of 16384 features and
+    about 26.7 million weights in its two bidirectional GRU layers of 256, and was not trained: to try on a real
+    dataset, with a smaller input or `average` when the class does not depend on where the objects are in the frames.
 33. **Example outputs recorded before the changes**: Stage 3 of `sequence_classification_workflow.md` was recorded with
     the former `average` pooling (a note says so) and could be recorded again with `flatten` at 128 pixels; the run
     name examples of the README (Run Names) have rows that no configuration gives any more (`CLS_..._HAVG.128_MC4`,
-    the `T8` of M2O and CMP).
+    the 512 pixels and `T8` of M2O).
 34. **A frame selection sample with a wrong choice** (`README/frame_selection_sample.png`): its description asks for
     one wrong choice if possible, but the eight fixed test sequences of the evaluation samples are all chosen right at
     2000 iterations, the run's 11 wrong picks out of 600 (Hungarian selection accuracy 98.17 %, 191 of the 200 test
@@ -524,12 +520,13 @@ committed): every image can be taken again from them without training, except wh
     parameter names (or a run description) would let the table show the settings of the runs.
 
 ## Suggested Order
-1. **The instance segmentation stages of `instance_segmentation_experiment_plan.md`:** the shared mask head (item 7),
-   the level by box size (item 2) and a finer map for the masks (item 5). Together they close the main architectural
-   gap for the masks, guided by the AP of the small objects and the proposal recall of every level, before any tuning
-   of the anchors or of the proposal counts. The detection stages are all done.
+1. **The instance segmentation stages of `instance_segmentation_experiment_plan.md`:** the shared mask head (item 7,
+   stage 5), guided by the AP of the small objects and the proposal recall of every level, before any tuning of the
+   anchors or of the proposal counts. The mask level chosen by the box size (item 2) and a finer map for the masks were
+   dropped on 2026-11-19, the image branch of design A (stage 3b) cropping every box from the image. The detection
+   stages are all done.
 2. **The rest when the need appears:** item 12 when debugging, item 11 when deploying a class with its own threshold,
-   items 8, 9 and 10 depending on the datasets, item 39 for the detection, and item 1 when a neck has to be
+   items 8, 9 and 10 depending on the datasets, items 2 and 39 for the detection, and item 1 when a neck has to be
    transferred.
 
 ## Repository Audit For Instance Segmentation
@@ -540,9 +537,9 @@ committed): every image can be taken again from them without training, except wh
 > the code. Most were reproduced with small scripts, or with short trainings on the synthetic datasets or the dummy
 > task. The critical and high findings were checked a second time by hand.
 >
-> **Open items only:** the items fixed or dropped since were removed on 2026-11-13 (see the list at the top of this
-> file and the table of `bug_standards.md`). The line numbers are those of `84ac325`, except in the items updated on
-> 2026-11-13 (H6, M5, M9, L15, L17, L22).
+> **Open items only:** the items fixed or dropped since were removed on 2026-11-13, and L22 on 2026-11-20 (see the
+> list at the top of this file and the table of `bug_standards.md`). The line numbers are those of `84ac325`, except in
+> the items updated on 2026-11-13 (H6, M5, M9, L15, L17) and on 2026-11-20 (M18, M21).
 >
 > **Confidence:** every finding is VERIFIED (code paths read end to end, or reproduced) unless it is marked PLAUSIBLE
 > (the mechanism is confirmed but the size of the effect depends on the data).
@@ -557,7 +554,7 @@ committed): every image can be taken again from them without training, except wh
 |---|---|
 | All tasks (training loop, backbone, data, configuration) | C1, H5, H6, M9, M10, L15–L17 |
 | DET | M13, M16, M21, L7, L8 |
-| INS | Everything DET has, plus M5 (augmented masks), L19, L22 |
+| INS | Everything DET has, plus M5 (augmented masks), L19 |
 | CLS | C2, L3, L4, L9 |
 | SEG | C2, M5, M13, L20 |
 | M2O, M2M, CMP, SEL | C2, M18 (CMP), L11 (M2M) |
@@ -701,11 +698,11 @@ committed): every image can be taken again from them without training, except wh
   `number_detections > 0`.
 
 #### M18. CMP member frames are ordered as text — PLAUSIBLE
-- **Where:** `data/sequence/pair_list_manifests.py:58-59` uses `get_image_paths`, which sorts the paths as strings
-  (`utilities/os_utilities.py:182`).
+- **Where:** `data/sequence/pair_list_manifests.py:59-60` uses `get_image_paths`, which sorts the paths as strings
+  (`utilities/os_utilities.py:207`).
 - **Effect (reproduced on names):**
-  - `frame_1, 2, 3, 9, 10, 11, 12` come out as `[1, 10, 11, 12, 2, 3, 9]`, and the evenly spaced pick of 4 frames
-    keeps `[1, 11, 2, 9]`.
+  - `frame_1, 2, 3, 9, 10, 11, 12` come out as `[1, 10, 11, 12, 2, 3, 9]`, the order in which the member is fed
+    whole (the evenly spaced pick of frames of the audit left with the windows on 2026-10-18).
   - Any dataset with unpadded frame numbers trains the order-sensitive temporal modules (the GRU of the example) on
     scrambled sequences.
 - **Fix:** sort with a natural key (digit runs compared as integers), or refuse unpadded numbered names.
@@ -713,9 +710,11 @@ committed): every image can be taken again from them without training, except wh
 #### M21. TensorRT FP16 is never validated, and the engine cache may serve old weights — PLAUSIBLE
 - **Where:**
   - `export_experiment` (`export_model.py`) checks the export only with ONNX Runtime on the CPU in FP32.
-  - `triton_configuration.py:87-94` enables `trt_engine_cache_enable` with the fixed path `/tmp/tensorrt_engine_cache`.
+  - `triton_configuration.py:92-93` enables `trt_engine_cache_enable` with the fixed path `/tmp/tensorrt_engine_cache`.
 - **Effect:**
-  - FP16 overflow or precision loss is never detected.
+  - The export never runs the TensorRT engine, so an FP16 overflow or precision loss is seen only by measuring the
+    test metric through Triton: `scripts/deployment/evaluate_served_formats.py` does it for the models of the serving
+    benchmark, which found the FP16 overflow of the NMS exported in the detectors, fixed on 2026-11-17 (main 053e319).
   - If the cache key does not cover the weights (not confirmed), re-exporting another checkpoint of the same
     architecture serves the old engine after a container restart.
 - **Fix:** version the cache path per export (iteration and hash), and add a Triton-against-local output comparison
@@ -813,13 +812,6 @@ committed): every image can be taken again from them without training, except wh
 - **Effect:** a 6000×4000 image with 20 classes needs about 1.9 GB per image.
 - **Fix:** interpolate in class chunks with a running max and argmax, or in bfloat16.
 
-#### L22. The INS client recipe squeezes masks at the image border — PLAUSIBLE
-- **Where:** `documentation/reference/tools_reference.md` (Export, INS): the client brings the boxes back with
-  `restore_boxes_to_original_image`, which clips them to the image by default, while the M×M mask was predicted over
-  the unclipped box. The evaluation at the original resolution already pastes into the unclipped boxes (`clip=False`).
-- **Fix:** say in the recipe to restore the boxes with `clip=False` for the pasting (`paste_instance_masks` handles
-  parts outside the image), and to clip them afterwards for the reported boxes.
-
 ---
 
 ### Statements Contradicting The Code
@@ -827,8 +819,8 @@ committed): every image can be taken again from them without training, except wh
 | Where | Statement | Reality |
 |---|---|---|
 | README "Stopping And Resuming", `build_run_name` docstring | Any change other than the listed settings gives another run name | The IoU and NMS thresholds, the score thresholds and the sample counts give no token either |
-| Every YAML with `residual_nets` | "Shortcuts are added every two convolution layers" | No shortcut in the 2-layer channel-changing blocks (projection shortcuts of H4 dropped on 2026-11-05) |
-| `RegionProposal.foreground_iou_threshold.max` (YAML) | "Maximum IoU limit for matching" | Never read by the model, only by the checker |
+| Every YAML with `residual_nets` | "Residual shortcuts every two convolutions from block 2" | No shortcut in the 2-layer channel-changing blocks (projection shortcuts of H4 dropped on 2026-11-05) |
+| `RegionProposal.foreground_iou_threshold.max` (YAML) | "Maximum matching IoU (capped at 1.0)" | Never read by the model, only by the checker |
 | `mean_average_precision.py`, `average_precision_report.py` | "COCO" mAP@[0.5:0.95] and 101-point values | VOC matching, kept on purpose (L6 dropped) |
 | `region_proposer.py` | aspect ratio = width / height | `anchors.py` and the YAMLs use height / width |
 | `preprocessing.py`, `deployment_utilities.py` | restore functions "used by the inference clients" | No inference client of the repository calls them; the evaluations do |
@@ -900,4 +892,4 @@ misspelled keys are silently ignored, only the removed settings and the augmenta
    (error handling). These protect long runs and change no model.
 2. **Correctness of the targets:** C2 (smoothing with weights), M5 (exact nearest resizing), M13 (image sizes against
    the annotations), L8 (boxes of the samples without augmentation), L7 (empty proposals of the joint selection of INS).
-3. **Evaluation and deployment:** M16 (export check), M21 (TensorRT), L3, L22 and the statements of the last table.
+3. **Evaluation and deployment:** M16 (export check), M21 (TensorRT), L3 and the statements of the last table.

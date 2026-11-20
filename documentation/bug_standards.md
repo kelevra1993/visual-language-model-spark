@@ -540,7 +540,7 @@
 
 The status at `165339b` of every item of the
 [Repository Audit For Instance Segmentation](suggestions.md#repository-audit-for-instance-segmentation), updated on
-2026-11-14 for the items whose status changed since. The open items keep their descriptions and fixes in that file;
+2026-11-14 and 2026-11-20 for the items whose status changed since. The open items keep their descriptions and fixes in that file;
 the fixed and dropped ones were removed from it on 2026-11-13 and are recorded here.
 - **Open:** the defect described is still in the code.
 - **Partly fixed:** only the part given in the note remains.
@@ -584,11 +584,12 @@ Statuses come from reading the code at this commit. The items re-found by the re
 | L13. The checkpoint registry is rewritten in place | low | fixed | on 2026-10-21: written to a temporary file, synced and replaced |
 | L17. Ragged last batch and averages over batches | low | **open** | see below |
 | L18. Extreme inputs | low | fixed | on 2026-11-14: `compute_letterbox_region` keeps a resized side of one pixel at least (a 1 x 2000 image at 512 no longer fails in `cv2.resize`), and `read_image` warns once per pixel type about a file of more than 8 bits per channel, read with 8 bits as before |
+| L22. The INS client recipe squeezes masks at the image border | low | fixed | on 2026-11-18: the instance segmentation recipe of the tools reference (Export) restores the boxes with `restore_boxes_to_original_image(..., clip=False)` before pasting the masks |
 
 | Statement contradicting the code | Status | Note |
 |---|---|---|
 | README "Stopping And Resuming", `build_run_name` docstring: "Changing any other setting gives another run name" | **open** | README line 249, `run_name.py:641-646` (see C4) |
-| Every YAML with `residual_nets`: "Shortcuts are added every two convolution layers" | **open** | see H4 |
+| Every YAML with `residual_nets`: "Residual shortcuts every two convolutions from block 2" | **open** | see H4: a block of 2 layers changing the channel count has no shortcut |
 | `RegionProposal.foreground_iou_threshold.max` (YAML) | **open** | still read only by the checker |
 | `RegionProposal.strict_fallback_assignment` (YAML) | **fixed** | the setting and its strict rule were removed (2026-11-05) |
 | `detection_losses.py:65-76` "standard RPN normalization" | fixed | see L5 |
