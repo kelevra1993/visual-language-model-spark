@@ -237,9 +237,9 @@ def describe_export_availability(evaluation_folder: Path) -> Dict[str, Any]:
         except FileNotFoundError:
             unavailable = f"The checkpoint of iteration {checkpoint['iteration']} is missing from its run folder."
     exports = [{"name": export["folder"].name, "folder": str(export["folder"]), "record": export["record"]}
-               for export in list_checkpoint_exports(run_folder=checkpoint["run_folder"],
-                                                     iteration=checkpoint["iteration"],
-                                                     use_averaged_weights=checkpoint["use_averaged_weights"])]
+               for export in list_checkpoint_exports(
+                   run_folder=checkpoint["run_folder"], iteration=checkpoint["iteration"],
+                   use_averaged_weights=checkpoint["use_averaged_weights"])]
     return {"checkpoint": checkpoint, "unavailable": unavailable, "exports": exports}
 
 
@@ -553,6 +553,7 @@ class TemperatureExplorerHandler(BaseHTTPRequestHandler):
                 self.send_json(status=HTTPStatus.BAD_REQUEST, content={"error": str(error)})
                 return
             self.send_json(status=HTTPStatus.OK, content=score_ranges)
+        # Deployment status of the evaluation: its saved temperature, its exports and the export running
         else:
             self.send_json(status=HTTPStatus.OK,
                            content=self.describe_status(identifier=identifier, evaluation_folder=evaluation_folder))

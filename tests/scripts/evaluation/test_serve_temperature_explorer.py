@@ -90,6 +90,9 @@ def test_index_and_pages_are_served_with_their_evaluation(served_experiments: Tu
     Verifies that the index lists both evaluations, the training one and the checkpoint evaluation, any temperature for
     the one with logits and the grid for the other, and that every page is built with the current template, its data
     naming the evaluation and the export settings.
+
+    Args:
+        served_experiments (Tuple[Dict[str, Any], str]): The served evaluations and the address of the server.
     """
     _, address = served_experiments
     status, index = request_server(url=f"{address}/", content=None)
@@ -116,11 +119,15 @@ def test_index_groups_the_evaluations_by_run_then_iteration(tmp_path: Path) -> N
     newest first with only the newest open, and whose iteration blocks list the trained weights before the averaged
     ones, the training evaluation before the checkpoint evaluation, with the temperature saved for the averaged weights
     in the title of the iteration and the count of the run.
+
+    Args:
+        tmp_path (Path): The temporary folder of the test, holding the experiments folder.
     """
     experiments_root = tmp_path / "experiments"
-    for relative_path, seed in [("CLS_A_MC3/Evaluation/Iteration_6/EMA", 1), ("CLS_A_MC3/Evaluation/Iteration_6", 2),
-                                ("CLS_A_MC3/Checkpoint_Evaluation/Iteration_6", 3),
-                                ("CLS_A_MC3/Evaluation/Iteration_12", 4), ("group/CLS_B_MC3/Evaluation/Iteration_3", 5)]:
+    for relative_path, seed in [
+            ("CLS_A_MC3/Evaluation/Iteration_6/EMA", 1), ("CLS_A_MC3/Evaluation/Iteration_6", 2),
+            ("CLS_A_MC3/Checkpoint_Evaluation/Iteration_6", 3), ("CLS_A_MC3/Evaluation/Iteration_12", 4),
+            ("group/CLS_B_MC3/Evaluation/Iteration_3", 5)]:
         class_logits_record = write_explorer_evaluation(evaluation_folder=experiments_root / relative_path, seed=seed,
                                                         with_logits=True)
         if relative_path.endswith("EMA"):
@@ -160,6 +167,12 @@ def test_wrong_temperature_requests_are_refused(served_experiments: Tuple[Dict[s
     """
     Verifies that a typed temperature is refused for an evaluation without logits, outside the temperature range or not
     a number, and that an evaluation outside the experiments folders is unknown.
+
+    Args:
+        served_experiments (Tuple[Dict[str, Any], str]): The served evaluations and the address of the server.
+        query (str): The query of the refused request.
+        expected_status (int): The status of the refusal.
+        expected_message (str): A part of the reason of the refusal.
     """
     _, address = served_experiments
     status, body = request_server(url=f"{address}/api/temperature?{query}", content=None)
@@ -169,6 +182,9 @@ def test_wrong_temperature_requests_are_refused(served_experiments: Tuple[Dict[s
 def test_typed_temperature_is_described_from_the_logits(served_experiments: Tuple[Dict[str, Any], str]) -> None:
     """
     Verifies that a typed temperature of 2.3 is described as the explorer describes it, for the classes of the page.
+
+    Args:
+        served_experiments (Tuple[Dict[str, Any], str]): The served evaluations and the address of the server.
     """
     evaluations, address = served_experiments
     status, body = request_server(url=f"{address}/api/temperature?evaluation={quote(LIVE_EVALUATION)}&temperature=2.3",
@@ -182,6 +198,9 @@ def test_score_ranges_are_counted_from_the_logits(served_experiments: Tuple[Dict
     """
     Verifies that the score ranges asked by the page at the temperature 2.3, with cut points typed in any order, are
     those the explorer counts for the classes of the page, and that the served page holds the score ranges section.
+
+    Args:
+        served_experiments (Tuple[Dict[str, Any], str]): The served evaluations and the address of the server.
     """
     evaluations, address = served_experiments
     status, body = request_server(url=f"{address}/api/score_ranges?evaluation={quote(LIVE_EVALUATION)}"
@@ -206,6 +225,11 @@ def test_wrong_score_range_requests_are_refused(served_experiments: Tuple[Dict[s
     """
     Verifies that score ranges are refused for an evaluation without logits, at a temperature outside the temperature
     range, and for cut points outside ]0, 1[, repeated, not numbers or missing.
+
+    Args:
+        served_experiments (Tuple[Dict[str, Any], str]): The served evaluations and the address of the server.
+        query (str): The query of the refused request.
+        expected_message (str): A part of the reason of the refusal.
     """
     _, address = served_experiments
     status, body = request_server(url=f"{address}/api/score_ranges?{query}", content=None)
@@ -218,6 +242,9 @@ def test_saved_thresholds_are_found_by_the_server_or_checked(served_experiments:
     posted temperature, whatever thresholds were posted, that the page without logits saves its posted thresholds once
     checked, those of other classes being refused without writing, and that the status gives the saved temperature,
     the export folder of the checkpoint and why it cannot be exported.
+
+    Args:
+        served_experiments (Tuple[Dict[str, Any], str]): The served evaluations and the address of the server.
     """
     evaluations, address = served_experiments
     status, body = request_server(url=f"{address}/api/save", content={
@@ -262,6 +289,12 @@ def test_exports_without_saved_thresholds_or_run_are_refused(served_experiments:
     """
     Verifies that the export button is refused with the reason before thresholds are saved, and when the run folder of
     the evaluation holds no configuration, no export folder being created.
+
+    Args:
+        served_experiments (Tuple[Dict[str, Any], str]): The served evaluations and the address of the server.
+        identifier (str): The evaluation whose export is asked.
+        save_first (bool): Whether thresholds are saved before the export is asked.
+        expected_message (str): A part of the reason of the refusal.
     """
     evaluations, address = served_experiments
     if save_first:
@@ -293,6 +326,10 @@ def test_saves_and_exports_wait_for_the_running_export(served_experiments: Tuple
     """
     Verifies that while the checkpoint of a page is being exported its saved thresholds cannot change, and that a second
     export is refused while one runs, the status of the page showing the running export.
+
+    Args:
+        served_experiments (Tuple[Dict[str, Any], str]): The served evaluations and the address of the server.
+        tmp_path (Path): The temporary folder of the test, holding the console output of the running export.
     """
     evaluations, address = served_experiments
     request_server(url=f"{address}/api/save", content={"evaluation": LIVE_EVALUATION, "temperature": 2.0})

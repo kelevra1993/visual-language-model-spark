@@ -92,6 +92,9 @@ def test_read_results_curves_leaves_out_means_and_counts_unlabelled_weights_as_t
     The launch rows of a results file give one curve per launch and weights, without the mean rows, the empty cells of a
     stopped launch and the iterations of the mean columns, the rows written before the averaged weights counting as
     trained weights.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, holding the results file.
     """
     rows = [{"launch": "run_1", "accuracy_250": "0.5", "accuracy_500": "0.6", "accuracy_mean": "0.55"},
             {"launch": "run_2", "accuracy_250": "0.3", "accuracy_500": "", "accuracy_mean": "0.3"},
@@ -107,6 +110,9 @@ def test_read_results_curves_leaves_out_means_and_counts_unlabelled_weights_as_t
 def test_read_results_curves_refuses_a_file_of_two_metrics(tmp_path: Path) -> None:
     """
     A results file holding the columns of two metrics is refused, since the figure would mix them.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, holding the results file.
     """
     write_results_file(results_path=tmp_path / "results.csv", rows=[{"launch": "run_1"}],
                        columns=["launch", "evaluated_weights", "accuracy_250", "macro_f1_250"])
@@ -142,6 +148,9 @@ def test_plot_registry_draws_both_weights_when_every_launch_has_them(tmp_path: P
     """
     A stage whose launches all have trained and averaged weights gets a figure of two columns, named after its stage
     and title, in the folder of its experiment.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, holding the results file, the registry and the figures.
     """
     write_results_file(results_path=tmp_path / "results.csv", rows=TWO_SETTING_ROWS, columns=RESULTS_COLUMNS)
     write_registry(registry_path=tmp_path / "experiment_comparisons.yaml", comparisons=[TWO_SETTING_COMPARISON])
@@ -165,6 +174,9 @@ def test_plot_registry_draws_both_weights_when_every_launch_has_them(tmp_path: P
 def test_plot_registry_refuses_a_stage_without_one_reference(tmp_path: Path) -> None:
     """
     A stage must have exactly one reference setting, the one the gaps are measured to.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, holding the results file and the registry.
     """
     write_results_file(results_path=tmp_path / "results.csv", rows=TWO_SETTING_ROWS, columns=RESULTS_COLUMNS)
     comparison_without_reference = {**TWO_SETTING_COMPARISON,
@@ -178,6 +190,9 @@ def test_plot_registry_refuses_a_stage_without_one_reference(tmp_path: Path) -> 
 def test_plot_registry_refuses_a_filter_matching_no_stage(tmp_path: Path) -> None:
     """
     An experiment or stage asked for but absent from the registry is an error rather than an empty run.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, holding the registry.
     """
     write_registry(registry_path=tmp_path / "experiment_comparisons.yaml", comparisons=[TWO_SETTING_COMPARISON])
 
@@ -211,6 +226,9 @@ def test_plot_registry_draws_a_setting_of_more_launches_than_line_styles(tmp_pat
     """
     A setting repeated over more launches than there are line styles (six in the classification repeat stage) is drawn,
     the styles repeating, rather than failing.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, holding the results file, the registry and the figures.
     """
     repeated_launches = [f"run_1{letter}" for letter in "abcdef"][:len(LAUNCH_LINE_STYLES) + 2]
     rows = [{"launch": launch, "evaluated_weights": "trained", "accuracy_250": "0.5", "accuracy_500": "0.6",

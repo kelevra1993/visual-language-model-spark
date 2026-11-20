@@ -4,14 +4,16 @@ target precisions of the class thresholds replace the experiment's one (a list f
 given to a task keeping a single precision (the frame selection) is refused. The final non-maximum suppression of a
 detection run is replaced by the evaluated one, whose evaluations get an output subfolder of their own when it differs
 from the one of the run, invalid settings being refused and the tasks without detector skipped. The predictions file
-of every evaluated sample is turned on or off for the tasks writing one, the others being skipped.
+of every evaluated sample is turned on or off for the tasks writing one, the others being skipped, and the error image
+limit turns the error images on for the tasks saving them, a configuration without 'evaluation' section being refused.
 """
 
 import pytest
 
 from typing import Any, Dict, Optional, Tuple
 
-from scripts.evaluation.evaluate_checkpoint import apply_nms_criterion, apply_save_predictions, apply_target_precisions
+from scripts.evaluation.evaluate_checkpoint import (apply_error_image_limit, apply_nms_criterion,
+                                                    apply_save_predictions, apply_target_precisions)
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 
 # Detection configuration of the run whose final NMS is replaced, set to the greedy NMS ("iou", exponent 1.0) of the
@@ -40,6 +42,10 @@ def test_target_precisions_replace_the_experiment_one(configuration_name: str,
     """
     Verifies that the target precisions replace the 'evaluation.target_precision' of the experiment, a list for the
     classification, and that None leaves the experiment's one untouched.
+
+    Args:
+        configuration_name (str): The configuration of the evaluated run, below vision_training/configurations.
+        target_precisions (float | list[float]): The target precisions replacing the experiment's one.
     """
     experiment_configuration, _ = load_experiment_configuration(
         configuration_path=f"vision_training/configurations/{configuration_name}")
@@ -57,6 +63,11 @@ def test_invalid_target_precisions_are_refused(configuration_name: str, target_p
     """
     Verifies that a list given to a task keeping one target precision stops the script before any evaluation, the
     configuration of the experiment being left as it was.
+
+    Args:
+        configuration_name (str): The configuration of the evaluated run, below vision_training/configurations.
+        target_precisions (list[float]): The refused target precisions.
+        expected_message (str): A part of the message of the refusal.
     """
     experiment_configuration, _ = load_experiment_configuration(
         configuration_path=f"vision_training/configurations/{configuration_name}")
@@ -123,6 +134,46 @@ def test_invalid_or_skipped_nms_criterion(capsys: pytest.CaptureFixture) -> None
                                nms_criterion="distance_iou", nms_distance_exponent=1.0) == ""
     assert "Detector" not in classification_configuration
     assert "nms_criterion and nms_distance_exponent are skipped" in capsys.readouterr().out
+
+
+def test_error_image_limit_turns_the_error_images_on_or_is_skipped(capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the error image limit turns on the 'evaluation.error_dumps' of a classification run with its limit,
+    None leaving them untouched, that a task without error images (the self-supervised task) is evaluated without
+    them, a warning telling it, and that a configuration without 'evaluation' section stops the script instead of
+    being taken for a task without error images.
+
+    Args:
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed warning.
+    """
+    experiment_configuration, _ = load_experiment_configuration(
+        configuration_path="vision_training/configurations/classification/configuration_synthetic_shapes.yaml")
+    error_dumps_before = dict(experiment_configuration["evaluation"]["error_dumps"])
+    apply_error_image_limit(experiment_configuration=experiment_configuration,
+                            maximum_error_images_per_class_pair=None)
+    assert experiment_configuration["evaluation"]["error_dumps"] == error_dumps_before
+    apply_error_image_limit(experiment_configuration=experiment_configuration, maximum_error_images_per_class_pair=7)
+    assert experiment_configuration["evaluation"]["error_dumps"] == {**error_dumps_before, "activated": True,
+                                                                     "maximum_per_class_pair": 7}
+
+    # The self-supervised task saves no error image
+    self_supervised_configuration, _ = load_experiment_configuration(
+        configuration_path="vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml")
+    apply_error_image_limit(experiment_configuration=self_supervised_configuration,
+                            maximum_error_images_per_class_pair=7)
+    assert "error_dumps" not in self_supervised_configuration["evaluation"]
+    assert "maximum_error_images_per_class_pair is skipped" in capsys.readouterr().out
+
+    # A configuration without its 'evaluation' section is refused, for every replaced evaluation setting
+    del experiment_configuration["evaluation"]
+    with pytest.raises(expected_exception=KeyError, match="evaluation"):
+        apply_error_image_limit(experiment_configuration=experiment_configuration,
+                                maximum_error_images_per_class_pair=7)
+    with pytest.raises(expected_exception=KeyError, match="evaluation"):
+        apply_save_predictions(experiment_configuration=experiment_configuration, save_predictions=True)
+    with pytest.raises(expected_exception=KeyError, match="evaluation"):
+        apply_target_precisions(experiment_configuration=experiment_configuration, target_precisions=0.9)
+    assert capsys.readouterr().out == ""
 
 
 def test_save_predictions_replaces_the_experiment_one_or_is_skipped(capsys: pytest.CaptureFixture) -> None:

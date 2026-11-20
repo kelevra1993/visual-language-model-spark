@@ -12,7 +12,8 @@ from pathlib import Path
 from PIL import Image
 from torch import nn
 
-from scripts.models.instance_segmentation.draw_mask_head_designs import (DESIGNS, count_operations_per_box,
+from scripts.models.instance_segmentation.draw_mask_head_designs import (DESIGNS, build_design_model,
+                                                                         count_operations_per_box, describe_design,
                                                                          draw_mask_head_designs,
                                                                          record_multiply_accumulates)
 from tests.fixtures.configuration_fixtures import get_detection_model_configuration
@@ -86,3 +87,21 @@ def test_figure_of_every_design_is_written(tmp_path: Path) -> None:
     assert descriptions[1]["operations"] > descriptions[0]["operations"]
     with Image.open(fp=output_path) as figure:
         assert figure.width > 1000 and figure.height > 1000
+
+
+def test_designs_turn_off_the_finer_inputs_they_leave_out() -> None:
+    """
+    A configuration whose 'MaskHead' section holds the image branch and fusion convolution of design A, as the launch
+    file of the benchmark after stage 3b, still gives the reference design without finer inputs and design B without
+    image branch: every finer input a design leaves out is turned off, whatever the configuration holds.
+    """
+    configuration, _, _ = get_detection_model_configuration(mask_head=True)
+    configuration = copy.deepcopy(configuration)
+    configuration["Data"]["image_settings"]["size"] = 512
+    configuration["MaskHead"].update({"image_branch_convolutions": [5, 32], "fusion_convolutions": [1, 64]})
+
+    reference = describe_design(model=build_design_model(model_configuration=configuration, design=DESIGNS[0]))
+    design_b = describe_design(model=build_design_model(model_configuration=configuration, design=DESIGNS[3]))
+    assert (reference["image_branch"], reference["fusion"], reference["fine_channels"]) == ([0, 0], [0, 0], 0)
+    assert design_b["image_branch"] == [0, 0] and design_b["fusion"] == [1, 64]
+    assert [skip["block"] for skip in design_b["skips_at_mask_size"]] == [3]

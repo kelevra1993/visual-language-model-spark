@@ -31,7 +31,7 @@ Whenever the checkpoints of a trained run must be judged again, on another split
 | `batch_size` | the evaluation batch size, `None` keeping the run's |
 | `track_evaluation` | sends the evaluation to MLflow, in a run named `<run name>-evaluation`, `None` keeping the `tracking.activated` of the run |
 | `save_predictions` | writes `predictions.csv` (CLS, M2O, M2M, CMP) or `selections.csv` (SEL) in every evaluated iteration folder when `True`, `None` keeping the `evaluation.save_predictions` of the run; skipped with a warning for the tasks without the setting |
-| `maximum_error_images_per_class_pair` | turns the error images on with at most this number per pair of classes, `None` keeping the `evaluation.error_dumps` of the run |
+| `maximum_error_images_per_class_pair` | turns the error images on with at most this number per pair of classes, `None` keeping the `evaluation.error_dumps` of the run; skipped with a warning for the tasks without error images (SEG, KPT, SSL) |
 | `target_precisions` | the precision, or list of precisions such as `[0.99, 0.95, 0.90]` (CLS, M2O, M2M, CMP), targeted by the class thresholds, `None` keeping the `evaluation.target_precision` of the run; skipped with a warning for the tasks without class thresholds |
 | `nms_criterion`, `nms_distance_exponent` | the final NMS of a DET or INS run replaced, `"iou"` (greedy) or `"distance_iou"` (DIoU-NMS) with the exponent of its distance term, `None` keeping the run's; an NMS other than the run's is written to `<run>/Checkpoint_Evaluation_nms_<criterion>[_<exponent>]/` (e.g. `Checkpoint_Evaluation_nms_distance_iou_0.6`), and the setting is skipped with a warning for the tasks without detector |
 
@@ -51,14 +51,14 @@ Should a research report need its figures again, after a new evaluation of its k
 
 | Setting | Meaning |
 |---|---|
-| `run_name`, `experiment_folder` | the run of the kept classifier, `<experiments>/<run name>` |
+| `run_name`, `experiment_folder` | the run of the kept classifier, `<experiments>/<run name>`, the 35-class README classifier of `~/Data/tutorial_runs/readme_screenshots` in the main block |
 | `iteration`, `weights` | the kept checkpoint, its weights `"trained"` or `"ema"` |
 | `evaluation_folder_name` | `Checkpoint_Evaluation` (`evaluate_checkpoint.py`, where the temperature explorer saves the temperature) or `Evaluation` (the training) |
 | `class_display_names` | the name shown for every class, in the order of the curves or panels, `None` for the class names in class index order |
-| `sample_kind`, `split_name` | written in the titles, e.g. "on the 1,942 validation images" |
+| `sample_kind`, `split_name` | written in the titles, e.g. "on the 50,000 test images" |
 | `minimum_recall` | the left end of the recall axis, 0, or close to 1 when every threshold keeps nearly every sample (e.g. 0.98) |
 | `group_manifest_path` | a JSON Lines manifest, one object per sample, giving the group of every training and evaluated sample (such as the camera or vehicle of every frame), `None` to skip the groups chart |
-| `file_name_key`, `group_key`, `group_plural` | the keys of the file name and of the group in the manifest, and the groups in the plural (`"file_name"`, `"truck"`, `"trucks"` in the main block) |
+| `file_name_key`, `group_key`, `group_plural` | the keys of the file name and of the group in the manifest, and the groups in the plural (`"file_name"`, `"camera"`, `"cameras"` in the main block) |
 | `training_labels_path` | the `labels.json` of the training split, `None` for the one of the `train_data_folder` of the run |
 | `predictions_path` | the predictions of the evaluation, `None` for its `predictions.csv` (`save_predictions = True` in `evaluate_checkpoint.py`) |
 
@@ -124,7 +124,7 @@ If one wishes to see every convolution before the mask of the designs of stages 
 uv run python -m scripts.models.instance_segmentation.draw_mask_head_designs --configuration_path=vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml --output_path=/tmp/mask_head_designs.png
 ```
 
-Any instance segmentation configuration can be given, the counts following its settings. The figure of the [instance segmentation plan](../architecture_benchmarking/instance_segmentation_experiment_plan.md), `documentation/architecture_benchmarking/figures/instance_segmentation/mask_head_designs.png`, was drawn from the launch file of the benchmark, a configuration not tracked by git. Every design of its `DESIGNS` (the reference `[3, 32]`, stage 3 `[4, 64]`, and on it the image branch of design A, the U-Net skips of design B and the fusion convolution alone of the control) is built from the configuration file with its settings, as the training builds it; the figure reads its layers, channels, strides and residual shortcuts from the built mask heads, and its multiply-accumulates per box are counted on those layers by forward hooks on one box, printed with the parameters of the mask heads and the fine inputs.
+Any instance segmentation configuration can be given, the counts following its settings. The figure of the [instance segmentation plan](../architecture_benchmarking/instance_segmentation_experiment_plan.md), `documentation/architecture_benchmarking/figures/instance_segmentation/mask_head_designs.png`, was drawn from the launch file of the benchmark, a configuration not tracked by git. Every design of its `DESIGNS` (the reference `[3, 32]`, stage 3 `[4, 64]`, and on it the image branch of design A, the U-Net skips of design B and the fusion convolution alone of the control) is built from the configuration file with its settings, as the training builds it, the finer inputs a design leaves out being turned off whatever the configuration holds; the figure reads its layers, channels, strides and residual shortcuts from the built mask heads, and its multiply-accumulates per box are counted on those layers by forward hooks on one box, printed with the parameters of the mask heads and the fine inputs.
 
 ## Clustering Image Embeddings
 `scripts/embedding/cluster_image_embeddings.py` embeds images with a trained run and clusters them, to choose diverse images from a dataset of near-identical video frames.
