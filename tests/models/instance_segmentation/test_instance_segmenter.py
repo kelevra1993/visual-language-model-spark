@@ -3,7 +3,8 @@ Tests of the InstanceSegmenter (vision_training/models/instance_segmentation/ins
 version: the mask loss with ground truth, the masks of the final detections in evaluation mode, the refused ground
 truth without masks and the inference instance segmenter reproducing the eager model, with a pool size per level and
 bilinear upsamplings, without and with the finer inputs of the mask heads (image branch, backbone skips, fusion
-convolutions), whose layers and channels are checked against the configuration.
+convolutions), whose layers and channels are checked against the configuration, and with one mask head shared by the
+levels ('MaskHead.shared'), trained on the positives of every level and refused for levels of different mask heads.
 """
 
 import pytest
@@ -42,13 +43,26 @@ EVERY_FINE_INPUT_MASK_HEAD_SETTINGS = {"MaskHead": {**MIXED_MASK_HEAD_SETTINGS["
                                                     "skip_blocks_at_mask_resolution": [0, 2]},
                                        "level_mask_heads": MIXED_MASK_HEAD_SETTINGS["level_mask_heads"]}
 
+# One mask head shared by the levels (stage 5 of the benchmark), with the same pool size on every level: a pool of 5
+# doubled once with bilinear upsamplings then resized to the 14 x 14 masks, on the levels of 64 channels without
+# neck, and with the image branch and fusion convolutions of design A on the levels of 32 channels after the neck
+SHARED_MASK_HEAD_SETTINGS = {"MaskHead": {"shared": True, "mask_resolution": 14, "upsampling": "bilinear"},
+                             "level_mask_heads": {level_key: {"roi_align_pool_size": 5, "convolutions": [2, 32]}
+                                                  for level_key in ["5", "6", "7"]}}
+SHARED_IMAGE_BRANCH_MASK_HEAD_SETTINGS = {"MaskHead": {**SHARED_MASK_HEAD_SETTINGS["MaskHead"],
+                                                       "image_branch_convolutions": [2, 8],
+                                                       "fusion_convolutions": [1, 16]},
+                                          "level_mask_heads": SHARED_MASK_HEAD_SETTINGS["level_mask_heads"]}
+
 # Mask geometries and neck types of the tests, the mask heads reading the levels after the neck, and those with finer
 # inputs, the backbone skips being read before the neck
-MASK_HEAD_GEOMETRIES_AND_NECKS = [(MIXED_MASK_HEAD_SETTINGS, "none"), (MIXED_MASK_HEAD_SETTINGS, "path_aggregation")]
+MASK_HEAD_GEOMETRIES_AND_NECKS = [(MIXED_MASK_HEAD_SETTINGS, "none"), (MIXED_MASK_HEAD_SETTINGS, "path_aggregation"),
+                                  (SHARED_MASK_HEAD_SETTINGS, "none")]
 FINE_INPUT_GEOMETRIES_AND_NECKS = [(IMAGE_BRANCH_MASK_HEAD_SETTINGS, "none"),
                                    (BACKBONE_SKIP_MASK_HEAD_SETTINGS, "none"),
                                    (FUSION_ONLY_MASK_HEAD_SETTINGS, "none"),
-                                   (EVERY_FINE_INPUT_MASK_HEAD_SETTINGS, "path_aggregation")]
+                                   (EVERY_FINE_INPUT_MASK_HEAD_SETTINGS, "path_aggregation"),
+                                   (SHARED_IMAGE_BRANCH_MASK_HEAD_SETTINGS, "path_aggregation")]
 
 
 def build_box_masks(boxes: List[torch.Tensor], image_size: int) -> List[torch.Tensor]:
@@ -273,6 +287,75 @@ def test_mask_loss_gives_every_level_the_fine_features_of_its_proposals() -> Non
     level_counts = [proposals.shape[0] for proposals in level_proposals]
     assert sum(count > 0 for count in level_counts) >= 2 and len(set(level_counts)) > 1
     assert torch.allclose(input=mask_loss, other=expected_loss, rtol=1e-6, atol=1e-7)
+
+
+def test_shared_mask_head_trains_on_the_positives_of_every_level() -> None:
+    """
+    Verifies that with 'MaskHead.shared' the instance segmenter holds a single mask head read by every level, and that
+    its mask loss, which pools the positive proposals of every level from the map of that level and predicts them at
+    once, equals in evaluation mode (where the batch statistics no longer depend on the boxes of the batch) the loss
+    computed level by level, each level pooled at its own scale with the fine features of its own proposals, the
+    positive proposals spreading over several levels.
+    """
+    model = build_test_model(dtype=torch.float32, instance_segmentation=True,
+                             mask_head_settings=SHARED_IMAGE_BRANCH_MASK_HEAD_SETTINGS, neck_type="path_aggregation")
+    mask_head = model.mask_heads_dictionary["shared"]
+    assert list(model.mask_heads_dictionary) == ["shared"]
+    assert mask_head.level_names == list(model.detection_input_information)
+    assert mask_head.spatial_scales == {level_key: information["feature_map_size"] / model.input_image_size
+                                        for level_key, information in model.detection_input_information.items()}
+    images, boxes, labels = get_fixed_batch()
+    images, boxes = images.float(), [image_boxes.float() for image_boxes in boxes]
+    masks = build_box_masks(boxes=boxes, image_size=model.input_image_size)
+
+    with torch.no_grad():
+        detection_stages = model.forward_detection_stages(input_tensor=images, ground_truth_bounding_boxes=boxes,
+                                                          ground_truth_labels=labels)
+        feature_maps = detection_stages["backbone_output_tensor_dictionary"]
+        skip_feature_maps = detection_stages["backbone_skip_dictionary"]
+        aggregated_detections = detection_stages["aggregated_detections_dictionary"]
+        mask_loss = model.compute_proposal_mask_loss(feature_maps=feature_maps, skip_feature_maps=skip_feature_maps,
+                                                     aggregated_detections=aggregated_detections,
+                                                     ground_truth_masks=masks)
+
+        # Level by level, the shared head pooling each level at its own scale
+        positive_mask = aggregated_detections["sliced_labels"] > 0
+        level_logits, level_labels, level_proposals, level_matched_indices = [], [], [], []
+        for index_string, feature_map in feature_maps.items():
+            level_indices = torch.nonzero(input=positive_mask & (aggregated_detections["sliced_origins"] ==
+                                                                 int(index_string))).flatten()
+            proposals = aggregated_detections["sliced_proposals"][level_indices]
+            pooled_features = mask_head.pool_box_features(proposal_boxes=proposals, input_tensor=feature_map,
+                                                          skip_feature_maps=skip_feature_maps, level_name=index_string)
+            fine_features = model.mask_fine_inputs(proposal_boxes=proposals, skip_feature_maps=skip_feature_maps)
+            level_logits.append(mask_head.predict_from_pooled_features(pooled_features=pooled_features,
+                                                                       fine_features=fine_features))
+            level_labels.append(aggregated_detections["sliced_labels"][level_indices])
+            level_proposals.append(proposals)
+            level_matched_indices.append(aggregated_detections["sliced_matched_ground_truth_indices"][level_indices])
+        mask_targets = build_mask_targets(ground_truth_masks=masks, proposal_boxes=torch.cat(tensors=level_proposals),
+                                          matched_ground_truth_indices=torch.cat(tensors=level_matched_indices),
+                                          mask_size=model.mask_size)
+        expected_loss = compute_mask_loss(mask_logits=torch.cat(tensors=level_logits),
+                                          labels=torch.cat(tensors=level_labels), mask_targets=mask_targets)
+
+    # Positive proposals on several levels, in different numbers, so that a level pooled at another scale or a shifted
+    # row would change the loss
+    level_counts = [proposals.shape[0] for proposals in level_proposals]
+    assert sum(count > 0 for count in level_counts) >= 2 and len(set(level_counts)) > 1
+    assert torch.allclose(input=mask_loss, other=expected_loss, rtol=1e-6, atol=1e-7)
+
+
+def test_shared_mask_head_refuses_levels_of_different_mask_heads() -> None:
+    """
+    Verifies that the instance segmenter refuses to share one mask head between levels whose mask heads differ (the
+    pool sizes of the mixed geometry), one head having a single pool size and convolution block.
+    """
+    mask_head_settings = {"MaskHead": {**MIXED_MASK_HEAD_SETTINGS["MaskHead"], "shared": True},
+                          "level_mask_heads": MIXED_MASK_HEAD_SETTINGS["level_mask_heads"]}
+    with pytest.raises(expected_exception=ValueError, match="'MaskHead.shared' needs the same 'mask_head'"):
+        build_test_model(dtype=torch.float32, instance_segmentation=True, mask_head_settings=mask_head_settings,
+                         neck_type="none")
 
 
 @pytest.mark.parametrize(argnames=["mask_head_settings", "neck_type", "expected_channels"], argvalues=[

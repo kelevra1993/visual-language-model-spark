@@ -1,8 +1,8 @@
 """
 Inference-only version of the trained InstanceSegmenter: the fixed-shape detection of the InferenceDetector followed by
-the mask head of every level (with the fine inputs they share, when configured) on the fixed number of detections of
-every image, returning a fifth output with the mask of every detection. Built by
-vision_training/deployment/export_specifications.py for the TorchScript and ONNX exports.
+the mask head of every level, or the mask head shared by the levels (with the fine inputs they share, when
+configured), on the fixed number of detections of every image, returning a fifth output with the mask of every
+detection. Built by vision_training/deployment/export_specifications.py for the TorchScript and ONNX exports.
 """
 
 import torch
@@ -10,7 +10,7 @@ import torch
 from typing import Dict, Optional, Tuple
 
 from vision_training.models.detection.inference_detector import InferenceDetector
-from vision_training.models.instance_segmentation.instance_segmenter import InstanceSegmenter
+from vision_training.models.instance_segmentation.instance_segmenter import InstanceSegmenter, SHARED_MASK_HEAD_KEY
 
 
 class InferenceInstanceSegmenter(InferenceDetector):
@@ -31,6 +31,7 @@ class InferenceInstanceSegmenter(InferenceDetector):
         super(InferenceInstanceSegmenter, self).__init__(model=model)
         self.mask_heads_dictionary = model.mask_heads_dictionary
         self.mask_fine_inputs = model.mask_fine_inputs
+        self.shared_mask_head = model.shared_mask_head
 
         # Side of the exported masks, stored as a plain number for the export specification
         self.mask_size = model.mask_size
@@ -70,7 +71,9 @@ class InferenceInstanceSegmenter(InferenceDetector):
         Predicts the mask of every detection with the mask head of its own level. Every head processes all the
         detections and each detection keeps the output of its own level, since selecting the detections of each level
         would give data-dependent tensor sizes that the ONNX export cannot handle, as in InferenceDetector.detect. The
-        fine features shared by the levels are computed once on all the detections.
+        shared mask head pools every detection from every level instead, keeps the pooled features of its own level,
+        and runs its layers once on all the detections. The fine features shared by the levels are computed once on
+        all the detections.
 
         Args:
             feature_maps (Dict[str, torch.Tensor]): The backbone feature maps, keyed by level name.
@@ -95,22 +98,40 @@ class InferenceInstanceSegmenter(InferenceDetector):
 
         detection_masks: Optional[torch.Tensor] = None
 
-        # Fine features of all the detections, read by the head of every level, None without fine inputs
+        # Fine features of all the detections, read by the mask heads, None without fine inputs
         fine_features = self.mask_fine_inputs(proposal_boxes=region_boxes, skip_feature_maps=skip_feature_maps)
 
+        # Shared head: every detection pooled from every level, the pooled features of its own level kept, then the
+        # layers of the head run once
+        if self.shared_mask_head:
+            mask_head = self.mask_heads_dictionary[SHARED_MASK_HEAD_KEY]
+            pooled_features: Optional[torch.Tensor] = None
+            for level_index, level_name in enumerate(self.level_names):
+                level_pooled_features = mask_head.pool_box_features(
+                    proposal_boxes=region_boxes, input_tensor=feature_maps[level_name],
+                    skip_feature_maps=skip_feature_maps, level_name=level_name)
+                pooled_features = level_pooled_features if pooled_features is None else torch.where(
+                    (flat_levels == level_index).reshape(-1, 1, 1, 1), level_pooled_features, pooled_features)
+            mask_logits = mask_head.predict_from_pooled_features(pooled_features=pooled_features,
+                                                                 fine_features=fine_features)
+            mask_size = mask_logits.shape[-1]
+            detection_masks = torch.sigmoid(input=torch.gather(input=mask_logits, dim=1,
+                                                               index=class_indices.expand(-1, 1, mask_size, mask_size)))
+
         # Run every level's head on all the detections and keep, for each detection, the mask of its own level
-        for level_index, level_name in enumerate(self.level_names):
-            level_logits = self.mask_heads_dictionary[level_name](
-                proposal_boxes=region_boxes, input_tensor=feature_maps[level_name], skip_feature_maps=skip_feature_maps,
-                fine_features=fine_features)
-            mask_size = level_logits.shape[-1]
-            level_masks = torch.sigmoid(input=torch.gather(input=level_logits, dim=1,
-                                                           index=class_indices.expand(-1, 1, mask_size, mask_size)))
-            if detection_masks is None:
-                detection_masks = level_masks
-            else:
-                detection_masks = torch.where((flat_levels == level_index).reshape(-1, 1, 1, 1), level_masks,
-                                              detection_masks)
+        else:
+            for level_index, level_name in enumerate(self.level_names):
+                level_logits = self.mask_heads_dictionary[level_name](
+                    proposal_boxes=region_boxes, input_tensor=feature_maps[level_name],
+                    skip_feature_maps=skip_feature_maps, fine_features=fine_features)
+                mask_size = level_logits.shape[-1]
+                level_masks = torch.sigmoid(input=torch.gather(
+                    input=level_logits, dim=1, index=class_indices.expand(-1, 1, mask_size, mask_size)))
+                if detection_masks is None:
+                    detection_masks = level_masks
+                else:
+                    detection_masks = torch.where((flat_levels == level_index).reshape(-1, 1, 1, 1), level_masks,
+                                                  detection_masks)
 
         # The padding detections get empty masks
         mask_size = detection_masks.shape[-1]

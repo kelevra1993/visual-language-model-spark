@@ -590,10 +590,11 @@ def describe_mask_geometry(run_folder: Path) -> Dict[str, Any]:
     batch_size = run_configuration["ExperimentConfiguration"]["batch_size"]
     model = load_untrained_run_model(run_folder=run_folder)
 
-    # Mask head of every detection level, in the order of the levels, and the strides of their feature maps
-    level_names = list(model.mask_heads_dictionary.keys())
-    first_head = model.mask_heads_dictionary[level_names[0]]
-    strides = sorted({round(1.0 / head.spatial_scale) for head in model.mask_heads_dictionary.values()})
+    # Levels read by the mask heads, in their order, the head of the first level and the strides of their feature maps
+    level_names = [level_name for head in model.mask_heads_dictionary.values() for level_name in head.level_names]
+    first_head = next(iter(model.mask_heads_dictionary.values()))
+    strides = sorted({round(1.0 / spatial_scale) for head in model.mask_heads_dictionary.values()
+                      for spatial_scale in head.spatial_scales.values()})
     stride_text = (", ".join(str(stride) for stride in strides[:-1]) + " and " + str(strides[-1]) if len(strides) > 1
                    else str(strides[0]))
 
@@ -610,7 +611,8 @@ def describe_mask_geometry(run_folder: Path) -> Dict[str, Any]:
             "geometry.first_level": int(level_names[0]),
             "geometry.first_level_channels": first_head.convolutional_block.input_channels,
             "geometry.first_level_shape": f"[{batch_size}, {first_head.convolutional_block.input_channels}, "
-                                          f"{first_head.feature_map_size}, {first_head.feature_map_size}]",
+                                          f"{first_head.feature_map_sizes[level_names[0]]}, "
+                                          f"{first_head.feature_map_sizes[level_names[0]]}]",
             "geometry.pool_size": first_head.roi_align_pool_size, "geometry.mask_size": first_head.mask_size,
             "geometry.convolution_layers": first_head.convolution_number_layers,
             "geometry.convolution_channels": upsampling_layer.out_channels,

@@ -2012,6 +2012,66 @@ def remove_mask_head_fusion_convolutions(configuration: Dict[str, Any]) -> None:
     del configuration["MaskHead"]["fusion_convolutions"]
 
 
+def share_the_mask_head(configuration: Dict[str, Any]) -> None:
+    """
+    Shares one mask head between the levels, which hold the same mask head and read the 32 channels of the feature
+    pyramid.
+
+    Args:
+        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
+    """
+    configuration["MaskHead"]["shared"] = True
+
+
+def test_shared_mask_head_is_accepted(tmp_path: Path) -> None:
+    """
+    Verifies that one mask head shared by the levels passes the checks when every level holds the same mask head and
+    the feature pyramid gives every level the same channels.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="instance_segmentation",
+                                                  configuration_name="configuration_synthetic_shapes.yaml",
+                                                  modify_function=share_the_mask_head)
+    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
+    assert model_configuration["MaskHead"]["shared"] is True
+
+
+def share_the_mask_head_of_different_levels(configuration: Dict[str, Any]) -> None:
+    """
+    Shares one mask head between levels that cannot share it: level 7 with a pool of 7 where levels 5 and 6 pool
+    at 14, and, without the feature pyramid, block 7 of 64 channels where blocks 5 and 6 have 32.
+
+    Args:
+        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
+    """
+    configuration["MaskHead"]["shared"] = True
+    configuration["DetectionLevels"]["7"]["mask_head"] = {"roi_align_pool_size": 7, "convolutions": [3, 32]}
+    configuration["Neck"]["type"] = "none"
+    configuration["Backbone"]["convolutions"]["7"] = [5, 64]
+
+
+def set_invalid_shared_mask_head(configuration: Dict[str, Any]) -> None:
+    """
+    Sets the sharing of the mask head to a string instead of a boolean.
+
+    Args:
+        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
+    """
+    configuration["MaskHead"]["shared"] = "yes"
+
+
+def remove_shared_mask_head(configuration: Dict[str, Any]) -> None:
+    """
+    Removes the sharing of the mask head, as in the files written before it.
+
+    Args:
+        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
+    """
+    del configuration["MaskHead"]["shared"]
+
+
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
     (remove_level_mask_head, ["'DetectionLevels.7' must hold exactly ['anchors', 'region_proposal', 'detector', "
                               "'mask_head'], got ['anchors', 'detector', 'region_proposal']."]),
@@ -2040,6 +2100,15 @@ def remove_mask_head_fusion_convolutions(configuration: Dict[str, Any]) -> None:
         "'MaskHead.image_branch_convolutions' must be [0, 0] when 'MaskHead.pretrained.experiment_folder' is set: the "
         "image branch is not transferred with the mask heads, got [5, 32]."]),
     (remove_mask_head_fusion_convolutions, ["Missing configuration key 'MaskHead.fusion_convolutions'."]),
+    (share_the_mask_head_of_different_levels, [
+        "'MaskHead.shared' needs the same 'mask_head' on every detection level, one head reading them all, got "
+        "{'5': {'convolutions': [3, 32], 'roi_align_pool_size': 14}",
+        "'7': {'convolutions': [3, 32], 'roi_align_pool_size': 7}}.",
+        "'MaskHead.shared' needs the same channel count on every detection level, the backbone blocks read without a "
+        "neck having {'5': 32, '6': 32, '7': 64} channels: set 'Neck.type' or give the blocks of the levels the same "
+        "channels."]),
+    (set_invalid_shared_mask_head, ["'MaskHead.shared' must be True or False, got 'yes'."]),
+    (remove_shared_mask_head, ["Missing configuration key 'MaskHead.shared'."]),
     (set_invalid_mask_head, ["'MaskHead.mask_resolution' must be an integer >= 1, got 0.",
                              "'MaskHead.upsampling' must be one of ['transposed', 'bilinear'], got 'nearest'.",
                              "'DetectionLevels.5.mask_head.roi_align_pool_size' must be an integer >= 1, got 0.",

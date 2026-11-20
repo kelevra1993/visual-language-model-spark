@@ -44,22 +44,19 @@
     and 13, widening the receptive field of the deepest level at little cost (YOLOv4).
 
 ## B. Instance segmentation
-7. **One mask head shared by the levels**:
+7. **One mask head shared by the levels, stage 5 left to run** (`MaskHead.shared`, implemented):
    - **Mask R-CNN:** `build_fpn_mask_graph` is built once (`model.py:956-1005`) and receives the RoIs of every level
      through `PyramidROIAlign`. The box head and the region proposal head are shared the same way
      (`model.py:1939-1944`).
-   - **Here:** there is one `MaskHead` per level, and `compute_proposal_mask_loss` splits the positives by level, so
-     each head trains on a fraction of the positives of the batch. The export runs the mask head of every level on
-     every detection, which triples the mask computation for three levels.
-   - **Change:** a `MaskHead.shared` switch. When shared, a per-level 1×1 convolution with normalization brings every
-     level to the input channel count of one `MaskHead`, which then sees every positive, and the export runs that
-     single head once on all the detections. Without a neck (`Neck.type: "none"`, the instance segmentation
-     configurations), the levels still differ in depth and context, so this works best with the feature pyramid. The
-     detection heads could be shared the same way.
-   - **Cost and risk:** medium: a run name token, and the model transfer must refuse to load per-level heads into a
-     shared one. A shared head may fit the coarse levels worse than dedicated heads do, which is the point of
-     measuring it.
-   - **Measure:** mask mAP overall and by object size, and the export throughput.
+   - **Here:** with `MaskHead.shared: True`, one `MaskHead` pools the boxes of every level from the map of their level,
+     each at its own scale, and trains on every positive of the batch; the export runs it once on all the
+     detections. The run name gains `MSH`, and `compare_detection_heads` refuses to load per-level heads into a
+     shared one or the reverse. It needs the same `mask_head` on every level and equal level channels (a neck, or
+     backbone blocks of equal channels): the per-level 1×1 convolution that would bring different channels to one
+     head was left out. The detection heads could be shared the same way.
+   - **Left:** stage 5 of `instance_segmentation_experiment_plan.md`: mask mAP overall and by object size against
+     per-level heads, and the export throughput. A shared head may fit the coarse levels worse than dedicated heads
+     do, which is the point of measuring it.
 8. **Ground truth masks cropped to their boxes ("mini masks")**:
    - **Mask R-CNN:** `USE_MINI_MASK` and `MINI_MASK_SHAPE` (56 × 56) (`config.py:103-104`): each mask is cropped to its
      box and resized (`minimize_mask`, `utils.py:517-534`), and the mask target of a RoI is cropped from that small
@@ -159,7 +156,7 @@ average recall by object size and the recall of the anchors and of the proposals
 | RoI pooling | `PyramidROIAlign`: level `4 + round(log2(√(wh) / 224))`, clamped to P2–P5, then `crop_and_resize`, one bilinear sample per bin (`model.py:344-447`). | `roi_align` with `aligned=True` and adaptive sampling, on the level of the anchor that produced the proposal (item 2). |
 | Box head | Shared: 7 × 7 conv to 1024 + BN, 1 × 1 conv 1024 + BN, then class and per-class box layers (`model.py:900-953`). | Per level (`DetectionLevels.<level>.detector`): `ConvolutionBlock`, flattened, fully connected layers without normalization, then class and per-class box layers. |
 | Box regression | Targets divided by [0.1, 0.1, 0.2, 0.2] on both stages. Smooth L1 with β = 1, averaged over the coordinates of the positives (`model.py:575, 1047-1073, 1112-1140`). | Targets left unscaled, fixed weights (1, 1, 1, 1) on both stages (`BOX_REGRESSION_WEIGHTS`), (10, 10, 5, 5) giving about 2.5 times lower mAP@0.5 on the synthetic shapes. Smooth L1 with β = 1/9, summed per box and divided by the positives, or 1 - CIoU on the detection heads (`Detector.box_loss`, item 36, off). |
-| Mask head | Shared: 4 × (3 × 3 conv 256 + BN + ReLU), 2 × 2 transposed conv 256, 1 × 1 conv to one sigmoid per class (`model.py:956-1005`). | Per level (`DetectionLevels.<level>.mask_head`, item 7): `ConvolutionBlock` of `[layers, channels]` with module options, configurable pool size, mask resolution and upsampling, optional finer inputs (backbone skips, an image branch on the crop of the input image, fusion convolutions), 1 × 1 conv per class. |
+| Mask head | Shared: 4 × (3 × 3 conv 256 + BN + ReLU), 2 × 2 transposed conv 256, 1 × 1 conv to one sigmoid per class (`model.py:956-1005`). | Per level (`DetectionLevels.<level>.mask_head`), or one head read by every level with `MaskHead.shared` (item 7): `ConvolutionBlock` of `[layers, channels]` with module options, configurable pool size, mask resolution and upsampling, optional finer inputs (backbone skips, an image branch on the crop of the input image, fusion convolutions), 1 × 1 conv per class. |
 | Mask targets | `crop_and_resize` of the matched mask (full or mini) inside the positive RoI, rounded at 0.5 (`model.py:577-606`). | `roi_align` (aligned) of the matched full-resolution mask inside the positive proposal, thresholded at 0.5. |
 | Mask loss | BCE of the ground truth class channel, mean over the positives (`model.py:1143-1179`). | Same, computed in float32. |
 | Postprocessing | Class = argmax of each RoI. Score ≥ 0.7, per-class NMS 0.3, top 100. Boxes clipped to the image window, padding excluded (`model.py:684-779`). | Every foreground class of every RoI is a candidate. Score ≥ 0.5 (0.05 in evaluation), batched per-class NMS 0.5 (greedy in INS, DIoU-NMS with the exponent 0.6 in DET, item 38), fixed top 100, boxes clamped to the whole input, padding included (item 9). |

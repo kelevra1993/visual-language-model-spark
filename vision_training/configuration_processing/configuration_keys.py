@@ -129,7 +129,7 @@ KNOWN_KEY_PATHS: Dict[str, Tuple[str, ...]] = {
     **{f"DetectionLevels.{ANY_KEY}.mask_head.{key_name}": ("instance_segmentation",) for key_name in [
         "roi_align_pool_size", "convolutions"]},
     **{f"MaskHead.{key_name}": ("instance_segmentation",) for key_name in [
-        "mask_resolution", "upsampling", "fusion_convolutions", "image_branch_convolutions",
+        "shared", "mask_resolution", "upsampling", "fusion_convolutions", "image_branch_convolutions",
         "skip_blocks_at_pool_size", "skip_blocks_at_mask_resolution", "normalization.feature_map_normalization",
         "modules.squeeze_and_excite", "modules.residual_nets", "modules.inception", "inference.mask_threshold"]},
 

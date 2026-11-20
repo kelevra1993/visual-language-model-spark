@@ -6,6 +6,10 @@ convolution) and predicts one mask logit map per class, as in Mask R-CNN, the lo
 mask resolution when the doublings fall short of it, so that every level gives masks of the same size. Built for every
 detection level by the InstanceSegmenter, which trains it on the positive proposals and runs it on the final
 detections, and reused by the InferenceInstanceSegmenter of the exports.
+With 'MaskHead.shared' (stage 5 of the instance segmentation benchmark), a single MaskHead reads every level, as in
+Mask R-CNN: it pools the boxes of every level from the map of that level at its own spatial scale
+(pool_box_features), then runs its layers once on the pooled features of all the levels
+(predict_from_pooled_features), so that it trains on every positive proposal of the batch.
 The mask heads can also read finer inputs than the map of their level (stage 3b of the instance segmentation
 benchmark): backbone blocks before their pooling pooled at the pool size and concatenated before the convolutions
 (U-Net skips), and the fine features of MaskFineInputs, shared by the levels (the image branch, RoIAlign of the
@@ -75,30 +79,35 @@ def build_plain_convolutions(input_channels: int, convolutions: List[int], featu
 
 class MaskHead(nn.Module):
     """
-    Predicts the binary mask of the object of every box of one detection level, one [M, M] logit map per class, the
-    channel of the detected (or ground truth) class being read by the instance segmenter.
+    Predicts the binary mask of the object of every box of the detection levels it reads, one [M, M] logit map per
+    class, the channel of the detected (or ground truth) class being read by the instance segmenter. A head reads one
+    level, or every level when the mask head is shared by the levels ('MaskHead.shared').
     """
 
     def __init__(self, head_configuration: Dict[str, Any], mask_resolution: int, upsampling: str, number_classes: int,
                  input_channels: int, feature_map_normalization: str, batch_normalization_momentum: float,
-                 input_image_size: int, feature_map_size: int, modules: Dict[str, Any],
+                 input_image_size: int, feature_map_sizes: Dict[str, int], modules: Dict[str, Any],
                  skip_information: Dict[str, Dict[str, int]], fine_input_channels: int,
                  fusion_convolutions: List[int], dtype: torch.dtype, device: torch.device) -> None:
         """
-        Builds the mask head of one detection level from the 'MaskHead' section of the configuration.
+        Builds the mask head of one detection level, or the mask head shared by every level, from the 'MaskHead'
+        section of the configuration.
 
         Args:
-            head_configuration (Dict[str, Any]): The 'roi_align_pool_size' P of this level and the
-                [number_layers, output_channels] 'convolutions' of its convolution block.
+            head_configuration (Dict[str, Any]): The 'roi_align_pool_size' P and the [number_layers, output_channels]
+                'convolutions' of its convolution block, those of its level ('DetectionLevels.<level>.mask_head'),
+                the same on every level for the shared head.
             mask_resolution (int): The side M of the masks, the same on every level, at least P.
             upsampling (str): The doubling of the pooled features: "transposed" (a 2x2 transposed convolution) or
                 "bilinear" (a bilinear upsampling followed by a 3x3 convolution).
             number_classes (int): The number of classes, background included, one mask channel per class.
-            input_channels (int): The number of channels of the feature map of this level.
+            input_channels (int): The number of channels of the feature maps it reads, the same on every level for
+                the shared head.
             feature_map_normalization (str): The normalization of the convolution block ("batch", "layer" or "none").
             batch_normalization_momentum (float): The momentum of the running statistics of its batch normalization.
             input_image_size (int): The size of the square network input, giving the spatial scale of RoIAlign.
-            feature_map_size (int): The size of the square feature map of this level.
+            feature_map_sizes (Dict[str, int]): The size of the square feature map of every level it reads, keyed by
+                level: its own level alone, or every level for the shared head.
             modules (Dict[str, Any]): The 'MaskHead.modules' flags ('squeeze_and_excite', 'residual_nets',
                 'inception') of the convolution block.
             skip_information (Dict[str, Dict[str, int]]): The 'feature_map_size' and 'number_channels' of every
@@ -122,9 +131,10 @@ class MaskHead(nn.Module):
         if upsampling not in VALID_UPSAMPLINGS:
             raise ValueError(f"'MaskHead.upsampling' must be one of {VALID_UPSAMPLINGS}, got {upsampling!r}.")
 
-        # Mask geometry of the level: its pool size, the doublings that fit in the mask resolution and their size
+        # Mask geometry of the head: its pool size, the doublings that fit in the mask resolution and their size
         self.number_classes = number_classes
-        self.feature_map_size = feature_map_size
+        self.feature_map_sizes = dict(feature_map_sizes)
+        self.level_names = list(feature_map_sizes)
         self.roi_align_pool_size = head_configuration["roi_align_pool_size"]
         self.mask_size = mask_resolution
         self.upsampling = upsampling
@@ -133,8 +143,10 @@ class MaskHead(nn.Module):
         self.upsampled_size = self.roi_align_pool_size * 2 ** self.number_upsamplings
         self.convolution_number_layers, convolution_output_channels = head_configuration["convolutions"]
 
-        # Ratio mapping the boxes from network input pixels to feature map cells, as in the detection head
-        self.spatial_scale = feature_map_size / input_image_size
+        # Ratio mapping the boxes from network input pixels to the cells of the map of every level, as in the
+        # detection head
+        self.spatial_scales = {level_name: feature_map_size / input_image_size
+                               for level_name, feature_map_size in feature_map_sizes.items()}
 
         # Backbone skip outputs pooled at the pool size with the pooled features, each with its own spatial scale
         self.skip_keys = list(skip_information)
@@ -191,8 +203,10 @@ class MaskHead(nn.Module):
     def forward(self, proposal_boxes: torch.Tensor, input_tensor: torch.Tensor,
                 skip_feature_maps: Dict[str, torch.Tensor], fine_features: Optional[torch.Tensor]) -> torch.Tensor:
         """
-        Predicts the mask logits of every box from the feature map of this level, the backbone skip outputs pooled at
-        its pool size and the fine features of its boxes.
+        Predicts the mask logits of every box from the feature map of the one level this head reads, the backbone skip
+        outputs pooled at its pool size and the fine features of its boxes. The shared head, which reads several
+        levels, pools the boxes of every level with pool_box_features and predicts them at once with
+        predict_from_pooled_features instead.
 
         Args:
             proposal_boxes (torch.Tensor): The [R, 5] boxes, the image index of every box followed by its
@@ -207,17 +221,43 @@ class MaskHead(nn.Module):
             torch.Tensor: The [R, number_classes, M, M] mask logits.
 
         Raises:
-            ValueError: If fine features are given to a head built without them, or missing for a head built with
-                them.
+            ValueError: If the head reads more than one level, the map of the boxes being then ambiguous, or if the
+                fine features do not match the head (predict_from_pooled_features).
         """
-        if (fine_features is None) != (self.fine_input_channels == 0):
-            raise ValueError(f"The mask head was built for {self.fine_input_channels} channels of fine features, got "
-                             f"{'none' if fine_features is None else fine_features.shape[1]}.")
+        if len(self.level_names) != 1:
+            raise ValueError(f"The mask head reads the levels {self.level_names}: pool the boxes of every level with "
+                             f"pool_box_features, then predict them with predict_from_pooled_features.")
+        pooled_features = self.pool_box_features(proposal_boxes=proposal_boxes, input_tensor=input_tensor,
+                                                 skip_feature_maps=skip_feature_maps, level_name=self.level_names[0])
+        return self.predict_from_pooled_features(pooled_features=pooled_features, fine_features=fine_features)
+
+    def pool_box_features(self, proposal_boxes: torch.Tensor, input_tensor: torch.Tensor,
+                          skip_feature_maps: Dict[str, torch.Tensor], level_name: str) -> torch.Tensor:
+        """
+        Pools every box from the feature map of one level at the spatial scale of that level, with the backbone skip
+        outputs pooled at the same grid, the input of the convolution block of the head.
+
+        Args:
+            proposal_boxes (torch.Tensor): The [R, 5] boxes, the image index of every box followed by its
+                [x1, y1, x2, y2] corners in network input pixels.
+            input_tensor (torch.Tensor): The [B, C, H, W] feature map of the level.
+            skip_feature_maps (Dict[str, torch.Tensor]): The backbone skip outputs keyed 'skip_<block>', holding at
+                least those this head pools at its pool size.
+            level_name (str): The detection level of the feature map, one of the levels the head reads.
+
+        Returns:
+            torch.Tensor: The [R, C + skip channels, P, P] pooled features.
+
+        Raises:
+            ValueError: If the head does not read the level, whose spatial scale it does not know.
+        """
+        if level_name not in self.spatial_scales:
+            raise ValueError(f"The mask head reads the levels {self.level_names}, not level {level_name!r}.")
 
         # Pool every box with the RoIAlign settings of the detection head, exported as the ONNX RoiAlign operator
         pooled_features = roi_align(input=input_tensor, boxes=proposal_boxes,
                                     output_size=(self.roi_align_pool_size, self.roi_align_pool_size),
-                                    spatial_scale=self.spatial_scale, sampling_ratio=0, aligned=True)
+                                    spatial_scale=self.spatial_scales[level_name], sampling_ratio=0, aligned=True)
 
         # Backbone skip outputs pooled at the same grid and concatenated along the channels (U-Net skips)
         if self.skip_keys:
@@ -226,6 +266,29 @@ class MaskHead(nn.Module):
                                       spatial_scale=skip_spatial_scale, sampling_ratio=0, aligned=True)
                             for skip_key, skip_spatial_scale in zip(self.skip_keys, self.skip_spatial_scales)]
             pooled_features = torch.cat(tensors=[pooled_features] + pooled_skips, dim=1)
+        return pooled_features
+
+    def predict_from_pooled_features(self, pooled_features: torch.Tensor,
+                                     fine_features: Optional[torch.Tensor]) -> torch.Tensor:
+        """
+        Predicts the mask logits of pooled boxes, whatever the levels they were pooled from: the convolution block,
+        the doublings, the fine features joined at the mask resolution, the fusion convolutions and the predictor.
+
+        Args:
+            pooled_features (torch.Tensor): The [R, C + skip channels, P, P] pooled features (pool_box_features).
+            fine_features (Optional[torch.Tensor]): The [R, fine_input_channels, M, M] fine features of the boxes
+                (MaskFineInputs), in the order of the pooled features, None when the head has none.
+
+        Returns:
+            torch.Tensor: The [R, number_classes, M, M] mask logits.
+
+        Raises:
+            ValueError: If fine features are given to a head built without them, or missing for a head built with
+                them.
+        """
+        if (fine_features is None) != (self.fine_input_channels == 0):
+            raise ValueError(f"The mask head was built for {self.fine_input_channels} channels of fine features, got "
+                             f"{'none' if fine_features is None else fine_features.shape[1]}.")
 
         # Refine the pooled features and double their resolution as many times as fits
         features = self.convolutional_block(input_tensor=pooled_features)

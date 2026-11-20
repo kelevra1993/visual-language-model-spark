@@ -5,7 +5,8 @@ rejected, source runs still holding the fixed settings, frozen backbones and the
 classes after those of their source run are covered too: the class layers of the classification, detection and mask
 heads and of the semantic segmentation grown to the new classes, which keep the random initialisation of the new run,
 and the source runs without class names. The keypoint head only moves between runs predicting the same keypoints on
-the same channels, read from the record of the data of the source run.
+the same channels, read from the record of the data of the source run, and the mask heads between runs sharing them
+by the levels or not alike.
 """
 
 import copy
@@ -931,6 +932,51 @@ def test_mask_heads_with_fine_inputs_move_between_runs_of_the_same_inputs(tmp_pa
                                             target_configuration=target_configuration) == []
     assert len(compare_component_configurations(section_name="MaskHead", source_configuration=former_configuration,
                                                 target_configuration=configuration)) == 3
+
+
+def test_mask_heads_move_only_between_runs_of_the_same_sharing(tmp_path: Path) -> None:
+    """
+    Verifies that the mask head shared by the levels ('MaskHead.shared') moves to a run that also shares it, every
+    tensor being copied, and that mask heads trained per level are refused by a run sharing one head and the reverse,
+    a source run written before the sharing counting as one head per level.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    shared_configuration, _, _ = get_detection_model_configuration(mask_head=True)
+    shared_configuration = copy.deepcopy(shared_configuration)
+    shared_configuration["MaskHead"]["shared"] = True
+    source_segmenter = build_task_model(task="instance_segmentation", configuration=shared_configuration, seed=0)
+    write_source_run(run_folder=tmp_path / "shared_run", configuration=shared_configuration, model=source_segmenter)
+    target_segmenter = build_task_model(task="instance_segmentation", configuration=shared_configuration, seed=1)
+    load_pretrained_component(component=target_segmenter.mask_heads_dictionary, section_name="MaskHead",
+                              model_configuration=point_to_source_run(configuration=shared_configuration,
+                                                                      section_name="MaskHead",
+                                                                      source_folder=tmp_path / "shared_run"),
+                              device=torch.device("cpu"))
+
+    # Every tensor of the single shared head copied
+    source_state = source_segmenter.mask_heads_dictionary.state_dict()
+    target_state = target_segmenter.mask_heads_dictionary.state_dict()
+    assert {tensor_name.split(".")[0] for tensor_name in source_state} == {"shared"}
+    assert source_state.keys() == target_state.keys()
+    for tensor_name, tensor_value in source_state.items():
+        assert torch.equal(input=target_state[tensor_name], other=tensor_value), tensor_name
+
+    # Heads per level and a shared head are refused by each other, a source run written before the sharing being one
+    # head per level
+    level_configuration, _, _ = get_detection_model_configuration(mask_head=True)
+    former_configuration = copy.deepcopy(level_configuration)
+    former_configuration["MaskHead"].pop("shared")
+    for source_configuration in [level_configuration, former_configuration]:
+        assert compare_component_configurations(section_name="MaskHead", source_configuration=source_configuration,
+                                                target_configuration=shared_configuration) == [
+            "'MaskHead.shared' is False in the source run and True in this run."]
+    assert compare_component_configurations(section_name="MaskHead", source_configuration=shared_configuration,
+                                            target_configuration=level_configuration) == [
+        "'MaskHead.shared' is True in the source run and False in this run."]
+    assert compare_component_configurations(section_name="MaskHead", source_configuration=former_configuration,
+                                            target_configuration=level_configuration) == []
 
 
 def test_segmentation_class_layers_follow_the_decoder(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:

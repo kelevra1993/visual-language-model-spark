@@ -119,18 +119,21 @@ DETECTION_LEVEL_COMPONENTS = {"RegionProposal": "region_proposal", "Detector": "
 # number of anchors per position of the region proposal heads, giving the size of their output layers, is compared
 # apart, the anchor scales and ratios themselves not being weights. The mask resolution and the upsampling of the
 # mask heads give their upsampling layers, their backbone skips at the pool size the input of their convolution block,
-# and their fine inputs (image branch, backbone skips at the mask resolution) and fusion convolutions the layers before
-# their predictor
+# their fine inputs (image branch, backbone skips at the mask resolution) and fusion convolutions the layers before
+# their predictor, and their sharing by the levels the number of heads, so that heads trained per level are refused
+# by a run sharing one head and the reverse
 DETECTION_HEAD_WEIGHT_KEYS = {"RegionProposal": ["normalization"], "Detector": ["normalization", "modules"],
-                              "MaskHead": ["mask_resolution", "upsampling", "normalization", "modules",
+                              "MaskHead": ["shared", "mask_resolution", "upsampling", "normalization", "modules",
                                            "skip_blocks_at_pool_size", "image_branch_convolutions",
                                            "skip_blocks_at_mask_resolution", "fusion_convolutions"]}
 
 # Settings of the heads added after the first runs, with the value of the runs written before them: the mask heads of
-# a source run written before their finer inputs read the map of their level alone
+# a source run written before their finer inputs read the map of their level alone, and those written before their
+# sharing are one head per level
 DETECTION_HEAD_DEFAULTS = {"RegionProposal": {}, "Detector": {},
-                           "MaskHead": {"skip_blocks_at_pool_size": [], "image_branch_convolutions": [0, 0],
-                                        "skip_blocks_at_mask_resolution": [], "fusion_convolutions": [0, 0]}}
+                           "MaskHead": {"shared": False, "skip_blocks_at_pool_size": [],
+                                        "image_branch_convolutions": [0, 0], "skip_blocks_at_mask_resolution": [],
+                                        "fusion_convolutions": [0, 0]}}
 
 # Normalization layers whose scale and shift can be kept fixed, and batch normalization layers whose statistics a
 # frozen component keeps

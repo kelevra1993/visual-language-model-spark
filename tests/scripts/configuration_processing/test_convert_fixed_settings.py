@@ -301,6 +301,13 @@ MASK_HEAD_FINE_INPUTS_TEXT = (
     '  # [1, 64]; [0, 0] for none, the predictor following the doublings as in Mask R-CNN.\n'
     '  fusion_convolutions: [0, 0]\n')
 
+# Lines the conversion writes after the fusion convolutions of the mask heads section in the files written before the
+# sharing of the mask head, whose mask heads are one per level
+MASK_HEAD_SHARED_TEXT = (
+    '  # True: one mask head read by every level (Mask R-CNN), trained on all the positives; needs the same mask_head\n'
+    '  # on every level and equal level channels (a neck). False: one mask head per level.\n'
+    '  shared: False\n')
+
 
 def write_original_task_text(configuration_text: str, task: str) -> str:
     """
@@ -323,8 +330,9 @@ def write_original_task_text(configuration_text: str, task: str) -> str:
 def write_task_text(configuration_text: str, task: str) -> str:
     """
     Writes a detection text for a task: its task name, and for the instance segmentation the instance index maps after
-    the image settings and its mask heads section with their finer inputs after the upsampling, as the conversion
-    writes them, for the instance segmentation texts converted after 2026-11-15.
+    the image settings and its mask heads section with their finer inputs after the upsampling, then their sharing
+    after the fusion convolutions, as the conversion writes them, for the instance segmentation texts converted after
+    2026-11-20.
 
     Args:
         configuration_text (str): The detection text, holding the data section of the texts above.
@@ -336,8 +344,8 @@ def write_task_text(configuration_text: str, task: str) -> str:
     task_text = configuration_text.replace("task: object_detection", f"task: {task}")
     if task == "instance_segmentation":
         task_text = task_text.replace(DATA_START_TEXT, f"{DATA_START_TEXT}{INSTANCE_INDEX_MAPS_TEXT}")
-        task_text += MASK_HEAD_TEXT.replace(MASK_HEAD_UPSAMPLING_TEXT,
-                                            f"{MASK_HEAD_UPSAMPLING_TEXT}{MASK_HEAD_FINE_INPUTS_TEXT}")
+        task_text += MASK_HEAD_TEXT.replace(
+            MASK_HEAD_UPSAMPLING_TEXT, f"{MASK_HEAD_UPSAMPLING_TEXT}{MASK_HEAD_FINE_INPUTS_TEXT}{MASK_HEAD_SHARED_TEXT}")
     return task_text
 
 
@@ -782,6 +790,54 @@ def test_conversion_adds_the_mask_head_fine_inputs_to_the_instance_segmentation_
     assert converted_paths == [configuration_folder / "run-1.yaml"]
     assert (configuration_folder / "run-1.yaml").read_text(encoding="utf-8") == expected_text
     assert (configuration_folder / "previous_configurations" / "run-1_before_mask_fine_inputs.yaml").read_text(
+        encoding="utf-8") == original_text
+
+
+def test_conversion_adds_the_mask_head_sharing_to_the_instance_segmentation_files(tmp_path: Path) -> None:
+    """
+    Verifies that the conversion writes the one mask head per level of the runs written before the sharing of the mask
+    head, 'shared: False' with its comment lines, right after the fusion convolutions of the mask heads section of the
+    instance segmentation files, and only there: an object detection file and an instance segmentation file sharing
+    its head are left as they are, the check refuses a converted file lacking the setting or sharing the head, and
+    convert_fixed_settings converts a launch file with its backup.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = tmp_path / "configuration.yaml"
+    expected_text = write_task_text(configuration_text=CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS,
+                                    task="instance_segmentation")
+    original_text = expected_text.replace(MASK_HEAD_SHARED_TEXT, "")
+    converted_text = add_required_settings(configuration_text=original_text, task="instance_segmentation",
+                                           configuration_path=configuration_path)
+    assert converted_text == expected_text and "  fusion_convolutions: [0, 0]\n" + MASK_HEAD_SHARED_TEXT in \
+        converted_text
+    assert check_conversion(original_text=original_text, converted_text=converted_text, task="instance_segmentation",
+                            configuration_path=configuration_path) == []
+
+    # An object detection file, and an instance segmentation file sharing its head, are left as they are
+    assert add_required_settings(configuration_text=CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS,
+                                 task="object_detection", configuration_path=configuration_path) == \
+        CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS
+    shared_text = expected_text.replace("shared: False", "shared: True")
+    assert add_required_settings(configuration_text=shared_text, task="instance_segmentation",
+                                 configuration_path=configuration_path) == shared_text
+
+    # Conversions without the setting or sharing the head are refused
+    for refused_text in [original_text, shared_text]:
+        with pytest.raises(expected_exception=ValueError, match=r"than the fixed ones: MaskHead\.shared\.$"):
+            check_conversion(original_text=original_text, converted_text=refused_text, task="instance_segmentation",
+                             configuration_path=configuration_path)
+
+    # A launch file converted with its backup, the original kept in it
+    configuration_folder = tmp_path / "launch_files"
+    configuration_folder.mkdir()
+    (configuration_folder / "run-1.yaml").write_text(data=original_text, encoding="utf-8")
+    converted_paths = convert_fixed_settings(run_roots=[], configuration_folders=[configuration_folder],
+                                             write_files=True, backup_suffix="_before_shared_mask_head")
+    assert converted_paths == [configuration_folder / "run-1.yaml"]
+    assert (configuration_folder / "run-1.yaml").read_text(encoding="utf-8") == expected_text
+    assert (configuration_folder / "previous_configurations" / "run-1_before_shared_mask_head.yaml").read_text(
         encoding="utf-8") == original_text
 
 

@@ -7,7 +7,7 @@ report their differences, the inference models match the training path on full s
 the classifier softens its probabilities in the eager model and both exports, the exports of the detector keep its
 DIoU-NMS, its greedy NMS beyond the size at which batched_nms changes its algorithm and its selection of the proposals
 level by level, its ONNX suppressions see the boxes of the image only, and the exports of the instance segmenter keep
-the finer inputs of its mask heads.
+the finer inputs of its mask heads and the mask head shared by its levels.
 """
 
 import numpy as np
@@ -320,6 +320,53 @@ def test_instance_segmenter_exports_keep_the_fine_inputs_of_the_mask_heads(tmp_p
         reference_outputs = convert_outputs_to_numpy(outputs=inference_model(**check_inputs))
         plain_outputs = convert_outputs_to_numpy(outputs=plain_model(**check_inputs))
     assert not np.allclose(reference_outputs[4], plain_outputs[4], atol=1e-2)
+
+    # TorchScript export, traced on the example batch and run on the check batch
+    export_torchscript(inference_model=inference_model, example_inputs=example_inputs,
+                       output_path=tmp_path / "model.pt")
+    with torch.no_grad():
+        torchscript_outputs = convert_outputs_to_numpy(outputs=torch.jit.load(str(tmp_path / "model.pt"))(
+            **check_inputs))
+    assert specification["compare_outputs"](reference=reference_outputs, candidate=torchscript_outputs,
+                                            **specification["comparison_tolerances"]) == []
+
+    # Dynamo ONNX export with a dynamic batch, run by ONNX Runtime on the check batch
+    export_onnx(inference_model=inference_model, example_inputs=example_inputs, output_path=tmp_path / "model.onnx",
+                specification=specification, maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE)
+    session = onnxruntime.InferenceSession(str(tmp_path / "model.onnx"), providers=["CPUExecutionProvider"])
+    onnx_outputs = session.run(None, {"images": check_inputs["images"].numpy()})
+    assert specification["compare_outputs"](reference=reference_outputs, candidate=onnx_outputs,
+                                            **specification["comparison_tolerances"]) == []
+
+
+def test_instance_segmenter_exports_keep_the_mask_head_shared_by_the_levels(tmp_path: Path) -> None:
+    """
+    Verifies the TorchScript and ONNX exports of the inference instance segmenter whose single mask head is shared by
+    the levels ('MaskHead.shared'), which pools every detection from every level, keeps the pooled features of its own
+    level and runs the head once, with the image branch and fusion convolutions of design A: both exports reproduce
+    the detections and masks of the eager inference segmenter on a batch of another size than the traced one.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    hide_known_export_warnings()
+    shared_settings = {"MaskHead": {**MIXED_MASK_HEAD_SETTINGS["MaskHead"], "shared": True,
+                                    "image_branch_convolutions": [2, 8], "fusion_convolutions": [1, 16]},
+                       "level_mask_heads": {level_key: {"roi_align_pool_size": 5, "convolutions": [2, 32]}
+                                            for level_key in MIXED_MASK_HEAD_SETTINGS["level_mask_heads"]}}
+    inference_model = build_inference_model(task="instance_segmentation", model=build_test_detector(
+        dtype=torch.float32, instance_segmentation=True, mask_head_settings=shared_settings))
+    assert inference_model.shared_mask_head and list(inference_model.mask_heads_dictionary) == ["shared"]
+    specification = get_export_specification(task="instance_segmentation", inference_model=inference_model)
+    example_inputs = create_random_inputs(specification=specification, shape_name="example_shape",
+                                          maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE, device=torch.device("cpu"),
+                                          generator=torch.Generator().manual_seed(1))
+    check_inputs = create_random_inputs(specification=specification, shape_name="check_shape",
+                                        maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE, device=torch.device("cpu"),
+                                        generator=torch.Generator().manual_seed(2))
+    with torch.no_grad():
+        reference_outputs = convert_outputs_to_numpy(outputs=inference_model(**check_inputs))
+    assert int(reference_outputs[3].sum()) > 0 and float(reference_outputs[4].max()) > 0.0
 
     # TorchScript export, traced on the example batch and run on the check batch
     export_torchscript(inference_model=inference_model, example_inputs=example_inputs,

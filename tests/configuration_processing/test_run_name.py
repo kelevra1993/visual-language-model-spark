@@ -726,7 +726,7 @@ def get_instance_segmentation_reference_configurations() -> Tuple[Dict[str, Any]
     experiment_configuration["task"] = "instance_segmentation"
     for level_configuration in model_configuration["DetectionLevels"].values():
         level_configuration["mask_head"] = {"roi_align_pool_size": 14, "convolutions": [4, 64]}
-    model_configuration["MaskHead"] = {"mask_resolution": 28, "upsampling": "transposed",
+    model_configuration["MaskHead"] = {"shared": False, "mask_resolution": 28, "upsampling": "transposed",
                                        "skip_blocks_at_pool_size": [], "image_branch_convolutions": [0, 0],
                                        "skip_blocks_at_mask_resolution": [], "fusion_convolutions": [0, 0],
                                        "normalization": {"feature_map_normalization": "batch"},
@@ -781,6 +781,19 @@ def use_mask_head_fusion_convolutions(experiment_configuration: Dict[str, Any],
     model_configuration["MaskHead"]["fusion_convolutions"] = [2, 32]
 
 
+def share_the_mask_head_with_the_image_branch(experiment_configuration: Dict[str, Any],
+                                              model_configuration: Dict[str, Any]) -> None:
+    """
+    Shares one mask head between the levels, with the image branch and fusion convolutions of design A of stage 3b.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["MaskHead"].update({"shared": True, "image_branch_convolutions": [5, 32],
+                                            "fusion_convolutions": [1, 64]})
+
+
 # Run name of the instance segmentation reference settings: the detection sections with the mask heads before the
 # classes
 INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME = REFERENCE_RUN_NAME.replace("DET_", "INS_").replace(
@@ -792,13 +805,16 @@ INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME = REFERENCE_RUN_NAME.replace("DET_", "I
         "_MRES-MBN-MUTC-M14.4x64-MR28_", "_MSE-MRES-MINC-MLN-MUBL-M14.4x64+14.4x64+7.2x128-MR56_")),
     (use_every_mask_head_fine_input, INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME.replace(
         "-MR28_", "-MR28-MSP4.5-MIB5x32-MSM0.3-MF1x64_")),
-    (use_mask_head_fusion_convolutions, INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME.replace("-MR28_", "-MR28-MF2x32_"))])
+    (use_mask_head_fusion_convolutions, INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME.replace("-MR28_", "-MR28-MF2x32_")),
+    (share_the_mask_head_with_the_image_branch, INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME.replace(
+        "-M14.4x64-MR28_", "-M14.4x64-MSH-MR28-MIB5x32-MF1x64_"))])
 def test_instance_segmentation_run_names(modify_function: Callable[[Dict[str, Any], Dict[str, Any]], None] | None,
                                          expected_run_name: str) -> None:
     """
     Verifies the run names of the instance segmentation: the INS code, the detection sections, and the mask heads
-    section (modules, normalization, upsampling, pool size and convolutions of every level, mask resolution, then the
-    finer inputs and fusion convolutions in the order of their data flow when used) before the classes.
+    section (modules, normalization, upsampling, pool size and convolutions of every level, MSH for a mask head shared
+    by the levels, mask resolution, then the finer inputs and fusion convolutions in the order of their data flow when
+    used) before the classes.
 
     Args:
         modify_function (Callable[[Dict[str, Any], Dict[str, Any]], None] | None): Function changing the reference

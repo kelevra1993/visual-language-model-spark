@@ -9,7 +9,8 @@ written before them (ADDED_SECTIONS: the 'Neck' of the detection tasks, without 
 their 'Detector' section, the smooth L1, the 'nms_criterion' and 'nms_distance_exponent' of their 'Detector' section,
 the greedy NMS, the 'proposal_selection' of their 'RegionProposal' section, over all the levels at once, the
 'instance_index_maps' of the 'Data' section of the instance segmentation, one mask per object, and the finer inputs and
-fusion convolutions of its 'MaskHead' section, none; the 'benchmark_speed' diagnosis mode of every task, off), so
+fusion convolutions of its 'MaskHead' section, none; the 'benchmark_speed' diagnosis mode of every task, off; the
+'shared' setting of the 'MaskHead' section of the instance segmentation, one mask head per level), so
 that the training_configuration.yaml of the saved runs, reloaded to resume a run, by
 scripts/evaluation/evaluate_checkpoint.py and by the export, and the launch files of vision_training/main.py load
 again.
@@ -145,6 +146,13 @@ MASK_HEAD_FUSION_CONVOLUTIONS_LINES = [
     '# [1, 64]; [0, 0] for none, the predictor following the doublings as in Mask R-CNN.',
     'fusion_convolutions: [0, 0]']
 
+# Lines of the sharing of the mask heads added to the 'MaskHead' section of the instance segmentation runs written
+# before it, whose mask heads are one per level: the comment lines, then the setting
+MASK_HEAD_SHARED_LINES = [
+    '# True: one mask head read by every level (Mask R-CNN), trained on all the positives; needs the same mask_head',
+    '# on every level and equal level channels (a neck). False: one mask head per level.',
+    'shared: False']
+
 # Lines of the speed benchmark diagnosis mode added to the 'diagnosis_modes' of the runs of every task written before
 # it, off: the comment lines, then the setting
 DIAGNOSIS_BENCHMARK_SPEED_LINES = [
@@ -183,7 +191,9 @@ ADDED_SETTINGS = {"Detector.box_loss": {"tasks": ["object_detection", "instance_
                   "ExperimentConfiguration.diagnosis_modes.benchmark_speed": {
                       "tasks": list(TASK_CONFIGURATION_CHECKS),
                       "after": "ExperimentConfiguration.diagnosis_modes.view_input_images",
-                      "lines": DIAGNOSIS_BENCHMARK_SPEED_LINES}}
+                      "lines": DIAGNOSIS_BENCHMARK_SPEED_LINES},
+                  "MaskHead.shared": {"tasks": ["instance_segmentation"], "after": "MaskHead.fusion_convolutions",
+                                      "lines": MASK_HEAD_SHARED_LINES}}
 
 # Name of the configuration saved in every run folder
 RUN_CONFIGURATION_NAME = "training_configuration.yaml"
@@ -692,9 +702,10 @@ if __name__ == "__main__":
     # '_before_anchor_centres' for the 'RegionProposal.anchor_centres' added on 2026-11-12,
     # '_before_anchor_centres_removal' for its removal on 2026-11-13, '_before_instance_index_maps' for the
     # 'Data.instance_index_maps' added on 2026-11-13, '_before_mask_fine_inputs' for the finer inputs and fusion
-    # convolutions of the 'MaskHead' section added on 2026-11-15, then '_before_benchmark_speed' for the
-    # 'diagnosis_modes.benchmark_speed' added on 2026-11-16
-    backup_suffix = "_before_benchmark_speed"
+    # convolutions of the 'MaskHead' section added on 2026-11-15, '_before_benchmark_speed' for the
+    # 'diagnosis_modes.benchmark_speed' added on 2026-11-16, then '_before_shared_mask_head' for the 'MaskHead.shared'
+    # added on 2026-11-20
+    backup_suffix = "_before_shared_mask_head"
 
     files_to_convert = convert_fixed_settings(run_roots=run_roots, configuration_folders=configuration_folders,
                                               write_files=write_files, backup_suffix=backup_suffix)

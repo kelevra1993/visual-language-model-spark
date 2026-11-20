@@ -424,6 +424,9 @@ MaskHead:
   # [layers, channels] of plain 3x3 convolutions at M before the predictor, mixing the concatenated features, e.g.
   # [1, 64]; [0, 0] for none, the predictor following the doublings as in Mask R-CNN.
   fusion_convolutions: [0, 0]
+  # True: one mask head read by every level (Mask R-CNN), trained on all the positives; needs the same mask_head
+  # on every level and equal level channels (a neck). False: one mask head per level.
+  shared: False
   normalization:
     # "batch", "layer" (over channels) or "none"
     feature_map_normalization: "batch"

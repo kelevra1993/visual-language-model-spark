@@ -1,13 +1,15 @@
 """
 Tests of vision_training/models/instance_segmentation/mask_operations.py and the mask head: the mask geometry of the
-mask head (its doublings and the shapes of its outputs), the mask targets cropped from the ground truth masks, the
-pasting of the predicted masks into their boxes and the intersection over union of binary masks.
+mask head (its doublings and the shapes of its outputs), the pooling of the mask head shared by the levels, the mask
+targets cropped from the ground truth masks, the pasting of the predicted masks into their boxes and the intersection
+over union of binary masks.
 """
 
 import pytest
 import torch
 
 from torch import nn
+from torchvision.ops import roi_align
 
 from tests.fixtures.configuration_fixtures import get_detection_model_configuration
 from vision_training.models.instance_segmentation.mask_head import MaskHead, count_mask_upsamplings
@@ -34,7 +36,7 @@ def build_mask_head(roi_align_pool_size: int, mask_resolution: int, upsampling: 
     return MaskHead(head_configuration={"roi_align_pool_size": roi_align_pool_size, "convolutions": [2, 16]},
                     mask_resolution=mask_resolution, upsampling=upsampling, number_classes=6, input_channels=8,
                     feature_map_normalization="batch", batch_normalization_momentum=0.1, input_image_size=128,
-                    feature_map_size=16, modules=configuration["MaskHead"]["modules"], skip_information={},
+                    feature_map_sizes={"5": 16}, modules=configuration["MaskHead"]["modules"], skip_information={},
                     fine_input_channels=0, fusion_convolutions=[0, 0], dtype=dtype, device=device).eval()
 
 
@@ -76,6 +78,47 @@ def test_unknown_mask_head_upsampling_is_refused() -> None:
     """
     with pytest.raises(expected_exception=ValueError, match="'MaskHead.upsampling' must be one of .* got 'nearest'"):
         build_mask_head(roi_align_pool_size=7, mask_resolution=28, upsampling="nearest")
+
+
+def test_shared_mask_head_pools_every_level_at_its_own_scale() -> None:
+    """
+    Verifies that a mask head read by two levels (the head shared by the levels of 'MaskHead.shared') pools the boxes
+    of each level from its map at the spatial scale of that level, predicts the pooled boxes of both levels at once,
+    and refuses the single-level forward, whose map would be ambiguous, and a level it does not read.
+    """
+    configuration, device, dtype = get_detection_model_configuration(mask_head=True)
+    mask_head = MaskHead(head_configuration={"roi_align_pool_size": 7, "convolutions": [2, 16]}, mask_resolution=14,
+                         upsampling="transposed", number_classes=6, input_channels=8, feature_map_normalization="batch",
+                         batch_normalization_momentum=0.1, input_image_size=128, feature_map_sizes={"5": 32, "6": 16},
+                         modules=configuration["MaskHead"]["modules"], skip_information={}, fine_input_channels=0,
+                         fusion_convolutions=[0, 0], dtype=dtype, device=device).eval()
+    feature_maps = {"5": torch.rand(size=(2, 8, 32, 32)), "6": torch.rand(size=(2, 8, 16, 16))}
+    boxes = torch.tensor(data=[[0.0, 10.0, 10.0, 60.0, 80.0], [1.0, 0.0, 0.0, 128.0, 128.0]])
+
+    # Every level pooled at its own scale: 32 / 128 for level 5, 16 / 128 for level 6
+    pooled_features = {}
+    for level_name, feature_map in feature_maps.items():
+        pooled_features[level_name] = mask_head.pool_box_features(proposal_boxes=boxes, input_tensor=feature_map,
+                                                                   skip_feature_maps={}, level_name=level_name)
+        expected_features = roi_align(input=feature_map, boxes=boxes, output_size=(7, 7),
+                                      spatial_scale=feature_map.shape[-1] / 128, sampling_ratio=0, aligned=True)
+        assert torch.equal(input=pooled_features[level_name], other=expected_features)
+
+    # The boxes of both levels predicted at once, row by row as when predicted level by level
+    with torch.no_grad():
+        joint_logits = mask_head.predict_from_pooled_features(
+            pooled_features=torch.cat(tensors=[pooled_features["5"], pooled_features["6"]]), fine_features=None)
+        level_logits = [mask_head.predict_from_pooled_features(pooled_features=pooled_features[level_name],
+                                                               fine_features=None) for level_name in ["5", "6"]]
+    assert joint_logits.shape == (4, 6, 14, 14)
+    assert torch.allclose(input=joint_logits, other=torch.cat(tensors=level_logits), atol=1e-6)
+
+    # The single-level forward and an unknown level are refused
+    with pytest.raises(expected_exception=ValueError, match="reads the levels \\['5', '6'\\]: pool the boxes"):
+        mask_head(proposal_boxes=boxes, input_tensor=feature_maps["5"], skip_feature_maps={}, fine_features=None)
+    with pytest.raises(expected_exception=ValueError, match="not level '7'"):
+        mask_head.pool_box_features(proposal_boxes=boxes, input_tensor=feature_maps["6"], skip_feature_maps={},
+                                    level_name="7")
 
 
 def test_mask_targets_crop_the_matched_ground_truth_masks() -> None:

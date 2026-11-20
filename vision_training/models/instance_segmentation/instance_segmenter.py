@@ -1,6 +1,7 @@
 """
 Model of the instance segmentation task: the InstanceSegmenter is the TwoStageDetector of the object detection task
-with one MaskHead per detection level, as in Mask R-CNN. It reuses every stage of the detector through
+with one MaskHead per detection level, or with a single MaskHead read by every level as in Mask R-CNN
+('MaskHead.shared', stage 5 of the instance segmentation benchmark). It reuses every stage of the detector through
 forward_detection_stages, trains its mask heads on the positive sampled proposals and predicts the mask of every final
 detection. Its mask heads can also read finer inputs than the levels (the image branch and the backbone skips of
 MaskFineInputs and MaskHead), whose backbone outputs it requests through list_backbone_skip_blocks. Registered in
@@ -21,17 +22,22 @@ from vision_training.models.detection.two_stage_detector import TwoStageDetector
 from vision_training.models.instance_segmentation.mask_head import MaskFineInputs, MaskHead
 from vision_training.models.instance_segmentation.mask_operations import build_mask_targets
 
+# Key of the mask head shared by every level in the mask heads dictionary, which otherwise holds one head per level
+# keyed by its detection block, so that the transfer, the optimizer groups and the size summary read both alike
+SHARED_MASK_HEAD_KEY = "shared"
+
 
 class InstanceSegmenter(TwoStageDetector):
     """
     Detects the objects of an image like the two-stage detector and predicts the binary mask of every detected object,
-    every proposal and every detection using the mask head and the feature map of its own detection level.
+    every proposal and every detection using the feature map of its own detection level, read by the mask head of
+    that level or by the mask head shared by every level.
     """
 
     def __init__(self, configuration: Dict[str, Any], device: torch.device = None, dtype: torch.dtype = None) -> None:
         """
-        Builds the two-stage detector, then the mask head of every detection level from the 'MaskHead' section and
-        the mask head of that level in 'DetectionLevels'.
+        Builds the two-stage detector, then the mask head of every detection level, or the mask head shared by every
+        level, from the 'MaskHead' section and the mask heads of the levels in 'DetectionLevels'.
 
         Args:
             configuration (Dict[str, Any]): The complete configuration dictionary of the experiment.
@@ -45,11 +51,14 @@ class InstanceSegmenter(TwoStageDetector):
         self.mask_size = self.mask_head_configuration["mask_resolution"]
         self.mask_threshold = self.mask_head_configuration["inference"]["mask_threshold"]
 
+        # One mask head read by every level instead of one head per level
+        self.shared_mask_head = bool(self.mask_head_configuration["shared"])
+
         # Sizes and channels of the backbone skip outputs the mask heads read, empty without fine inputs
         self.skip_output_information = self.backbone.compute_skip_output_information()
 
         # Fine features shared by the levels (image branch, skips at the mask resolution), then one mask head per
-        # detection level, built on the feature map of that level
+        # detection level, built on the feature map of that level, or one head shared by every level
         feature_map_normalization = self.mask_head_configuration["normalization"]["feature_map_normalization"]
         image_branch_convolutions = self.mask_head_configuration["image_branch_convolutions"]
         image_information = (self.skip_output_information[f"{SKIP_OUTPUT_PREFIX}0"]
@@ -105,7 +114,9 @@ class InstanceSegmenter(TwoStageDetector):
         """
         Builds the mask head of every detection level, with the pool size and convolutions of that level, the channel
         count and size of its backbone feature map, like the detection heads, and the mask resolution, upsampling,
-        skips at the pool size, fine features and fusion convolutions shared by every level.
+        skips at the pool size, fine features and fusion convolutions shared by every level. With 'MaskHead.shared',
+        a single head reads every level instead, which needs the same mask head settings and the same channel count on
+        every level (the outputs of a neck, or backbone blocks of equal channels).
 
         Args:
             mask_head_configuration (Dict[str, Any]): The 'MaskHead' section of the configuration.
@@ -114,22 +125,44 @@ class InstanceSegmenter(TwoStageDetector):
                                                              every level.
 
         Returns:
-            nn.ModuleDict: The mask head of every level, keyed by the detection block index.
+            nn.ModuleDict: The mask head of every level, keyed by the detection block index, or the shared head
+                alone, keyed SHARED_MASK_HEAD_KEY.
+
+        Raises:
+            ValueError: If the shared head is asked for levels of different mask head settings or channel counts.
         """
         mask_heads_dictionary = nn.ModuleDict()
         pool_size_skip_information = self.select_skip_information(
             block_indices=mask_head_configuration["skip_blocks_at_pool_size"])
+        level_mask_heads = {index_string: detection_levels_configuration[index_string]["mask_head"]
+                            for index_string in self.detection_input_information}
+        level_channels = {index_string: level_information["number_channels"]
+                          for index_string, level_information in self.detection_input_information.items()}
 
-        # Iterate over the detection levels in the order of the backbone outputs
-        for index_string, level_information in self.detection_input_information.items():
-            mask_heads_dictionary[index_string] = MaskHead(
-                head_configuration=detection_levels_configuration[index_string]["mask_head"],
+        # Heads to build: the levels each head reads, keyed by the name of the head
+        if self.shared_mask_head:
+            first_level = next(iter(level_mask_heads))
+            if any(level_mask_head != level_mask_heads[first_level] for level_mask_head in level_mask_heads.values()):
+                raise ValueError(f"'MaskHead.shared' needs the same 'mask_head' on every detection level, got "
+                                 f"{level_mask_heads}.")
+            if len(set(level_channels.values())) != 1:
+                raise ValueError(f"'MaskHead.shared' needs the same channel count on every detection level (a neck, "
+                                 f"or backbone blocks of equal channels), got {level_channels}.")
+            head_levels = {SHARED_MASK_HEAD_KEY: list(level_mask_heads)}
+        else:
+            head_levels = {index_string: [index_string] for index_string in level_mask_heads}
+
+        # Iterate over the heads, the levels in the order of the backbone outputs
+        for head_name, level_names in head_levels.items():
+            mask_heads_dictionary[head_name] = MaskHead(
+                head_configuration=level_mask_heads[level_names[0]],
                 mask_resolution=mask_head_configuration["mask_resolution"],
                 upsampling=mask_head_configuration["upsampling"],
-                number_classes=self.number_classes, input_channels=level_information["number_channels"],
+                number_classes=self.number_classes, input_channels=level_channels[level_names[0]],
                 feature_map_normalization=mask_head_configuration["normalization"]["feature_map_normalization"],
-                batch_normalization_momentum=BATCH_NORMALIZATION_MOMENTUM,
-                input_image_size=self.input_image_size, feature_map_size=level_information["feature_map_size"],
+                batch_normalization_momentum=BATCH_NORMALIZATION_MOMENTUM, input_image_size=self.input_image_size,
+                feature_map_sizes={level_name: self.detection_input_information[level_name]["feature_map_size"]
+                                   for level_name in level_names},
                 modules=mask_head_configuration["modules"], skip_information=pool_size_skip_information,
                 fine_input_channels=self.mask_fine_inputs.number_channels,
                 fusion_convolutions=mask_head_configuration["fusion_convolutions"], dtype=self.dtype,
@@ -188,10 +221,10 @@ class InstanceSegmenter(TwoStageDetector):
                                    skip_feature_maps: Dict[str, torch.Tensor], aggregated_detections: Dict[str, Any],
                                    ground_truth_masks: List[torch.Tensor]) -> torch.Tensor:
         """
-        Runs the mask head of every level on the positive sampled proposals of that level and compares their masks of
-        the ground truth class with the masks of their matched ground truths cropped to the proposals. The fine
-        features shared by the levels are computed once on the positive proposals of all the levels, so that the
-        batch statistics of the image branch cover every box of the batch.
+        Runs the mask heads on the positive sampled proposals of every level (predict_box_mask_logits) and compares
+        their masks of the ground truth class with the masks of their matched ground truths cropped to the proposals.
+        The fine features shared by the levels are computed once on the positive proposals of all the levels, so that
+        the batch statistics of the image branch cover every box of the batch, as those of the shared mask head do.
 
         Args:
             feature_maps (Dict[str, torch.Tensor]): The backbone feature maps, keyed by detection level.
@@ -205,43 +238,79 @@ class InstanceSegmenter(TwoStageDetector):
             torch.Tensor: The scalar mask loss.
         """
         positive_mask = aggregated_detections["sliced_labels"] > 0
-        mask_logits, labels, proposals, matched_indices = [], [], [], []
+        level_proposals, labels, matched_indices = {}, [], []
 
         # Positive proposals of every level, in level order
         for index_string in feature_maps:
             level_indices = torch.nonzero(input=positive_mask & (aggregated_detections["sliced_origins"] ==
                                                                  int(index_string))).flatten()
-            proposals.append(aggregated_detections["sliced_proposals"][level_indices])
+            level_proposals[index_string] = aggregated_detections["sliced_proposals"][level_indices]
             labels.append(aggregated_detections["sliced_labels"][level_indices])
             matched_indices.append(aggregated_detections["sliced_matched_ground_truth_indices"][level_indices])
 
         # Fine features of all the positive proposals at once, None without fine inputs
-        proposals_tensor = torch.cat(tensors=proposals, dim=0)
+        proposals_tensor = torch.cat(tensors=list(level_proposals.values()), dim=0)
         fine_features = self.mask_fine_inputs(proposal_boxes=proposals_tensor, skip_feature_maps=skip_feature_maps)
 
-        # Every level predicts the masks of its own positive proposals, even when it has none, to stay in the graph
-        first_row = 0
-        for (index_string, feature_map), level_proposals in zip(feature_maps.items(), proposals):
-            last_row = first_row + level_proposals.shape[0]
-            level_fine_features = None if fine_features is None else fine_features[first_row:last_row]
-            mask_logits.append(self.mask_heads_dictionary[index_string](
-                proposal_boxes=level_proposals, input_tensor=feature_map, skip_feature_maps=skip_feature_maps,
-                fine_features=level_fine_features))
-            first_row = last_row
+        # Mask logits of the positive proposals of every level, in the same order
+        mask_logits = self.predict_box_mask_logits(level_boxes=level_proposals, feature_maps=feature_maps,
+                                                   skip_feature_maps=skip_feature_maps, fine_features=fine_features)
 
         # Targets cropped from the matched ground truth masks, at the resolution of the predicted masks
         mask_targets = build_mask_targets(ground_truth_masks=ground_truth_masks, proposal_boxes=proposals_tensor,
                                           matched_ground_truth_indices=torch.cat(tensors=matched_indices, dim=0),
                                           mask_size=self.mask_size)
-        return compute_mask_loss(mask_logits=torch.cat(tensors=mask_logits, dim=0),
-                                 labels=torch.cat(tensors=labels, dim=0), mask_targets=mask_targets)
+        return compute_mask_loss(mask_logits=mask_logits, labels=torch.cat(tensors=labels, dim=0),
+                                 mask_targets=mask_targets)
+
+    def predict_box_mask_logits(self, level_boxes: Dict[str, torch.Tensor], feature_maps: Dict[str, torch.Tensor],
+                                skip_feature_maps: Dict[str, torch.Tensor],
+                                fine_features: Optional[torch.Tensor]) -> torch.Tensor:
+        """
+        Gives the mask logits of the boxes of every level, for the mask loss of the proposals and the masks of the
+        final detections: the mask head of every level runs on the boxes of its level, even when it has none so that
+        it stays in the graph, or the shared mask head pools the boxes of every level from the map of that level and
+        runs its layers once on all of them, so that it trains on every positive proposal of the batch.
+
+        Args:
+            level_boxes (Dict[str, torch.Tensor]): The [R_l, 5] boxes of every level in the RoIAlign format (the image
+                index, then the corners in network input pixels), keyed by level in the order of the feature maps,
+                possibly empty.
+            feature_maps (Dict[str, torch.Tensor]): The backbone feature maps, keyed by detection level.
+            skip_feature_maps (Dict[str, torch.Tensor]): The skip outputs of the backbone keyed 'skip_<block>', empty
+                without fine inputs.
+            fine_features (Optional[torch.Tensor]): The [sum R_l, fine channels, M, M] fine features of all the boxes,
+                in the order of level_boxes, None without fine inputs.
+
+        Returns:
+            torch.Tensor: The [sum R_l, number_classes, M, M] mask logits, in the order of level_boxes.
+        """
+        # Shared head: the boxes of every level pooled at the spatial scale of their level, then predicted at once
+        if self.shared_mask_head:
+            mask_head = self.mask_heads_dictionary[SHARED_MASK_HEAD_KEY]
+            pooled_features = torch.cat(tensors=[mask_head.pool_box_features(
+                proposal_boxes=boxes, input_tensor=feature_maps[level_name], skip_feature_maps=skip_feature_maps,
+                level_name=level_name) for level_name, boxes in level_boxes.items()], dim=0)
+            return mask_head.predict_from_pooled_features(pooled_features=pooled_features, fine_features=fine_features)
+
+        # One head per level, each given the rows of the fine features of its own boxes
+        mask_logits, first_row = [], 0
+        for level_name, boxes in level_boxes.items():
+            last_row = first_row + boxes.shape[0]
+            level_fine_features = None if fine_features is None else fine_features[first_row:last_row]
+            mask_logits.append(self.mask_heads_dictionary[level_name](
+                proposal_boxes=boxes, input_tensor=feature_maps[level_name], skip_feature_maps=skip_feature_maps,
+                fine_features=level_fine_features))
+            first_row = last_row
+        return torch.cat(tensors=mask_logits, dim=0)
 
     def predict_detection_masks(self, feature_maps: Dict[str, torch.Tensor], skip_feature_maps: Dict[str, torch.Tensor],
                                 model_output_dictionary: Dict[str, Any]) -> torch.Tensor:
         """
-        Runs the mask head of every level on the final detection boxes whose proposal came from that level, and keeps
-        the mask probabilities of the detected class, as in Mask R-CNN where the masks follow the refined boxes. The
-        fine features shared by the levels are computed once on the valid detections of all the levels.
+        Runs the mask heads on the final detection boxes, each read at the level its proposal came from
+        (predict_box_mask_logits), and keeps the mask probabilities of the detected class, as in Mask R-CNN where the
+        masks follow the refined boxes. The fine features shared by the levels are computed once on the valid
+        detections of all the levels.
 
         Args:
             feature_maps (Dict[str, torch.Tensor]): The backbone feature maps, keyed by detection level.
@@ -278,16 +347,19 @@ class InstanceSegmenter(TwoStageDetector):
                                device=final_boxes.device)
         fine_rows[valid_positions] = torch.arange(valid_positions.numel(), device=final_boxes.device)
 
-        # Every level predicts the masks of its own detections, the channel of the detected class being kept
-        for index_string, feature_map in feature_maps.items():
-            level_indices = torch.nonzero(input=valid_detections & (detection_levels == int(index_string))).flatten()
-            level_fine_features = None if fine_features is None else fine_features[fine_rows[level_indices]]
-            level_logits = self.mask_heads_dictionary[index_string](
-                proposal_boxes=region_boxes[level_indices], input_tensor=feature_map,
-                skip_feature_maps=skip_feature_maps, fine_features=level_fine_features)
-            class_logits = level_logits[torch.arange(level_indices.numel(), device=final_boxes.device),
-                                        flat_labels[level_indices]]
-            detection_masks[level_indices] = torch.sigmoid(input=class_logits).to(dtype=detection_masks.dtype)
+        # Valid detections of every level, then their masks in level order, the channel of the detected class being
+        # kept
+        level_indices = {index_string: torch.nonzero(input=valid_detections &
+                                                     (detection_levels == int(index_string))).flatten()
+                         for index_string in feature_maps}
+        ordered_indices = torch.cat(tensors=list(level_indices.values()), dim=0)
+        mask_logits = self.predict_box_mask_logits(
+            level_boxes={index_string: region_boxes[indices] for index_string, indices in level_indices.items()},
+            feature_maps=feature_maps, skip_feature_maps=skip_feature_maps,
+            fine_features=None if fine_features is None else fine_features[fine_rows[ordered_indices]])
+        class_logits = mask_logits[torch.arange(ordered_indices.numel(), device=final_boxes.device),
+                                   flat_labels[ordered_indices]]
+        detection_masks[ordered_indices] = torch.sigmoid(input=class_logits).to(dtype=detection_masks.dtype)
         return detection_masks.reshape(batch_size, number_detections, self.mask_size, self.mask_size)
 
     def print_summary(self) -> None:
@@ -299,10 +371,10 @@ class InstanceSegmenter(TwoStageDetector):
 
     def print_mask_summary(self) -> None:
         """
-        Prints the mask head of every detection level: its modules, convolution layers, feature map size, RoIAlign
-        pool, backbone skips at the pool size, doublings, fusion convolutions, mask size and spatial scale, under the
-        normalization and the upsampling of the mask heads and the fine inputs they share (image branch, backbone skips
-        at the mask resolution).
+        Prints the mask head of every detection level, or the mask head shared by the levels: its modules, convolution
+        layers, feature map size, RoIAlign pool, backbone skips at the pool size, doublings, fusion convolutions, mask
+        size and spatial scale (those of every level for the shared head), under the normalization and the upsampling
+        of the mask heads and the fine inputs they share (image branch, backbone skips at the mask resolution).
         """
         console = Console(width=80)
         normalization = str(self.mask_head_configuration["normalization"]["feature_map_normalization"]).capitalize()
@@ -320,14 +392,17 @@ class InstanceSegmenter(TwoStageDetector):
                              f"before pooling\n")
         summary_text += "\n"
 
-        # One block of lines per detection level
+        # One block of lines per detection level, or one for the head shared by the levels
         for index_string, mask_head in self.mask_heads_dictionary.items():
-            summary_text += f"[bold]Mask Block {index_string}[/bold]\n"
+            summary_text += (f"[bold]Mask Head Shared By Blocks {', '.join(mask_head.level_names)}[/bold]\n"
+                             if index_string == SHARED_MASK_HEAD_KEY else f"[bold]Mask Block {index_string}[/bold]\n")
             active_module_names = mask_head.convolutional_block.get_active_module_names()
             if active_module_names:
                 summary_text += f"  - Modules            : {', '.join(active_module_names)}\n"
             summary_text += f"  - Convolution Layers : {mask_head.convolution_number_layers}\n"
-            summary_text += f"  - Feature Map Size   : [{mask_head.feature_map_size}, {mask_head.feature_map_size}]\n"
+            summary_text += "  - Feature Map Size   : " + ", ".join(
+                f"[{feature_map_size}, {feature_map_size}]" for feature_map_size in mask_head.feature_map_sizes.values())
+            summary_text += "\n"
             pool_size, upsampled_size = mask_head.roi_align_pool_size, mask_head.upsampled_size
             summary_text += f"  - RoI Align Pool     : [{pool_size}, {pool_size}]\n"
             if mask_head.skip_keys:
@@ -342,7 +417,8 @@ class InstanceSegmenter(TwoStageDetector):
             # Masks resized bilinearly when the doublings fall short of the mask resolution
             resize_note = "" if upsampled_size == mask_head.mask_size else ", resized bilinearly"
             summary_text += f"  - Mask Size          : [{mask_head.mask_size}, {mask_head.mask_size}]{resize_note}\n"
-            summary_text += f"  - Spatial Scale      : {mask_head.spatial_scale:.4f}\n\n"
+            summary_text += "  - Spatial Scale      : " + ", ".join(
+                f"{spatial_scale:.4f}" for spatial_scale in mask_head.spatial_scales.values()) + "\n\n"
 
         console.print(Panel(summary_text.rstrip("\n"), title="[bold]Mask Architecture[/bold]", border_style="magenta"))
 

@@ -336,12 +336,13 @@ def build_instance_segmentation_sections(model_configuration: Dict[str, Any]) ->
     (build_detection_sections), with the mask heads section before the classes: the modules MSE, MRES, MINC, the
     normalization MBN, MLN or MNN, the upsampling MUTC or MUBL, then M<RoIAlign pool size>.<layers>x<channels> of the
     mask head of every level of 'DetectionLevels', written once when identical on every level, otherwise joined with
-    '+' in level order, MR<mask resolution>, then the finer inputs of the mask heads when used, MSP<blocks> for the
-    backbone skips at the pool size, MIB<layers>x<channels> for the image branch, MSM<blocks> for the backbone skips at
-    the mask resolution and MF<layers>x<channels> for the fusion convolutions (blocks joined with '.', 0 being the
-    normalized input image), and MPT, followed by MFRZ when frozen, when the mask heads are initialised by those of
-    another run (see build_pretrained_tokens), e.g. 'MRES-MBN-MUTC-M14.4x64-MR28' or
-    'MRES-MBN-MUTC-M14.4x64-MR28-MIB5x32-MF1x64'. The mask threshold gives no token, so that it can change between two
+    '+' in level order, MSH when a single mask head is shared by the levels ('MaskHead.shared'), MR<mask resolution>,
+    then the finer inputs of the mask heads when used, MSP<blocks> for the backbone skips at the pool size,
+    MIB<layers>x<channels> for the image branch, MSM<blocks> for the backbone skips at the mask resolution and
+    MF<layers>x<channels> for the fusion convolutions (blocks joined with '.', 0 being the normalized input image), and
+    MPT, followed by MFRZ when frozen, when the mask heads are initialised by those of another run (see
+    build_pretrained_tokens), e.g. 'MRES-MBN-MUTC-M14.4x64-MR28', 'MRES-MBN-MUTC-M14.4x64-MR28-MIB5x32-MF1x64' or
+    'MRES-MBN-MUBL-M14.4x64-MSH-MR28-MIB5x32-MF1x64'. The mask threshold gives no token, so that it can change between two
     resumptions of a run.
 
     Args:
@@ -372,6 +373,10 @@ def build_instance_segmentation_sections(model_configuration: Dict[str, Any]) ->
     mask_tokens.append("M" + join_level_tokens(level_tokens=[
         f"{mask_heads[level]['roi_align_pool_size']}.{mask_heads[level]['convolutions'][0]}x"
         f"{mask_heads[level]['convolutions'][1]}" for level in level_names]))
+
+    # One mask head shared by the levels, only when used so that the runs written before it keep their names
+    if mask_head_configuration["shared"]:
+        mask_tokens.append("MSH")
     mask_tokens.append(f"MR{mask_head_configuration['mask_resolution']}")
 
     # Finer inputs of the mask heads in the order of their data flow, each only when used so that the runs written
