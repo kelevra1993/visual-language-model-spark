@@ -3,15 +3,16 @@ Figures and facts of the classification series of the tutorial videos, made by m
 tutorials.figures.make_figures --series classification) at every build, from the real runs of
 tutorials/tutorial_sources.yaml and the code of the repository: what is specific to the classification head, the
 sample and error images of the evaluations of the classification run, its evaluation tables (confusion matrices,
-per-class metrics and thresholds, headline metrics), the confidence of its predictions, the learning rate variants of
-the run trained on a 9-class version of the shapes (classification_nine_classes), the listings of its data files, the
-measured effects of the head settings in the architecture benchmark, and the outputs of its trained classifier (the
-logits and probabilities of a test star, the correlation of the hidden features of the head, the balanced class
-weights and the parameters of every block and head layer), with the run name tokens of the head section of the
-synthetic classification configuration (data_pipeline_configuration of tutorial_sources.yaml, the file the head scene
-shows). Every figure family is a module of this folder, which writes its figures into a subfolder of the output folder
-(evaluation/, model/, training/, listings/) and gives its facts, gathered here into the facts.json the storyboards
-quote as {{classification.<name>}}.
+per-class metrics and thresholds, headline metrics), the confidence of its predictions, the figures of the research
+report of its kept checkpoint (scripts/evaluation/draw_report_figures.py), the learning rate variants of the run trained
+on a 9-class version of the shapes (classification_nine_classes), the listings of its data files, the measured effects
+of the head settings in the architecture benchmark, and the outputs of its trained classifier (the logits and
+probabilities of a test star, the correlation of the hidden features of the head, the balanced class weights and the
+parameters of every block and head layer), with the run name tokens of the head section of the synthetic
+classification configuration (data_pipeline_configuration of tutorial_sources.yaml, the file the head scene shows).
+Every figure family is a module of this folder, which writes its figures into a subfolder of the output folder
+(evaluation/, model/, training/, listings/, report/) and gives its facts, gathered here into the facts.json the
+storyboards quote as {{classification.<name>}}.
 """
 
 from pathlib import Path
@@ -25,6 +26,7 @@ from tutorials.figures.classification.evaluation_tables import make_evaluation_t
 from tutorials.figures.classification.head_benchmark import make_head_benchmark_facts
 from tutorials.figures.classification.learning_rates import make_learning_rate_figure
 from tutorials.figures.classification.prediction_confidence import make_prediction_confidence_figure
+from tutorials.figures.classification.report_figures import make_report_figures
 from tutorials.figures.figure_utilities import find_repository_file, find_run_folder, merge_facts
 
 
@@ -48,6 +50,7 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
                                 evaluation_folder=evaluation_folder),
         make_evaluation_tables(run_folder=run_folder, evaluation_folder=evaluation_folder),
         make_prediction_confidence_figure(output_folder=output_folder, run_folder=run_folder),
+        make_report_figures(output_folder=output_folder, run_folder=run_folder),
         make_learning_rate_figure(output_folder=output_folder, experiments_folder=experiments_folder,
                                   run_folder=run_folder),
         make_data_listings(output_folder=output_folder, run_folder=run_folder),

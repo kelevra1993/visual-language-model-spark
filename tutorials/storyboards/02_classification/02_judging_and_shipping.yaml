@@ -2,14 +2,15 @@
 # Results.txt, the confusion matrices of the three evaluations (and the non-zero cells kept above 1,000 classes), the
 # per-class F1 and the thresholds at the target precision, the precision-recall curves, the probabilities of
 # predictions.csv, the logit temperature and its explorer page, served to save the thresholds of a temperature and
-# export the checkpoint at it, the sample and error images, the measured effects of the head settings in the
-# architecture benchmark, the pitfalls and the export with its temperature, its thresholds, its export folder and its
-# input settings. Coordinates of the html scenes are in pixels of the content area (1760 x 740, origin at its top left
-# corner); the figures and facts named classification.* are made by tutorials/figures/classification from the synthetic
-# shapes run of tutorial_sources.yaml (35 classes, evaluated at 500, 1000, 1500 and 2000), the classes named by their
-# role (the worst F1, the largest confusions, the weakest recalls), and the images under runs: are the files its
-# standalone evaluation of checkpoint 2000 wrote (the report block, the confusion matrix image and the precision-recall
-# curves), their boxes measured on these files.
+# export the checkpoint at it, the figures of a research report redrawn by draw_report_figures.py (the groups chart left
+# out: it needs a manifest of the group of every image), the sample and error images, the measured effects of the head
+# settings in the architecture benchmark, the pitfalls and the export with its temperature, its thresholds, its export
+# folder and its input settings. Coordinates of the html scenes are in pixels of the content area (1760 x 740, origin at
+# its top left corner); the figures and facts named classification.* are made by tutorials/figures/classification from
+# the synthetic shapes run of tutorial_sources.yaml (35 classes, evaluated at 500, 1000, 1500 and 2000), the classes
+# named by their role (the worst F1, the largest confusions, the weakest recalls), and the images under runs: are the
+# files its standalone evaluation of checkpoint 2000 wrote (the report block, the confusion matrix image and the
+# precision-recall curves), their boxes measured on these files.
 series: classification
 series_title: "Image Classification (CLS)"
 chapter: 2
@@ -222,6 +223,26 @@ scenes:
       - "Up to {{constant:vision_training/evaluation/classification/temperature_explorer.py#MAXIMUM_EXPLORER_CLASSES:words}} classes, it also keeps the test logits next to the page, in class logits npz, so that any other temperature can be drawn later without running the model."
       - "The serve temperature explorer script lists on a local page, run by run and iteration by iteration, the evaluations of the trainings and those of the evaluate checkpoint script, written in the checkpoint evaluation folder of their run."
       - "There you type the temperature you want, count the images of every class in score ranges of your choice, save the thresholds of every class at it, and export the checkpoint at that temperature."
+
+  - kind: html
+    page: diagram
+    title: "Figures of a research report"
+    code_reference: "scripts/evaluation/draw_report_figures.py · draw_report_figures"
+    # The training curves drawn by draw_training_curves_figure of the script for the kept checkpoint of its main block,
+    # and the accuracies of its confusion matrix (tutorials/figures/classification/report_figures.py); the
+    # precision-recall figure is named, not shown, since it needs the class_logits.npz the snapshots leave out
+    elements:
+      - {type: text, position: [20, 24], text: "draw_report_figures.py → <run>/Checkpoint_Evaluation/Iteration_<n>[/EMA]/Report_Figures/", font: diagram_monospace_small, colour: dim}
+      - {type: image, path: "figures:classification/report/training_curves.png", box: [20, 80, 1060, 565], border: border, caption: "training_curves.png · iteration {{classification.report.iteration}}, {{classification.report.weights}} weights", highlight: [3]}
+      - {type: box, box: [1120, 80, 1740, 230], text: "confusion_matrix.png\naccuracy {{classification.report.accuracy:percent}}\nbalanced accuracy {{classification.report.balanced_accuracy:percent}}", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
+      - {type: box, box: [1120, 250, 1740, 400], text: "precision_recall_curves.png\nscores at the saved temperature\na threshold written at every point", font: diagram_small, outline: aqua, appear: 2, highlight: [2]}
+      - {type: box, box: [1120, 420, 1740, 565], text: "report_values.json\nevery number shown, for the tables\nkept balanced accuracy in training: {{classification.report.kept_balanced_accuracy:percent}}", font: diagram_small, outline: yellow, appear: 3, highlight: [3]}
+      - {type: text, position: [880, 690], text: "every input read and checked before the first figure: a wrong input writes nothing", font: diagram_small, colour: dim, anchor: mm}
+    narration:
+      - "Once the temperature of the export is saved, the draw report figures script redraws the figures of a research report from the run folder, for the kept checkpoint its main block names."
+      - "Its confusion matrix writes the accuracy and the balanced accuracy in its title, {{classification.report.accuracy:percent}} and {{classification.report.balanced_accuracy:percent}} at iteration {{classification.report.iteration}}."
+      - "Its precision recall curves score the images at the saved temperature, one when none was saved, and write the threshold of every target precision next to its point."
+      - "Its training curves ring the kept checkpoint on the balanced accuracy of every evaluation of the training, and report values json keeps every number shown, for the tables of the report."
 
   - kind: image
     title: "Sample images"
