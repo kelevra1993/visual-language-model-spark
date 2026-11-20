@@ -11,7 +11,8 @@ import yaml
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from vision_training.configuration_processing.configuration_checker import check_configuration
+from vision_training.configuration_processing.configuration_checker import (check_configuration,
+                                                                            check_configuration_keys)
 from vision_training.configuration_processing.configuration_values import ConfigurationError, convert_integral_count
 from vision_training.data.keypoints.keypoint_categories import read_keypoint_categories
 from vision_training.data.label_mapping import build_label_dictionary, read_run_label_dictionary
@@ -78,7 +79,8 @@ def prepare_experiment_configuration(configuration_path: str | Path) -> Tuple[Di
     them and vision_training/check_configuration.py reports those of every file it is given. Archiving the yaml into
     the experiment folder is handled by the Trainer.
 
-    This function extracts the 'ExperimentConfiguration' section, processes its paths and types, adds the
+    This function extracts the 'ExperimentConfiguration' section, refuses the removed settings and the keys the code
+    does not read on the file as written (check_configuration_keys), processes its paths and types, adds the
     'tracking_root', 'run_name' (None) and 'standalone_evaluation_folder' (None) runtime keys read by the trainer, and
     returns it alongside the rest of the configuration parameters. The label dictionary is built from the mapping file,
     or read from 'label_dictionary.json' when the file sits in a run folder holding one (the saved configuration of a
@@ -99,8 +101,10 @@ def prepare_experiment_configuration(configuration_path: str | Path) -> Tuple[Di
             categories of the training split are inconsistent.
         KeyError: If 'ExperimentConfiguration' is missing from the file.
         TypeError: If a folder or the learning rate has a value the conversion refuses, e.g. null.
-        ConfigurationError: If the configuration is incomplete or inconsistent (see 'check_configuration'), listing
-            every problem, a count that is not an integral number (e.g. 31.7, null or a text) among them.
+        ConfigurationError: If the file holds removed settings or keys the code does not read (see
+            'check_configuration_keys'), or if the configuration is incomplete or inconsistent (see
+            'check_configuration'), listing every problem, a count that is not an integral number (e.g. 31.7, null or
+            a text) among them.
     """
     configuration = load_configuration(configuration_path=configuration_path)
     if "ExperimentConfiguration" not in configuration:
@@ -108,6 +112,10 @@ def prepare_experiment_configuration(configuration_path: str | Path) -> Tuple[Di
 
     experiment_configuration = configuration.pop("ExperimentConfiguration")
     model_configuration = configuration
+
+    # Refuse the removed settings, then the keys the code does not read, on the file as written, before the
+    # conversions and the keys added below
+    check_configuration_keys(experiment_configuration=experiment_configuration, model_configuration=model_configuration)
 
     # Convert paths
     path_keys = ["experiment_folder", "train_data_folder", "validation_data_folder", "test_data_folder"]

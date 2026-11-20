@@ -13,7 +13,7 @@ Keys, values and outputs of the configurations, completing the [Configurations](
 - [MLflow Tracking](#mlflow-tracking)
 
 ## Configurations
-Every task has a `configuration_example.yaml` and a `configuration_synthetic_*.yaml` with the same keys. A configuration file holds only the keys of its task, all required: the check lists every missing key, and a section of another task is ignored. The settings fixed in the code are refused ([Fixed Settings](#fixed-settings)).
+Every task has a `configuration_example.yaml` and a `configuration_synthetic_*.yaml` with the same keys. A configuration file holds only the keys of its task, all required: the check lists every missing key. The settings fixed in the code are refused ([Fixed Settings](#fixed-settings)), then every key the code of the task does not read, whose value would otherwise be silently ignored: a misspelled key, a setting no code reads any longer, or a section or key of another task ([Keys Per Task](#keys-per-task)).
 
 The tasks are written with their codes: DET `object_detection`, INS `instance_segmentation`, CLS `classification`, M2O `sequence_classification`, M2M `sequence_labelling`, CMP `sequence_comparison`, SEG `semantic_segmentation`, SEL `frame_selection`, SSL `self_supervised`, KPT `keypoint_detection`.
 
@@ -34,6 +34,11 @@ Every task has `ExperimentConfiguration` (with `evaluation.per_class_report`, `e
 | `Selection`, `evaluation.top_k` | SEL |
 | `ProjectionHead`, `Data.grouped_batches`, `evaluation.number_neighbours`, `evaluation.number_reference_images_per_class` | SSL |
 | `HRNet`, `KeypointHead`, `evaluation.default_keypoint_sigma`, `evaluation.keypoint_sigmas` | KPT |
+
+In case a file holds a key the code of its task does not read, a misspelled key or a section copied from another task, the loading refuses it after the fixed settings and before the other checks, every such key listed by its path in one error. The keys of every task, the common sections and those of this table, are listed one by one in `KNOWN_KEY_PATHS` of `vision_training/configuration_processing/configuration_keys.py` (the keys read by the loader and by the checks of every task). A misspelled key also leaves its correct key missing, which the next launch then reports.
+- A key no code reads: `'ExperimentConfiguration.bach_size' is not a configuration key (did you mean 'batch_size'?): no code reads it, so its value would be ignored. Correct it or delete it from the configuration file.`, the closest key read at the same place being named when one is close.
+- A key of another task: `'RegionProposal' is not read by the task 'classification', only by ['instance_segmentation', 'object_detection']: its value would be ignored. Delete it from the configuration file.`, a whole section being named once.
+- The keys of the sections keyed by names are left to the checks of their task: the blocks of `Backbone.convolutions` and `SegmentationDecoder.convolutions`, the levels of `DetectionLevels` (whose own keys are checked), the losses of `Optimization.loss_weights`, the levels of `SegmentationDecoder.deep_supervision_weights`, and the categories and keypoints of `evaluation.keypoint_sigmas`.
 
 ### Values Per Task
 The check of a task refuses a value it cannot use. Every key not listed accepts the same values in every task.

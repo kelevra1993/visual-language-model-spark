@@ -143,7 +143,7 @@ Once a dataset is ready, copy the `configuration_example.yaml` of the task (`vis
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/classification/my_configuration.yaml"
 ```
 
-The configuration is checked before anything starts: a missing key, an unusable value, an inconsistent combination or a removed setting (such as `resume_training`) stops the program with the list of every problem found.
+The configuration is checked before anything starts: a missing key, an unusable value, an inconsistent combination, a removed setting (such as `resume_training`) or a key the task does not read (a misspelled key, a section of another task) stops the program with the list of every problem found.
 
 <p align="center">
   <img src="README/launch_flow.png" width="100%" />
