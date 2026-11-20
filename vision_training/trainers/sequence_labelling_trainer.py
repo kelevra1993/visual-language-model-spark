@@ -84,7 +84,8 @@ class SequenceLabellingTrainer(SequenceClassificationTrainer):
         """
         Keeps the class probabilities and the labels of the labelled frames of the kept sequences of a test batch on
         the CPU, with the sequence and the position of every labelled frame, which name the frames in the predictions
-        file and place them for the segment metrics, and whether every labelled frame of each sequence is right.
+        file and place them for the segment metrics, and whether every labelled frame of each sequence is right, for
+        the sequences holding a labelled frame only.
 
         Args:
             accumulator (Dict[str, Any]): The 'probabilities', 'labels', 'frame_sequence_identifiers', 'frame_positions'
@@ -106,7 +107,7 @@ class SequenceLabellingTrainer(SequenceClassificationTrainer):
             sequence_identifiers[:, None].expand(-1, labels.shape[1])[labelled_frames].cpu())
         accumulator["frame_positions"].append(frame_positions[labelled_frames].cpu())
 
-        # Whether every labelled frame of each sequence is right
+        # Whether every labelled frame of each sequence is right, the sequences without labelled frame left out
         accumulator["exact_matches"].append(compute_sequence_exact_matches(
             predicted_labels=probabilities.argmax(dim=-1), labels=labels).cpu())
 
@@ -258,8 +259,9 @@ class SequenceLabellingTrainer(SequenceClassificationTrainer):
 
     def describe_evaluated_samples(self, accumulator: Dict[str, Any]) -> str:
         """
-        Describes the evaluated test samples in the header of the report: the sequences and their labelled frames, on
-        which the classification metrics are computed.
+        Describes the evaluated test samples in the header of the report: the sequences holding a labelled frame and
+        their labelled frames, on which the classification metrics are computed, a sequence whose frames are all of
+        unmapped categories being left out.
 
         Args:
             accumulator (Dict[str, Any]): The accumulated predictions and labels of the test split.
@@ -314,8 +316,8 @@ class SequenceLabellingTrainer(SequenceClassificationTrainer):
 
     def compute_extra_headline_metrics(self, accumulator: Dict[str, Any]) -> Dict[str, float]:
         """
-        Computes the share of test sequences whose every labelled frame is right and the segment metrics of the test
-        sequences, reported with the frame metrics.
+        Computes the share of test sequences whose every labelled frame is right, among the sequences holding a
+        labelled frame, and the segment metrics of the test sequences, reported with the frame metrics.
 
         Args:
             accumulator (Dict[str, Any]): The accumulated predictions and labels of the test split.

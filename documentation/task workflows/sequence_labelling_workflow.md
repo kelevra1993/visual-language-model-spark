@@ -91,7 +91,7 @@ Whenever a checkpoint of the labeller is evaluated, the run folder, TensorBoard 
 
 ### Pitfalls
 - A run predicting `no_change` everywhere keeps a fair frame accuracy: the sequence labelling run of `experiments/readme_screenshots`, the synthetic configuration trained 2000 iterations from scratch on 2026-10-23 on the dataset of October (`suggestions.md` K29), gives Accuracy 46.97 % (the share of `no_change` frames of the `test_10000` of that dataset), Balanced Accuracy 1.41 % (1/71), Macro F1 0.90 % and Sequence Exact Match 5.89 % (the 589 sequences without change). Its `predictions.csv` gives `no_change` a probability of 0.9999 on the 10,000 first frames, always `no_change`, and about 0.38 on the 59,918 others, their share of `no_change`: read the balanced accuracy, the macro F1 and the segment metrics. That run has no class weights; in the experiment plan, a launch without class weights stayed at the macro F1 of a model predicting only `no_change` for its 6000 iterations, and the plan kept `class_weighting: "balanced"` at the same learning rate, 1e-3 (`configuration_example.yaml`).
-- The frames of unmapped categories get the label -100: they are left out of the loss and the metrics, and end a segment. A sequence whose `frame_category_ids` does not hold one category per frame is refused when the dataset is built, the first 20 such sequences being listed with their counts and the others counted; a batch without labelled frame gives a NaN loss while the sequences without labelled frame count as exact matches (`suggestions.md` L11, `sequence_losses.py`, `compute_sequence_exact_matches()`).
+- The frames of unmapped categories get the label -100: they are left out of the loss and the metrics, and end a segment. A sequence whose `frame_category_ids` does not hold one category per frame is refused when the dataset is built, the first 20 such sequences being listed with their counts and the others counted. A batch without labelled frame gives a loss of 0 (`compute_sequence_labelling_loss()` clamps its normaliser), and a test sequence without labelled frame is left out of the `Sequence Exact Match` and of the `<S> Test Sequences` of the report (`compute_sequence_exact_matches()`); before 2026-11-20 such a batch gave a NaN loss and such a sequence counted as an exact match.
 - `label_smoothing` above 0 with `class_weighting: "balanced"` pulls every frame towards the rarest classes (`suggestions.md` C2); on the training split of the dataset of October the balanced weight of `no_change` would be 0.030 against 1.82 to 1.89 for a change class (819,173 of the 1,749,690 frames, `data.json`).
 - `test_10000` holds a copy of the labels and a link to the frames of `synthetic_changing_shapes/test`: generating the dataset again makes its labels name other frames without any error (an audit finding the user dropped, so it stays as it is). The test split of the synthetic configuration holds all 50,000 test sequences, whose evaluation took 26 minutes at 256 pixels in the experiment plan.
 - `Data.sequence_settings` only takes `maximum_sequence_length`: a sequence is never cut into windows, a longer one is left out with a red warning (Step 2.8), and a step runs the backbone on up to `batch_size` x `maximum_sequence_length` frames (comment of `batch_size` in the configuration).
@@ -580,7 +580,7 @@ classification_loss   4.3000 (scalar)            <- close to ln 71 = 4.263
 ```
 
 ### Step 3.10 — `compute_sequence_labelling_loss()`
-The cross entropy of the softmax of every frame, averaged over the labelled frames only: the padding frames and the frames of unmapped categories (-100) are ignored (`ignore_index`). It uses `class_weights` and `label_smoothing` like the loss of the classification.
+The cross entropy of the softmax of every frame, averaged over the labelled frames only: the padding frames and the frames of unmapped categories (-100) are ignored (`ignore_index`). It uses `class_weights` and `label_smoothing` like the loss of the classification. The frame losses are summed and divided by the class weights of the labelled frames, clamped above 0 like the segmentation losses: the weighted mean of PyTorch for a batch holding a labelled frame, and 0 instead of NaN for a batch without any.
 
 ### Step 3.11 — `compute_batch_metrics()` → `compute_frame_accuracy()`
 The share of the labelled frames whose predicted class (the argmax of their logits) is right.
@@ -713,7 +713,7 @@ class_probabilities   [4, 6, 71] torch.float32
 ```
 
 ### Step 4.4 — `accumulate_evaluation_batch()` → `compute_sequence_exact_matches()`
-It keeps the probabilities and the labels of the labelled frames (`labels != -100`), with their sequence and position, and `compute_sequence_exact_matches()` tells for every sequence whether all its labelled frames are right. Then `dump_errors()` runs while the frames are still in the batch.
+It keeps the probabilities and the labels of the labelled frames (`labels != -100`), with their sequence and position, and `compute_sequence_exact_matches()` tells for every sequence holding a labelled frame whether all its labelled frames are right, a sequence without labelled frame being left out. Then `dump_errors()` runs while the frames are still in the batch.
 
 ### Step 4.5 — `dump_errors()` → `build_frame_prediction_captions()` + `build_frame_grid()`
 Every wrong frame gives one image: the grid of its sequence, every real frame captioned with its number and `true/predicted` (with `X ` before a wrong frame, e.g. `4 X disappearing_kite/disappearing_parallelogram` in `README/sequence_labelling_sample.png`, and `none` as the true class of an unlabelled frame), under a caption bar `frame <index> : <true> -> <predicted> <score>` naming the wrong frame, its classes and the probability of its predicted class. It is saved as `Errors/<TRUE>-TO-<PREDICTED>/<sequence>_frame<index>_<score>.png`, at most `maximum_per_class_pair` per pair.
@@ -746,7 +746,7 @@ TensorBoard: Samples/test_000000, ..., Samples/test_000059
 ```
 
 ### Step 4.7 — `compute_evaluation_results()`
-The frame metrics of the classification are computed on the labelled frames (Steps 4.8 and 4.9), with `per_class_report` their ROC and precision-recall curves, then `compute_extra_headline_metrics()` adds the sequence metrics (Steps 4.10 and 4.11), `compute_recall_intervals()` the 95 % confidence interval of the frame recall of every class, a Korn-Graubard interval from a bootstrap over the test sequences (Step 4.9), and `describe_extra_notes()` the number of segments. `describe_evaluated_samples()` gives the sequences and their labelled frames: every frame of the test split is evaluated once. The headline metric is the frame accuracy.
+The frame metrics of the classification are computed on the labelled frames (Steps 4.8 and 4.9), with `per_class_report` their ROC and precision-recall curves, then `compute_extra_headline_metrics()` adds the sequence metrics (Steps 4.10 and 4.11), `compute_recall_intervals()` the 95 % confidence interval of the frame recall of every class, a Korn-Graubard interval from a bootstrap over the test sequences (Step 4.9), and `describe_extra_notes()` the number of segments. `describe_evaluated_samples()` gives the sequences holding a labelled frame and their labelled frames: every frame of the test split is evaluated once. The headline metric is the frame accuracy.
 
 **Example: the results of iteration 12** (recorded before the curves)
 ```text
@@ -808,7 +808,7 @@ class_index,class,samples,precision,recall,recall_lower,recall_upper,f1,roc_auc,
 ```
 
 ### Step 4.10 — Sequence Exact Match
-The share of the test sequences whose labelled frames are all right, from the `exact_matches` of Step 4.4: the strictest metric of the task.
+The share of the test sequences whose labelled frames are all right, from the `exact_matches` of Step 4.4: the strictest metric of the task. A sequence whose frames are all of unmapped categories has nothing to match: `compute_sequence_exact_matches()` leaves it out, of this share and of the `<S> Test Sequences` of the report header.
 
 **Example output**
 ```text

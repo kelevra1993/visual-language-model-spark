@@ -15,7 +15,10 @@ def compute_sequence_labelling_loss(class_logits: torch.Tensor, labels: torch.Te
     """
     Computes the loss of the sequence labelling task: the cross entropy of the softmax of every frame, averaged over
     the labelled frames only, the padding frames and the frames of unmapped categories (label -100) being ignored.
-    It supports label smoothing and per-class weights like the classification loss.
+    It supports label smoothing and per-class weights like the classification loss. The frame losses are summed and
+    divided by the class weights of the labelled frames, clamped above 0 like the segmentation losses, which gives
+    the weighted mean of the cross entropy, and 0 instead of NaN for a batch without any labelled frame, whose NaN
+    would otherwise reach the tracked loss of the interval.
 
     Args:
         class_logits (torch.Tensor): The [B, T, K] class logits of every frame.
@@ -24,11 +27,20 @@ def compute_sequence_labelling_loss(class_logits: torch.Tensor, labels: torch.Te
         class_weights (torch.Tensor): The [K] weight of every class in the loss.
 
     Returns:
-        torch.Tensor: The scalar loss.
+        torch.Tensor: The scalar loss, 0 for a batch without labelled frame.
     """
-    return torch.nn.functional.cross_entropy(input=class_logits.reshape(-1, class_logits.shape[-1]),
-                                             target=labels.reshape(-1), weight=class_weights,
-                                             ignore_index=IGNORED_LABEL_INDEX, label_smoothing=label_smoothing)
+    flat_labels = labels.reshape(-1)
+
+    # Weighted and smoothed cross entropy of every frame, 0 on the frames without class
+    frame_losses = torch.nn.functional.cross_entropy(input=class_logits.reshape(-1, class_logits.shape[-1]),
+                                                     target=flat_labels, weight=class_weights,
+                                                     ignore_index=IGNORED_LABEL_INDEX, label_smoothing=label_smoothing,
+                                                     reduction="none")
+
+    # Weight of every labelled frame, the class weight of its class, normalising the loss like the weighted mean
+    labelled_frames = flat_labels != IGNORED_LABEL_INDEX
+    frame_weights = class_weights[flat_labels.clamp(min=0)] * labelled_frames
+    return frame_losses.sum() / frame_weights.sum().clamp(min=torch.finfo(torch.float32).tiny)
 
 
 def compute_frame_selection_loss(class_logits: torch.Tensor, labels: torch.Tensor,
