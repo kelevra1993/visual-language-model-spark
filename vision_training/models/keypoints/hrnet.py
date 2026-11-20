@@ -24,13 +24,30 @@ BRANCH_SCALE_FACTOR = 2
 HIGHER_RESOLUTION_KERNEL_SIZE = 4
 
 
+def has_convolution_bias(normalization: Dict[str, Any]) -> bool:
+    """
+    Tells whether the convolutions of the high resolution network and of the keypoint head keep a bias: none when a
+    batch or layer normalization follows them, since its shift replaces the bias, and one with the 'none'
+    normalization, so that the activations of the branches, exchange units and heads can still shift their thresholds,
+    as the convolutions of the Backbone always do.
+
+    Args:
+        normalization (Dict[str, Any]): The 'feature_map_normalization' setting.
+
+    Returns:
+        bool: True with the 'none' normalization, False with the batch or layer normalization.
+    """
+    return normalization["feature_map_normalization"] in ["none", None]
+
+
 def build_exchange_convolution(input_channels: int, output_channels: int, kernel_size: int, stride: int,
                                activation: bool, normalization: Dict[str, Any], device: torch.device,
                                dtype: torch.dtype) -> ConvolutionBlock:
     """
     Builds one plain convolution layer of the transitions and exchange units of the high resolution network
     (convolution, normalization, optional activation), the 3x3 strided ones halving the resolution of a branch and the
-    1x1 ones changing its width before an upsampling.
+    1x1 ones changing its width before an upsampling. The convolution has a bias only without normalization
+    (has_convolution_bias).
 
     Args:
         input_channels (int): The number of channels of the input feature map.
@@ -45,7 +62,8 @@ def build_exchange_convolution(input_channels: int, output_channels: int, kernel
     Returns:
         ConvolutionBlock: The single layer block, without pooling.
     """
-    return ConvolutionBlock(input_channels=input_channels, output_channels=output_channels, bias=False, number_layers=1,
+    return ConvolutionBlock(input_channels=input_channels, output_channels=output_channels,
+                            bias=has_convolution_bias(normalization=normalization), number_layers=1,
                             kernel_size=kernel_size, stride=stride, padding=kernel_size // 2,
                             feature_map_normalization=normalization["feature_map_normalization"],
                             batch_normalization_momentum=BATCH_NORMALIZATION_MOMENTUM,
@@ -215,11 +233,13 @@ class ExchangeModule(nn.Module):
         """
         super(ExchangeModule, self).__init__()
 
-        # Convolutions of every branch at its own resolution, the residual pairs keeping its width
+        # Convolutions of every branch at its own resolution, the residual pairs keeping its width, with a bias only
+        # without normalization
         self.branches = nn.ModuleList()
         for branch_width in branch_widths:
             self.branches.append(ConvolutionBlock(
-                input_channels=branch_width, output_channels=branch_width, bias=False,
+                input_channels=branch_width, output_channels=branch_width,
+                bias=has_convolution_bias(normalization=normalization),
                 number_layers=2 * blocks_per_branch, kernel_size=3, stride=1, padding=1,
                 feature_map_normalization=normalization["feature_map_normalization"],
                 batch_normalization_momentum=BATCH_NORMALIZATION_MOMENTUM, activation=True,
@@ -404,18 +424,20 @@ class HigherResolutionBranch(nn.Module):
         """
         super(HigherResolutionBranch, self).__init__()
 
-        # Transposed convolution doubling the resolution, its normalization and activation
+        # Transposed convolution doubling the resolution, its normalization and activation, with a bias only without
+        # normalization
         self.transposed_convolution = nn.ConvTranspose2d(
             in_channels=feature_channels + prediction_channels, out_channels=feature_channels,
-            kernel_size=HIGHER_RESOLUTION_KERNEL_SIZE, stride=BRANCH_SCALE_FACTOR, padding=1, bias=False,
-            device=device, dtype=dtype)
+            kernel_size=HIGHER_RESOLUTION_KERNEL_SIZE, stride=BRANCH_SCALE_FACTOR, padding=1,
+            bias=has_convolution_bias(normalization=normalization), device=device, dtype=dtype)
         self.normalization = build_feature_normalization(channels=feature_channels, normalization=normalization,
                                                          device=device, dtype=dtype)
         self.activation = nn.ReLU(inplace=False)
 
         # Refinement at the doubled resolution, the residual pairs keeping the width
         self.refinement = ConvolutionBlock(
-            input_channels=feature_channels, output_channels=feature_channels, bias=False,
+            input_channels=feature_channels, output_channels=feature_channels,
+            bias=has_convolution_bias(normalization=normalization),
             number_layers=2 * blocks_per_branch, kernel_size=3, stride=1, padding=1,
             feature_map_normalization=normalization["feature_map_normalization"],
             batch_normalization_momentum=BATCH_NORMALIZATION_MOMENTUM, activation=True,

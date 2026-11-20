@@ -163,7 +163,7 @@ main()
 │       │   └── get_keypoint_dataloaders()
 │       │       └── CocoDetectionDataset(load_keypoints=True) per split    one whole image per sample
 │       ├── check_loaders_give_batches()                           refuses a split whose loader gives no batch
-│       ├── save_data_record()                                     data.json
+│       ├── save_data_record()                                     data.json, the keypoint names of every class
 │       ├── get_test_sample_classes() + choose_sample_identifiers()       16 fixed test images
 │       ├── build_model()
 │       │   └── KeypointDetector.__init__()
@@ -255,7 +255,7 @@ CUDA_VISIBLE_DEVICES= PYTHONPATH=. COLUMNS=120 .venv/bin/python vision_training/
 ### Step 1.2 — `load_experiment_configuration()`
 The model sections are `Optimization`, `Data`, `Backbone`, `HRNet` and `KeypointHead`. `Data.image_settings.size` is the side of the square network input; the whole image is resized to it. `Data.keypoint_categories` is not in the YAML, it is added by `inject_keypoint_categories()` (Step 1.5).
 
-`HRNet` holds the network after the stem (`base_width`, the channels of its highest resolution branch, doubled at every lower branch; `modules_per_stage`; `blocks_per_branch`; `modules`; `normalization`; `pretrained`). `KeypointHead` holds:
+`HRNet` holds the network after the stem (`base_width`, the channels of its highest resolution branch, doubled at every lower branch; `modules_per_stage`; `blocks_per_branch`; `modules`; `normalization`, batch, layer or none, the convolutions of the network and of the keypoint head having a bias only with none; `pretrained`). `KeypointHead` holds:
 - `higher_resolution`: the higher resolution branch of HigherHRNet, which predicts a second set of heatmaps at 1/2 of the image (Step 2.8).
 - `hidden_width`: the channels of a 3x3 convolution before the 1x1 convolution of the predictions, in both heads (0 for none). The 243 heatmaps outnumber the 16 channels of the highest resolution branch by far, and a 1x1 convolution on 16 channels cannot raise every heatmap on its own keypoints only.
 - `heatmap_sigma`: the standard deviation of the target Gaussians, in heatmap cells, at both strides.
@@ -476,7 +476,7 @@ higher_resolution_branch
 ```
 
 ### Step 2.9 — `initialise_pretrained_components()` + `build_optimizer()` + `get_tracked_metrics()`
-The three transferable components are the `Backbone`, the `HRNet` and the `KeypointHead` (with its higher resolution branch), each with its `pretrained` section (all null here). The tracked metrics are `{"total_loss": "Total Loss", "heatmap_loss": "Heatmap Loss", "tag_pull_loss": "Tag Pull Loss", "tag_push_loss": "Tag Push Loss"}`.
+The three transferable components are the `Backbone`, the `HRNet` and the `KeypointHead` (with its higher resolution branch), each with its `pretrained` section (all null here). The keypoint head only loads from a run whose heatmap and tag channels predict the same keypoints of the same classes in the same order, `class.keypoint` read from the `keypoints` of the classes of its `data.json`; a source run whose `data.json` has none (started before 2026-11-20) is refused. The tracked metrics are `{"total_loss": "Total Loss", "heatmap_loss": "Heatmap Loss", "tag_pull_loss": "Tag Pull Loss", "tag_push_loss": "Tag Push Loss"}`.
 
 ### Step 2.10 — `print_experiment_information()` (→ `describe_split()` → `count_split_images_and_annotations()`)
 `describe_split()` gives the number of images and annotations of every split from its `labels.json`, the distractors included; the iterations per epoch are counted in images: 300 / 8 = 38 iterations.

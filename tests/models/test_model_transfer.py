@@ -4,7 +4,8 @@ proposal, detection and mask heads of a saved run initialising other models and 
 rejected, source runs still holding the fixed settings, frozen backbones and the transfers turned off. The runs adding
 classes after those of their source run are covered too: the class layers of the classification, detection and mask
 heads and of the semantic segmentation grown to the new classes, which keep the random initialisation of the new run,
-and the source runs without class names.
+and the source runs without class names. The keypoint head only moves between runs predicting the same keypoints on
+the same channels, read from the record of the data of the source run.
 """
 
 import copy
@@ -16,7 +17,7 @@ import yaml
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from vision_training.data.data_record import CLASSES_RECORD_KEY, DATA_RECORD_FILE_NAME
+from vision_training.data.data_record import CLASSES_RECORD_KEY, DATA_RECORD_FILE_NAME, KEYPOINTS_RECORD_KEY
 from vision_training.models.backbones.backbone import INCEPTION_STARTING_BLOCK
 from vision_training.models.classification.image_classifier import ImageClassifier
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
@@ -33,6 +34,7 @@ from vision_training.trainers.checkpointing import save_checkpoint
 from vision_training.trainers.weight_averaging import AVERAGED_MODEL_STATE_KEY, NUMBER_UPDATES_KEY
 from tests.fixtures.configuration_fixtures import (get_classification_model_configuration,
                                                    get_detection_model_configuration,
+                                                   get_keypoint_model_configuration,
                                                    get_segmentation_model_configuration,
                                                    get_sequence_model_configuration)
 
@@ -71,11 +73,13 @@ def get_classifier_configuration(detection_configuration: Dict[str, Any]) -> Dic
 
 
 def write_source_run(run_folder: Path, configuration: Dict[str, Any], model: torch.nn.Module,
-                     averaged_model: Optional[torch.nn.Module] = None, class_names: Optional[List[str]] = None) -> None:
+                     averaged_model: Optional[torch.nn.Module] = None, class_names: Optional[List[str]] = None,
+                     class_keypoints: Optional[Dict[str, List[str]]] = None) -> None:
     """
     Writes a trained run as the trainers save it: its configuration, one checkpoint of its model, holding the moving
     average of its weights when one is given, and the record of its data reduced to its class names when they are
-    given (a run written before the class names were recorded otherwise).
+    given (a run written before the class names were recorded otherwise), with the keypoint names of the classes of a
+    keypoint detection run.
 
     Args:
         run_folder (Path): The run folder.
@@ -85,6 +89,8 @@ def write_source_run(run_folder: Path, configuration: Dict[str, Any], model: tor
             run without average. Defaults to None.
         class_names (Optional[List[str]]): The class names of the run in class index order, None to write no data
             record. Defaults to None.
+        class_keypoints (Optional[Dict[str, List[str]]]): The keypoint names of the classes that define keypoints,
+            keyed by class name, None for a record without keypoints. Defaults to None.
     """
     run_folder.mkdir(parents=True)
     (run_folder / "training_configuration.yaml").write_text(data=yaml.safe_dump(data=configuration))
@@ -102,6 +108,9 @@ def write_source_run(run_folder: Path, configuration: Dict[str, Any], model: tor
     if class_names is not None:
         class_records = [{"class_index": class_index, "class_name": class_name, "category_ids": [class_index]}
                          for class_index, class_name in enumerate(class_names)]
+        for class_record in class_records:
+            if class_keypoints is not None and class_record["class_name"] in class_keypoints:
+                class_record[KEYPOINTS_RECORD_KEY] = class_keypoints[class_record["class_name"]]
         (run_folder / DATA_RECORD_FILE_NAME).write_text(data=json.dumps(obj={CLASSES_RECORD_KEY: class_records}))
 
 
@@ -974,3 +983,60 @@ def test_segmentation_class_layers_follow_the_decoder(tmp_path: Path, capsys: py
     console_output = capsys.readouterr().out
     assert "The Source Run Has No Deep Supervision Head On The Levels ['2']" in console_output
     assert "Segmentation Class Layers Initialised From The Trained Weights Of" in console_output
+
+
+# Keypoint names of the classes of the keypoint fixture, as the record of the data of its run keeps them
+KEYPOINT_CLASS_NAMES = ["background", "triangle", "rectangle"]
+FIXTURE_CLASS_KEYPOINTS = {"triangle": ["top", "left", "right"],
+                           "rectangle": ["top_left", "top_right", "bottom_right", "bottom_left"]}
+
+
+@pytest.mark.parametrize(argnames=("target_triangle_keypoints", "source_class_keypoints", "expected_error"),
+                         argvalues=[(["top", "left", "right"], FIXTURE_CLASS_KEYPOINTS, None),
+                                    (["left", "right", "top"], FIXTURE_CLASS_KEYPOINTS,
+                                     "Channel 0 Predicts 'triangle.top' In The Source Run And 'triangle.left' In This "
+                                     "Run"),
+                                    (["top", "left", "right"], None, "Records No Keypoint Names")])
+def test_keypoint_head_moves_between_runs_of_the_same_keypoint_channels(
+        tmp_path: Path, target_triangle_keypoints: List[str], source_class_keypoints: Optional[Dict[str, List[str]]],
+        expected_error: Optional[str]) -> None:
+    """
+    Verifies that the keypoint head of a keypoint detection run initialises the head of a run predicting the same
+    keypoints on the same channels, and is refused, before any weight is loaded, for a run whose triangle lists the
+    same keypoints in another order, whose tensors have the same shapes although its channel 0 predicts another
+    keypoint, and for a source run whose record of its data does not name the keypoints of its classes (written before
+    they were recorded).
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        target_triangle_keypoints (List[str]): The keypoint names of the triangle of the run receiving the head.
+        source_class_keypoints (Optional[Dict[str, List[str]]]): The keypoint names of the classes in the record of
+            the source run, None for a record without keypoints.
+        expected_error (Optional[str]): A fragment of the refusal, None when the head must be loaded.
+    """
+    source_configuration, _, _ = get_keypoint_model_configuration(higher_resolution=True, hidden_width=16)
+    source_model = build_task_model(task="keypoint_detection", configuration=source_configuration, seed=0)
+    write_source_run(run_folder=tmp_path / "source_run", configuration=source_configuration, model=source_model,
+                     class_names=KEYPOINT_CLASS_NAMES, class_keypoints=source_class_keypoints)
+    target_configuration = copy.deepcopy(source_configuration)
+    target_configuration["Data"]["keypoint_categories"][1]["keypoints"] = target_triangle_keypoints
+    target_model = build_task_model(task="keypoint_detection", configuration=target_configuration, seed=1)
+    target_configuration = point_to_source_run(configuration=target_configuration, section_name="KeypointHead",
+                                               source_folder=tmp_path / "source_run")
+
+    # Same channels: every tensor of the head loaded; other channels or unknown ones: refused, the head untouched
+    initial_state = {key: tensor.clone() for key, tensor in target_model.keypoint_head.state_dict().items()}
+    if expected_error is None:
+        load_pretrained_component(component=target_model.keypoint_head, section_name="KeypointHead",
+                                  model_configuration=target_configuration, device=torch.device("cpu"),
+                                  class_names=KEYPOINT_CLASS_NAMES)
+        loaded_state = target_model.keypoint_head.state_dict()
+        assert all(torch.equal(input=loaded_state[key], other=tensor)
+                   for key, tensor in source_model.keypoint_head.state_dict().items())
+    else:
+        with pytest.raises(expected_exception=ValueError, match=expected_error):
+            load_pretrained_component(component=target_model.keypoint_head, section_name="KeypointHead",
+                                      model_configuration=target_configuration, device=torch.device("cpu"),
+                                      class_names=KEYPOINT_CLASS_NAMES)
+        assert all(torch.equal(input=initial_state[key], other=tensor)
+                   for key, tensor in target_model.keypoint_head.state_dict().items())

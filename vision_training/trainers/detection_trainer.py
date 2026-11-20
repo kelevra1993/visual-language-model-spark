@@ -85,7 +85,8 @@ class DetectionTrainer(CocoSplitTrainer):
             configuration_path (str | Path): The file path to the original YAML configuration used for this run.
         """
         # Score threshold of the detections kept for the mAP, lower than the deployment one so that the
-        # precision-recall curves keep their low-confidence end
+        # precision-recall curves keep their low-confidence end (check_detection_evaluation_configuration refuses it
+        # above the deployment one, whose detections the confusion matrix and the images keep among these)
         self.evaluation_score_threshold = experiment_configuration["evaluation"]["score_threshold"]
 
         # Score threshold of the deployment, keeping the detections of the sample images, the confusion matrix and the

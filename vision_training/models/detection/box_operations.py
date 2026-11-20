@@ -10,9 +10,6 @@ import torch
 
 from typing import Tuple
 
-from vision_training.utilities.os_utilities import print_color
-from vision_training.utilities.tensor_utilities import print_tensor_shape
-
 
 # Upper bound of the predicted log-scale width and height offsets (dw, dh) before exponentiation, as in torchvision.
 # It caps a box at 1000/16 = 62.5 times its reference size and prevents exp() from overflowing to inf.
@@ -168,10 +165,8 @@ def get_box_dimensions_and_centers(boxes: torch.Tensor) -> Tuple[
     # Check that the last dimension is of shape 4 if not raise an error. The check is skipped while TorchScript traces
     # the model for export, since the shapes are fixed by then and tracing would warn about turning it into a constant
     if not torch.jit.is_tracing() and boxes.shape[-1] != 4:
-        print_tensor_shape(tensor=boxes)
-        print_color(color="red",
-                    output=f"Unexpected Tensor Shape For Boxes, The Last Dimension Is {boxes.shape[-1]} Instead Of 4")
-        exit()
+        raise ValueError(f"Unexpected Tensor Shape For Boxes: Shape {list(boxes.shape)} With A Last Dimension Of "
+                         f"{boxes.shape[-1]} Instead Of 4 ([x_min, y_min, x_max, y_max]).")
 
     # Get the width, height, x_center and y_center from the boxes using ellipsis to handle optional batch dimensions
     boxes_widths = boxes[..., 2] - boxes[..., 0]

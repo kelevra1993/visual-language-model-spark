@@ -5,15 +5,18 @@ give 0, leading batch dimensions give the overlaps of every image at once), the 
 Distance-IoU of the CIoU loss and of DIoU-NMS (equal to those of torchvision, with an exponent, for every image at
 once), and the box regression weights (the targets of turn_boxes_to_transformation_targets are the offsets scaled by
 BOX_REGRESSION_WEIGHTS, and apply_regression_predictions divides them out, so that decoding the targets gives back the
-ground truth boxes).
+ground truth boxes), and the shape check of the boxes (a last dimension other than 4 raises a ValueError instead of
+ending the process).
 """
 
 import math
+import pytest
 import torch
 
 from torchvision.ops import box_iou, distance_box_iou
 
 from vision_training.models.detection.box_operations import (BOX_REGRESSION_WEIGHTS, apply_regression_predictions,
+                                                             get_box_dimensions_and_centers,
                                                              get_distance_intersection_over_union,
                                                              get_intersection_over_union,
                                                              get_normalized_centre_distance)
@@ -149,3 +152,15 @@ def test_regression_targets_are_weighted_and_decoded_back() -> None:
                                                      boxes=reference_boxes)
         assert decoded_boxes.shape == (2, 6, 1, 4) and decoded_boxes.dtype == dtype
         assert torch.allclose(input=decoded_boxes[:, :, 0], other=ground_truth_boxes, atol=1e-2)
+
+
+def test_boxes_of_a_wrong_shape_raise_a_value_error() -> None:
+    """
+    Verifies that boxes whose last dimension is not 4 raise a ValueError naming the received shape, both directly and
+    through apply_regression_predictions, instead of ending the process with exit() and status 0, which no except
+    Exception catches and which schedulers take for a success.
+    """
+    with pytest.raises(expected_exception=ValueError, match=r"Last Dimension Of 5 Instead Of 4"):
+        get_box_dimensions_and_centers(boxes=torch.zeros(size=(2, 5)))
+    with pytest.raises(expected_exception=ValueError, match=r"Shape \[2, 5\]"):
+        apply_regression_predictions(regression_predictions=torch.zeros(size=(2, 1, 4)), boxes=torch.zeros(size=(2, 5)))

@@ -21,6 +21,7 @@ from vision_training.configuration_processing.configuration_loader import load_e
 from vision_training.data.synthetic.create_synthetic_dataset import create_synthetic_dataset
 from vision_training.evaluation.keypoints.object_keypoint_similarity import CORRECT_KEYPOINTS_NAME
 from vision_training.models.keypoints.keypoint_detector import build_keypoint_channel_table
+from vision_training.models.model_transfer import read_source_keypoint_channels
 from vision_training.trainers.keypoint_trainer import KeypointTrainer
 from tests.fixtures.evaluation_checks import check_sample_images, read_results_blocks
 
@@ -113,7 +114,8 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     per class and per keypoint, with the matched objects, PCK and mean OKS of all the keypoints), class_metrics.csv
     (one row per class with its objects summing to the objects of the test images, its average precisions and its
     keypoint accuracy), keypoint_metrics.csv (one row per keypoint of every class) and a sample image of every test
-    image, and write the three TensorBoard folders. A second run with the same settings resolves to the same run
+    image, and write the three TensorBoard folders, the record of the data naming the heatmap and tag channels of the
+    model, read by the transfer of its keypoint head. A second run with the same settings resolves to the same run
     folder, resumes from the last checkpoint with exactly its weights, and trains up to the total of 7 iterations.
     No step may fail silently.
 
@@ -137,6 +139,9 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
                                                                                  "Iteration_5"]
     assert (weights_directory / "full-checkpoint").read_text().splitlines()[0] == 'model_checkpoint_path: "Iteration_5"'
     assert sorted(path.name for path in trainer.tensorboard_directory.iterdir()) == ["Test", "Train", "Validation"]
+
+    # The record of the data names the heatmap and tag channels of the model, read by the transfer of its keypoint head
+    assert read_source_keypoint_channels(source_folder=trainer.experiment_folder) == trainer.model.channel_names
     results, averaged_weights_results = trainer.run_test_evaluation(iteration=5)
     assert averaged_weights_results is None
     assert results["headline_metric"] == "OKS mAP@0.5/area" and results["headline_metric"] in results["scalars"]

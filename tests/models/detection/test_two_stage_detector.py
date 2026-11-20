@@ -2,8 +2,9 @@
 Tests of the intermediate results of vision_training/models/detection/two_stage_detector.py read by the instance
 segmenter: the level and matched ground truth of the sampled proposals and the proposal of every final detection
 carried through forward_detection_stages, and the filtered proposals and the anchors of every level read by the anchor
-and proposal recall of the detection trainers. The box loss of the configuration trains the detection heads, and the
-criterion of its final NMS suppresses the detections of the evaluation.
+and proposal recall of the detection trainers. The box loss of the configuration trains the detection heads, the
+criterion of its final NMS suppresses the detections of the evaluation, and the padding copies of the proposal filter
+never become detections of the evaluation, which match those of the deployed detector.
 """
 
 import pytest
@@ -11,6 +12,8 @@ import torch
 
 from tests.models.detection.test_detector_baseline import get_fixed_batch
 from tests.testing_utilities import build_test_model
+from vision_training.deployment.export_specifications import compare_detections
+from vision_training.models.detection.inference_detector import InferenceDetector
 from vision_training.models.detection.postprocessing import postprocess_detections
 
 
@@ -159,3 +162,42 @@ def test_final_nms_criterion_of_the_configuration_suppresses_the_evaluated_detec
             assert torch.equal(input=model_outputs[key], other=expected_value), f"{key} differs for {nms_criterion}"
     assert not torch.equal(input=outputs["iou"]["final_detection_boxes"],
                            other=outputs["distance_iou"]["final_detection_boxes"])
+
+
+def test_padding_proposals_never_become_evaluated_detections() -> None:
+    """
+    Verifies that the eager detector in evaluation mode masks the padding copies of the proposal filter like the
+    deployed InferenceDetector: with a proposal suppression leaving half of the 50 proposal slots to padding copies of
+    random survivors, and a final NMS threshold of 1.0, which keeps identical boxes, the evaluation gives the detections
+    of the deployed detector, none of them read on a padding proposal, instead of every detection of a copied survivor
+    twice. The mask of the valid proposals is carried in the order of the head outputs, with as many valid proposals
+    per image as the proposal filter kept.
+    """
+    model = build_test_model(dtype=torch.float32)
+    model.region_proposal_filter.nms_iou_threshold = 0.05
+    model.detection_nms_iou_threshold = 1.0
+    model.maximum_detections = 5000
+    detector = InferenceDetector(model=model).eval()
+    images = torch.rand(size=(2, 3, 512, 512), generator=torch.Generator().manual_seed(0)) * 255.0
+
+    with torch.no_grad():
+        eager_outputs = model(input_tensor=images)
+        inference_outputs = detector(images=images)
+
+    # Half of the proposal slots are padding copies
+    survivor_counts = eager_outputs["valid_proposal_mask"].sum(dim=1)
+    assert survivor_counts.tolist() == [25, 25] and eager_outputs["valid_proposal_mask"].shape[1] == 50
+
+    # Same detections as the deployed detector
+    assert torch.equal(input=eager_outputs["number_detections"], other=inference_outputs[3])
+    assert compare_detections(reference=[eager_outputs[key].numpy() for key in [
+        "final_detection_boxes", "final_detection_scores", "final_detection_labels", "number_detections"]],
+        candidate=[output.numpy() for output in inference_outputs], box_tolerance=1e-4, score_tolerance=1e-6) == []
+
+    # The mask in the order of the head outputs counts the same survivors per image, every detection being read on
+    # a valid proposal
+    assert torch.equal(input=eager_outputs["sliced_valid_mask"].sum(dim=1), other=survivor_counts)
+    for image_index in range(images.shape[0]):
+        number_detections = int(eager_outputs["number_detections"][image_index])
+        detection_proposals = eager_outputs["final_detection_proposal_indices"][image_index, :number_detections]
+        assert bool(eager_outputs["sliced_valid_mask"][image_index, detection_proposals].all())

@@ -19,7 +19,8 @@ from torch import nn
 from typing import Any, Dict, List, Optional, Tuple
 
 from vision_training.configuration_processing.configuration_loader import load_configuration
-from vision_training.data.data_record import CLASS_NAMES_RECORD_KEY, CLASSES_RECORD_KEY, DATA_RECORD_FILE_NAME
+from vision_training.data.data_record import (CLASS_NAMES_RECORD_KEY, CLASSES_RECORD_KEY, DATA_RECORD_FILE_NAME,
+                                              KEYPOINTS_RECORD_KEY)
 from vision_training.models.backbones.backbone import INCEPTION_STARTING_BLOCK
 from vision_training.trainers.checkpointing import EXPONENTIAL_MOVING_AVERAGE_STATE_KEY, get_checkpoint_path
 from vision_training.trainers.weight_averaging import AVERAGED_MODEL_STATE_KEY
@@ -40,6 +41,9 @@ TRANSFERABLE_COMPONENTS = {"Backbone": "backbone", "TemporalModel": "temporal_mo
 # Names of the components whose attribute does not read as a name in the messages of the transfer
 COMPONENT_NAMES = {"RegionProposal": "region proposal heads", "Detector": "detection heads",
                    "MaskHead": "mask heads"}
+
+# Differing keypoint channels named in the refusal of a keypoint head transfer, the others being only counted
+MAXIMUM_LISTED_CHANNEL_DIFFERENCES = 5
 
 # Attributes of the semantic segmenter holding its class layers, outside the decoder so that a decoder serves runs of
 # other classes, loaded with the decoder when 'SegmentationDecoder.pretrained.load_class_layers' is True: the 1x1
@@ -557,7 +561,7 @@ def compare_keypoint_heads(source_configuration: Dict[str, Any], target_configur
     and, with the higher resolution branch, the residual pairs, modules and normalization of its refinement. A run of
     the top-down keypoint detector, saved before the bottom-up one, has no tag channels and cannot initialise the head.
     The heatmap and tag channels follow the keypoints of the classes, which load_pretrained_component checks on the
-    class names of the runs and on the weights themselves.
+    channel names of the runs (compare_keypoint_channels) and on the weights themselves.
 
     Args:
         source_configuration (Dict[str, Any]): The whole configuration of the source run, as saved in its folder.
@@ -688,6 +692,83 @@ def read_source_class_names(source_folder: Path) -> Optional[List[str]]:
     if CLASS_NAMES_RECORD_KEY in data_record:
         return data_record[CLASS_NAMES_RECORD_KEY]
     return None
+
+
+def read_source_keypoint_channels(source_folder: Path) -> Optional[List[str]]:
+    """
+    Reads the heatmap and tag channels of the keypoint head of a source run from the record of its data ('data.json'),
+    the 'class.keypoint' name of every channel, the keypoints of every class in their order and the classes in index
+    order, as KeypointDetector assigns them (build_keypoint_channel_table), so that the transfer of the head checks
+    that every channel predicts the same keypoint in the new run.
+
+    Args:
+        source_folder (Path): The run folder of the source run.
+
+    Returns:
+        Optional[List[str]]: The name of every channel, None when the source run has no data record, no class records
+            or no keypoint names in them (runs written before the keypoints were recorded).
+    """
+    data_record_path = source_folder / DATA_RECORD_FILE_NAME
+    if not data_record_path.is_file():
+        return None
+    data_record = read_json(path=str(data_record_path))
+    if CLASSES_RECORD_KEY not in data_record or data_record[CLASSES_RECORD_KEY] is None:
+        return None
+
+    # Channels of the classes defining keypoints, the record listing the classes in class index order
+    class_records = data_record[CLASSES_RECORD_KEY]
+    if not any(KEYPOINTS_RECORD_KEY in class_record for class_record in class_records):
+        return None
+    return [f"{class_record['class_name']}.{keypoint_name}" for class_record in class_records
+            if KEYPOINTS_RECORD_KEY in class_record for keypoint_name in class_record[KEYPOINTS_RECORD_KEY]]
+
+
+def list_keypoint_channels(keypoint_categories: Dict[Any, Dict[str, Any]], class_names: List[str]) -> List[str]:
+    """
+    Names the heatmap and tag channels of the keypoint head of the new run like read_source_keypoint_channels names
+    those of the source run: 'class.keypoint', the keypoints of every class in their order and the classes in index
+    order, the order of build_keypoint_channel_table, with the class names of the record of the data.
+
+    Args:
+        keypoint_categories (Dict[Any, Dict[str, Any]]): The 'keypoints' names of every class index
+            ('Data.keypoint_categories' of the new run).
+        class_names (List[str]): The class names of the new run, in class index order.
+
+    Returns:
+        List[str]: The name of every channel.
+    """
+    return [f"{class_names[int(class_index)]}.{keypoint_name}"
+            for class_index in sorted(keypoint_categories, key=int)
+            for keypoint_name in keypoint_categories[class_index]["keypoints"]]
+
+
+def compare_keypoint_channels(source_channels: List[str], target_channels: List[str]) -> List[str]:
+    """
+    Lists the channels of a source keypoint head that would predict another keypoint in the new run: the same number
+    of keypoints in another order, other keypoints, or the same total split differently between the classes give
+    tensors of the same shapes, copied as they are, channel 0 of the source run being read as channel 0 of the new run.
+
+    Args:
+        source_channels (List[str]): The 'class.keypoint' name of every channel of the source run.
+        target_channels (List[str]): The 'class.keypoint' name of every channel of the new run.
+
+    Returns:
+        List[str]: The description of every difference (the first MAXIMUM_LISTED_CHANNEL_DIFFERENCES differing
+            channels and their count), empty when every channel predicts the same keypoint.
+    """
+    if len(source_channels) != len(target_channels):
+        return [f"The Source Run Predicts {len(source_channels)} Keypoint Channels And This Run "
+                f"{len(target_channels)}."]
+
+    # Channels predicting another keypoint, the first ones named and the others counted
+    differing_channels = [f"Channel {channel_index} Predicts {source_channel!r} In The Source Run And "
+                          f"{target_channel!r} In This Run."
+                          for channel_index, (source_channel, target_channel)
+                          in enumerate(zip(source_channels, target_channels)) if source_channel != target_channel]
+    if len(differing_channels) > MAXIMUM_LISTED_CHANNEL_DIFFERENCES:
+        return (differing_channels[:MAXIMUM_LISTED_CHANNEL_DIFFERENCES] +
+                [f"({len(differing_channels)} Channels Differ.)"])
+    return differing_channels
 
 
 def find_class_layer(section_name: str, module_name: str) -> Optional[int]:
@@ -1063,7 +1144,8 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
     keeps one, from its trained weights otherwise (see read_checkpoint_model_state). The new run may add classes after
     those of the source run: the class layers of the classification head, detection heads and mask heads keep the rows
     of the source classes, the rows of the new ones keeping their random initialisation (see prepare_class_layers).
-    The keypoint head needs the classes of its source run, its heatmap channels following their keypoints.
+    The keypoint head needs the keypoint channels of its source run, read from the record of its data, every heatmap
+    and tag channel having to predict the same keypoint of the same class in both runs.
 
     Args:
         component (nn.Module): The component of the new run, loaded in place.
@@ -1079,9 +1161,9 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
 
     Raises:
         ValueError: If the source run has no such component, if its settings differ, listing every difference, if its
-            classes are not the first classes of the new run (the classes of the new run for the keypoint head), or if
-            its tensors do not fit the component, listing every
-            mismatching tensor.
+            classes are not the first classes of the new run, if the channels of its keypoint head are unknown or
+            predict other keypoints than those of the new run, or if its tensors do not fit the component, listing
+            every mismatching tensor.
     """
     component_name = get_component_name(section_name=section_name)
     pretrained_configuration = model_configuration[section_name]["pretrained"]
@@ -1128,12 +1210,25 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
                                                f"{source_anchors}, This Run Uses The Anchors {target_anchors}.")
 
     # The heatmap and tag channels of the keypoint head follow the keypoints of the classes, which must be the same
+    # keypoints of the same classes in the same order, refused when the source run does not record them
     if section_name == "KeypointHead":
-        source_class_names = read_source_class_names(source_folder=source_folder)
-        if source_class_names is not None and class_names is not None and source_class_names != class_names:
+        source_channels = read_source_keypoint_channels(source_folder=source_folder)
+        if source_channels is None:
             raise ValueError(f"The Keypoint Head Of The Source Run {format_path_link(path=source_folder)} Cannot "
-                             f"Initialise This Run, Its Heatmap And Tag Channels Following The Keypoints Of Other "
-                             f"Classes: {source_class_names} In The Source Run And {class_names} In This Run.")
+                             f"Initialise This Run: Its {DATA_RECORD_FILE_NAME} Records No Keypoint Names Of Its "
+                             f"Classes (Runs Started Before 2026-11-20), So Its Heatmap And Tag Channels Cannot Be "
+                             f"Matched To Those Of This Run.")
+        if class_names is None:
+            raise ValueError("The Keypoint Head Cannot Be Initialised Without The Class Names Of This Run, Which Name "
+                             "Its Heatmap And Tag Channels.")
+        target_channels = list_keypoint_channels(keypoint_categories=model_configuration["Data"]["keypoint_categories"],
+                                                 class_names=class_names)
+        channel_differences = compare_keypoint_channels(source_channels=source_channels,
+                                                        target_channels=target_channels)
+        if channel_differences:
+            raise ValueError(f"The Keypoint Head Of The Source Run {format_path_link(path=source_folder)} Cannot "
+                             f"Initialise This Run, Its Heatmap And Tag Channels Predicting Other Keypoints: " +
+                             " ".join(channel_differences))
 
     # Keep the tensors of the component in the source model, its averaged weights when both runs keep a moving
     # average, without their prefix

@@ -257,7 +257,9 @@ class Backbone(nn.Module):
 
         This dynamically resolves the exact structural dimensions required by the Region Proposal
         Network (and Anchors) during its initialization phase, avoiding error-prone
-        hardcoded size calculations that could break if pooling logic or strides change.
+        hardcoded size calculations that could break if pooling logic or strides change. The pass runs in evaluation
+        mode and without gradients, the mode of the backbone being restored afterwards, so that the batch normalization
+        statistics are left untouched.
 
         Returns:
             Dict[str, Dict[str, int]]: A dictionary mapping the stringified detection block index to
@@ -271,14 +273,22 @@ class Backbone(nn.Module):
         # Dictionary to store the dynamically computed structural information for each detection block
         detection_information = {}
 
+        # Probe in evaluation mode and without gradients, as print_summary does, so that the batch normalization
+        # statistics stay untouched and a block receiving a 1 x 1 map does not need more than one value per channel,
+        # then restore the mode
+        was_training = self.training
+        self.eval()
+
         # Sequentially pass the dummy tensor through all convolution blocks
         for block_index, block in enumerate(self.convolution_blocks, start=1):
-            dummy_tensor = block(input_tensor=dummy_tensor)
+            with torch.no_grad():
+                dummy_tensor = block(input_tensor=dummy_tensor)
 
             # If this block is designated as an detection, extract its spatial dimension and channel depth
             if block_index in self.detection_convolution_block_indices:
                 detection_information[str(object=block_index)] = {"feature_map_size": dummy_tensor.shape[2],
                                                                  "number_channels": dummy_tensor.shape[1]}
+        self.train(mode=was_training)
 
         return detection_information
 

@@ -92,7 +92,7 @@ Before changing the synthetic configuration, these are the keys that change the 
 | `ExperimentConfiguration.evaluation.original_resolution` | False | True scores the boxes and masks on the original test images: the boxes restored, the masks pasted at that size, the objects those of the original annotations |
 | `DetectionLevels.<level>.anchors`, `.region_proposal`, `.detector`, `Neck`, `RegionProposal`, `Detector` | the keys of DET with values of their own: `Neck.type: "none"`, `RegionProposal.proposal_selection: "joint"`, `RegionProposal.background_iou_threshold.min: 0.0` and `Detector.nms_criterion: "iou"`, where DET has `"feature_pyramid"`, `"per_level"`, 0.1 and `"distance_iou"` (exponent 0.6), with a learning rate of 2e-4 against 1e-3 | the detector, whose keys the `Read This First` of `object_detection_workflow.md` describes: no feature merging between the levels, one top-k and one NMS of the proposals over all the levels, the anchors overlapping no object sampled as background, the greedy final NMS, and `Detector.box_loss: "smooth_l1"` as in DET |
 | `Detector.inference.score_threshold`, `maximum_detections` | 0.5, 100 | the detections of the deployed model, each with its mask |
-| `ExperimentConfiguration.evaluation.score_threshold`, `target_precision` | 0.05, 0.99 | detections kept for the mask and box mAP; precision of the class thresholds, found on the mask average precisions |
+| `ExperimentConfiguration.evaluation.score_threshold`, `target_precision` | 0.05, 0.99 | detections kept for the mask and box mAP, the threshold refused above `Detector.inference.score_threshold`; precision of the class thresholds, found on the mask average precisions |
 
 ### What A Run Writes
 Whenever a run is launched or a checkpoint evaluated, the run folder, TensorBoard and MLflow receive the following, with the results of the two runs this document quotes.
@@ -998,6 +998,7 @@ classification_scores              (2, 250, 21) float32
 box_regressions                    (2, 250, 21, 4) float32
 detection_boxes                    (2, 250, 21, 4) float32
 sliced_origins                     (2, 250) int64
+sliced_valid_mask                  (2, 250) bool
 final_detection_boxes              (2, 100, 4) float32
 final_detection_scores             (2, 100) float32
 final_detection_labels             (2, 100) int64

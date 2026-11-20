@@ -365,7 +365,8 @@ def postprocess_detections(classification_scores: torch.Tensor, detection_boxes:
             background class 0).
         detection_boxes (torch.Tensor): The per-class decoded [x1, y1, x2, y2] boxes, shape [B, P, C, 4].
         valid_proposal_mask (torch.Tensor): Boolean mask of shape [B, P], False for padding proposals that must never
-            produce a detection (used by the exportable inference path, which pads with placeholder proposals).
+            produce a detection: the padding copies of the region proposal filter of the eager detector, carried in
+            the order of its head outputs, and the padding slots of the exportable inference path.
         score_threshold (float): The minimum class probability of a returned detection.
         nms_iou_threshold (float): The criterion above which a lower scoring box of the same class is suppressed: the
             IoU, or the Distance-IoU of "distance_iou".

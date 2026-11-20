@@ -242,7 +242,7 @@ A bottom-up keypoint detector, as in HigherHRNet ([Cheng et al., 2020](https://a
 - A keypoint leaving the image becomes unlabelled. An object is removed when less than 25 % of its box and none of its keypoints stay inside.
 - A keypoint keeps its name whatever the augmentation: a flipped `left_wrist` stays `left_wrist` on the right side. The flips and rotations only suit keypoints whose names depend neither on the side nor on the orientation, and both keypoint configurations turn the flips and 90 degree rotations off.
 
-**Configuration.** `keypoint_detection/configuration_example.yaml` (COCO persons, HigherHRNet-W32 on 512x512 images). `Data.image_settings.size` must be a multiple of 4 x 2 to the power of the number of stages (32 for 3 stages). `Backbone.pretrained` loads the first blocks of any backbone, as many as the stem has (a stem deeper than the source backbone keeping its extra blocks random); `HRNet.pretrained` and `KeypointHead.pretrained` load those of another KPT run.
+**Configuration.** `keypoint_detection/configuration_example.yaml` (COCO persons, HigherHRNet-W32 on 512x512 images). `Data.image_settings.size` must be a multiple of 4 x 2 to the power of the number of stages (32 for 3 stages). `Backbone.pretrained` loads the first blocks of any backbone, as many as the stem has (a stem deeper than the source backbone keeping its extra blocks random); `HRNet.pretrained` and `KeypointHead.pretrained` load those of another KPT run, the keypoint head only from a run predicting the same keypoints of the same classes in the same order, read from the `data.json` of the source run.
 
 ```yaml
 HRNet:
