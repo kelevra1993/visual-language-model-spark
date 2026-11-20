@@ -441,15 +441,20 @@ def check_nms_criterion_configuration(model_configuration: Dict[str, Any]) -> Li
     return errors
 
 
-def check_detection_evaluation_configuration(experiment_configuration: Dict[str, Any]) -> List[str]:
+def check_detection_evaluation_configuration(experiment_configuration: Dict[str, Any],
+                                             model_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the 'ExperimentConfiguration.evaluation' settings of the object detection and instance segmentation
     tasks: the score threshold of the detections kept for the mean average precision and the precision targeted by
-    the score threshold of every class must be probabilities, and the error images need a switch and a positive
-    number of images per folder.
+    the score threshold of every class must be probabilities, the evaluation score threshold must not exceed the
+    deployment one ('Detector.inference.score_threshold'), and the error images need a switch and a positive number of
+    images per folder. The evaluation replaces the score threshold of the detector by its own, then the confusion
+    matrix, the error images and the sample images keep the detections from the deployment threshold, so that they
+    show what the deployed detector returns, which they can only do from a lower or equal evaluation threshold.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
+        model_configuration (Dict[str, Any]): The processed model sections, holding 'Detector.inference'.
 
     Returns:
         List[str]: The description of every inconsistency found.
@@ -461,6 +466,19 @@ def check_detection_evaluation_configuration(experiment_configuration: Dict[str,
                      "ExperimentConfiguration.evaluation.target_precision"]:
         errors += check_probability_value(value=get_configuration_value(configuration=configuration, key_path=key_path),
                                           key_path=key_path)
+
+    # Detections between a deployment threshold and a higher evaluation one, returned by the deployed detector, would
+    # be missing from the confusion matrix and the images, counted as missed objects
+    evaluation_score_threshold = get_configuration_value(configuration=configuration,
+                                                         key_path="ExperimentConfiguration.evaluation.score_threshold")
+    inference_score_threshold = get_configuration_value(configuration=model_configuration,
+                                                        key_path="Detector.inference.score_threshold")
+    if is_number(value=evaluation_score_threshold) and is_number(value=inference_score_threshold) and \
+            evaluation_score_threshold > inference_score_threshold:
+        errors.append(f"'ExperimentConfiguration.evaluation.score_threshold' ({evaluation_score_threshold}) must not "
+                      f"exceed 'Detector.inference.score_threshold' ({inference_score_threshold}): the confusion "
+                      f"matrix, the error images and the sample images keep the detections the deployed detector "
+                      f"returns, from {inference_score_threshold}, which the evaluation must therefore keep too.")
     errors += check_error_dumps_configuration(experiment_configuration=experiment_configuration)
     return errors
 
@@ -543,7 +561,8 @@ def check_detection_configuration(experiment_configuration: Dict[str, Any],
         List[str]: The description of every inconsistency found.
     """
     errors = []
-    errors += check_detection_evaluation_configuration(experiment_configuration=experiment_configuration)
+    errors += check_detection_evaluation_configuration(experiment_configuration=experiment_configuration,
+                                                       model_configuration=model_configuration)
     errors += check_anchor_coverage_configuration(experiment_configuration=experiment_configuration)
     errors += check_detection_data_configuration(model_configuration=model_configuration)
     errors += check_image_task_sequence_settings(model_configuration=model_configuration)

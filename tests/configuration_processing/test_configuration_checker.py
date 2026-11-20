@@ -428,6 +428,44 @@ def test_intermediate_weight_saving_iterations_is_checked(tmp_path: Path, capsys
         assert expected_message in capsys.readouterr().out
 
 
+@pytest.mark.parametrize(argnames=("evaluation_score_threshold", "inference_score_threshold", "expected_message"),
+                         argvalues=[(0.3, 0.3, None),
+                                    (0.5, 0.3, "'ExperimentConfiguration.evaluation.score_threshold' (0.5) must not "
+                                               "exceed 'Detector.inference.score_threshold' (0.3)")])
+def test_evaluation_score_threshold_above_the_deployment_one_is_refused(
+        tmp_path: Path, capsys: pytest.CaptureFixture, evaluation_score_threshold: float,
+        inference_score_threshold: float, expected_message: Optional[str]) -> None:
+    """
+    Verifies that the object detection refuses an evaluation score threshold above the deployment one, with both keys:
+    the confusion matrix, error images and sample images keep the detections from the deployment threshold among those
+    of the evaluation, so the detections between both thresholds, returned by the deployed detector, would be counted
+    as missed objects; an evaluation threshold equal to the deployment one is accepted.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+        evaluation_score_threshold (float): The 'ExperimentConfiguration.evaluation.score_threshold' written.
+        inference_score_threshold (float): The 'Detector.inference.score_threshold' written.
+        expected_message (Optional[str]): The start of the refusal message, None when the values must be accepted.
+    """
+    configuration = yaml.safe_load(stream=EXAMPLE_CONFIGURATION_PATH.read_text())
+    configuration["ExperimentConfiguration"]["evaluation"]["score_threshold"] = evaluation_score_threshold
+    configuration["Detector"]["inference"]["score_threshold"] = inference_score_threshold
+    configuration_path = tmp_path / "configuration.yaml"
+    configuration_path.write_text(yaml.safe_dump(configuration))
+
+    # Accepted thresholds are loaded as written, refused ones stop the loading with the message naming both keys
+    if expected_message is None:
+        experiment_configuration, model_configuration = load_experiment_configuration(
+            configuration_path=configuration_path)
+        assert experiment_configuration["evaluation"]["score_threshold"] == evaluation_score_threshold
+        assert model_configuration["Detector"]["inference"]["score_threshold"] == inference_score_threshold
+    else:
+        with pytest.raises(expected_exception=SystemExit):
+            load_experiment_configuration(configuration_path=configuration_path)
+        assert expected_message in capsys.readouterr().out
+
+
 def empty_detection_levels(configuration: Dict[str, Any]) -> None:
     """
     Removes every detection level.

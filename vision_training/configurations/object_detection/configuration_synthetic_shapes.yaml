@@ -36,8 +36,8 @@ ExperimentConfiguration:
     # Test images drawn once, evenly spread, shown at every evaluation: ground truth boxes next to detections above
     # Detector.inference.score_threshold, in Evaluation/Iteration_<n>/Samples/ and TensorBoard. 0 disables.
     number_sample_images: 8
-    # Lowest class probability of the detections kept for the mAP, replacing Detector.inference.score_threshold in
-    # evaluation only; keep it low, or the precision-recall curve is cut and the mAP underestimated. Within [0, 1].
+    # Lowest class probability of the detections kept for the mAP, at most Detector.inference.score_threshold,
+    # which it replaces in evaluation only; keep it low, or the precision-recall curve is cut and the mAP lowered.
     score_threshold: 0.05
     # Precision every class score threshold must reach, saved with its recall in class_thresholds.json for deployment
     # (AP@0.5 matching); only detections reaching score_threshold count. Within [0, 1].

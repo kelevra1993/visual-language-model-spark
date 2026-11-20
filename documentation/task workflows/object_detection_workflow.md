@@ -96,7 +96,7 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 | `Detector.box_loss` | `smooth_l1` | box loss of the positive proposals: smooth L1 on the offsets, or `complete_iou`, 1 - CIoU of the decoded boxes (`DCIOU`), the positive anchors of the region proposal network always taking the smooth L1 |
 | `Detector.inference.score_threshold`, `maximum_detections`, `Detector.nms_iou_threshold` | 0.5, 100, 0.5 | post-processing of the deployed detector, also used by the sample images, the confusion matrix and the error images |
 | `Detector.nms_criterion`, `nms_distance_exponent` | `distance_iou`, 0.6 | criterion of the final NMS: the IoU of the greedy NMS (`iou`), or `distance_iou`, the IoU minus the normalized distance of the centres to the power of the exponent (DIoU-NMS, in the evaluation, the deployed detector and the exports); the run of Stages 3 to 5 ran `iou` |
-| `ExperimentConfiguration.evaluation.score_threshold`, `target_precision` | 0.05, 0.99 | detections kept for the mAP; precision of the class thresholds of `class_thresholds.json` |
+| `ExperimentConfiguration.evaluation.score_threshold`, `target_precision` | 0.05, 0.99 | detections kept for the mAP, the threshold refused above `Detector.inference.score_threshold`; precision of the class thresholds of `class_thresholds.json` |
 | `Optimization.loss_weights` | 1.0 for each of the four losses | weights of the losses in the total loss, the losses being tracked unweighted |
 | `Data.image_settings.size` | 512 | network input; the anchor scales must fit in it |
 
@@ -144,8 +144,9 @@ main()
 │   └── check_configuration()
 │       ├── common checks
 │       └── check_detection_configuration()
-│               ├── check_detection_evaluation_configuration()   evaluation.score_threshold, target_precision and
-│               │                                                error_dumps
+│               ├── check_detection_evaluation_configuration()   evaluation.score_threshold (at most
+│               │                                                Detector.inference.score_threshold),
+│               │                                                target_precision and error_dumps
 │               ├── check_anchor_coverage_configuration()        diagnosis_modes.compute_anchor_coverage
 │               ├── check_detection_data_configuration()         classes 0 (background) to K-1 without gaps, the
 │               │                                                categories mapped to 0 announced in yellow
@@ -346,7 +347,7 @@ get_trainer_class(task="object_detection") -> <class 'vision_training.trainers.d
 > The examples below are real outputs from building the trainer on the redirected `configuration_synthetic_shapes.yaml` (1024 pixel images, batch size 40), with the run folder redirected to a temporary folder. The whole construction took 2.1 s on CPU.
 
 ### Step 2.1 — `DetectionTrainer.__init__()`
-Before calling the shared constructor, the trainer reads two score thresholds: `evaluation.score_threshold`, the lowest score of the detections kept for the mean average precision (low, so that the precision-recall curves keep their low-confidence end), and `Detector.inference.score_threshold`, the deployment one, used to draw the detections of the sample images and to count the detections of the confusion matrix and of the error images. It also reads the `target_precision` of the class thresholds and the `error_dumps` settings.
+Before calling the shared constructor, the trainer reads two score thresholds: `evaluation.score_threshold`, the lowest score of the detections kept for the mean average precision (low, so that the precision-recall curves keep their low-confidence end), and `Detector.inference.score_threshold`, the deployment one, used to draw the detections of the sample images and to count the detections of the confusion matrix and of the error images. These keep the detections from the deployment threshold among those of the evaluation, so the configuration check refuses an evaluation threshold above the deployment one, whose detections in between, returned by the deployed detector, would be counted as missed objects. It also reads the `target_precision` of the class thresholds and the `error_dumps` settings.
 
 **Example: the attributes after the construction**
 ```text
