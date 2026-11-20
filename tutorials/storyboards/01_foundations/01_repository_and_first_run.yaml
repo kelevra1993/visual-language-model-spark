@@ -167,16 +167,17 @@ scenes:
       # The run name centred, its arrows leaving from the middle of each section (a character of code_text being about
       # 15.4 pixels wide), so a run of another name needs their x moved
       - {type: text, position: [232, 110], font: code_text, segments: [{text: "{{foundations.listings.run_name_sections[0]}}", highlight: [1]}, {text: "_", colour: dim}, {text: "{{foundations.listings.run_name_sections[1]}}", highlight: [1]}, {text: "_", colour: dim}, {text: "{{foundations.listings.run_name_sections[2]}}", highlight: [2]}, {text: "_", colour: dim}, {text: "{{foundations.listings.run_name_sections[3]}}", highlight: [3]}, {text: "_", colour: dim}, {text: "{{foundations.listings.run_name_sections[4]}}", highlight: [3]}]}
-      - {type: arrow, points: [[255, 130], [158, 240]], appear: 1}
-      - {type: box, box: [0, 245, 316, 475], text: "{{foundations.listings.run_name_sections[0]}}\n\ntask:\nclassification", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
-      - {type: arrow, points: [[371, 130], [519, 240]], appear: 1}
-      - {type: box, box: [361, 245, 677, 475], text: "{{foundations.listings.run_name_sections[1]}}\n\ninput normalization,\nkept aspect ratio,\n{{foundations.listings.input_size}} pixel images", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
+      # Boxes 304 pixels wide, 40 pixels apart and from the card edges, each arrow ending above the middle of its box
+      - {type: arrow, points: [[255, 130], [192, 240]], appear: 1}
+      - {type: box, box: [40, 245, 344, 475], text: "{{foundations.listings.run_name_sections[0]}}\n\ntask:\nclassification", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
+      - {type: arrow, points: [[371, 130], [536, 240]], appear: 1}
+      - {type: box, box: [384, 245, 688, 475], text: "{{foundations.listings.run_name_sections[1]}}\n\ninput normalization,\nkept aspect ratio,\n{{foundations.listings.input_size}} pixel images", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
       - {type: arrow, points: [[811, 130], [880, 240]], appear: 2}
-      - {type: box, box: [722, 245, 1038, 475], text: "{{foundations.listings.run_name_backbone_modules}}-B...-{{foundations.listings.run_name_backbone_transfer}}\n\nsqueeze-and-excitation,\nresidual shortcuts,\nbatch normalization,\nlayers x filters per block,\npre-trained weights", font: diagram_small, outline: magenta, appear: 2, highlight: [2]}
-      - {type: arrow, points: [[1304, 130], [1241, 240]], appear: 3}
-      - {type: box, box: [1083, 245, 1399, 475], text: "{{foundations.listings.run_name_sections[3]}}\n\nflatten pooling,\n{{foundations.run.hidden_units}} hidden units,\nlayer normalization,\nbalanced class weights", font: diagram_small, outline: violet, appear: 3, highlight: [3]}
-      - {type: arrow, points: [[1482, 130], [1602, 240]], appear: 3}
-      - {type: box, box: [1444, 245, 1760, 475], text: "{{foundations.listings.run_name_sections[4]}}\n\nmulti-class output,\n{{foundations.run.class_count}} classes", font: diagram_small, outline: aqua, appear: 3, highlight: [3]}
+      - {type: box, box: [728, 245, 1032, 475], text: "{{foundations.listings.run_name_backbone_modules}}-B...-{{foundations.listings.run_name_backbone_transfer}}\n\nsqueeze-and-excitation,\nresidual shortcuts,\nbatch normalization,\nlayers x filters per block,\npre-trained weights", font: diagram_small, outline: magenta, appear: 2, highlight: [2]}
+      - {type: arrow, points: [[1304, 130], [1224, 240]], appear: 3}
+      - {type: box, box: [1072, 245, 1376, 475], text: "{{foundations.listings.run_name_sections[3]}}\n\nflatten pooling,\n{{foundations.run.hidden_units}} hidden units,\nlayer normalization,\nbalanced class weights", font: diagram_small, outline: violet, appear: 3, highlight: [3]}
+      - {type: arrow, points: [[1482, 130], [1568, 240]], appear: 3}
+      - {type: box, box: [1416, 245, 1720, 475], text: "{{foundations.listings.run_name_sections[4]}}\n\nmulti-class output,\n{{foundations.run.class_count}} classes", font: diagram_small, outline: aqua, appear: 3, highlight: [3]}
       - {type: box, box: [130, 520, 1630, 700], text: "No token: batch size, learning rate and its schedule, augmentation, dropout,\nmoving average of the weights\nrun_name_suffix: \"v1\"  →  <run name>_v1, a new run of the same settings", font: diagram_text, outline: yellow, appear: 4, highlight: [4]}
     narration:
       - "The run folder is named after the settings that shape the model, so that the same settings resume in the same folder and changed ones start a new run."
