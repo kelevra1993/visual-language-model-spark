@@ -2285,8 +2285,9 @@ class BaseTrainer(ABC):
         (training_dataloader_iterator, validation_dataloader_iterator, validation_enabled,
          training_trackers, validation_trackers, consecutive_errors) = self.initialize_training_loop_state()
 
-        # MLflow run of the training, opened after the loader worker processes are forked from this process so that
-        # they never inherit the thread of the tracker
+        # MLflow run of the training, opened after the training and validation loaders fork their worker processes
+        # (their iterators above) so that these never inherit the thread of the tracker; the test loader forks its
+        # workers later, at the first test evaluation while the tracker runs, and keeps them for the next evaluations
         self.start_experiment_tracking()
 
         # Status of the MLflow run set by a stop of the training before its last iteration

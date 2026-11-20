@@ -235,8 +235,8 @@ class InstanceSegmentationTrainer(DetectionTrainer):
                                 clip: bool) -> torch.Tensor:
         """
         Maps the detection boxes of the network input back to the original test image for the evaluation at the
-        original resolution, undoing the resizing and the padding of the preprocessing (Data.image_settings) like the
-        inference clients.
+        original resolution, undoing the resizing and the padding of the preprocessing (Data.image_settings) as a
+        client of the exported model would.
 
         Args:
             boxes (torch.Tensor): The [D, 4] [x1, y1, x2, y2] detection boxes in network input pixels.

@@ -1,10 +1,12 @@
 """
-Image, mask and bounding box preprocessing shared by the data loaders and the inference clients: the reading of the
-dataset and inference images, naming the files that cannot be read, the resizing to the square network input with
+Image, mask and bounding box preprocessing shared by the data loaders and the deployment (the requests of
+deployment/deployment_utilities.py, the input contract of deployment/input_contract.py): the reading of the dataset
+and inference images, naming the files that cannot be read, the resizing to the square network input with
 optional centred padding (bilinear for the images, nearest on the pixel centres for the segmentation masks), the
 matching box transformation, and their inverses restoring predicted boxes and segmentation predictions (class maps or
-probabilities) to the original image, the latter also used by the evaluation of the segmenter at the original
-resolution.
+probabilities) to the original image, called by the evaluations at the original resolution (the instance segmentation
+trainer for the boxes, the segmentation trainer for the predictions) and left to the clients of the exported models,
+no inference code of the repository calling them.
 """
 
 import cv2
@@ -23,13 +25,14 @@ REPORTED_IMAGE_DEPTHS = set()
 
 def read_image(image_path: str | Path) -> np.ndarray:
     """
-    Reads an image as BGR, for the classification, COCO, segmentation and sequence datasets and the image folders of
-    the inference clients: OpenCV gives None for a missing, unreadable or corrupted file, which would otherwise fail
-    later with an unrelated error, so the file is named in the error. The training loop then drops the batch holding
-    it and prints the error once (BaseTrainer.get_next_batch), and a test evaluation stopped by it counts as an error
-    of its iteration, the training going on. A file of more than 8 bits per channel (e.g. a 16 bit PNG holding 12 bit
-    data) is read with 8 bits like before, its values divided by 256, with a yellow warning the first time a file of
-    its pixel type is read, since a source using fewer bits than its type loses most of its signal.
+    Reads an image as BGR, for the classification, COCO, segmentation and sequence datasets and the inference folder
+    of the deployment (deployment_utilities.py): OpenCV gives None for a missing, unreadable or corrupted file, which
+    would otherwise fail later with an unrelated error, so the file is named in the error. The training loop then
+    drops the batch holding it and prints the error once (BaseTrainer.get_next_batch), and a test evaluation stopped by
+    it counts as an error of its iteration, the training going on. A file of more than 8 bits per channel (e.g. a 16
+    bit PNG holding 12 bit data) is read with 8 bits like before, its values divided by 256, with a yellow warning the
+    first time a file of its pixel type is read, since a source using fewer bits than its type loses most of its
+    signal.
 
     Args:
         image_path (str | Path): The image file.
@@ -168,10 +171,11 @@ def restore_boxes_to_original_image(bounding_boxes: np.ndarray, image_width: int
                                     image_size: int, keep_ratio: bool, clip: bool = True) -> np.ndarray:
     """
     Maps boxes predicted on the preprocessed network input back to the original image, the exact inverse of
-    'preprocess_boxes'. Used by the inference clients, which preprocess the images before sending them to the model
-    and must report the detections in the coordinates of the images they were given, and by the evaluation of the
-    instance segmentation at the original resolution, which pastes the masks of the detections into their unclipped
-    boxes, a mask covering the whole box it was predicted in.
+    'preprocess_boxes'. Called only by the evaluation of the instance segmentation at the original resolution
+    (InstanceSegmentationTrainer.restore_detection_boxes), which pastes the masks of the detections into their
+    unclipped boxes, a mask covering the whole box it was predicted in. No inference code of the repository calls it
+    (deployment/run_inference.py measures the throughput only); a client of an exported detector would, to report the
+    detections in the coordinates of the images it was given.
 
     Args:
         bounding_boxes (np.ndarray): The [N, 4] [x1, y1, x2, y2] boxes in network input pixels.
@@ -215,8 +219,10 @@ def restore_prediction_to_original_image(prediction: torch.Tensor, original_heig
     the nearest interpolation on the pixel centres ("nearest-exact"), so that every pixel keeps one of the predicted
     classes and the map stays aligned with the bilinear probabilities and the image, and class probabilities (float
     tensor) bilinearly, so that the class of every original pixel is the argmax of its interpolated probabilities.
-    Used by the inference clients and by the evaluation of the segmenter at the original resolution, on the device of
-    the prediction.
+    Called only by the evaluation of the segmenter at the original resolution
+    (SegmentationTrainer.accumulate_evaluation_batch), on the device of the prediction. deployment_utilities.py and
+    InferenceSegmenter name it as the step a client of the exported segmenter runs on its outputs, no inference code of
+    the repository calling it (deployment/run_inference.py measures the throughput only).
 
     Args:
         prediction (torch.Tensor): The [..., S, S] prediction of the network input, e.g. a [S, S] class map or [K, S, S]

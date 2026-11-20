@@ -162,7 +162,8 @@ main()
 │   │       folders, run name suffix, batch size, learning rate, logging/checkpoint/validation frequencies, number of
 │   │       iterations, evaluation and MLflow tracking settings, allow_data_change_on_resume, diagnosis modes
 │   │     - model_configuration = all the other sections: how to load data, how to build the network, how to optimize
-│   │   It then fixes the values YAML reads with the wrong type: folders become Path objects, "1e10" becomes an int,
+│   │   It checks the keys as written (check_configuration_keys, below), then fixes the values YAML reads with the
+│   │   wrong type: folders become Path objects, "1e10" becomes an int (a non-integer count is left to the checks),
 │   │   the learning rate becomes a float, and the optimization numbers written without a dot become numbers. It adds
 │   │   tracking_root, run_name (None) and standalone_evaluation_folder (None) to experiment_configuration, then
 │   │   label_mode and label_dictionary to 'Data'
@@ -172,6 +173,15 @@ main()
 │   ├── load_configuration(configuration_path)
 │   │       Plain file reader: raises FileNotFoundError if the YAML is missing, otherwise parses it with
 │   │       yaml.safe_load into one raw nested dictionary (an empty file gives {}). No conversion or validation here.
+│   │
+│   ├── check_configuration_keys(experiment_configuration, model_configuration)
+│   │   ├── check_removed_settings()          a setting or section removed from the configuration files
+│   │   │                                     (resume_training, mixed_precision, Data.loading, evaluation.top_k,
+│   │   │                                     Data.view_augmentation, Optimization.gradient_clipping_norm...) is
+│   │   │                                     reported alone, with what replaced it, before the other checks
+│   │   └── check_unknown_keys()              then, alone too, every key the code of the task does not read
+│   │                                         (KNOWN_KEY_PATHS of configuration_keys.py): a misspelled key, a
+│   │                                         setting no code reads, a section of another task
 │   │
 │   ├── build_label_dictionary(label_mapping_configuration, task)
 │   │       Decides which class index each dataset category is trained as. For classification the mode must be
@@ -186,11 +196,6 @@ main()
 │       │   of error messages instead of raising, so ALL problems are gathered. If the list is not empty, the loader
 │       │   prints every message in red with a link to the YAML file and exits. It runs, in order:
 │       │
-│       ├── check_removed_settings()              a setting or section removed from the configuration files
-│       │                                         (resume_training, mixed_precision, Data.loading, evaluation.top_k,
-│       │                                         Data.view_augmentation, Optimization.gradient_clipping_norm...) is
-│       │                                         reported alone, with what replaced
-│       │                                         it, before the other checks
 │       ├── check_experiment_configuration()      task name is a known task, run name suffix, training loop
 │       │                                         settings, per-class report, number of sample images, MLflow
 │       │                                         tracking settings
@@ -721,7 +726,7 @@ trainer.run_training_loop()
 ```
 
 ### Step 1.2 — `load_experiment_configuration()`
-This function produces the two dictionaries that every later stage reads. It removes the `ExperimentConfiguration` section from the raw YAML and keeps it as `experiment_configuration`, which holds the run settings. Whatever is left becomes `model_configuration`, which holds the data, network and optimization settings. It then converts the values YAML reads with the wrong type (the folders, the iteration counts, the learning rate, and the optimization numbers written without a dot such as `weight_decay: 1e-4`), adds `tracking_root` (the root folder of the MLflow backend, the `experiment_folder` of the configuration) and `run_name` (None, the name of the run folder then being built from the settings, Step 2.4) and `standalone_evaluation_folder` (None for a training, `Checkpoint_Evaluation` set by the standalone evaluation, Step 5.2) to `experiment_configuration`, adds `label_mode` and `label_dictionary` to `Data` (Step 1.4), and runs the checks (Step 1.5). There is no data type to convert: every model is built in float32 (`MODEL_DTYPE` of `vision_training/models/model_registry.py`, Step 2.3).
+This function produces the two dictionaries that every later stage reads. It removes the `ExperimentConfiguration` section from the raw YAML and keeps it as `experiment_configuration`, which holds the run settings. Whatever is left becomes `model_configuration`, which holds the data, network and optimization settings. It checks the keys of the file as written (`check_configuration_keys()`, Step 1.5), then converts the values YAML reads with the wrong type (the folders, the iteration counts written in scientific notation, a non-integer count being left to the checks, the learning rate, and the optimization numbers written without a dot such as `weight_decay: 1e-4`), adds `tracking_root` (the root folder of the MLflow backend, the `experiment_folder` of the configuration) and `run_name` (None, the name of the run folder then being built from the settings, Step 2.4) and `standalone_evaluation_folder` (None for a training, `Checkpoint_Evaluation` set by the standalone evaluation, Step 5.2) to `experiment_configuration`, adds `label_mode` and `label_dictionary` to `Data` (Step 1.4), and runs the checks (Step 1.5). There is no data type to convert: every model is built in float32 (`MODEL_DTYPE` of `vision_training/models/model_registry.py`, Step 2.3).
 
 **Example: how the dictionaries are split**
 ```text
@@ -762,7 +767,7 @@ This function decides which class index each dataset category is trained as. For
 ```
 
 ### Step 1.5 — `check_configuration()`
-This is the safety net that runs before anything expensive, such as the data loaders, the model or GPU memory, is created. It first refuses the settings and sections removed from the configuration files (`check_removed_settings()`), alone, each with a message naming what replaced it (`'<key>' was removed: <what replaced it>. Delete it from the configuration file.`), then runs the common checks (experiment, data, backbone, optimization), then the checks of the task found in `TASK_CONFIGURATION_CHECKS` (for classification: data, sequence settings, head, decorrelation, evaluation). Each check returns a list of messages instead of raising an error, so every problem in the file is reported together. If there are any messages, `load_experiment_configuration()` prints them in red under a link to the YAML file and exits with code 1.
+This is the safety net that runs before anything expensive, such as the data loaders, the model or GPU memory, is created. Before the conversions of Step 1.2, `check_configuration_keys()` refuses the settings and sections removed from the configuration files (`check_removed_settings()`), alone, each with a message naming what replaced it (`'<key>' was removed: <what replaced it>. Delete it from the configuration file.`), then, alone too, every key the code of the task does not read (`check_unknown_keys()` against `KNOWN_KEY_PATHS` of `configuration_keys.py`: a misspelled key, a setting no code reads, a section of another task), whose value would otherwise be silently ignored (`'<key>' is not a configuration key (did you mean '<closest key>'?): no code reads it, so its value would be ignored. Correct it or delete it from the configuration file.`). `check_configuration()` then runs the common checks (experiment, data, backbone, optimization), then the checks of the task found in `TASK_CONFIGURATION_CHECKS` (for classification: data, sequence settings, head, decorrelation, evaluation). Each check returns a list of messages instead of raising an error, so every problem in the file is reported together. If there are any messages, `load_experiment_configuration()` prints them in red under a link to the YAML file and exits with code 1.
 
 **Example: output with `global_pooling: "median"` and `dropout_rate: 1.5` in the YAML** (the separators are one character longer than the visible line, the underlined file name being the link to the file)
 ```text

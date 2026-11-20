@@ -1,8 +1,9 @@
 """
 Building blocks of the configuration checks: the ConfigurationError raised on an incomplete or inconsistent file,
 the lookup of a nested value from a dotted key path, the choices shared by several sections (normalizations,
-upsamplings), and the value checks (booleans, positive integers, probabilities, IoU thresholds, batch normalization
-momentums) used by every check module of vision_training/configuration.
+upsamplings), the conversion of the counts written in scientific notation by the loader, and the value checks
+(booleans, positive integers, probabilities, IoU thresholds, batch normalization momentums) used by every check module
+of vision_training/configuration.
 """
 
 from typing import Any, Dict, List
@@ -77,6 +78,38 @@ def is_number(value: Any) -> bool:
         bool: True for an integer or a float that is not a boolean.
     """
     return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def convert_integral_count(value: Any) -> Any:
+    """
+    Turns a count of the configuration files written in scientific notation into the integer it denotes, for the
+    loader (prepare_experiment_configuration) before the checks of the counts (check_positive_integers): YAML reads
+    '1e10' as a text and '4.0e3' as a float, while the training loop needs integers. Only an integral number is
+    converted; any other value is returned unchanged (a numeric text as its float), so that the checks refuse a
+    non-integer count such as 31.7 with its key path and value instead of the loader truncating it to 31.
+
+    Args:
+        value (Any): The count read from the configuration file.
+
+    Returns:
+        Any: The integer of an integral number, int or float, or of a text holding one; otherwise the value itself,
+            the float of a numeric text, or the text, null or boolean as it was.
+    """
+    # A boolean is an integer for Python, left for the checks to refuse
+    if isinstance(value, bool):
+        return value
+
+    # A numeric text, e.g. '1e10' or '31.7', becomes its float, any other text staying a text
+    if isinstance(value, str):
+        try:
+            value = float(value)
+        except ValueError:
+            return value
+
+    # A float without fractional part, finite, becomes its integer, a non-integral one staying a float
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
 
 
 def check_boolean_flags(configuration: Dict[str, Any], key_paths: List[str]) -> List[str]:

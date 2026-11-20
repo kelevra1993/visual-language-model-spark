@@ -3,12 +3,15 @@ Tests of the configuration checks of vision_training/configuration_processing/co
 load_experiment_configuration: the configurations shipped for every task are accepted, while inconsistent settings
 (detection, classification, sequence, comparison, segmentation, self-supervised, keypoint detection, normalization,
 pretrained transfers with the initialisation of their new classes, optimization) and missing keys are rejected with
-errors naming their path, the run name suffix being accepted null or made of letters, digits, '-' and '.' only, and the
-intermediate weight saving smaller than the evaluated weight saving. The augmentation types moving the image only are
-refused for the tasks with boxes, masks or keypoints, the jigsaw refuses an image size that is not a multiple of its
-grid size, and a setting removed from the repository is refused alone, before the other checks. The keypoint
-definitions injected by the loader from the training labels are checked too, and so is the label dictionary saved with
-a run, taken by the configuration of its folder.
+errors naming their path, the run name suffix being accepted null or made of letters, digits, '-' and '.' only, the
+intermediate weight saving smaller than the evaluated weight saving, and the iteration counts converted by the loader
+taken as integers when written in an integral scientific notation but refused when not integral (instead of being
+truncated). The augmentation types moving the image only are refused for the tasks with boxes, masks or keypoints, the
+jigsaw refuses an image size that is not a multiple of its grid size, a setting removed from the repository is refused
+alone, before the other checks, and so are the keys no code of the task reads (misspelled keys, a reverted setting, the
+sections of other tasks), the sections keyed by names staying free. The keypoint definitions injected by the loader
+from the training labels are checked too, and so is the label dictionary saved with a run, taken by the configuration
+of its folder.
 """
 
 import copy
@@ -19,7 +22,11 @@ import yaml
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from vision_training.configuration_processing.common_checks import REMOVED_SETTINGS, check_removed_settings
+from vision_training.configuration_processing.common_checks import (PRETRAINED_COMPONENT_NAMES, REMOVED_SETTINGS,
+                                                                    check_removed_settings)
+from vision_training.configuration_processing.configuration_checker import TASK_CONFIGURATION_CHECKS
+from vision_training.configuration_processing.configuration_keys import (ALL_TASKS, PRETRAINED_SECTION_TASKS,
+                                                                         check_unknown_keys)
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.configuration_processing.detection_checks import check_detection_levels
 from vision_training.configuration_processing.instance_segmentation_checks import (compute_level_stride,
@@ -426,6 +433,62 @@ def test_intermediate_weight_saving_iterations_is_checked(tmp_path: Path, capsys
         assert expected_message in capsys.readouterr().out
 
 
+@pytest.mark.parametrize(argnames=("section_name", "key_name", "written_value", "expected_message"),
+                         argvalues=[("ExperimentConfiguration", "number_iterations", 1000.7,
+                                     "'ExperimentConfiguration.number_iterations' must be an integer >= 1, got "
+                                     "1000.7."),
+                                    ("Optimization", "warmup_iterations", "2.55e1",
+                                     "'Optimization.warmup_iterations' must be an integer >= 0, got 25.5."),
+                                    ("ExperimentConfiguration", "information_dump", True,
+                                     "'ExperimentConfiguration.information_dump' must be an integer >= 1, got True.")])
+def test_non_integer_count_is_refused(tmp_path: Path, capsys: pytest.CaptureFixture, section_name: str,
+                                      key_name: str, written_value: Any, expected_message: str) -> None:
+    """
+    Verifies that a count converted by the loader (the iteration counts of the experiment and of the schedule) that is
+    not an integral number is refused with its key and value, instead of being truncated (1000.7 trained 1000
+    iterations, the text 2.55e1 warmed up for 25) or turned into 1 (True).
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+        section_name (str): The section holding the count.
+        key_name (str): The key of the count in its section.
+        written_value (Any): The value written in the configuration.
+        expected_message (str): The refusal message naming the key and the value.
+    """
+    configuration = yaml.safe_load(stream=EXAMPLE_CONFIGURATION_PATH.read_text())
+    configuration[section_name][key_name] = written_value
+    configuration_path = tmp_path / "configuration.yaml"
+    configuration_path.write_text(yaml.safe_dump(configuration))
+
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+    assert expected_message in capsys.readouterr().out
+
+
+def test_integral_scientific_notation_counts_are_accepted(tmp_path: Path) -> None:
+    """
+    Verifies that the counts written in scientific notation, as the configurations write their iteration totals, are
+    loaded as the integers they denote: 1e10, which YAML reads as a text, and 4.0e3, which it reads as a float.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration = yaml.safe_load(stream=EXAMPLE_CONFIGURATION_PATH.read_text())
+    configuration["ExperimentConfiguration"]["number_iterations"] = "1e10"
+    configuration["Optimization"]["decay_iterations"] = 4.0e3
+    configuration_path = tmp_path / "configuration.yaml"
+    configuration_path.write_text(yaml.safe_dump(configuration))
+
+    # Both counts reach the trainer as integers of the same value
+    experiment_configuration, model_configuration = load_experiment_configuration(
+        configuration_path=configuration_path)
+    assert type(experiment_configuration["number_iterations"]) is int
+    assert experiment_configuration["number_iterations"] == 10 ** 10
+    assert type(model_configuration["Optimization"]["decay_iterations"]) is int
+    assert model_configuration["Optimization"]["decay_iterations"] == 4000
+
+
 @pytest.mark.parametrize(argnames=("evaluation_score_threshold", "inference_score_threshold", "expected_message"),
                          argvalues=[(0.3, 0.3, None),
                                     (0.5, 0.3, "'ExperimentConfiguration.evaluation.score_threshold' (0.5) must not "
@@ -821,6 +884,152 @@ def test_high_resolution_network_momentum_is_refused() -> None:
     replacement, _ = REMOVED_SETTINGS["HRNet.normalization.batch_normalization_momentum"]
     assert errors == [f"'HRNet.normalization.batch_normalization_momentum' was removed: {replacement}. Delete it from "
                       f"the configuration file."]
+
+
+def misspell_and_add_unknown_keys(configuration: Dict[str, Any]) -> None:
+    """
+    Misspells the batch size and the pre-NMS count of the training proposals, and keeps the share of easy negatives of
+    the region proposal network, a setting reverted from the code after stage 2b of the detection benchmark, next to
+    an unknown optimizer.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    experiment_configuration = configuration["ExperimentConfiguration"]
+    experiment_configuration["bach_size"] = experiment_configuration.pop("batch_size")
+    training_proposals = configuration["RegionProposal"]["training"]
+    training_proposals["pre_nms_proposal"] = training_proposals.pop("pre_nms_proposals")
+    configuration["RegionProposal"]["easy_negative_fraction"] = 0.25
+    configuration["Optimization"]["optimizer"] = "lion"
+
+
+def test_unknown_keys_are_refused_alone_with_their_path(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the keys no code reads, two misspelled keys and a setting reverted from the code, are all refused in
+    one error naming their paths, with the key a misspelled one was meant to be, instead of their values being silently
+    ignored, and alone: neither the keys the misspellings leave missing nor the other checks are reported.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+    """
+    configuration_path = write_modified_configuration(temporary_directory=tmp_path,
+                                                      modify_function=misspell_and_add_unknown_keys)
+
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+
+    printed_output = capsys.readouterr().out
+    for key_path, suggestion in [("ExperimentConfiguration.bach_size", " (did you mean 'batch_size'?)"),
+                                 ("RegionProposal.training.pre_nms_proposal", " (did you mean 'pre_nms_proposals'?)"),
+                                 ("RegionProposal.easy_negative_fraction", "")]:
+        assert (f"'{key_path}' is not a configuration key{suggestion}: no code reads it, so its value would be "
+                f"ignored. Correct it or delete it from the configuration file.") in printed_output
+    assert "Missing configuration key" not in printed_output
+    assert "'Optimization.optimizer' must be one of" not in printed_output and "Traceback" not in printed_output
+
+
+def add_sections_of_other_tasks(configuration: Dict[str, Any]) -> None:
+    """
+    Copies into the object detection configuration the classification head of the classifier, the tiles of the
+    semantic segmentation and the mask head of a level of the instance segmentation.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    classification_configuration = yaml.safe_load(stream=(CONFIGURATIONS_FOLDER / "classification" /
+                                                          "configuration_synthetic_shapes.yaml").read_text())
+    configuration["ClassificationHead"] = classification_configuration["ClassificationHead"]
+    configuration["Data"]["tiling"] = {"activated": False, "scale": 1.0, "overlap": 0.25}
+    configuration["DetectionLevels"]["5"]["mask_head"] = {"roi_align_pool_size": 14, "convolutions": [4, 64]}
+
+
+def test_keys_of_other_tasks_are_refused(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that sections and keys read by other tasks only, copied into an object detection configuration, are
+    refused with the tasks reading them, a whole section being named once rather than key by key.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+    """
+    configuration_path = write_modified_configuration(temporary_directory=tmp_path,
+                                                      modify_function=add_sections_of_other_tasks)
+
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+
+    printed_output = capsys.readouterr().out
+    for key_path, reading_tasks in [("ClassificationHead", ["classification", "frame_selection",
+                                                            "sequence_classification", "sequence_comparison",
+                                                            "sequence_labelling"]),
+                                    ("Data.tiling", ["semantic_segmentation"]),
+                                    ("DetectionLevels.5.mask_head", ["instance_segmentation"])]:
+        assert (f"'{key_path}' is not read by the task 'object_detection', only by {reading_tasks}: its value would "
+                f"be ignored. Delete it from the configuration file.") in printed_output
+    assert "'ClassificationHead.global_pooling'" not in printed_output and "Traceback" not in printed_output
+
+
+def name_triangle_keypoint_sigmas(configuration: Dict[str, Any]) -> None:
+    """
+    Gives the evaluation sigmas of two keypoints of the triangle, a category and keypoints named by the training labels
+    of the synthetic shapes.
+
+    Args:
+        configuration (Dict[str, Any]): The raw keypoint detection configuration, modified in place.
+    """
+    configuration["ExperimentConfiguration"]["evaluation"]["keypoint_sigmas"] = {"triangle": {"top": 0.03,
+                                                                                              "bottom_left": 0.04}}
+
+
+def test_sections_keyed_by_names_are_left_to_their_checks(tmp_path: Path) -> None:
+    """
+    Verifies that the sections whose keys are names checked by their task are not refused by the check of the unknown
+    keys: the categories and keypoints of the keypoint sigmas, loaded as written, and the blocks of the backbone, the
+    levels of the detector, the losses of the loss weights and the levels of the deep supervision of the decoder,
+    while the keys inside a detection level are still checked.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    # Keypoint sigmas named after the categories and keypoints of the training labels
+    configuration_path = write_keypoint_configuration(temporary_directory=tmp_path,
+                                                      configuration_name="configuration_synthetic_shapes.yaml",
+                                                      modify_function=name_triangle_keypoint_sigmas)
+    experiment_configuration, _ = load_experiment_configuration(configuration_path=configuration_path)
+    assert experiment_configuration["evaluation"]["keypoint_sigmas"] == {"triangle": {"top": 0.03,
+                                                                                      "bottom_left": 0.04}}
+
+    # Another block, level and loss name, the anchors of the new level misspelled
+    detection_configuration = yaml.safe_load(stream=EXAMPLE_CONFIGURATION_PATH.read_text())
+    detection_configuration["Backbone"]["convolutions"]["8"] = [2, 128]
+    detection_configuration["DetectionLevels"]["4"] = copy.deepcopy(detection_configuration["DetectionLevels"]["5"])
+    detection_configuration["DetectionLevels"]["4"]["anchor"] = detection_configuration["DetectionLevels"]["4"].pop(
+        "anchors")
+    detection_configuration["Optimization"]["loss_weights"]["any_loss_name"] = 1.0
+    detection_experiment_configuration = detection_configuration.pop("ExperimentConfiguration")
+    assert check_unknown_keys(experiment_configuration=detection_experiment_configuration,
+                              model_configuration=detection_configuration) == [
+        "'DetectionLevels.4.anchor' is not a configuration key (did you mean 'anchors'?): no code reads it, so its "
+        "value would be ignored. Correct it or delete it from the configuration file."]
+
+    # Decoder levels of the semantic segmentation keyed by their block numbers
+    segmentation_configuration = yaml.safe_load(stream=(CONFIGURATIONS_FOLDER / "semantic_segmentation" /
+                                                        "configuration_synthetic_shapes.yaml").read_text())
+    segmentation_configuration["SegmentationDecoder"]["deep_supervision_weights"] = {"2": 0.5, "3": 0.25}
+    segmentation_experiment_configuration = segmentation_configuration.pop("ExperimentConfiguration")
+    assert check_unknown_keys(experiment_configuration=segmentation_experiment_configuration,
+                              model_configuration=segmentation_configuration) == []
+
+
+def test_known_keys_cover_every_task_and_transferable_section() -> None:
+    """
+    Verifies that the known keys of configuration_keys.py name exactly the tasks that can be trained and the sections
+    whose 'pretrained' settings transfer a component, so that a task or a transferable section added to the checks is
+    added to the known keys too.
+    """
+    assert sorted(ALL_TASKS) == sorted(TASK_CONFIGURATION_CHECKS)
+    assert sorted(PRETRAINED_SECTION_TASKS) == sorted(PRETRAINED_COMPONENT_NAMES)
 
 
 @pytest.mark.parametrize(argnames=("task_folder", "configuration_name"), argvalues=[

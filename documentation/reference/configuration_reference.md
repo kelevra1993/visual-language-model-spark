@@ -13,7 +13,7 @@ Keys, values and outputs of the configurations, completing the [Configurations](
 - [MLflow Tracking](#mlflow-tracking)
 
 ## Configurations
-Every task has a `configuration_example.yaml` and a `configuration_synthetic_*.yaml` with the same keys. A configuration file holds only the keys of its task, all required: the check lists every missing key, and a section of another task is ignored. The settings fixed in the code are refused ([Fixed Settings](#fixed-settings)).
+Every task has a `configuration_example.yaml` and a `configuration_synthetic_*.yaml` with the same keys. A configuration file holds only the keys of its task, all required: the check lists every missing key. The settings fixed in the code are refused ([Fixed Settings](#fixed-settings)), then every key the code of the task does not read, whose value would otherwise be silently ignored: a misspelled key, a setting no code reads any longer, or a section or key of another task ([Keys Per Task](#keys-per-task)).
 
 The tasks are written with their codes: DET `object_detection`, INS `instance_segmentation`, CLS `classification`, M2O `sequence_classification`, M2M `sequence_labelling`, CMP `sequence_comparison`, SEG `semantic_segmentation`, SEL `frame_selection`, SSL `self_supervised`, KPT `keypoint_detection`.
 
@@ -35,10 +35,16 @@ Every task has `ExperimentConfiguration` (with `evaluation.per_class_report`, `e
 | `ProjectionHead`, `Data.grouped_batches`, `evaluation.number_neighbours`, `evaluation.number_reference_images_per_class` | SSL |
 | `HRNet`, `KeypointHead`, `evaluation.default_keypoint_sigma`, `evaluation.keypoint_sigmas` | KPT |
 
+In case a file holds a key the code of its task does not read, a misspelled key or a section copied from another task, the loading refuses it after the fixed settings and before the other checks, every such key listed by its path in one error. The keys of every task, the common sections and those of this table, are listed one by one in `KNOWN_KEY_PATHS` of `vision_training/configuration_processing/configuration_keys.py` (the keys read by the loader and by the checks of every task). A misspelled key also leaves its correct key missing, which the next launch then reports.
+- A key no code reads: `'ExperimentConfiguration.bach_size' is not a configuration key (did you mean 'batch_size'?): no code reads it, so its value would be ignored. Correct it or delete it from the configuration file.`, the closest key read at the same place being named when one is close.
+- A key of another task: `'RegionProposal' is not read by the task 'classification', only by ['instance_segmentation', 'object_detection']: its value would be ignored. Delete it from the configuration file.`, a whole section being named once.
+- The keys of the sections keyed by names are left to the checks of their task: the blocks of `Backbone.convolutions` and `SegmentationDecoder.convolutions`, the levels of `DetectionLevels` (whose own keys are checked), the losses of `Optimization.loss_weights`, the levels of `SegmentationDecoder.deep_supervision_weights`, and the categories and keypoints of `evaluation.keypoint_sigmas`.
+
 ### Values Per Task
 The check of a task refuses a value it cannot use. Every key not listed accepts the same values in every task.
 
 **All tasks**
+- `ExperimentConfiguration.information_dump`, `weight_saving_iterations`, `intermediate_weight_saving_iterations`, `number_iterations`, `Optimization.warmup_iterations` and `decay_iterations`: integers, also written in scientific notation when the value is integral (`1e10`, which YAML reads as a text, or `4.0e3`); a non-integer value such as `31.7` is refused with its key, not truncated.
 - `Data.image_settings.size`: a positive even integer, multiple of 2 to the power of the number of max poolings of `Backbone` (every block but the last, and the last with `last_max_pooling: True`), so that no pooling drops a row or a column. With 5 poolings, 96, 224, 384 and 512 are accepted and 100 is refused. The output of the last pooling may be odd (7x7 for 224).
 - `Data.label_mapping.mode`: `binary` or `multi_class` for DET, INS and SEG, `multi_class` for the others.
 - `Data.data_augmentation.activated`: `True` for SSL, whose views need it.
@@ -95,7 +101,7 @@ uv run python -m vision_training.check_configuration --configuration_path=<file>
 
 - Every file is checked, the next ones too after an invalid one. An invalid file prints the red block of the trainings, `Invalid Configuration File : <file>` and one line per problem; a valid one prints `Valid Configuration File : <file> | Run Name : <run name>`, the folder it would train in inside `experiment_folder` ([Run Names](#run-names)).
 - The exit code is 0 when every file is valid, 1 otherwise, and 2 for a malformed command line (no `--configuration_path`, an unknown option).
-- Without `--check_paths`, the check reads what the loading reads: the label mapping file of the `multi_class` mode (or the `label_dictionary.json` next to the configuration of a run folder) and, for KPT, the `labels.json` of the training split. A file the loading cannot read is reported with the name of its error, e.g. `FileNotFoundError: Label mapping file not found at: <path>` (also a missing or unparsable file, no `ExperimentConfiguration`, a null folder or count).
+- Without `--check_paths`, the check reads what the loading reads: the label mapping file of the `multi_class` mode (or the `label_dictionary.json` next to the configuration of a run folder) and, for KPT, the `labels.json` of the training split. A file the loading cannot read is reported with the name of its error, e.g. `FileNotFoundError: Label mapping file not found at: <path>` (also a missing or unparsable file, no `ExperimentConfiguration`, a null folder or learning rate); a null count is refused by the checks with its key.
 - `--check_paths` then requires, once the settings pass the checks, the paths a new training reads: the three split folders with their `labels.json` and `data/` folder (and `masks/` for SEG), the mapping file of the `multi_class` mode, and for every section whose `pretrained.experiment_folder` is set, that run folder, its `training_configuration.yaml` and the checkpoint of `pretrained.iteration` (null: its last checkpoint, found as the transfer finds it). `experiment_folder` may not exist yet, the training creating it. A run resuming from its own checkpoints does not load its pretrained runs again, but the check requires them all.
 
 ### Evaluation Outputs

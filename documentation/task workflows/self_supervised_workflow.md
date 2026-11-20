@@ -158,14 +158,16 @@ main()
 │   │
 │   ├── load_configuration(configuration_path)
 │   │       Plain YAML reader, no conversion.
+│   ├── check_configuration_keys()                on the file as written: the removed settings and sections
+│   │                                             first (resume_training, Data.loading, Data.view_augmentation...),
+│   │                                             then the keys the self-supervised code does not read (see
+│   │                                             classification)
 │   ├── build_label_dictionary(label_mapping_configuration, task)
 │   │       Reads the mapping file {category identifier: class index}, without background. The classes only serve
 │   │       the k-nearest neighbour evaluation: the training never reads a label.
 │   └── check_configuration()
-│       ├── common checks                         the removed settings and sections first (resume_training,
-│       │                                         Data.loading, Data.view_augmentation...), then experiment, data
-│       │                                         (with the flag and probability of every augmentation type),
-│       │                                         backbone, optimization (see classification)
+│       ├── common checks                         experiment, data (with the flag and probability of every
+│       │                                         augmentation type), backbone, optimization (see classification)
 │       └── check_self_supervised_configuration()
 │               ├── data:       multi_class label mode, classes 0..K-1, Data.data_augmentation on (its types draw the
 │               │               views) and random_crop at probability 1.0 when it is activated
@@ -378,7 +380,7 @@ Invalid Configuration File : configuration_wrong.yaml
 SystemExit code 1
 ```
 
-A configuration still holding `Data.view_augmentation`, the section of the views before they were drawn by the data augmentation, is refused alone, before any other check, by `check_removed_settings()`, as are the settings fixed in the code since (`resume_training`, `mixed_precision`, `Data.loading`...).
+A configuration still holding `Data.view_augmentation`, the section of the views before they were drawn by the data augmentation, is refused alone, before any other check, by `check_removed_settings()` (run by `check_configuration_keys()`), as are the settings fixed in the code since (`resume_training`, `mixed_precision`, `Data.loading`...). A key the self-supervised code does not read, such as a `ClassificationHead` section left from a classification configuration, is refused next, alone too (`check_unknown_keys()`).
 
 **Example output: the configuration of the synthetic shapes before the merge of the two augmentations** (recorded before the fixed settings were removed: the same file now also gets a line for every fixed setting it holds)
 ```text

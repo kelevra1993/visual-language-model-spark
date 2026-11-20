@@ -188,7 +188,7 @@ class RegionProposal(nn.Module):
             convolutions (List[int]): The [number_layers, output_channels] of the convolution block of this level.
             input_channels (int): The number of channels output by the corresponding backbone layer.
             scales (List[float]): A list of scaling factors for the anchor boxes at this specific feature map scale.
-            aspect_ratios (List[float]): A list of aspect ratios (width/height) for the anchor boxes.
+            aspect_ratios (List[float]): A list of aspect ratios (height/width, as in anchors.py) for the anchor boxes.
             input_image_size (int): The absolute size (height and width) of the original input image.
             feature_map_size (int): The spatial resolution (height and width) of the input feature map.
             feature_map_normalization (str): The normalization strategy to use in the convolution block (e.g. 'batch',
