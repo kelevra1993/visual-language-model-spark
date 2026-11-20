@@ -1349,9 +1349,10 @@ optimization { execution_accelerators { gpu_execution_accelerator: [ {
   parameters { key: "max_workspace_size_bytes" value: "4294967296" }
   parameters { key: "trt_engine_cache_enable" value: "1" }
   parameters { key: "trt_engine_cache_path" value: "/tmp/tensorrt_engine_cache" }
+  parameters { key: "trt_engine_cache_prefix" value: "keypoint_detector_onnx_1_fp32_<hash>" }
 } ] } }
 ```
-The TorchScript configuration is the same with `platform: "pytorch_libtorch"`, the outputs named `candidate_positions__0`, `candidate_scores__1` and `candidate_tags__2`, and no optimization block.
+The TorchScript configuration is the same with `platform: "pytorch_libtorch"`, the outputs named `candidate_positions__0`, `candidate_scores__1` and `candidate_tags__2`, and no optimization block. The engine cache prefix, added on 2026-11-20 after this run, names the TensorRT engines of the export after the first 16 hexadecimal characters of the SHA-256 of `model.onnx` and `model.onnx.data` (`<hash>`), so that an export of other weights never loads the engines of an earlier one.
 
 ### Step 6.6 — the client: `load_inference_inputs()` → the exported model → `group_keypoint_candidates()`
 A client preprocesses every image like the data loaders, as the input contract of Step 6.5 describes (`load_inference_inputs()`, the resize and centred padding of `preprocess_image()`), sends it, and groups the returned candidates into objects with `group_keypoint_candidates()` (Step 3.10), using the channel table of the run (`build_keypoint_channel_table()` on the `Data.keypoint_categories` that `load_experiment_configuration()` reads from the dataset, Step 1.5) and the `KeypointHead.inference` thresholds. The positions are in network input pixels; for an image of another size the client undoes the resize and padding, for example with `restore_boxes_to_original_image()` on every point given as the box [x, y, x, y]. `vision_training/deployment/run_inference.py` only measures the throughput of the exported models on these requests, without the grouping. The example below was run on the first test image (512x512, so the network input pixels are the image pixels) with the ONNX export of the trained weights of the iteration 6000 checkpoint (the settings of `export_model.py`) in ONNX Runtime.

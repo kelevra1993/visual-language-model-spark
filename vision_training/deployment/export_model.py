@@ -360,6 +360,8 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
                     exported_outputs = session.run(None, {input_name: input_batch.cpu().numpy()
                                                           for input_name, input_batch in check_inputs.items()})
 
+                # Configuration written once the model files are final, the TensorRT engines of an ONNX model being
+                # cached under a prefix hashing them, so that an export of other weights never loads older engines
                 write_triton_configuration(model_directory=model_directory, model_name=model_name,
                                            model_version=model_version, export_format=export_format,
                                            specification=specification, maximum_batch_size=maximum_batch_size,

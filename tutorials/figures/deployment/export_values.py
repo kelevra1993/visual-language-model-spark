@@ -57,6 +57,9 @@ STAND_IN_ATTRIBUTES = {"input_image_size": 64, "number_classes": 2, "maximum_det
                        "maximum_sequence_length": 8, "number_channels": 3, "number_candidates": 5,
                        "representation_size": 16}
 
+# Content of the stand-in model file of the config.pbtxt listings, no checkpoint being exported
+STAND_IN_MODEL_BYTES = b"stand-in for the exported model file"
+
 # Tasks whose comparison tolerances the export chapter quotes
 TOLERANCE_TASKS = ["classification", "object_detection", "instance_segmentation", "semantic_segmentation",
                    "keypoint_detection", "self_supervised", "sequence_labelling"]
@@ -180,8 +183,9 @@ def write_configuration_listing(model_name: str, export_format: str, specificati
                                 maximum_batch_size: int, model_version: int, tensorrt_precision: Any,
                                 output_path: Path) -> str:
     """
-    Writes the config.pbtxt the export writes for a model with write_triton_configuration, in a temporary model folder,
-    then copies its text as a listing.
+    Writes the config.pbtxt the export writes for a model with write_triton_configuration, in a temporary model folder
+    holding a stand-in model file, whose hash gives the TensorRT engine cache prefix of an ONNX model, then copies its
+    text as a listing.
 
     Args:
         model_name (str): The Triton model name, '<task model name>_<format>'.
@@ -196,6 +200,11 @@ def write_configuration_listing(model_name: str, export_format: str, specificati
         str: The text of the configuration.
     """
     with tempfile.TemporaryDirectory() as model_folder:
+        # Stand-in for the exported model file, written before the configuration as the export does, so that the
+        # listing holds a fixed engine cache prefix from one build to the next
+        version_folder = Path(model_folder) / str(model_version)
+        version_folder.mkdir()
+        (version_folder / ("model.onnx" if export_format == "onnx" else "model.pt")).write_bytes(STAND_IN_MODEL_BYTES)
         write_triton_configuration(model_directory=Path(model_folder), model_name=model_name,
                                    model_version=model_version, export_format=export_format,
                                    specification=specification, maximum_batch_size=maximum_batch_size,
