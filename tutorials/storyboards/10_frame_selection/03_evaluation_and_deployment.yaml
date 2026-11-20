@@ -146,7 +146,7 @@ scenes:
     source:
       file: vision_training/deployment/frame_selection_deployment.py
       function: build_decoding_settings
-      start: "# Thresholds of the evaluation"
+      start: "thresholds_path = find_class_thresholds_path"
       end: "class_thresholds = .*wanted_class_indices"
     highlights:
       - {match: "find_class_thresholds_path\\(", sentences: [0, 1, 3]}
