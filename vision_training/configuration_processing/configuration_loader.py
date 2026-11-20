@@ -30,7 +30,7 @@ def load_configuration(configuration_path: str | Path) -> Dict[str, Any]:
 
     Raises:
         FileNotFoundError: If the specified configuration file does not exist.
-        yaml.YAMLError: If there is an error parsing the YAML file.
+        ValueError: If the YAML file cannot be parsed, chained to the yaml.YAMLError that gives the position.
     """
     path = Path(configuration_path)
 
@@ -42,7 +42,7 @@ def load_configuration(configuration_path: str | Path) -> Dict[str, Any]:
             configuration = yaml.safe_load(file)
             return configuration if configuration is not None else {}
         except yaml.YAMLError as error:
-            raise ValueError(f"Error parsing YAML file at {path}:\n{error}")
+            raise ValueError(f"Error parsing YAML file at {path}:\n{error}") from error
 
 
 def inject_keypoint_categories(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:

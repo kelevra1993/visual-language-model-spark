@@ -411,9 +411,7 @@ committed): every image can be taken again from them without training, except wh
     about 26.7 million weights in its two bidirectional GRU layers of 256, and was not trained: to try on a real
     dataset, with a smaller input or `average` when the class does not depend on where the objects are in the frames.
 33. **Example outputs recorded before the changes**: Stage 3 of `sequence_classification_workflow.md` was recorded with
-    the former `average` pooling (a note says so) and could be recorded again with `flatten` at 128 pixels; the run
-    name examples of the README (Run Names) have rows that no configuration gives any more (`CLS_..._HAVG.128_MC4`,
-    the 512 pixels and `T8` of M2O).
+    the former `average` pooling (a note says so) and could be recorded again with `flatten` at 128 pixels.
 34. **A frame selection sample with a wrong choice** (`README/frame_selection_sample.png`): its description asks for
     one wrong choice if possible, but the eight fixed test sequences of the evaluation samples are all chosen right at
     2000 iterations, the run's 11 wrong picks out of 600 (Hungarian selection accuracy 98.17 %, 191 of the 200 test
@@ -723,13 +721,11 @@ committed): every image can be taken again from them without training, except wh
 
 | Where | Statement | Reality |
 |---|---|---|
-| README "Stopping And Resuming", `build_run_name` docstring | Any change other than the listed settings gives another run name | The IoU and NMS thresholds, the score thresholds and the sample counts give no token either |
 | Every YAML with `residual_nets` | "Residual shortcuts every two convolutions from block 2" | No shortcut in the 2-layer channel-changing blocks (projection shortcuts of H4 dropped on 2026-11-05) |
 | `RegionProposal.foreground_iou_threshold.max` (YAML) | "Maximum matching IoU (capped at 1.0)" | Never read by the model, only by the checker |
 | `mean_average_precision.py`, `average_precision_report.py` | "COCO" mAP@[0.5:0.95] and 101-point values | VOC matching, kept on purpose (L6 dropped) |
 | `region_proposer.py` | aspect ratio = width / height | `anchors.py` and the YAMLs use height / width |
 | `preprocessing.py`, `deployment_utilities.py` | restore functions "used by the inference clients" | No inference client of the repository calls them; the evaluations do |
-| README CLS run name | `..._HAVG.128_MC4` | No shipped configuration gives it (item 33) |
 | `sequence_classification_trainer.py:66-72` | Frame shuffle warning for every transformer | A non-causal transformer without positional embedding (the README's recommendation for frame sets) cannot see the order |
 | `base_trainer.py` | MLflow opened after the loader workers are forked | True of the training and validation workers, not of the test workers (L15) |
 

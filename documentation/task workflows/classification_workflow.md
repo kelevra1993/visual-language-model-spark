@@ -1242,7 +1242,7 @@ iteration = 12    format_version = 2    task = 'classification'    mlflow_run_id
 pretrained_backbone = None    pretrained_classification_head = None
 ```
 
-The checkpoints written since main 4a76053 (a deeper backbone started from a shorter one, Step 2.19) also hold `pretrained_backbone_blocks`, which would be `None` for this run.
+The checkpoints written since a deeper backbone can start from a shorter one (Step 2.19) also hold `pretrained_backbone_blocks`, which would be `None` for this run.
 
 
 ---

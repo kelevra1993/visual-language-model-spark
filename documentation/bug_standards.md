@@ -37,18 +37,18 @@
 
 ## Summary
 
-To find an open bug by area, the table links each one: 3 medium and 14 low bugs are open.
+To find an open bug by area, the table links each one: 3 medium and 13 low bugs are open.
 
 | Area | Medium | Low |
 |---|---|---|
-| Configuration |  | [B22](#b22-read_json-swallows-json-parse-errors-and-returns-none), [B24](#b24-stale-run-name-and-checker-documentation) |
+| Configuration |  | [B22](#b22-read_json-swallows-json-parse-errors-and-returns-none) |
 | Data generation |  | [B28](#b28-comments-left-from-the-top-down-keypoint-detector-contradict-the-code) |
 | Core models | [B8](#b8-a-causal-sequence-labeller-or-frame-selector-with-sequence-normalization-uses-the-future-frames) | [B32](#b32-backbonecompute_detection_input_information-dry-runs-in-training-mode-with-gradients), [B33](#b33-model-builders-silently-fall-back-on-misspelled-option-strings) |
 | Detection and keypoint models | [B10](#b10-a-keypoint-head-transfer-compares-only-the-class-names-so-keypoints-in-another-order-land-on-the-wrong-channels) | [B35](#b35-the-eager-evaluation-ignores-the-valid-proposal-mask-so-padding-copies-can-become-duplicate-detections), [B37](#b37-get_box_dimensions_and_centers-ends-the-process-with-exit-and-status-0-on-a-wrong-box-shape), [B39](#b39-hrnet-with-feature_map_normalization-none-builds-every-convolution-without-bias), [B42](#b42-training-and-validation-forwards-of-the-detector-do-inference-only-work-with-one-host-synchronisation-per-image) |
 | Task trainers and losses |  | [B49](#b49-an-evaluation-score-threshold-above-the-deployment-threshold-silently-removes-detections-from-the-confusion-matrix-and-the-images) |
 | Evaluation and tracking |  | [B54](#b54-a-standalone-evaluation-is-tracked-in-another-mlflow-database-than-the-one-the-launch-panel-prints) |
 | Deployment and scripts | [B19](#b19-standalone-evaluations-of-another-split-overwrite-and-mix-with-the-earlier-ones-in-the-same-output-folder) | [B57](#b57-a-run-without-checkpoint-registry-is-evaluated-on-nothing-and-the-script-ends-normally), [B58](#b58-a-misspelled-export-format-is-silently-exported-as-onnx-and-its-tensorrt-setting-dropped), [B59](#b59-load_inference_inputs-claims-the-preprocessing-of-the-loaders-but-a-tiled-segmentation-run-gets-a-whole-image-squeezed-into-one-tile) |
-| **Total** | **3** | **14** |
+| **Total** | **3** | **13** |
 
 ## Bugs
 
@@ -113,26 +113,6 @@ To find an open bug by area, the table links each one: 3 medium and 14 low bugs 
 - **Failure scenario:** a truncated data.json makes the resume fail with `TypeError: 'NoneType' object is not
   subscriptable`.
 - **Fix:** let the error propagate, or raise it again with the path.
-
-#### B24. Stale run name and checker documentation
-- **Area:** configuration · **Severity:** low · **Status:** confirmed (the reviewer built every run name) ·
-  **Category:** documentation
-- **Where:** README lines 1293-1306 and 1175; the header comments of
-  `classification/configuration_synthetic_shapes.yaml:15` and `classification/configuration_example.yaml:11`;
-  `configuration_loader.py:31-44`.
-- **Problem:** the README run name examples "built from the configurations of the repository" are stale (CLS shows
-  `HAVG.128_MC4`, the file gives `HFLAT.128-HLN-CWB` with the class count of the mapping on disk; M2O and CMP show `T8`,
-  the files give `T50`), and so are the examples in the header comments of the two classification files (the example
-  file shows `B1x16...HAVG.256-CWB_MC12` for a `B1x64.2x64.2x64.4x64.5x64.5x64` backbone, an `HFLAT.512.256-HLN` head
-  and ImageNet-1k); line 1175 names `Evaluation.keypoint_sigmas` instead of
-  `ExperimentConfiguration.evaluation.keypoint_sigmas`; the `load_configuration` docstring promises `yaml.YAMLError` but
-  an unchained ValueError is raised.
-- **Fix:** regenerate the examples, fix the key path and the docstring.
-- **Still open on 2026-11-20:** the header comments of the two classification files give no run name since `main`
-  20a0217 (2026-11-02), and no document names `Evaluation.keypoint_sigmas` since the README was shortened (`main`
-  9e13863); the Run Names table of the README still shows `HAVG.128_MC4` for CLS and `T8` for M2O (the synthetic files
-  give `HFLAT.128-HLN-CWB_MC35` and a 128 pixel input with `T50`), and `load_configuration` still promises
-  `yaml.YAMLError` (`configuration_loader.py:33`) while raising a ValueError (45).
 
 #### B28. Comments left from the top-down keypoint detector contradict the code
 - **Area:** data generation · **Severity:** low · **Status:** confirmed (history traced by the reviewer) · **Category:**
@@ -300,13 +280,11 @@ file; the fixed and dropped ones were removed from both files.
 
 | Statement contradicting the code | Status | Note |
 |---|---|---|
-| README "Stopping And Resuming", `build_run_name` docstring: "Changing any other setting gives another run name" | **open** | README line 249, `run_name.py:641-646` (see C4) |
 | Every YAML with `residual_nets`: "Residual shortcuts every two convolutions from block 2" | **open** | H4 dropped on 2026-11-05: the comment should say that the channel-changing blocks get no shortcut |
 | `RegionProposal.foreground_iou_threshold.max` (YAML) | **open** | still read only by the checker |
 | `mean_average_precision.py:16` "COCO" | **partly fixed** | still "COCO-style mAP@[0.5:0.95]" at line 22 and "(COCO)" in `average_precision_report.py:53` |
 | `region_proposer.py:34` aspect ratio = width / height | **open** | now line 126; `anchors.py` uses height / width |
 | `preprocessing.py:124`, `deployment_utilities.py:3-4` "used by the inference clients" | **partly fixed** | the restore functions now serve the evaluations, but no inference client of the repository calls them |
-| README CLS run name `..._HAVG.128_MC4` | **open** | see [B24](#b24-stale-run-name-and-checker-documentation) |
 | `sequence_classification_trainer.py:66-72` frame shuffle warning | **open** | still warns for every transformer, whatever `positional_embedding` and `causal` |
 | Loader: `int(float(...))` truncation | **open** | `configuration_loader.py:126, 150` |
 | Loader: unknown or misspelled keys ignored | **open** | only the augmentation types are checked for unknown names (`common_checks.py:189-195`) |
@@ -335,8 +313,6 @@ file; the fixed and dropped ones were removed from both files.
   - `sequence_metrics.py:28-40` counts a sequence whose frames are all unmapped as an exact match. One sequence with
     every frame wrong plus two unlabelled ones give a Sequence Exact Match of 0.667 with a frame accuracy of 0.0, and
     the "N Test Sequences" header counts them.
-- **Statements contradicting the code:** the README CLS run name is still `..._HAVG.128_MC4`. [B24](#b24-stale-run-name-and-checker-documentation) adds the
-  stale M2O and CMP examples.
 - **Robustness gaps of the configuration loader:** the `int(float(...))` truncation remains
   (`configuration_loader.py:126, 150`).
 

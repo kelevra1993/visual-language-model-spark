@@ -55,7 +55,7 @@ If you are new to the repository, start from its tasks: it trains, evaluates and
 | SEG | `semantic_segmentation` | one image | one class per pixel | backbone as the encoder of a U-Net decoder |
 | M2O | `sequence_classification` | a sequence of frames | one class per sequence | backbone on every frame, temporal module, fully connected head |
 | M2M | `sequence_labelling` | a sequence of frames | one class per frame | backbone on every frame, temporal module, head on every frame |
-| CMP | `sequence_comparison` | a before and an after sequence | one class per pair | backbone on every frame, fusion of both members, temporal module, fully connected head |
+| CMP | `sequence_comparison` | a before and an after sequence | one class per pair | backbone on every frame, temporal module on each member, fusion of both members (cross attention also before the temporal module), fully connected head |
 | SEL | `frame_selection` | a sequence of frames | the frames of every wanted class | the model of M2M, Hungarian or greedy decoding |
 | SSL | `self_supervised` | one unlabelled image (two random views of it) | a representation whose backbone initialises the other tasks | backbone, global pooling, projection head, SimCLR or Barlow Twins loss |
 
@@ -188,7 +188,7 @@ In case a training has to stop, Ctrl+C saves a checkpoint of the last step, and 
 </p>
 
 - `number_iterations` is the total of the run, not the iterations left.
-- The settings without a run name token (left box above) may change between resumptions: the changes are printed and the previous configuration is kept as `training_configuration_until_iteration_<n>.yaml`. Any other change gives another run name, so a new run folder.
+- The settings without a run name token (left box above) may change between resumptions: the changes are printed and the previous configuration is kept as `training_configuration_until_iteration_<n>.yaml`. A change of a setting with a run name token (right box) gives another run name, so a new run folder.
 - Changed labels (another SHA-256 of a `labels.json`) stop the resume, unless `ExperimentConfiguration.allow_data_change_on_resume` is true.
 - To train the same settings from scratch, give the run another `run_name_suffix` or `experiment_folder`, or move its run folder away.
 - A failing iteration is reported in yellow, with the traceback of its error the first time that error occurs in the run, and skipped, as is an unreadable batch; more than 5 failing iterations in a row stop the training, saving a checkpoint.
@@ -843,9 +843,9 @@ To keep runs of different settings apart, `vision_training/configuration_process
 
 | Task | Run name |
 |---|---|
-| CLS | `CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128_MC4` |
+| CLS | `CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC35` |
 | DET | `DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567-NFPN64BN_A9.32-512.598295_RBN-R2x64-RPL_DSE-DRES-DBN-D7.2x64.256.128_BIN` |
-| M2O | `M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_GRU1x128-BI_HFLAT.64_MC4` |
+| M2O | `M2O_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4` |
 
 Every token and an example of every task are in the [configuration reference](documentation/reference/configuration_reference.md#run-names).
 
