@@ -45,6 +45,12 @@ DESIGNS = [{"title": "Reference: the mask heads of stages 0 to 2, convolutions [
            {"title": "Stage 3b, control: one fusion convolution at the mask resolution, without finer inputs",
             "convolutions": [4, 64], "fine_inputs": {"fusion_convolutions": [1, 64]}}]
 
+# Finer inputs of the 'MaskHead' section turned off, given to every design before its own settings, so that a design
+# leaving a setting out draws it off whatever the configuration file holds (the launch file of a later stage keeping
+# the image branch of design A, for instance)
+FINE_INPUTS_OFF = {"skip_blocks_at_pool_size": [], "image_branch_convolutions": [0, 0],
+                   "skip_blocks_at_mask_resolution": [], "fusion_convolutions": [0, 0]}
+
 # Colours of the paths: the level map, the image branch, the backbone skips, the fusion and the output
 COLOURS = {"feature": "#2a6fdb", "image": "#e8590c", "skip": "#2f9e44", "fusion": "#7048e8", "output": "#495057"}
 
@@ -69,11 +75,12 @@ def build_design_model(model_configuration: Dict[str, Any], design: Dict[str, An
     Returns:
         nn.Module: The instance segmenter of the design, in evaluation mode.
     """
-    # The mask head of every level gets the convolutions of the design, the 'MaskHead' section its finer inputs
+    # The mask head of every level gets the convolutions of the design, the 'MaskHead' section its finer inputs, those
+    # the design leaves out being off
     configuration = copy.deepcopy(model_configuration)
     for level_configuration in configuration["DetectionLevels"].values():
         level_configuration["mask_head"]["convolutions"] = list(design["convolutions"])
-    configuration["MaskHead"].update(copy.deepcopy(design["fine_inputs"]))
+    configuration["MaskHead"].update(copy.deepcopy({**FINE_INPUTS_OFF, **design["fine_inputs"]}))
     torch.manual_seed(seed=0)
     model = TASK_MODEL_CLASSES["instance_segmentation"](configuration=configuration, device=torch.device("cpu"),
                                                         dtype=torch.float32)
