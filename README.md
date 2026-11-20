@@ -74,7 +74,7 @@ This README gives the commands and the settings that matter most. The details ar
 - [Tasks reference](documentation/reference/tasks_reference.md): synthetic datasets, data format, converters, losses and metrics of every task.
 - [Configuration reference](documentation/reference/configuration_reference.md): keys and values of every task, evaluation outputs, run name tokens, MLflow metrics.
 - [Tools reference](documentation/reference/tools_reference.md): checkpoint evaluation, launch comparison, embedding clustering, export, input contract and Triton.
-- [Pretraining reference](documentation/reference/pretraining_reference.md): download of ImageNet-22k, on which the classification configurations pre-train the backbones, and its validation and test splits.
+- [Pretraining reference](documentation/reference/pretraining_reference.md): download of ImageNet-22k, on which the classification configurations pre-train the backbones, its validation and test splits, and the order in which the T to XL backbone sizes are pre-trained then fine-tuned for detection and instance segmentation.
 - Task workflows: one run of every task followed function by function, such as the [classification](documentation/task%20workflows/classification_workflow.md) and [object detection](documentation/task%20workflows/object_detection_workflow.md) workflows; the Details column of the [Tasks](#tasks) table links the workflow of every task.
 
 ## Prerequisites
@@ -1477,8 +1477,7 @@ To find your way in the code, the diagram follows the packages along the path of
 ├── documentation/
 │   ├── architecture_benchmarking/     # Experiment plans, copies of their results, stage figures, experiment_comparisons.yaml
 │   ├── presentation/                  # Slide deck of the repository: deck.json, deck.css, one HTML file per slide and the figures made for it
-│   ├── pretraining_strategy.md        # Order of the classification, detection and instance segmentation pretraining of the T to XL sizes
-│   ├── reference/                     # Training, tasks, configurations, tools and pretraining (ImageNet-22k) in detail
+│   ├── reference/                     # Training, tasks, configurations, tools and pretraining (ImageNet-22k, order of the T to XL sizes) in detail
 │   ├── task workflows/                # One run of every task followed function by function
 │   ├── suggestions.md                 # Proposed improvements and repository audit
 │   └── tutorial_backlog.md            # Implemented features the tutorials do not show yet (not exhaustive)
