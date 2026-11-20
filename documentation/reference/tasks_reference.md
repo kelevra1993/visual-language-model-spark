@@ -233,7 +233,7 @@ A bottom-up keypoint detector, as in HigherHRNet ([Cheng et al., 2020](https://a
 }
 ```
 
-- The objects without any labelled keypoint are left out of the labels. With `ignore_unlabelled_objects`, each of them needs its `segmentation`, as in INS.
+- The objects without any labelled keypoint are left out of the labels. With `ignore_unlabelled_objects`, each of them needs its `segmentation`, as in INS. Those of the test split, whose category has keypoints, are kept apart with their box, class and `iscrowd` flag, so that the evaluation ignores the objects found on them.
 - The categories merged into one class must have the same keypoint names.
 - COCO 2017 person keypoints (`annotations_trainval2017.zip`): every split folder links the COCO images as `data/` and `person_keypoints_<split>2017.json` as `labels.json`. The test keypoints being withheld, the example configuration evaluates on the validation split.
 
@@ -266,7 +266,7 @@ KeypointHead:
 OKS = Σ exp(-d² / (2 s² k²)) δ(v > 0) / Σ δ(v > 0)
 
 d is the distance to the ground truth keypoint, s² the ground truth box area, k = 2 x sigma, over the labelled keypoints. The sigma of a keypoint is `evaluation.keypoint_sigmas.<category>.<keypoint>`, or `default_keypoint_sigma` (0.05); a loosely placed keypoint (a hip) deserves a larger one than a sharp corner.
-- **OKS mAP**, by size and per class, the OKS mean average recall, and the OKS recall of every class with its confidence interval (`oks_recall_50` to `oks_recall_75_upper`, `OKS Per Class Recall` table), as the box metrics of DET. `OKS mAP@0.5/area` compares the checkpoints.
+- **OKS mAP**, by size and per class, the OKS mean average recall, and the OKS recall of every class with its confidence interval (`oks_recall_50` to `oks_recall_75_upper`, `OKS Per Class Recall` table), as the box metrics of DET. `OKS mAP@0.5/area` compares the checkpoints. As in pycocotools, an object found on a test object without labelled keypoint (OKS against its box extended by its width and height on every side, over the keypoints found) is neither a true nor a false positive, a crowd taking any number of them and any other object one.
 - **Matched Objects**: the share of the ground truth objects matched to an object found.
 - **PCK@0.05**: the share of the labelled keypoints within 0.05 of the longest box side of their object.
 - **Mean OKS** of the ground truth objects, and **mean keypoint error** in network input pixels.

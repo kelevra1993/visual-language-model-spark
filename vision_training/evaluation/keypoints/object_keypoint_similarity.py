@@ -4,9 +4,12 @@ keypoint trainer has grouped the keypoint candidates of every image into objects
 (models/keypoints/keypoint_grouping.py): the per-keypoint standard deviations of the similarity (COCO sigmas, from the
 evaluation section of the configuration), the object keypoint similarity (OKS) of every predicted object with every
 ground truth object of the same class and image, which replaces the intersection over union of the average precision of
-mean_average_precision.py, the matching of every ground truth object to one predicted object reaching an OKS of 0.5,
-and, on the matched keypoints, the percentage of correct keypoints (PCK, a keypoint within a fraction of the longest box
-side) and the pixel errors of every class and keypoint, with their tables for the report and rows for the metrics files.
+mean_average_precision.py, the similarity of every predicted object with the objects without labelled keypoint (the
+COCO crowds and persons without keypoints, against their box extended by its size on every side as pycocotools), which
+the average precision ignores, the matching of every ground truth object to one predicted object reaching an OKS of
+0.5, and, on the matched keypoints, the percentage of correct keypoints (PCK, a keypoint within a fraction of the
+longest box side) and the pixel errors of every class and keypoint, with their tables for the report and rows for the
+metrics files.
 The objects are measured by their box areas in network input pixels. The report writes the matched share, the PCK and
 the mean OKS as percentages ("94.03 %"), the counts and pixel errors keeping their values, and the metrics files and
 scalars keep them between 0 and 1.
@@ -93,7 +96,8 @@ def compute_object_keypoint_similarity(squared_distances: torch.Tensor, visibili
         squared_distances (torch.Tensor): The [..., K] squared distances of the predicted keypoints to the ground truth
             keypoints, in squared pixels.
         visibilities (torch.Tensor): The [..., K] COCO visibilities of the ground truth keypoints, 0 for the unlabelled
-            ones and the padding positions.
+            ones and the padding positions; for an object without labelled keypoint, 1 on the keypoints found by the
+            predicted object, the keypoints averaged by evaluate_image_keypoints.
         areas (torch.Tensor): The [...] areas of the ground truth objects, in squared pixels.
         sigmas (torch.Tensor): The [..., K] sigmas of the ground truth keypoints.
 
@@ -124,6 +128,34 @@ def compute_squared_distances(predicted_keypoints: torch.Tensor, ground_truth_ke
     differences = predicted_keypoints.to(dtype=torch.float64) - ground_truth_keypoints.to(dtype=torch.float64)
     squared_distances = (differences ** 2).sum(dim=-1)
     return torch.nan_to_num(input=squared_distances, nan=float("inf"))
+
+
+def compute_squared_extended_box_distances(predicted_keypoints: torch.Tensor, boxes: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the squared pixel distances of predicted keypoints to the objects without labelled keypoint (the COCO
+    crowds and persons without keypoints) for their object keypoint similarity, the rule of pycocotools for such an
+    object: the distance to its box extended by its width on the left and on the right and by its height above and
+    below, 0 for a keypoint inside, so that an object found on it reaches a similarity of 1 and is ignored by the
+    average precision instead of being a false positive. A keypoint not found (NaN) is infinitely far. The inputs
+    broadcast together.
+
+    Args:
+        predicted_keypoints (torch.Tensor): The [..., K, 2] (x, y) predicted keypoints, NaN for the keypoints not found.
+        boxes (torch.Tensor): The [..., 4] (x1, y1, x2, y2) boxes of the objects without labelled keypoint.
+
+    Returns:
+        torch.Tensor: The [..., K] float64 squared distances, infinite for the keypoints not found.
+    """
+    keypoints = predicted_keypoints.to(dtype=torch.float64)
+    boxes = boxes.to(dtype=torch.float64).unsqueeze(dim=-2)
+    widths, heights = boxes[..., 2] - boxes[..., 0], boxes[..., 3] - boxes[..., 1]
+
+    # Distance of every keypoint outside the extended box along each axis, 0 inside it
+    horizontal_distances = ((boxes[..., 0] - widths - keypoints[..., 0]).clamp(min=0.0) +
+                            (keypoints[..., 0] - boxes[..., 2] - widths).clamp(min=0.0))
+    vertical_distances = ((boxes[..., 1] - heights - keypoints[..., 1]).clamp(min=0.0) +
+                          (keypoints[..., 1] - boxes[..., 3] - heights).clamp(min=0.0))
+    return torch.nan_to_num(input=horizontal_distances ** 2 + vertical_distances ** 2, nan=float("inf"))
 
 
 def compute_keypoint_boxes(keypoints: torch.Tensor) -> torch.Tensor:
@@ -183,21 +215,26 @@ def evaluate_image_keypoints(images: List[Dict[str, torch.Tensor]], sigma_table:
     Compares the objects found by the keypoint detector in every test image with its ground truth objects, for the
     average precision (evaluate_detections with the 'keypoints' overlap) and the keypoint accuracy: the object keypoint
     similarity of every predicted object with every ground truth object of the same class, 0 across classes since their
-    keypoints differ, measured with the ground truth box area; then every ground truth object matched to one predicted
-    object (match_ground_truth_objects), its keypoints compared with the matched ones, NaN for a missed object.
+    keypoints differ, measured with the ground truth box area; the similarity of every predicted object with every
+    object without labelled keypoint of the same class (compute_squared_extended_box_distances, averaged over the
+    keypoints found), which the average precision ignores as pycocotools does; then every ground truth object matched
+    to one predicted object (match_ground_truth_objects), its keypoints compared with the matched ones, NaN for a missed
+    object, the objects without labelled keypoint taking no part in the keypoint accuracy.
 
     Args:
         images (List[Dict[str, torch.Tensor]]): For every image, its ground truth 'labels' [G], 'bounding_boxes'
-            [G, 4], 'keypoints' [G, K, 2] and 'visibilities' [G, K], and its 'predicted_labels' [D],
-            'predicted_keypoints' [D, K, 2] (NaN for the keypoints not found) and 'predicted_scores' [D], in network
-            input pixels.
+            [G, 4], 'keypoints' [G, K, 2] and 'visibilities' [G, K], its objects without labelled keypoint
+            'ignored_bounding_boxes' [U, 4], 'ignored_labels' [U] and 'ignored_crowds' [U], and its 'predicted_labels'
+            [D], 'predicted_keypoints' [D, K, 2] (NaN for the keypoints not found) and 'predicted_scores' [D], in
+            network input pixels.
         sigma_table (torch.Tensor): The [C, K] sigmas of every class (build_keypoint_sigma_table).
 
     Returns:
-        Dict[str, Any]: The 'detections' of every image ('boxes' of their keypoints, 'scores', 'labels' and the
-            [D, G] 'keypoint_overlaps'), its 'ground_truths' ('boxes' and 'labels'), and the ground truth 'objects' of
-            all the images ('labels', 'bounding_boxes', 'keypoints', 'visibilities', the 'predicted_keypoints' of their
-            matched object, NaN when missed, and the 'matched' booleans).
+        Dict[str, Any]: The 'detections' of every image ('boxes' of their keypoints, 'scores', 'labels', the [D, G]
+            'keypoint_overlaps' and the [D, U] 'ignored_overlaps'), its 'ground_truths' ('boxes', 'labels',
+            'ignored_labels' and 'ignored_crowds'), and the ground truth 'objects' of all the images ('labels',
+            'bounding_boxes', 'keypoints', 'visibilities', the 'predicted_keypoints' of their matched object, NaN when
+            missed, and the 'matched' booleans).
     """
     detections, ground_truths, objects = [], [], {object_key: [] for object_key in EVALUATED_OBJECT_KEYS}
     for image in images:
@@ -211,10 +248,22 @@ def evaluate_image_keypoints(images: List[Dict[str, torch.Tensor]], sigma_table:
             squared_distances=squared_distances, visibilities=image["visibilities"][None],
             areas=compute_box_areas(boxes=boxes)[None], sigmas=sigma_table[labels][None])
         keypoint_overlaps = keypoint_overlaps * (predicted_labels[:, None] == labels[None, :])
+
+        # Similarity of every predicted object with every object without labelled keypoint of the same class, its
+        # keypoints found against the extended box of the object, averaged over those keypoints
+        ignored_boxes, ignored_labels = image["ignored_bounding_boxes"].to(dtype=torch.float64), image["ignored_labels"]
+        found_keypoints = (~torch.isnan(image["predicted_keypoints"]).any(dim=-1)).to(dtype=torch.int64)
+        ignored_distances = compute_squared_extended_box_distances(
+            predicted_keypoints=image["predicted_keypoints"][:, None], boxes=ignored_boxes[None])
+        ignored_overlaps = compute_object_keypoint_similarity(
+            squared_distances=ignored_distances, visibilities=found_keypoints[:, None],
+            areas=compute_box_areas(boxes=ignored_boxes)[None], sigmas=sigma_table[ignored_labels][None])
+        ignored_overlaps = ignored_overlaps * (predicted_labels[:, None] == ignored_labels[None, :])
         detections.append({"boxes": compute_keypoint_boxes(keypoints=image["predicted_keypoints"]),
                            "scores": image["predicted_scores"].to(dtype=torch.float64), "labels": predicted_labels,
-                           "keypoint_overlaps": keypoint_overlaps})
-        ground_truths.append({"boxes": boxes, "labels": labels})
+                           "keypoint_overlaps": keypoint_overlaps, "ignored_overlaps": ignored_overlaps})
+        ground_truths.append({"boxes": boxes, "labels": labels, "ignored_labels": ignored_labels,
+                              "ignored_crowds": image["ignored_crowds"]})
 
         # Keypoints of the predicted object matched to every ground truth object, NaN for the missed ones
         matched_predictions = match_ground_truth_objects(keypoint_overlaps=keypoint_overlaps)

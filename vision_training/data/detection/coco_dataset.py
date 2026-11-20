@@ -4,7 +4,8 @@ a COCO 'labels.json' split with OpenCV on the CPU workers, the selection of the 
 (also used by the anchor recall of the detection trainer), and the collate function batching its images and per-image
 boxes, labels, instance masks (or one instance index map per image, 'Data.instance_index_maps') and keypoints, with the
 masks and boxes of the objects at the original image resolution for the evaluation of the instance segmentation at that
-resolution, and the regions of the objects without labelled keypoint that the keypoint heatmap loss leaves out. The
+resolution, the regions of the objects without labelled keypoint that the keypoint heatmap loss leaves out, and the
+boxes, classes and crowd flags of these objects in the test split, which the keypoint evaluation ignores. The
 parsed manifest is packed into one NumPy buffer of per-image records (data/serialized_records.py), which the loader
 workers read without copying the memory of the main process, every record found by the COCO identifier of its image.
 Used by get_detection_dataloader and get_keypoint_dataloaders of data/loaders.py.
@@ -26,6 +27,10 @@ from vision_training.data.preprocessing import preprocess_boxes, preprocess_imag
 from vision_training.data.serialized_records import SerializedRecords
 from vision_training.utilities.os_utilities import format_path_link, print_color, release_freed_heap_memory
 
+# Keys of the objects without labelled keypoint of a keypoint sample (load_ignored_objects), one tensor per image in a
+# batch: their [U, 4] boxes, [U] classes and [U] crowd flags, which the keypoint evaluation ignores
+IGNORED_OBJECT_KEYS = ["ignored_bounding_boxes", "ignored_labels", "ignored_crowds"]
+
 
 def collate_function(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, Any]:
     """
@@ -44,8 +49,9 @@ def collate_function(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, Any]:
         Dict[str, Any]: A dictionary containing the batched images, list of bounding boxes, list of labels, the
             tensor of COCO image identifiers ('sample_identifiers'), the list of instance masks when the samples
             have them, the lists of the original instance masks and boxes when the samples have them, the list of
-            keypoints when the samples have them, and the [B, S, S] uint8 'ignored_regions' of the keypoint detection
-            and 'instance_index_maps' of the instance segmentation when the samples have them.
+            keypoints when the samples have them, the lists of the objects without labelled keypoint of the keypoint
+            test samples (IGNORED_OBJECT_KEYS) when the samples have them, and the [B, S, S] uint8 'ignored_regions' of
+            the keypoint detection and 'instance_index_maps' of the instance segmentation when the samples have them.
     """
     images = [item["images"] for item in batch]
     bounding_boxes = [item["bounding_boxes"] for item in batch]
@@ -58,8 +64,10 @@ def collate_function(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, Any]:
                        "sample_identifiers": sample_identifiers}
 
     # Keep the [N_i, S, S] instance masks of the instance segmentation task as a list, like the boxes, the masks and
-    # boxes at the original resolution of every image, whose sizes differ, and the [N_i, K, 3] keypoints
-    for key in ["instance_masks", "original_instance_masks", "original_bounding_boxes", "keypoints"]:
+    # boxes at the original resolution of every image, whose sizes differ, the [N_i, K, 3] keypoints and the objects
+    # without labelled keypoint of the keypoint test samples
+    for key in ["instance_masks", "original_instance_masks", "original_bounding_boxes", "keypoints",
+                *IGNORED_OBJECT_KEYS]:
         if key in batch[0]:
             batched_samples[key] = [item[key] for item in batch]
 
@@ -159,7 +167,7 @@ class CocoDetectionDataset(Dataset):
                  label_mode: str, label_dictionary: Dict[str, Any], load_instance_masks: bool = False,
                  load_instance_index_maps: bool = False, load_original_instances: bool = False,
                  load_keypoints: bool = False, maximum_keypoints: int = 0, load_ignored_regions: bool = False,
-                 shuffle: bool = True) -> None:
+                 load_ignored_objects: bool = False, shuffle: bool = True) -> None:
         """
         Initializes the COCO detection dataset: parses the JSON file, shuffles its images once and packs every image
         entry with its annotations into one record of a NumPy byte buffer, the parsed manifest being then freed and
@@ -190,12 +198,17 @@ class CocoDetectionDataset(Dataset):
                 labelled keypoint (the COCO crowds and the persons without keypoints), from their 'segmentation', which
                 the heatmap loss of the keypoint detection leaves out ('KeypointHead.ignore_unlabelled_objects'). Needs
                 load_keypoints. Defaults to False.
+            load_ignored_objects (bool): Whether to also return the boxes, classes and crowd flags of the same objects
+                (IGNORED_OBJECT_KEYS), for the test split of the keypoint detection, whose evaluation ignores them as
+                pycocotools does instead of counting the objects found on them as false positives. Needs
+                load_keypoints. Defaults to False.
             shuffle (bool): Whether to randomly shuffle the dataset internally. Defaults to True.
 
         Raises:
             ValueError: If the original instances or the instance index maps are asked without the instance masks, the
                 instance index maps with the original instances, the keypoints without a positive maximum_keypoints,
-                the ignored regions without the keypoints, or if two images of the manifest share an identifier.
+                the ignored regions or objects without the keypoints, or if two images of the manifest share an
+                identifier.
         """
         # Reject the combinations of options whose targets cannot be built together
         if load_original_instances and not load_instance_masks:
@@ -213,6 +226,9 @@ class CocoDetectionDataset(Dataset):
         if load_ignored_regions and not load_keypoints:
             raise ValueError("The ignored regions (load_ignored_regions) are the objects the keypoint detection leaves "
                              "out, which needs load_keypoints.")
+        if load_ignored_objects and not load_keypoints:
+            raise ValueError("The ignored objects (load_ignored_objects) are the objects the keypoint detection leaves "
+                             "out, which needs load_keypoints.")
 
         # Settings read by __getitem__ and the methods adding the masks, keypoints and original instances of a sample
         self.data_directory = data_directory
@@ -226,6 +242,7 @@ class CocoDetectionDataset(Dataset):
         self.load_keypoints = load_keypoints
         self.maximum_keypoints = maximum_keypoints
         self.load_ignored_regions = load_ignored_regions
+        self.load_ignored_objects = load_ignored_objects
 
         # Parse the JSON annotation file, or share the one parsed by the other readers of the launch, its images
         # shuffled once in a list of their own (the shared manifest is never modified) and its categories kept
@@ -346,8 +363,9 @@ class CocoDetectionDataset(Dataset):
                 instance masks ('instance_masks'), or with load_instance_index_maps the [S, S] uint8 instance index
                 map ('instance_index_maps'), with load_original_instances the [N, H, W] uint8 masks
                 ('original_instance_masks') and [N, 4] boxes ('original_bounding_boxes') at the original resolution,
-                with load_keypoints the [N, K, 3] float32 keypoints ('keypoints'), and with load_ignored_regions the
-                [S, S] uint8 pixels of the objects left out for having no labelled keypoint ('ignored_regions').
+                with load_keypoints the [N, K, 3] float32 keypoints ('keypoints'), with load_ignored_regions the
+                [S, S] uint8 pixels of the objects left out for having no labelled keypoint ('ignored_regions'), and
+                with load_ignored_objects their boxes, classes and crowd flags (IGNORED_OBJECT_KEYS).
 
         Raises:
             ValueError: If an annotation has no 'segmentation' while the instance masks are loaded.
@@ -406,7 +424,10 @@ class CocoDetectionDataset(Dataset):
         they give no heatmap nor tag target, and the object keypoint similarity cannot score them. With
         load_ignored_regions, the pixels of the removed objects whose category defines keypoints (the COCO crowds and
         the persons without keypoints), read from their 'segmentation', are returned as the regions the heatmap loss
-        leaves out, so that the heatmaps do not learn to find no keypoint on the persons that are there.
+        leaves out, so that the heatmaps do not learn to find no keypoint on the persons that are there. With
+        load_ignored_objects, the same removed objects are returned with their resized box, class and crowd flag, which
+        the keypoint evaluation ignores as pycocotools does, an object found on one counting neither as a true nor as a
+        false positive.
 
         Args:
             sample (Dict[str, Any]): The sample built by __getitem__, whose boxes and labels follow the annotations.
@@ -417,8 +438,10 @@ class CocoDetectionDataset(Dataset):
         Returns:
             Dict[str, Any]: The sample with its 'keypoints' [N, K, 3] float32 (x, y, visibility), K being
                 maximum_keypoints, the coordinates being continuous pixel coordinates of the resized image (its first
-                pixel centre at 0.5), the unlabelled keypoints and the padding positions all zero, and with
-                load_ignored_regions its 'ignored_regions' [S, S] uint8, 1 on the pixels of the removed objects.
+                pixel centre at 0.5), the unlabelled keypoints and the padding positions all zero, with
+                load_ignored_regions its 'ignored_regions' [S, S] uint8, 1 on the pixels of the removed objects, and
+                with load_ignored_objects the 'ignored_bounding_boxes' [U, 4] float32, 'ignored_labels' [U] int64 and
+                'ignored_crowds' [U] bool of the removed objects, in the order of their annotations.
 
         Raises:
             ValueError: If an annotation has no 'keypoints', or a number of keypoints differing from its category, or
@@ -446,19 +469,30 @@ class CocoDetectionDataset(Dataset):
             keypoints[object_index, :keypoint_count, :2] = torch.tensor(data=moved_keypoints).reshape(-1, 2)
             keypoints[object_index, :keypoint_count, 2] = torch.from_numpy(keypoint_triplets[:, 2])
 
-        # The unlabelled keypoints carry no position, and the objects without any labelled keypoint are removed
+        # The unlabelled keypoints carry no position, and the objects without any labelled keypoint are removed, those
+        # of the categories with keypoints becoming the ignored objects
         labelled = keypoints[..., 2] > 0
         keypoints[~labelled] = 0.0
         has_keypoints = labelled.any(dim=1)
+        ignored_objects = torch.tensor(data=[not has_labelled and self.keypoint_counts[annotation['category_id']] > 0
+                                             for annotation, has_labelled in zip(annotations, has_keypoints.tolist(),
+                                                                                 strict=True)], dtype=torch.bool)
+        ignored_annotations = [annotation for annotation, ignored in zip(annotations, ignored_objects.tolist(),
+                                                                         strict=True) if ignored]
+
+        # Resized boxes, classes and crowd flags of the ignored objects, taken before the removal drops them from the
+        # boxes and labels, a missing 'iscrowd' meaning no crowd as in pycocotools
+        if self.load_ignored_objects:
+            sample["ignored_bounding_boxes"] = sample["bounding_boxes"][ignored_objects]
+            sample["ignored_labels"] = sample["labels"][ignored_objects]
+            sample["ignored_crowds"] = torch.tensor(data=[annotation.get('iscrowd', 0) == 1
+                                                          for annotation in ignored_annotations], dtype=torch.bool)
         sample["keypoints"] = keypoints[has_keypoints]
         sample["bounding_boxes"] = sample["bounding_boxes"][has_keypoints]
         sample["labels"] = sample["labels"][has_keypoints]
 
-        # Pixels of the removed objects of the categories with keypoints, united into the ignored regions of the image
+        # Pixels of the ignored objects, united into the ignored regions of the image
         if self.load_ignored_regions:
-            removed_objects = (~has_keypoints).tolist()
-            ignored_annotations = [annotation for annotation, removed in zip(annotations, removed_objects, strict=True)
-                                   if removed and self.keypoint_counts[annotation['category_id']] > 0]
             for annotation in ignored_annotations:
                 if 'segmentation' not in annotation:
                     raise ValueError(f"The annotation {annotation.get('id')} of image {annotation['image_id']} has no "

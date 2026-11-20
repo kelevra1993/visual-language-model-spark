@@ -7,7 +7,8 @@ the masks without any 'bbox', the selection of the objects of an image maps the 
 annotations and leaves out the background, the test samples of the
 evaluation at the original resolution carry the masks and boxes of their objects at that resolution, every object with
 a pixel in the original image kept at both resolutions, the keypoint samples carry as ignored regions the masks of
-the objects of a category with keypoints left out for having no labelled keypoint, the instance index maps
+the objects of a category with keypoints left out for having no labelled keypoint, and as ignored objects their boxes,
+classes and crowd flags for the keypoint evaluation, the instance index maps
 ('Data.instance_index_maps') give the objects, boxes and masks of the per-object masks, stacked by the collate function,
 the packed records of the manifest give every image with its own annotations in the order of the manifest or shuffled,
 without any Python object per image kept for the loader workers to copy, and images sharing an identifier are refused.
@@ -327,6 +328,69 @@ def test_ignored_regions_are_the_objects_without_labelled_keypoint(tmp_path: Pat
         CocoDetectionDataset(data_directory=str(tmp_path / "data"), labels_file=str(labels_file), image_size=80,
                              keep_ratio=True, label_mode="multi_class", label_dictionary={1: 1, 2: 2},
                              load_ignored_regions=True)
+
+
+def test_ignored_objects_are_the_objects_without_labelled_keypoint(tmp_path: Path) -> None:
+    """
+    Verifies the ignored objects of the keypoint evaluation: the resized boxes, classes and crowd flags of the objects
+    of a category with keypoints left out for having no labelled keypoint (a person without keypoints and a crowd,
+    neither with a segmentation, which the evaluation does not read), in the order of their annotations, while the
+    labelled person stays an object and the object of a category without keypoints is not ignored; that the collate
+    keeps one tensor of each per image, an image without ignored object giving empty ones; that the samples carry none
+    without the setting; and that the setting is refused without the keypoints.
+
+    Args:
+        tmp_path (Path): The pytest temporary folder holding the written splits.
+    """
+    categories = [{"id": 1, "name": "person", "keypoints": ["head", "foot"]}, {"id": 2, "name": "box"}]
+    annotations = [
+        {"id": 1, "image_id": 1, "category_id": 1, "iscrowd": 0, "bbox": [2, 2, 8, 8], "keypoints": [4, 4, 2, 8, 8, 2]},
+        {"id": 2, "image_id": 1, "category_id": 1, "iscrowd": 0, "bbox": [14, 2, 8, 10],
+         "keypoints": [0, 0, 0, 0, 0, 0]},
+        {"id": 3, "image_id": 1, "category_id": 1, "iscrowd": 1, "bbox": [26, 4, 8, 12],
+         "keypoints": [0, 0, 0, 0, 0, 0]},
+        {"id": 4, "image_id": 1, "category_id": 2, "iscrowd": 0, "bbox": [30, 16, 8, 3], "keypoints": []}]
+    labels_file = write_split(folder=tmp_path, annotations=annotations, categories=categories)
+    sample = CocoDetectionDataset(data_directory=str(tmp_path / "data"), labels_file=str(labels_file), image_size=80,
+                                  keep_ratio=True, label_mode="multi_class", label_dictionary={1: 1, 2: 2},
+                                  load_keypoints=True, maximum_keypoints=2, load_ignored_objects=True,
+                                  shuffle=False)[0]
+
+    # The boxes of every object resized by the object detection dataset, the reference of the ignored boxes
+    all_boxes = CocoDetectionDataset(data_directory=str(tmp_path / "data"), labels_file=str(labels_file),
+                                     image_size=80, keep_ratio=True, label_mode="multi_class",
+                                     label_dictionary={1: 1, 2: 2}, shuffle=False)[0]["bounding_boxes"]
+
+    # Only the labelled person stays an object, the unlabelled person and the crowd become the ignored objects
+    assert sample["labels"].tolist() == [1] and sample["keypoints"].shape == (1, 2, 3)
+    assert sample["ignored_bounding_boxes"].dtype == torch.float32
+    assert torch.equal(input=sample["ignored_bounding_boxes"], other=all_boxes[1:3])
+    assert sample["ignored_labels"].dtype == torch.int64 and sample["ignored_labels"].tolist() == [1, 1]
+    assert sample["ignored_crowds"].dtype == torch.bool and sample["ignored_crowds"].tolist() == [False, True]
+
+    # An image whose persons are all labelled has no ignored object, and the collate keeps one tensor per image
+    labelled_file = write_split(folder=tmp_path / "labelled", annotations=[annotations[0], annotations[3]],
+                                categories=categories)
+    labelled_sample = CocoDetectionDataset(data_directory=str(tmp_path / "labelled" / "data"),
+                                           labels_file=str(labelled_file), image_size=80, keep_ratio=True,
+                                           label_mode="multi_class", label_dictionary={1: 1, 2: 2},
+                                           load_keypoints=True, maximum_keypoints=2, load_ignored_objects=True,
+                                           shuffle=False)[0]
+    batch = collate_function(batch=[sample, labelled_sample])
+    assert [boxes.shape for boxes in batch["ignored_bounding_boxes"]] == [(2, 4), (0, 4)]
+    assert [labels.tolist() for labels in batch["ignored_labels"]] == [[1, 1], []]
+    assert [crowds.tolist() for crowds in batch["ignored_crowds"]] == [[False, True], []]
+
+    # The samples have no ignored object without the setting, and the setting needs the keypoints
+    plain_sample = CocoDetectionDataset(data_directory=str(tmp_path / "data"), labels_file=str(labels_file),
+                                        image_size=80, keep_ratio=True, label_mode="multi_class",
+                                        label_dictionary={1: 1, 2: 2}, load_keypoints=True, maximum_keypoints=2,
+                                        shuffle=False)[0]
+    assert not any(key.startswith("ignored_") for key in plain_sample)
+    with pytest.raises(expected_exception=ValueError, match=r"load_ignored_objects\) are the objects"):
+        CocoDetectionDataset(data_directory=str(tmp_path / "data"), labels_file=str(labels_file), image_size=80,
+                             keep_ratio=True, label_mode="multi_class", label_dictionary={1: 1, 2: 2},
+                             load_ignored_objects=True)
 
 
 def test_instance_index_maps_give_the_objects_of_the_instance_masks(tmp_path: Path) -> None:
