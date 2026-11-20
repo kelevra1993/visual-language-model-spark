@@ -1,8 +1,9 @@
-# Foundations, chapter 6: what comes after a training, shared by every task: evaluating checkpoints again, comparing
-# launches and runs, clustering the image embeddings of a trained run, an overview of the export to Triton (the
-# deployment series covers the export, its checks, the Triton serving and the serving benchmark), the tests and the map
-# of the repository. The settings shown are the live main blocks of the scripts; the spread between launches is the one
-# of benchmark.py and the counts of the repository those of listings.py of tutorials/figures/foundations.
+# Foundations, chapter 6: what comes after a training, shared by every task: evaluating checkpoints again, the evaluation
+# curves every evaluation draws, comparing launches and runs, clustering the image embeddings of a trained run, an
+# overview of the export to Triton (the deployment series covers the export, its checks, the Triton serving and the
+# serving benchmark), the tests and the map of the repository. The settings shown are the live main blocks of the
+# scripts; the spread between launches is the one of benchmark.py, the evaluation curves those of the detection run
+# drawn by evaluation_curves.py, and the counts of the repository those of listings.py of tutorials/figures/foundations.
 series: foundations
 series_title: "Foundations"
 chapter: 6
@@ -14,6 +15,7 @@ figures: [foundations]
 references:
   - "scripts/evaluation/evaluate_checkpoint.py"
   - "vision_training/evaluation/checkpoint_evaluation.py · evaluate_checkpoints"
+  - "vision_training/evaluation/evaluation_curves.py · draw_summary_curves"
   - "scripts/evaluation/collect_experiment_results.py"
   - "scripts/evaluation/compare_best_evaluations.py · compare_best_evaluations"
   - "scripts/evaluation/plot_experiment_comparisons.py"
@@ -79,6 +81,17 @@ scenes:
     narration:
       - "The evaluation writes the results file, the test curves and one folder per checkpoint like a training does, in the checkpoint evaluation folder of the run, next to the evaluation folder of the training."
       - "With all the checkpoints, the evaluation summary compares their metrics in one table, and the best checkpoint is printed for the trained and for the averaged weights."
+
+  # The evaluation curves of the detection run, drawn again by evaluation_curves.py from the evaluation summary of its
+  # training with the code that drew them after its last evaluation
+  - kind: image
+    title: "The evaluation curves"
+    code_reference: "vision_training/trainers/base_trainer.py · BaseTrainer.update_evaluation_curves"
+    image: "figures:foundations/evaluation_curves/evaluation_curves.png"
+    narration:
+      - "Every evaluation, during a training or by this script, adds its row to the evaluation summary and draws the evaluation curves again next to the results file, so the test results read at a glance without TensorBoard."
+      - "Here the box mAP of the detection run of the object detection series, the best evaluation of each weights ringed: {{foundations.evaluation_curves.trained_best_value:percent}} at iteration {{foundations.evaluation_curves.trained_best_iteration:,d}} for the trained weights, {{foundations.evaluation_curves.averaged_best_value:percent}} at iteration {{foundations.evaluation_curves.averaged_best_iteration:,d}} for the averaged ones."
+      - "The shaded spans are what the last averaged weights look back over: the configured window of {{foundations.evaluation_curves.configured_window:,d}} iterations and, during the warm-up of the decay, the shorter window of their last update, {{foundations.evaluation_curves.last_update_window:,d}} iterations."
 
   - kind: code
     title: "Comparing launches"

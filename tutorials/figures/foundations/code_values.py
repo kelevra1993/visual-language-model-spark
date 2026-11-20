@@ -3,13 +3,14 @@ Values of the code and of the files of the repository that the foundations chapt
 {{constant:...}} or {{config:...}} placeholder of a storyboard can read, gathered at every build by
 tutorials/figures/foundations/figures.py into the facts of the series: a keyword argument of a call (the momentum of
 SGD in BaseTrainer.create_optimizer, the data type of the mixed precision autocast in BaseTrainer.run_model_iteration),
-a setting of the main block of a script (the PCA dimensions of cluster_image_embeddings.py), the host ports of the
-Triton docker compose file (strings such as "8000:8000"), the strengths of the supervised and self-supervised
-augmentation (tables holding computed values, which ast.literal_eval refuses), the pixel range given by the input
-normalization, and values of the synthetic classification configuration that need a
-conversion or a computation (its number of iterations written 1e10, the steps averaged by its moving average). The
-storyboards quote them as {{foundations.<name>}}, so that a sentence follows the code when it changes. The readers of
-main blocks are also used by the classification figures for the settings of the synthetic dataset script.
+a setting of the main block of a script (the PCA dimensions of cluster_image_embeddings.py, the free disk space and
+held-out images of imagenet_download.py), the host ports of the Triton docker compose file (strings such as
+"8000:8000"), the strengths of the supervised and self-supervised augmentation (tables holding computed values, which
+ast.literal_eval refuses), the pixel range given by the input normalization, and values of the synthetic
+classification configuration that need a conversion or a computation (its number of iterations written 1e10, the steps
+averaged by its moving average). The storyboards quote them as {{foundations.<name>}}, so that a sentence follows the
+code when it changes. The readers of main blocks are also used by the classification figures for the settings of the
+synthetic dataset script, and by configuration_consoles.py for the backup suffix of the conversion.
 """
 
 import ast
@@ -171,9 +172,10 @@ def describe_code_values(repository_folder: Path, configuration_path: Path) -> D
     """
     Gives the facts of the foundations chapters read from the code and the files of the repository rather than from a
     run: the momentum of SGD, the data type of the mixed precision forward passes, the PCA dimensions of the clustering
-    script, the host ports of Triton, the strengths of the supervised and self-supervised augmentation the data
-    pipeline chapter quotes, the range of the input normalization, and the number of iterations and the averaging
-    horizon of the moving average of the synthetic classification configuration the chapters show.
+    script, the free disk space and held-out images of the ImageNet-22k download, the host ports of Triton, the
+    strengths of the supervised and self-supervised augmentation the data pipeline chapter quotes, the range of the
+    input normalization, and the number of iterations and the averaging horizon of the moving average of the synthetic
+    classification configuration the chapters show.
 
     Args:
         repository_folder (Path): The root folder of the repository.
@@ -194,6 +196,15 @@ def describe_code_values(repository_folder: Path, configuration_path: Path) -> D
              "scripts.cluster_pca_dimensions": read_main_block_value(
                  script_path=repository_folder / "scripts" / "embedding" / "cluster_image_embeddings.py",
                  variable_name="pca_dimensions")}
+
+    # Settings of the main block of the ImageNet-22k download quoted by the first chapter: the free disk space below
+    # which no new shard starts, and the held-out images of every large enough class, both the validation and the test
+    # split
+    imagenet_download_path = repository_folder / "vision_training" / "data" / "classification" / "imagenet_download.py"
+    facts.update({f"scripts.imagenet_{variable_name}": read_main_block_value(script_path=imagenet_download_path,
+                                                                            variable_name=variable_name)
+                  for variable_name in ["minimum_free_gigabytes", "held_out_images_per_class",
+                                        "minimum_held_out_class_size"]})
     triton_ports = read_triton_host_ports(
         compose_path=repository_folder / "vision_training" / "deployment" / "triton" / "docker-compose.yml")
     facts.update({f"triton.{endpoint}_port": port for endpoint, port in triton_ports.items()})

@@ -1,10 +1,11 @@
 # Foundations, chapter 3: the data pipeline shared by every task, from the files on disk to the batch the network sees:
 # the loader workers, the image size and aspect ratio, the input normalization, and the augmentation (its switches and
 # probabilities in the configuration, its strengths in the code, how it draws, its types at the strengths of the
-# supervised tasks and of the self-supervised views), then the input viewer. The augmentation settings are those of the
-# synthetic classification configuration the chapter shows (data_pipeline_configuration of tutorial_sources.yaml, read by
-# listings.py for the data facts), the images those of augmentation_examples.py and aspect_ratio.py of
-# tutorials/figures/foundations.
+# supervised tasks and of the self-supervised views), then the input viewer and the input samples every launch writes.
+# The augmentation settings are those of the synthetic classification configuration the chapter shows
+# (data_pipeline_configuration of tutorial_sources.yaml, read by listings.py for the data facts), the images those of
+# augmentation_examples.py and aspect_ratio.py of tutorials/figures/foundations, and the input sample the first training
+# sample of the README classifier.
 series: foundations
 series_title: "Foundations"
 chapter: 3
@@ -253,6 +254,14 @@ scenes:
       - "This hollow kite drew no geometric type, and its brightness was raised by about sixteen levels, with a lower contrast and saturation."
       - "The validation images are shown unchanged; space shows the next images, and enter stops without training and without creating the run folder, so set it back to false to train."
 
+  # The first training sample of the README classifier, written by its launch into Input_Samples/ of its run folder
+  - kind: image
+    title: "The input samples of every launch"
+    code_reference: "vision_training/trainers/base_trainer.py · BaseTrainer.save_input_samples"
+    image: "runs:readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35/Input_Samples/Training/sample_00.png"
+    narration:
+      - "Without a display, open the input samples folder of the run: before its first iteration, every launch that trains writes there the first {{constant:vision_training/trainers/input_samples.py#NUMBER_INPUT_SAMPLES:words}} samples of every split, drawn like this training sample of the README classifier."
+
   - kind: summary
     title: "Recap"
     items:
@@ -262,7 +271,7 @@ scenes:
       - {text: "Augmentation: one draw per image, then one per activated type"}
       - {text: "Strengths in the code, switches and probabilities in the file"}
       - {text: "Validation and test images are never augmented"}
-      - {text: "view_input_images shows what the network receives"}
+      - {text: "view_input_images shows what the network receives, Input_Samples/ keeps it"}
     narration:
       - "To sum up: the workers read and resize the images, the first layer of the model normalizes them, and only the training batches are augmented, with the types and probabilities of the configuration."
       - "The next chapter opens the model: the convolution blocks of the backbone and the modules that can be switched on."

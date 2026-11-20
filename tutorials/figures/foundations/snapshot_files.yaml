@@ -1,7 +1,8 @@
 # Files of the runs the foundations figures read, copied into tutorials/run_snapshots by tutorials/make_run_snapshots.py
 # (tutorials/MAINTAINING.md, section Run Snapshots). The overview series has no figures of its own: it quotes the facts
 # and figures of this series (repository counts, augmentation examples), so these files serve it too. The series reads
-# one run, the README classifier, shared with the classification and deployment series (same entries in every series).
+# two runs, the README classifier, shared with the classification and deployment series, and the detection run of the
+# object detection series, for its evaluation curves (same entries in every series reading a file).
 # No checkpoint is committed: the summary panels are built from the configuration, the transfer console from a stand-in
 # of the run holding random weights (backbone_transfer.py), and the feature maps come from the committed outputs of the
 # model family (figure_reuse below), refreshed whenever the run or backbone_activations.py changes.
@@ -23,6 +24,16 @@ runs:
         reduction: folder_listing
         output: run_folder_listing.tsv
         exclude: ["Checkpoint_Evaluation*"]
+      # First training sample the run drew before its first iteration, shown after the input viewer of the data
+      # pipeline chapter
+      - path: Input_Samples/Training/sample_00.png
+  # Detection run of the object detection series: the moving average settings of its configuration and the evaluation
+  # summary of its training (trained and averaged weights at every evaluation, with the updates of the averaged
+  # weights), from which evaluation_curves.py draws the evaluation curves of the last chapter
+  - run: object_detection
+    files:
+      - path: training_configuration.yaml
+      - path: Evaluation/evaluation_summary.csv
 # Outputs of the feature map family (backbone_activations.py), which runs the checkpoint of the run on a test star:
 # its reuse JSON file, the network input and the feature map grids of three blocks
 figure_reuse:
