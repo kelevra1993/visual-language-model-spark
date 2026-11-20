@@ -259,8 +259,7 @@ run_test_evaluation(iteration)  [STAGE 4]
     │   ├── summarise_average_precisions()
     │   │   ├── evaluate_detections()
     │   │   │   ├── gather_class_detections() -> find_best_ground_truth()         for every class, once
-    │   │   │   ├── compute_class_true_positive_flags() -> match_detections_to_ground_truth()   for every IoU threshold,
-    │   │   │   │                                                                                 once
+    │   │   │   ├── match_class_detections() -> match_detections_to_ground_truth()   for every IoU threshold, once
     │   │   │   ├── for every method (area, 11 point, 101 point) and IoU threshold (0.50 to 0.95):
     │   │   │   │   compute_mean_average_precision() -> compute_precision_recall() + compute_average_precision()
     │   │   │   ├── for every object size (small, medium, large), the same with select_object_size_detections()

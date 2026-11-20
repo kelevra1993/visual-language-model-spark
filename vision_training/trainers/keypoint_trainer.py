@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from vision_training.core.contracts import EvaluationResults, KeypointBatch
+from vision_training.data.detection.coco_dataset import IGNORED_OBJECT_KEYS
 from vision_training.data.loaders import get_keypoint_dataloaders
 from vision_training.evaluation.detection.average_precision_report import summarise_average_precisions
 from vision_training.evaluation.evaluation_report import write_class_metrics_file
@@ -153,7 +154,8 @@ class KeypointTrainer(CocoSplitTrainer):
         """
         Moves the images (in the precision of the model) and the per-image boxes, classes and keypoints of a keypoint
         batch to the device, the targets of the losses being built from them by the model, with the ignored regions
-        of the training and validation batches when the loaders give them ('KeypointHead.ignore_unlabelled_objects').
+        of the training and validation batches when the loaders give them ('KeypointHead.ignore_unlabelled_objects'),
+        and the objects without labelled keypoint of the test batches, left on the CPU for the evaluation.
 
         Args:
             batch (Dict[str, Any]): The batch dictionary yielded by a keypoint loader.
@@ -173,6 +175,11 @@ class KeypointTrainer(CocoSplitTrainer):
         # The binary regions of the objects without labelled keypoint, kept in uint8 like the instance masks
         if "ignored_regions" in batch:
             prepared_batch["ignored_regions"] = batch["ignored_regions"].to(device=self.device)
+
+        # The boxes, classes and crowd flags of the same objects in the test batches, only read on the CPU
+        for key in IGNORED_OBJECT_KEYS:
+            if key in batch:
+                prepared_batch[key] = batch[key]
         return prepared_batch
 
     def augment_batch(self, batch: Dict[str, Any]) -> Dict[str, Any]:
@@ -258,8 +265,9 @@ class KeypointTrainer(CocoSplitTrainer):
     def accumulate_evaluation_batch(self, accumulator: Dict[str, Any], batch: Dict[str, Any],
                                     predictions: Dict[str, Any], sample_indices: List[int]) -> None:
         """
-        Keeps the ground truth objects of every kept image of a test batch on the CPU, with the objects found in it,
-        all in network input pixels, for evaluate_image_keypoints.
+        Keeps the ground truth objects of every kept image of a test batch on the CPU, with its objects without
+        labelled keypoint, which the evaluation ignores, and the objects found in it, all in network input pixels, for
+        evaluate_image_keypoints.
 
         Args:
             accumulator (Dict[str, Any]): The evaluation accumulator, its 'images' list extended in place.
@@ -274,6 +282,7 @@ class KeypointTrainer(CocoSplitTrainer):
                 "labels": batch["labels"][image_index].detach().cpu(),
                 "bounding_boxes": batch["bounding_boxes"][image_index].detach().cpu(),
                 "keypoints": ground_truth_keypoints[..., :2], "visibilities": ground_truth_keypoints[..., 2].long(),
+                **{key: batch[key][image_index] for key in IGNORED_OBJECT_KEYS},
                 "predicted_labels": torch.from_numpy(grouped_objects["labels"]),
                 "predicted_keypoints": torch.from_numpy(grouped_objects["keypoints"]),
                 "predicted_scores": torch.from_numpy(grouped_objects["scores"])})
