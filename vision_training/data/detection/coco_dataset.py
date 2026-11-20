@@ -115,11 +115,11 @@ def select_image_objects(annotations: List[Dict[str, Any]], label_mode: str, lab
     """
     bounding_boxes, labels, kept_annotations = [], [], []
     for annotation in annotations:
-        raw_id = annotation['category_id']
+        category_identifier = annotation['category_id']
         if label_mode == "binary":
-            mapped_label = 1 if raw_id > 0 else 0
+            mapped_label = 1 if category_identifier > 0 else 0
         else:
-            mapped_label = label_dictionary.get(raw_id, label_dictionary.get(str(raw_id), 0))
+            mapped_label = label_dictionary.get(category_identifier, label_dictionary.get(str(category_identifier), 0))
 
         # Objects mapped to the background are not learnt
         if mapped_label > 0:
