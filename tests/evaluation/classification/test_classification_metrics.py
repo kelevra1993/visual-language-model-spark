@@ -102,8 +102,8 @@ def test_multi_label_metrics() -> None:
 
 def test_class_thresholds_reach_the_target_precision() -> None:
     """
-    Verifies the per-class thresholds: the lowest threshold whose predictions reach the target precision is kept
-    with its recall, a class whose target precision is never reached gets None, and so does a class without sample.
+    Verifies the per-class thresholds: the threshold keeping the highest recall at the target precision is kept with
+    its recall, a class whose target precision is never reached gets None, and so does a class without sample.
     """
     probabilities = torch.tensor(data=[[0.9, 0.1, 0.0], [0.8, 0.2, 0.0], [0.7, 0.9, 0.0], [0.6, 0.3, 0.0],
                                        [0.4, 0.95, 0.0]])
@@ -118,6 +118,22 @@ def test_class_thresholds_reach_the_target_precision() -> None:
     assert class_thresholds[1] is None
     # Class 2 has no positive sample
     assert class_thresholds[2] is None
+
+
+def test_class_threshold_stops_at_the_last_positive_it_needs() -> None:
+    """
+    Verifies that among the thresholds reaching the target precision with the highest recall the highest one is kept:
+    a lower threshold adding only wrong predictions keeps the same recall at a precision closer to the target, which
+    new data would more likely fall below.
+    """
+    # Scores 0.9 (+), 0.9 (-), 0.8 (+), 0.7 (+), 0.7 (+), 0.1 (-): cutting at 0.7 keeps all 4 positives at a precision
+    # of 4 / 5, cutting at 0.1 keeps the same 4 at 4 / 6, both above the target 0.6
+    probabilities = torch.tensor(data=[[0.9], [0.9], [0.8], [0.7], [0.7], [0.1]])
+    positive_masks = torch.tensor(data=[[True], [False], [True], [True], [True], [False]])
+
+    class_thresholds = find_class_thresholds(probabilities=probabilities, positive_masks=positive_masks,
+                                             target_precision=0.6)
+    assert class_thresholds[0] == pytest.approx(expected=(0.7, 1.0))
 
 
 def test_sparse_confusion_matrix_gives_the_metrics_of_the_dense_one() -> None:
