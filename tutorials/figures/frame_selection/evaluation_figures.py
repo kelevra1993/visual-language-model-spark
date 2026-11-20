@@ -162,10 +162,10 @@ def count_pick_kinds(selection_rows: Dict[Tuple[str, str], Dict[str, str]],
                      block_metrics: Dict[str, float]) -> Dict[str, Any]:
     """
     Counts the kind of every pick of both decodings from selections.csv of the listed iteration with
-    compute_selection_metrics of the repository: the share of the picks that took a frame to leave unselected
-    (background picks) and the share that took the true frame of another wanted class (swapped picks). The run was
-    evaluated before these two shares took the place of the unselected precision and recall in the report, so that its
-    block does not hold them; the selection accuracy counted the same way must give the one of the block.
+    compute_selection_metrics of the repository: the number of picks that took a frame to leave unselected (background
+    picks) and of those that took the true frame of another wanted class (swapped picks), which the narration quotes
+    next to their shares in the report. The selection accuracy and both shares counted this way must give those of the
+    block, so that the counts belong to the report shown.
 
     Args:
         selection_rows (Dict[Tuple[str, str], Dict[str, str]]): The rows of selections.csv, one per sequence and
@@ -173,11 +173,12 @@ def count_pick_kinds(selection_rows: Dict[Tuple[str, str], Dict[str, str]],
         block_metrics (Dict[str, float]): The metrics of the listed block (parse_block_metrics), between 0 and 1.
 
     Returns:
-        Dict[str, Any]: The facts evaluation.picks.<decoding>_background, _swapped (between 0 and 1) and the counts
-            evaluation.picks.<decoding>_background_count, _swapped_count and evaluation.picks.count.
+        Dict[str, Any]: The counts evaluation.picks.<decoding>_background_count and _swapped_count, and the number of
+            picks evaluation.picks.count.
 
     Raises:
-        ValueError: If the counted selection accuracy of a decoding differs from the one of the block.
+        ValueError: If the counted selection accuracy, background or swapped picks of a decoding differ from those of
+            the block.
     """
     class_names = sorted({class_name for _, class_name in selection_rows})
     sequence_names = sorted({sequence_name for sequence_name, _ in selection_rows})
@@ -201,19 +202,19 @@ def count_pick_kinds(selection_rows: Dict[Tuple[str, str], Dict[str, str]],
                 row_length - len(frames)) for frames in chosen_frames]))
             frame_labels.append(sequence_labels)
 
-        # Shares of the picks of the decoding, checked against the selection accuracy of the block
+        # Shares of the picks of the decoding, checked against the block, which writes them with RATE_DECIMALS
         metrics = compute_selection_metrics(selected_frames=selected_frames, frame_labels=frame_labels,
                                             wanted_class_indices=list(range(len(class_names))),
                                             unselected_class_index=unselected_class_index)
-        block_accuracy = block_metrics[f"evaluation.{decoding}_selection_accuracy"]
-        if abs(metrics["selection_accuracy"] - block_accuracy) > 10 ** -RATE_DECIMALS:
-            raise ValueError(f"Expected the {decoding} selection accuracy counted from selections.csv to be the "
-                             f"{block_accuracy} of the report, got {metrics['selection_accuracy']}.")
+        for metric_key in ["selection_accuracy", "background_picks", "swapped_picks"]:
+            block_value = block_metrics[f"evaluation.{decoding}_{metric_key}"]
+            if abs(metrics[metric_key] - block_value) > 10 ** -RATE_DECIMALS:
+                raise ValueError(f"Expected the {decoding} {metric_key} counted from selections.csv to be the "
+                                 f"{block_value} of the report, got {metrics[metric_key]}.")
 
         # Counts of the picks behind both shares, every pick being one chosen frame
         number_picks = sum(int((selection != NO_FRAME).sum()) for selection in selected_frames)
         for kind in ["background", "swapped"]:
-            facts[f"evaluation.picks.{decoding}_{kind}"] = round_fact(value=metrics[f"{kind}_picks"])
             facts[f"evaluation.picks.{decoding}_{kind}_count"] = round(metrics[f"{kind}_picks"] * number_picks)
         facts["evaluation.picks.count"] = number_picks
     return facts

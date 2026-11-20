@@ -48,9 +48,7 @@ scenes:
           - {match: "^Iteration", sentences: [0]}
           - {match: "Hungarian Selection Accuracy|Greedy Selection Accuracy", sentences: [1]}
           - {match: "Fully Right", sentences: [2]}
-          # The run was evaluated before the background and swapped picks: its block still shows the two unselected
-          # rows, which sentence 3 names; after a new evaluation of the run, match "Background Picks" there instead
-          - {match: "Unselected Precision", sentences: [3]}
+          - {match: "Background Picks", sentences: [3]}
           - {match: "Top-{{frame_selection.evaluation.top_k}} Selection", sentences: [4]}
           - {match: "Frame Accuracy|Frame Macro F1", sentences: [5]}
           - {match: "^   {{frame_selection.evaluation.worst_class}}", sentences: [6]}
@@ -58,7 +56,7 @@ scenes:
       - "The report gives the metrics of both decodings: here iteration {{frame_selection.evaluation.listed_iteration}}, {{frame_selection.dataset.test_sequences}} test sequences, {{frame_selection.dataset.test_frames:,}} frames."
       - "The selection accuracy is the share of the true frames chosen for their class: {{frame_selection.evaluation.hungarian_selection_accuracy:percent}} with the Hungarian decoding, all but {{frame_selection.decodings.iteration_1000_hungarian_wrong}} of the {{frame_selection.decodings.iteration_1000_rows}} true frames, and {{frame_selection.evaluation.greedy_selection_accuracy:percent}} with the greedy one."
       - "Fully right sequences is the share of sequences with every choice right, {{frame_selection.evaluation.hungarian_fully_right_sequences:percent}}."
-      - "This run was scored before the background and swapped picks replaced the unselected precision and recall shown here: counted from its selections, the Hungarian decoding made {{frame_selection.evaluation.picks.hungarian_background_count}} background picks, frames to leave unselected, and {{frame_selection.evaluation.picks.hungarian_swapped_count}} swapped picks, true frames of another class."
+      - "Background and swapped picks sort the wrong choices: the Hungarian decoding made {{frame_selection.evaluation.picks.hungarian_background_count}} background picks, frames to leave unselected, and {{frame_selection.evaluation.picks.hungarian_swapped_count}} swapped picks, true frames of another class, {{frame_selection.evaluation.hungarian_background_picks:percent}} and {{frame_selection.evaluation.hungarian_swapped_picks:percent}} of its picks."
       - "The top-{{frame_selection.evaluation.top_k}} selection accuracy and the mean true frame rank score the probabilities before any decoding: {{frame_selection.evaluation.top_2_selection_accuracy:percent}} of the true frames are among the {{frame_selection.evaluation.top_k:words}} most probable of their class, and the mean rank is {{frame_selection.evaluation.mean_true_frame_rank:.2f}}."
       - "The frame metrics take the most probable class of every frame, before decoding: a frame accuracy of {{frame_selection.evaluation.frame_accuracy:percent}}."
       - "The per-class table puts the worst class first, here the {{frame_selection.evaluation.worst_class}} at {{frame_selection.evaluation.worst_class_accuracy:percent}}; at iteration {{frame_selection.evaluation.last_iteration}}, the selection accuracy reaches {{frame_selection.evaluation.iteration_2000.hungarian_selection_accuracy:percent}}, the {{frame_selection.evaluation.iteration_2000.worst_class}} then worst at {{frame_selection.evaluation.iteration_2000.worst_class_accuracy:percent}}."

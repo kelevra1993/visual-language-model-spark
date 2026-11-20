@@ -2362,7 +2362,7 @@ named `<Decoding> Background Picks` and `<Decoding> Swapped Picks`, 0 when nothi
 
 On the toy test split, the Hungarian decoding makes 1 background pick and 2 swapped picks of its 8, 12.50 % and 25.00 %: the wrong triangle of sequence 3 took an unselected frame, the swap of sequence 4 the true frames of the other shape. The greedy rule gets sequence 3 right but sequence 2 wrong, its triangle taking the true star frame and its star an unselected frame, which with the swap of sequence 4 gives 1 background and 3 swapped picks, 12.50 % and 37.50 %.
 
-In the README run at iteration 1,000, 21 of the 600 Hungarian picks took a frame to leave unselected and 4 the true frame of another wanted class, 3.50 % and 0.67 % next to its 95.83 % selection accuracy (counted from `selections.csv`, the run being evaluated before these two shares replaced the unselected precision and recall of its `Results.txt`): most of its wrong picks take an unselected frame (in these sequences a smaller copy of a wanted shape or another shape) rather than the true frame of another class.
+In the README run at iteration 1,000, 21 of the 600 Hungarian picks took a frame to leave unselected and 4 the true frame of another wanted class, 3.50 % and 0.67 % next to its 95.83 % selection accuracy (`Results.txt`, the picks counted in `selections.csv`): most of its wrong picks take an unselected frame (in these sequences a smaller copy of a wanted shape or another shape) rather than the true frame of another class.
 
 #### Top-k Selection Accuracy And Mean True Frame Rank
 
