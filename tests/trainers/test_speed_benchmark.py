@@ -370,8 +370,7 @@ def test_classification_benchmark_times_the_exported_formats(tmp_path: Path, cap
                              split_sizes={"train": 8, "validation": 4, "test": 4}, maximum_objects=1,
                              minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
     configuration_path = write_benchmark_configuration(temporary_directory=tmp_path, dataset_folder=dataset_folder)
-    experiment_configuration, model_configuration = load_experiment_configuration(
-        configuration_path=configuration_path)
+    experiment_configuration, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
     capsys.readouterr()
 
     shorten_benchmark(monkeypatch=monkeypatch)

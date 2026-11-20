@@ -113,12 +113,16 @@ def test_valid_changes_skip_intervals_without_validation(capsys: pytest.CaptureF
     assert color_text(color="green", text="   -0.2000") in console_output
 
 
-@pytest.mark.parametrize("metric_key", ["cross_correlation_off_diagonal", "hidden_feature_correlation"])
+@pytest.mark.parametrize(argnames="metric_key",
+                         argvalues=["cross_correlation_off_diagonal", "hidden_feature_correlation"])
 def test_correlations_improve_when_they_decrease(metric_key: str) -> None:
     """
     Verifies that the mean absolute off-diagonal correlations (Barlow Twins, decorrelation), which do not end in _loss,
     improve when they fall: a falling value is green and marked best, a rising one red without the best marker, while
     the diagonal correlation of Barlow Twins still improves when it rises.
+
+    Args:
+        metric_key (str): The off-diagonal correlation metric tracked, of Barlow Twins or of the decorrelation.
     """
     tracker = MetricTracker(tracked_metrics_mapping={metric_key: "Correlation"}, batch_size=2,
                             validation_iteration_ratio=0, sample_name="Images", counts_frames=False,

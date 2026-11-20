@@ -271,7 +271,8 @@ def test_self_supervised_viewer_shows_the_two_views_of_a_training_image(tmp_path
                                           sample_index=0) is False
     shown_windows = view_mock.call_args.kwargs["windows"]
     assert [window.title for window in shown_windows] == ["View 1", "View 2"]
-    assert all(torch.equal(window.image, view[0]) for window, view in zip(shown_windows, viewed_batch["views"]))
+    assert all(torch.equal(input=window.image, other=view[0])
+               for window, view in zip(shown_windows, viewed_batch["views"]))
 
 
 def test_viewer_shows_a_training_window_next_to_a_validation_window(tmp_path: Path) -> None:
@@ -291,7 +292,7 @@ def test_viewer_shows_a_training_window_next_to_a_validation_window(tmp_path: Pa
                                               validation_batch=validation_batch, sample_index=1) is True
     shown_windows = view_mock.call_args.kwargs["windows"]
     assert [window.title for window in shown_windows] == ["Training", "Validation"]
-    assert torch.equal(shown_windows[1].image, validation_batch["images"][1])
+    assert torch.equal(input=shown_windows[1].image, other=validation_batch["images"][1])
 
 
 def test_training_without_validation_loader_writes_no_validation_samples(tmp_path: Path,
@@ -320,8 +321,7 @@ def test_training_without_validation_loader_writes_no_validation_samples(tmp_pat
     assert "(14 images written in" in console_output
 
 
-def test_resume_with_unchanged_settings_keeps_the_input_samples(tmp_path: Path,
-                                                                capsys: pytest.CaptureFixture) -> None:
+def test_resume_with_unchanged_settings_keeps_the_input_samples(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
     Verifies that a resumed run whose configuration and data did not change keeps the input samples of its previous
     start as they are, without archive, and says so.

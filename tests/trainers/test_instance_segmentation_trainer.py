@@ -114,8 +114,7 @@ def build_trainer(configuration_path: Path) -> InstanceSegmentationTrainer:
     Returns:
         InstanceSegmentationTrainer: The trainer, resumed from the last checkpoint of its run folder when there is one.
     """
-    experiment_configuration, model_configuration = load_experiment_configuration(
-        configuration_path=configuration_path)
+    experiment_configuration, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
     return InstanceSegmentationTrainer(experiment_configuration=experiment_configuration,
                                        model_configuration=model_configuration, configuration_path=configuration_path)
 
@@ -365,7 +364,6 @@ def test_detections_and_objects_are_gathered_at_the_original_resolution() -> Non
     ground_truth = trainer.gather_image_ground_truth(batch=batch, image_index=0)
     assert torch.equal(input=ground_truth["boxes"], other=batch["bounding_boxes"][0])
     assert ground_truth["mask_areas"].tolist() == [4, 2, 0]
-
 
 
 def pass_batch_through(images: torch.Tensor, bounding_boxes: List[torch.Tensor], labels: List[torch.Tensor],

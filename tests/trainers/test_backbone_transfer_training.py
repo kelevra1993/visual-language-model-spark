@@ -105,24 +105,27 @@ def build_transfer_trainer(temporary_directory: Path, dataset_folder: Path, numb
         configuration["MaskHead"]["mask_resolution"] = 14
         for level in DETECTION_TRANSFER_ANCHOR_SCALES:
             configuration["DetectionLevels"][level]["mask_head"] = DETECTION_TRANSFER_MASK_HEAD
+
+    # Short sequences, and the label mapping of the generated dataset unless the run is given another one
     if task == "sequence_classification":
         configuration["Data"]["sequence_settings"]["maximum_sequence_length"] = TRANSFER_NUMBER_FRAMES
     if label_mapping_path is None:
         label_mapping_path = dataset_folder / "label_mapping.json"
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(label_mapping_path)
+
+    # The moving average, the backbone blocks and the pretrained sections asked by the test
     configuration["Optimization"]["exponential_moving_average"]["activated"] = moving_average
     if backbone_convolutions is not None:
         configuration["Backbone"]["convolutions"] = backbone_convolutions
     for section_name, section_settings in pretrained_settings.items():
         configuration[section_name]["pretrained"].update(section_settings)
 
+    # Write the configuration and build its trainer from the loaded file, as main.py does
     configuration_path = temporary_directory / configuration_name
     configuration_path.write_text(data=yaml.safe_dump(data=configuration))
-    experiment_configuration, model_configuration = load_experiment_configuration(
-        configuration_path=configuration_path)
+    experiment_configuration, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
     return get_trainer_class(task=task)(experiment_configuration=experiment_configuration,
-                                        model_configuration=model_configuration,
-                                        configuration_path=configuration_path)
+                                        model_configuration=model_configuration, configuration_path=configuration_path)
 
 
 def test_trained_backbone_initialises_a_frozen_run(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:

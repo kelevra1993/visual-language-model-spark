@@ -433,8 +433,8 @@ class DummyTrainer(BaseTrainer):
         return True
 
 
-def build_dummy_configurations(experiment_folder: Path, number_iterations: int) -> Tuple[Dict[str, Any],
-                                                                                        Dict[str, Any]]:
+def build_dummy_configurations(experiment_folder: Path,
+                               number_iterations: int) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
     Builds the experiment and model settings read by the general trainer for the dummy task: batches of 2 samples,
     saves at iterations 2 (intermediate) and 4 (with test evaluation), a console summary and a validation batch every 2
@@ -450,8 +450,8 @@ def build_dummy_configurations(experiment_folder: Path, number_iterations: int) 
     """
     # Batches of 2 samples, saves at iterations 2 and 4, a validation batch every 2 iterations and no MLflow tracking
     experiment_configuration = {"task": "dummy_task", "experiment_folder": experiment_folder,
-                                "tracking_root": experiment_folder, "run_name": None, "standalone_evaluation_folder": None,
-                                "train_data_folder": Path("train"),
+                                "tracking_root": experiment_folder, "run_name": None,
+                                "standalone_evaluation_folder": None, "train_data_folder": Path("train"),
                                 "validation_data_folder": Path("validation"), "test_data_folder": Path("test"),
                                 "batch_size": 2, "information_dump": 2, "weight_saving_iterations": 4,
                                 "intermediate_weight_saving_iterations": 2, "number_iterations": number_iterations,

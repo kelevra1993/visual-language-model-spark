@@ -80,8 +80,7 @@ def build_trainer(configuration_path: Path) -> SequenceComparisonTrainer:
     Returns:
         SequenceComparisonTrainer: The trainer, resumed from the last checkpoint of its run folder when there is one.
     """
-    experiment_configuration, model_configuration = load_experiment_configuration(
-        configuration_path=configuration_path)
+    experiment_configuration, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
     return SequenceComparisonTrainer(experiment_configuration=experiment_configuration,
                                      model_configuration=model_configuration, configuration_path=configuration_path)
 
@@ -101,9 +100,8 @@ def test_sequence_comparison_training_saves_evaluates_and_resumes(tmp_path: Path
     """
     dataset_folder = tmp_path / "synthetic_object_loss_pairs"
     create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
-                             split_sizes={"train": 8, "validation": 4, "test": 6}, maximum_objects=3,
-                             minimum_frames=2, maximum_frames=SMOKE_NUMBER_FRAMES,
-                             number_workers=2, task="sequence_comparison")
+                             split_sizes={"train": 8, "validation": 4, "test": 6}, maximum_objects=3, minimum_frames=2,
+                             maximum_frames=SMOKE_NUMBER_FRAMES, number_workers=2, task="sequence_comparison")
 
     # First run: saves at iterations 2 (intermediate), 4 (with test evaluation) and 5 (end of the run)
     trainer = build_trainer(configuration_path=write_smoke_configuration(
@@ -115,6 +113,7 @@ def test_sequence_comparison_training_saves_evaluates_and_resumes(tmp_path: Path
         trainer.run_training_loop()
     results = report_mock.call_args.kwargs["results"]
 
+    # The three checkpoints, and the test evaluation of iteration 4 in Results.txt with its metrics and error files
     weights_directory = trainer.weights_directory
     assert sorted(path.name for path in weights_directory.glob("Iteration_*")) == ["Iteration_2", "Iteration_4",
                                                                                  "Iteration_5"]
@@ -130,8 +129,7 @@ def test_sequence_comparison_training_saves_evaluates_and_resumes(tmp_path: Path
     rows = check_predictions_file(evaluation_folder=evaluation_folder, reported_accuracy=results["metrics"]["Accuracy"],
                                   expected_rows=6, class_names=trainer.class_names, identification_columns=["pair"])
     assert sorted(row["pair"] for row in rows) == [f"test_{pair_index:06d}" for pair_index in range(6)]
-    check_error_images(evaluation_folder=evaluation_folder, rows=rows, notes=results["notes"],
-                       maximum_per_class_pair=2)
+    check_error_images(evaluation_folder=evaluation_folder, rows=rows, notes=results["notes"], maximum_per_class_pair=2)
 
     # Every test pair is a sample image (8 asked for 6 pairs), captioned in the colour of its prediction
     check_sample_images(evaluation_folder=evaluation_folder, results=results, number_sample_images=6,
@@ -151,8 +149,7 @@ def test_sequence_comparison_training_saves_evaluates_and_resumes(tmp_path: Path
     # The pair throughput comes with the frame throughput, the splits are described, and no iteration failed
     console_output = capsys.readouterr().out
     number_pairs, number_frames, number_kept_pairs = count_split_pairs(
-        split_data_folder=dataset_folder / "train",
-        sequence_settings={"maximum_sequence_length": SMOKE_NUMBER_FRAMES})
+        split_data_folder=dataset_folder / "train", sequence_settings={"maximum_sequence_length": SMOKE_NUMBER_FRAMES})
     assert number_pairs == number_kept_pairs == 8
     assert "Pairs Per Second" in console_output and "Frames Per Second" in console_output
     assert f"8 pairs, {number_frames} frames, 8 pairs of members of at most 4 frames" in console_output

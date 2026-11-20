@@ -87,8 +87,7 @@ def build_trainer(configuration_path: Path) -> ClassificationTrainer:
     Returns:
         ClassificationTrainer: The trainer, resumed from the last checkpoint of its run folder when there is one.
     """
-    experiment_configuration, model_configuration = load_experiment_configuration(
-        configuration_path=configuration_path)
+    experiment_configuration, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
     return ClassificationTrainer(experiment_configuration=experiment_configuration,
                                  model_configuration=model_configuration, configuration_path=configuration_path)
 
@@ -184,8 +183,7 @@ def test_classification_training_saves_evaluates_and_resumes(tmp_path: Path, cap
     rows = check_predictions_file(evaluation_folder=evaluation_folder, reported_accuracy=results["metrics"]["Accuracy"],
                                   expected_rows=6, class_names=trainer.class_names, identification_columns=["sample"])
     assert all(row["sample"].endswith(".png") for row in rows)
-    check_error_images(evaluation_folder=evaluation_folder, rows=rows, notes=results["notes"],
-                       maximum_per_class_pair=1)
+    check_error_images(evaluation_folder=evaluation_folder, rows=rows, notes=results["notes"], maximum_per_class_pair=1)
 
     # Every test image is a sample image (8 asked for 6 images), captioned in the colour of its prediction
     check_sample_images(evaluation_folder=evaluation_folder, results=results, number_sample_images=6,
