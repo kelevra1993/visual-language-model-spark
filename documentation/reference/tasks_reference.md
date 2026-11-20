@@ -170,7 +170,7 @@ DetectionLevels:
 - **Confusion matrix** of the deployed detections (score from `Detector.inference.score_threshold`), matched to the objects at IoU 0.5, with a `background` row for the false positives and a `background` column for the missed objects.
 - **Error images** (`error_dumps.activated`): `Errors/FALSE-POSITIVE/<class>/`, `Errors/MISSED/<class>/` and `Errors/<TRUE>-TO-<PREDICTED>/`, at most `maximum_per_class_pair` per folder.
 - **Display**: the report writes the average precisions and recalls of every table, the anchor and proposal recalls, the per-class recall with its `95 %` bounds and the `Recall @ P99 %` of the per-class table as percentages with two decimals, like the shares of the confusion matrix image and the `mAP@0.5/area` of the best checkpoint line of `evaluate_checkpoint.py`. The object counts, proposals per image and score thresholds keep their values, and `class_metrics.csv`, `proposal_recall.csv`, `anchor_recall.csv`, `class_thresholds.json`, `confusion_matrix.csv`, TensorBoard and MLflow keep every rate between 0 and 1.
-- **TensorBoard tags**: `mAP@0.5 By Size/<size>`, `mAP@[0.5:0.95] By Size/<size>`, `mAR@0.5/<all or size>`, `mAR@0.75/<all or size>`, `mAR@[0.5:0.95]/<all or size>`, `Proposal Recall@0.5/<group>`, `Proposal Recall@0.7/<group>`, `Proposals Per Image/<group>`.
+- **TensorBoard tags**: `mAP@0.5 By Size/<size>`, `mAP@[0.5:0.95] By Size/<size>`, `mAR@0.5/<all or size>`, `mAR@0.75/<all or size>`, `mAR@0.95/<all or size>`, `mAR@[0.5:0.95]/<all or size>`, `Proposal Recall@0.5/<group>`, `Proposal Recall@0.7/<group>`, `Proposals Per Image/<group>`.
 
 ## Instance Segmentation (INS)
 The detector of DET with one mask head per detection level, as in Mask R-CNN ([He et al., 2017](https://arxiv.org/abs/1703.06870)).
