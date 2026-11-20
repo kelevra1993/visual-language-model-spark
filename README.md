@@ -1481,7 +1481,7 @@ To find your way in the code, the diagram follows the packages along the path of
 │   ├── presentation/                  # Slide deck of the repository: deck.json, deck.css, one HTML file per slide and the figures made for it
 │   ├── reference/                     # Training, tasks, configurations, tools and pretraining (ImageNet-22k, order of the T to XL sizes) in detail
 │   ├── task workflows/                # One run of every task followed function by function
-│   └── suggestions.md                 # Proposed improvements and repository audit
+│   └── suggestions.md                 # Proposed improvements not implemented yet
 ├── vision_training/                   # Training framework
 │   ├── main.py                        # Entry point of the trainings
 │   ├── check_configuration.py         # Check of configuration files without training, for pipelines

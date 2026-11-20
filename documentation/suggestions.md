@@ -1,13 +1,12 @@
 # Suggestions
 
 > Proposed improvements that are not implemented yet, kept in `documentation/` so that we can come back to them and
-> decide what to implement. They were checked against the code on 2026-10-15, 2026-11-13 and 2026-11-20, together with the
-> findings of the [Repository Audit For Instance Segmentation](#repository-audit-for-instance-segmentation), kept at the
-> end of this file, which they do not repeat. The items taken from Mask R-CNN come from a comparison with its Keras /
-> TensorFlow 1 implementation (matterport, commit `3deaec5`) written on 2026-10-12: "Mask R-CNN" means that repository,
-> and "the paper" He et al., 2017. Its file references (`model.py`, `utils.py`, `config.py`, `coco.py`, `nucleus.py`,
-> `visualize.py`) are those of `mrcnn/` and of its samples. An item is removed from this list once it is implemented,
-> or as soon as we decide not to do it.
+> decide what to implement. They were checked against the code on 2026-10-15, 2026-11-13 and 2026-11-20; the findings of
+> the repository audit of 2026-10-10 were all fixed or dropped by 2026-11-20. The items taken from Mask R-CNN come from
+> a comparison with its Keras / TensorFlow 1 implementation (matterport, commit `3deaec5`) written on 2026-10-12: "Mask
+> R-CNN" means that repository, and "the paper" He et al., 2017. Its file references (`model.py`, `utils.py`,
+> `config.py`, `coco.py`, `nucleus.py`, `visualize.py`) are those of `mrcnn/` and of its samples. An item is removed
+> from this list once it is implemented, or as soon as we decide not to do it.
 
 ## Table Of Content
 - [A. Detector architecture](#a-detector-architecture)
@@ -20,15 +19,6 @@
 - [J. Self-supervised counted shapes: tests left to run](#j-self-supervised-counted-shapes-tests-left-to-run)
 - [K. README screenshots and synthetic runs: left to redo](#k-readme-screenshots-and-synthetic-runs-left-to-redo)
 - [Suggested Order](#suggested-order)
-- [Repository Audit For Instance Segmentation](#repository-audit-for-instance-segmentation)
-  - [Summary By Task](#summary-by-task)
-  - [Critical](#critical)
-  - [High](#high)
-  - [Medium](#medium)
-  - [Low](#low)
-  - [Statements Contradicting The Code](#statements-contradicting-the-code)
-  - [Checked And Correct](#checked-and-correct)
-  - [Suggested Order Of Fixes](#suggested-order-of-fixes)
 
 ## A. Detector architecture
 1. **A transferable neck**: the feature pyramid and path aggregation of this item are implemented (`Neck.type`),
@@ -91,7 +81,7 @@
      padding (`model.py:711`), and the mask head then runs on those boxes (`model.py:2043-2052`).
    - **Here:** `postprocess_detections` clamps the boxes to the whole input, padding included. With `keep_ratio`, a
      box can reach into the padding: its mask is predicted over that box, part of it over the padding, and the clients
-     restore the box unclipped (`clip=False`, audit L22) so that the mask is not squeezed. In the network-resolution
+     restore the box unclipped (`clip=False`) so that the mask is not squeezed. In the network-resolution
      evaluation, such boxes also lose IoU.
    - **Change:** clamp to the letterbox window (`compute_letterbox_region`, `preprocessing.py`) before the mask head;
      the trainer knows the original sizes from `labels.json`. The exported model would need the windows as a second
@@ -133,6 +123,14 @@
       `build_detection_sample_grid`, add to the caption of every detection (its class and score) its IoU to the
       matched ground truth.
     - **Cost and risk:** (b) is small, (a) medium. No number changes.
+40. **TensorRT FP16 checked at export**: `export_experiment` (`export_model.py`) checks every export with ONNX
+    Runtime on the CPU in FP32 only, so an FP16 overflow or precision loss of the TensorRT engine is seen only by
+    measuring the test metric through Triton, as `scripts/deployment/evaluate_served_formats.py` does for the models
+    of the serving benchmark (it found the FP16 overflow of the NMS exported in the detectors, fixed on 2026-11-17).
+    A Triton-against-local output comparison in `run_inference.py`, or a CPU check of the intermediate values of the
+    graph against 65,504, the largest FP16 value, would catch it for every task. The engine cache, which could serve
+    the engines of older weights, is named after the exported files since 2026-11-20
+    (`build_tensorrt_engine_cache_prefix`).
 
 ## F. Reference: Mask R-CNN compared stage by stage
 **The mask branch is the same design.** Both use RoIAlign 14 × 14, a stack of 3 × 3 convolutions, a 2 × 2 transposed
@@ -420,228 +418,5 @@ committed): every image can be taken again from them without training, except wh
    dropped on 2026-11-19, the image branch of design A (stage 3b) cropping every box from the image. The detection
    stages are all done.
 2. **The rest when the need appears:** item 12 when debugging, item 11 when deploying a class with its own threshold,
-   items 8, 9 and 10 depending on the datasets, items 2 and 39 for the detection, and item 1 when a neck has to be
-   transferred.
-
-## Repository Audit For Instance Segmentation
-
-> Audit of the whole framework, carried out on 2026-10-10 at commit `84ac325`. Every line of `vision_training/` was
-> read, split into six areas: data pipeline; detection and instance segmentation; backbone, classification and
-> segmentation; sequence tasks; training infrastructure; configuration and deployment. Each finding was checked against
-> the code. Most were reproduced with small scripts, or with short trainings on the synthetic datasets or the dummy
-> task. The critical and high findings were checked a second time by hand.
->
-> **Open items only:** the items fixed or dropped since were removed. The line numbers are those of `84ac325`, except in the items updated on
-> 2026-11-13 (H6, M5, M9, L15, L17) and on 2026-11-20 (M18, M21).
->
-> **Confidence:** every finding is VERIFIED (code paths read end to end, or reproduced) unless it is marked PLAUSIBLE
-> (the mechanism is confirmed but the size of the effect depends on the data).
->
-> **Severity:** **critical** = stalls or corrupts training, or silently mixes runs. **high** = clearly limits accuracy
-> or loses training time. **medium** = limits accuracy in some settings or gives misleading results. **low** = edge
-> cases and documentation.
-
-### Summary By Task
-
-| Task | Findings |
-|---|---|
-| All tasks (training loop, data) | C1, H5, H6 |
-| DET, INS, KPT, SEL (class thresholds) | L3 |
-| DET | M21 |
-| INS, SEG | M5 |
-| CLS | L3, L9 |
-| M2M | L11 |
-
----
-
-### Critical
-
-#### C1. A NaN or Inf loss is never detected, and every later weight and checkpoint becomes NaN
-- **Where:**
-  - `vision_training/trainers/base_trainer.py:1274-1275`, where the total loss is summed.
-  - `base_trainer.py:1027-1028`, where `training_loss.backward()` and `step_optimizer` run with no check.
-  - No `isfinite` / `isnan` appears anywhere in `trainers/`.
-- **Effect (reproduced):** a NaN loss at step 3 of a 10-iteration run turns every weight into NaN.
-  - Checkpoints 4, 8 and 10 are NaN, and so is the registry's `last` (the one resume loads). The run ends FINISHED with
-    no error line; the console only shows `nan`.
-  - The shipped configurations run for `number_iterations: 1e10`, so one bad batch on day 1 ruins a run left going for
-    a week, and resuming reloads the NaN weights.
-- **Fix:**
-  - Check `torch.isfinite(total_loss)` in `run_model_iteration`. The `.item()` of the metric tracker already
-    synchronises, so the check costs nothing extra.
-  - On a non-finite loss, zero the gradients, skip `backward` and `step`, count the skipped step and print it.
-  - Raise an error the loop does not swallow after N consecutive non-finite losses.
-  - Compute the norm of all the gradients together, skip the step when it is not finite and log the norm to
-    TensorBoard.
-  - Refuse to save or register a checkpoint whose parameters are not finite.
-
----
-
-### High
-
-#### H5. A failed save or evaluation (e.g. disk full) is swallowed: no checkpoint, no evaluation
-- **Where:**
-  - `base_trainer.py:1002-1009`: the save and evaluation sit inside the per-iteration `try`.
-  - `base_trainer.py:1072-1089`: `except Exception ... continue`.
-  - Since 2026-11-14 a failed save removes its temporary weight or registry file (`checkpointing.py`).
-- **Effect (reproduced):** `ENOSPC` from iteration 4 of a 30-iteration run.
-  - Only 17 optimizer steps out of 30 (each failed save skipped its step, the save coming before the step until M20
-    was fixed), and 13 orphan `model_*.pt.tmp` files, no longer left.
-  - No evaluation at all, yet the run ends FINISHED, because the consecutive-error counter resets after every good
-    iteration.
-  - Runs keep every checkpoint (3.5–6.7 GB per run already), so once the disk is full the run "trains" with no
-    checkpoint. The final save at Ctrl+C fails too, losing all the progress since the disk filled.
-- **Fix:**
-  - Move the save and evaluation out of the swallowing `try`, so that an `OSError` there ends the run with status
-    FAILED and a traceback.
-  - Add a setting keeping only the last N intermediate checkpoints.
-
-#### H6. An unreadable image drops its batch without limit, and makes every test evaluation fail
-- **Where:** `base_trainer.py` (`get_next_batch` and the evaluation of the weight saving iterations). Since 2026-10-21
-  `read_image` raises a `ValueError` naming the file, and every fetch error is printed and its dropped batch counted.
-- **Effect:**
-  - Only 10 failed fetches in a row stop the training: with 1 % unreadable images and batches of 64, about 47 % of
-    the batches are dropped at every epoch while the training goes on.
-  - In the test split, one unreadable image makes every test evaluation fail, each counted as a failed iteration, so
-    no test metrics are produced.
-- **Fix:**
-  - Stop above a dropped-batch ratio.
-  - Optionally check at dataset construction that every listed file exists.
-
----
-
-### Medium
-
-#### M5. Masks resized with plain nearest are shifted half a pixel down and to the right of their images
-- **Where:** (the RLE instance masks use `cv2.INTER_NEAREST_EXACT` since the audit)
-  - `segmentation_dataset.py`: `cv2.INTER_NEAREST` for the SEG masks and tiles.
-  - `augmentations.py`: `crop_and_resize` (`random_crop`, `random_aspect_crop`) and `random_zoom_out` resize the
-    masks with the default nearest of torchvision (`tv_tensors.Mask`).
-  - `preprocessing.py`: the class maps restored to the original image with `mode="nearest"`.
-- **What is wrong:** legacy nearest picks `floor(dst · scale)`, which is not centre-aligned, while the images are
-  resized bilinearly and the boxes by an exact affine.
-- **Effect (reproduced):**
-  - Mask minus image centroid is +0.40 to +0.49 px after resizing, about 0.01 px with `INTER_NEAREST_EXACT`.
-  - `random_crop` adds +0.5 px, so augmented SEG samples are off by about 1 px.
-  - At `original_resolution: True` a 4096 → 512 shift is about 3.5 original pixels, more than the default
-    `boundary_tolerance: 2`.
-- **Fix:** use `cv2.INTER_NEAREST_EXACT` in the SEG dataset, `InterpolationMode.NEAREST_EXACT` for the masks of the
-  crops and the zoom-out, and `mode="nearest-exact"` for the restored class maps.
-
-#### M21. TensorRT FP16 is never validated, and the engine cache may serve old weights — PLAUSIBLE
-- **Where:**
-  - `export_experiment` (`export_model.py`) checks the export only with ONNX Runtime on the CPU in FP32.
-  - `triton_configuration.py:92-93` enables `trt_engine_cache_enable` with the fixed path `/tmp/tensorrt_engine_cache`.
-- **Effect:**
-  - The export never runs the TensorRT engine, so an FP16 overflow or precision loss is seen only by measuring the
-    test metric through Triton: `scripts/deployment/evaluate_served_formats.py` does it for the models of the serving
-    benchmark, which found the FP16 overflow of the NMS exported in the detectors, fixed on 2026-11-17 (main 053e319).
-  - If the cache key does not cover the weights (not confirmed), re-exporting another checkpoint of the same
-    architecture serves the old engine after a container restart.
-- **Fix:** version the cache path per export (iteration and hash), and add a Triton-against-local output comparison
-  to `run_inference.py`.
-
----
-
-### Low
-
-#### L3. The threshold finder returns the lowest threshold meeting the target precision, even without any recall gain
-- **Where:** `evaluation/classification/threshold_finder.py:45-53`: `last_valid_cut = int(valid_cuts[-1])`.
-- **Effect (reproduced):** scores `[.9,.9,.8,.7,.7,.1]` with positives `[T,F,T,T,T,F]` and target 0.6 give the
-  threshold 0.10 (precision 0.67), while 0.70 has the same recall at precision 0.80. The saved thresholds sit exactly
-  on the target precision, so new data will likely fall below it.
-- **Fix:** among the valid cuts, take the first one reaching the maximum number of true positives.
-
-#### L9. Multi-label classification keeps samples whose categories are all unmapped, as all-negative targets
-- **Where:** `classification_dataset.py:61`.
-- **Effect:**
-  - Mapping a subset of the categories turns every other image into a hard negative for every class, with no
-    message, contradicting the class docstring.
-  - Merged categories are counted twice in `get_class_counts`, which skews the balanced weights.
-- **Fix:** drop the samples with no mapped class (or make it an option), and de-duplicate their class indices.
-
-#### L11. M2M sequences or batches with no labelled frame give a NaN loss and inflate the exact match
-- **Where:** `sequence_losses.py:29-31` (mean reduction with every target ignored), `sequence_metrics.py`
-  (`compute_sequence_exact_matches`).
-- **Effect (reproduced):**
-  - The tracked interval loss becomes NaN. The gradients stay finite, but if NaN is the first value the "Best" marker
-    stops updating.
-  - Sequences without labels count as exact matches.
-- **Fix:** sum the losses and divide by `clamp(number of labelled frames, 1)`. Drop these sequences from training and
-  from the exact match.
-
----
-
-### Statements Contradicting The Code
-
-| Where | Statement | Reality |
-|---|---|---|
-| `RegionProposal.foreground_iou_threshold.max` (YAML) | "Maximum matching IoU (capped at 1.0)" | Never read by the model, only by the checker |
-| `mean_average_precision.py`, `average_precision_report.py` | "COCO" mAP@[0.5:0.95] and 101-point values | VOC matching, kept on purpose (L6 dropped) |
-| `region_proposer.py` | aspect ratio = width / height | `anchors.py` and the YAMLs use height / width |
-| `preprocessing.py`, `deployment_utilities.py` | restore functions "used by the inference clients" | No inference client of the repository calls them; the evaluations do |
-| `sequence_classification_trainer.py:66-72` | Frame shuffle warning for every transformer | A non-causal transformer without positional embedding (the README's recommendation for frame sets) cannot see the order |
-| `base_trainer.py` | MLflow opened after the loader workers are forked | True of the training and validation workers, not of the test workers (L15) |
-
-Robustness gaps of the configuration loader: `int(float(...))` silently truncates non-integer counts; unknown or
-misspelled keys are silently ignored, only the removed settings and the augmentation type names being refused.
-
----
-
-### Checked And Correct
-
-- **Training loop:**
-  - bfloat16 autocast without a GradScaler is correct, and `zero_grad` comes before the forward pass.
-  - The warm-up and cosine schedule maths, applied every step before `optimizer.step`.
-  - The learning-rate multipliers after resume, and disjoint parameter groups.
-  - Frozen batch-norm statistics restored after every `model.train()`.
-  - Validation in eval mode without gradients.
-  - Atomic weight files.
-  - MLflow never blocks the training thread.
-  - The best-checkpoint direction.
-- **Detection:**
-  - Box encoding and decoding round-trip (9e-7), with deltas clamped before `exp`.
-  - The anchor, objectness and offset layouts match.
-  - Proposals are detached.
-  - The per-class regression picked by the loss and by the postprocessing.
-  - Softmax and sigmoid are consistent between training and inference.
-  - RoIAlign scale and `aligned` are identical in every head and in the mask targets.
-  - Empty levels, zero positives and images without objects are safe.
-  - The training-model eval path equals `InferenceDetector` / `InferenceInstanceSegmenter`, padding included.
-  - The AP formulas and the exclusion of classes without ground truth.
-- **Data:**
-  - Box and mask geometry under flips, 90° rotations, crops and small rotations (within 1 px).
-  - Letterbox and restore maths.
-  - BGR order everywhere, with normalisation inside the model.
-  - The polygon rasteriser (0 pixels differ from a pixel-centre reference) and the RLE round trip.
-  - Augmentation only on training batches.
-  - Sequence padding, masks and collate.
-  - The SEG lookup table and ignored pixels.
-- **Backbone, CLS, SEG:**
-  - U-Net skip alignment for odd sizes.
-  - Deep supervision.
-  - Finite losses on fully ignored masks.
-  - Dice, Lovász and boundary losses.
-  - Confusion matrices and IoU / Dice / boundary metrics against hand computations.
-  - Sliding-window coverage and averaging.
-  - Dropout and batch norm in eval for validation, test and export.
-- **Sequence tasks:**
-  - All 7 temporal modules are padding-invariant, and the causal ones do not leak future frames.
-  - Bidirectional concatenation.
-  - Fusion member order.
-  - bf16 forward and backward.
-  - The Hungarian and greedy SEL decoding (optimal against brute force).
-  - The SEL deployed decoding matches the evaluation in 72 of 72 cases.
-- **Configuration and deployment:**
-  - Every shipped YAML loads, passes the checker, and has every key read.
-  - Strict key access.
-  - Migration of old configurations from the git history.
-  - Deployment preprocessing matches the loaders.
-  - Triton dims, dtypes and dynamic axes match the export.
-
----
-
-### Suggested Order Of Fixes
-
-The user chose on 2026-11-20 to fix the items left here and dropped the others: C1, H5 and H6 first (training safety),
-then M5, L9 and L11 (targets and metrics), then L3 and M21 (evaluation and deployment).
+   item 40 before serving a model in FP16, items 8, 9 and 10 depending on the datasets, items 2 and 39 for the
+   detection, and item 1 when a neck has to be transferred.
