@@ -54,3 +54,33 @@ def test_bootstrap_interval_widens_for_few_groups() -> None:
         group_trials=np.tile(group_trials, reps=(20, 1)))
     assert many_lower[0] < 0.8 < many_upper[0] and few_lower[0] < many_lower[0] and few_upper[0] > many_upper[0]
     assert (few_upper[0] - few_lower[0]) / (many_upper[0] - many_lower[0]) > 6.0
+
+
+def test_bootstrap_interval_of_the_same_fractional_recall_in_every_group_uses_its_true_samples() -> None:
+    """
+    Verifies the interval of a class found 1 time in 2 in each of 100 sequences: every resample gives a recall of 0.5,
+    so that the variance is 0 and the size is the limit of the variance formula, the 200 true frames reduced for the 99
+    degrees of freedom (about [0.428, 0.572]), not the 100 sequences (about [0.398, 0.602]), and close to the interval
+    of the same counts with a small variance between the sequences. A class found or missed whole in every sequence
+    keeps the exact interval over its sequences, each counted as one sample.
+    """
+    group_trials = np.full(shape=(100, 2), fill_value=2, dtype=np.int64)
+    group_true_positives = np.column_stack([np.ones(shape=100, dtype=np.int64), np.full(shape=100, fill_value=2)])
+    lower_bounds, upper_bounds = compute_bootstrap_recall_intervals(group_true_positives=group_true_positives,
+                                                                    group_trials=group_trials)
+    sequence_lower, sequence_upper = compute_clopper_pearson_intervals(true_positives=np.array([50.0]),
+                                                                       trials=np.array([100.0]))
+    assert lower_bounds[0] == pytest.approx(expected=0.428, abs=0.002)
+    assert upper_bounds[0] == pytest.approx(expected=0.572, abs=0.002)
+    assert lower_bounds[0] > sequence_lower[0] + 0.02 and upper_bounds[0] < sequence_upper[0] - 0.02
+
+    # Two sequences moved by one frame each way leave the recall at 0.5 with a small variance, and about the same bounds
+    varying_true_positives = group_true_positives[:, :1].copy()
+    varying_true_positives[0, 0], varying_true_positives[1, 0] = 0, 2
+    varying_lower, varying_upper = compute_bootstrap_recall_intervals(group_true_positives=varying_true_positives,
+                                                                      group_trials=group_trials[:, :1])
+    assert lower_bounds[0] == pytest.approx(expected=varying_lower[0], abs=0.01)
+    assert upper_bounds[0] == pytest.approx(expected=varying_upper[0], abs=0.01)
+
+    # Every sequence finding the class whole: the exact interval of 100 of 100 sequences
+    assert lower_bounds[1] == pytest.approx(expected=0.025 ** 0.01, abs=1e-6) and upper_bounds[1] == 1.0

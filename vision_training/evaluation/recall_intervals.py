@@ -50,7 +50,7 @@ def describe_bootstrap_interval(group_name: str) -> str:
     """
     return (f"Korn-Graubard interval, exact at the effective sample size of the variance of {BOOTSTRAP_RESAMPLES} "
             f"bootstrap resamples of the {group_name} (fixed seed), or over the {group_name} holding the class when "
-            f"they all have the same recall")
+            f"the recall is 0 % or 100 % or only one of them holds the class")
 
 
 def check_recall_counts(true_positives: np.ndarray, trials: np.ndarray) -> None:
@@ -146,10 +146,12 @@ def compute_bootstrap_recall_intervals(group_true_positives: np.ndarray, group_t
     The effective sample size of the class, the independent samples that would give that variance (p (1 - p) /
     variance, at most its true samples), is reduced by the squared ratio of the normal and Student quantiles at the
     degrees of freedom of the groups holding the class minus one, so that the interval widens when few groups hold
-    it, and the bounds are the exact (Clopper-Pearson) interval of the recall at that size. When every resample gives
-    the same recall (the same recall in every group, such as 0 or 1 everywhere, or a single group holding the class),
-    the variance says nothing and the bounds are the exact interval over the groups holding the class, each counted as
-    one sample, so that the interval never shrinks to a point.
+    it, and the bounds are the exact (Clopper-Pearson) interval of the recall at that size. When every group holding
+    the class has the same recall strictly between 0 and 1, every resample gives that recall and the variance is 0:
+    the size is then its true samples, the limit of the formula as the variance vanishes, reduced the same way. When
+    the recall is 0 or 1 (no group finding any of the class, or every group finding all of it) or a single group holds
+    it, p (1 - p) or the degrees of freedom are 0 and the variance says nothing: the bounds are the exact interval over
+    the groups holding the class, each counted as one sample, so that the interval never shrinks to a point.
 
     Args:
         group_true_positives (np.ndarray): The [G, K] true positives of every group and class.
@@ -193,26 +195,32 @@ def compute_bootstrap_recall_intervals(group_true_positives: np.ndarray, group_t
                                            out=np.full(shape=drawn_trials.shape, fill_value=np.nan),
                                            where=drawn_trials > 0))
 
-    # Variance of the recall of every present class over the resamples holding true samples of it, none when every
+    # Variance of the recall of every present class over the resamples holding true samples of it, 0 when every
     # resample gives the same recall
     resampled_recalls = np.concatenate(resampled_recalls, axis=0)
     present_recalls = present_true_positives.sum(axis=0) / present_trials.sum(axis=0)
     present_samples, present_groups = present_trials.sum(axis=0), (present_trials > 0).sum(axis=0)
     recall_variances = np.nanvar(resampled_recalls, axis=0)
-    varying_classes = np.flatnonzero(np.nanmax(resampled_recalls, axis=0) - np.nanmin(resampled_recalls, axis=0) >
-                                     RESAMPLED_RECALL_TOLERANCE)
+    has_variance = (np.nanmax(resampled_recalls, axis=0) - np.nanmin(resampled_recalls, axis=0) >
+                    RESAMPLED_RECALL_TOLERANCE)
 
-    # Effective sample size of every class: the groups holding it without variance, otherwise the independent samples
-    # giving its variance, at most its true samples, reduced for the degrees of freedom of its groups
+    # Classes whose variance gives a size: a recall strictly between 0 and 1 held by several groups (a varying class
+    # always is one); the others keep the number of groups holding them
     tail_probability = (1.0 - confidence_level) / 2.0
     effective_sizes = present_groups.astype(np.float64)
-    if len(varying_classes) > 0:
-        varying_recalls = present_recalls[varying_classes]
-        independent_sizes = np.minimum(varying_recalls * (1.0 - varying_recalls) / recall_variances[varying_classes],
-                                       present_samples[varying_classes])
+    sized_classes = np.flatnonzero((present_recalls > 0.0) & (present_recalls < 1.0) & (present_groups > 1))
+    if len(sized_classes) > 0:
+        # Independent samples giving the variance, all the true samples when it is 0, at most the true samples
+        sized_recalls = present_recalls[sized_classes]
+        sized_variances = np.where(has_variance[sized_classes], recall_variances[sized_classes], 0.0)
+        variance_sizes = np.divide(sized_recalls * (1.0 - sized_recalls), sized_variances,
+                                   out=np.full(shape=len(sized_classes), fill_value=np.inf), where=sized_variances > 0)
+        independent_sizes = np.minimum(variance_sizes, present_samples[sized_classes])
+
+        # Reduced for the degrees of freedom of the groups holding the class
         degrees_of_freedom_factors = (norm.ppf(q=1.0 - tail_probability) / t.ppf(
-            q=1.0 - tail_probability, df=present_groups[varying_classes] - 1)) ** 2
-        effective_sizes[varying_classes] = independent_sizes * degrees_of_freedom_factors
+            q=1.0 - tail_probability, df=present_groups[sized_classes] - 1)) ** 2
+        effective_sizes[sized_classes] = independent_sizes * degrees_of_freedom_factors
 
     # Exact interval of every present class at its effective sample size, its recall times that size counted as found
     present_lower_bounds, present_upper_bounds = compute_clopper_pearson_intervals(
