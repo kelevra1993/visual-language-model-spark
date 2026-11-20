@@ -417,6 +417,8 @@ def select_story_objects(objects: List[Dict[str, Any]], sample: Dict[str, Any]) 
 
     # The largest and the smallest object by box area, compared by the object keypoint similarity
     areas = [(box[2] - box[0]) * (box[3] - box[1]) for box in boxes]
+
+    # Names of the single object, of its unlabelled keypoints and of the pair class, quoted by the narration
     single_object, pair_object = objects[single_index], objects[pair_indices[0]]
     unlabelled_keypoints = [name for name, visibility in zip(single_object["keypoint_names"],
                                                              single_object["visibilities"]) if visibility == 0]

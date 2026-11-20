@@ -34,8 +34,7 @@ from tutorials.figures.figure_utilities import (SERIES_COLOURS, compute_file_fin
                                                 write_reused_facts)
 from tutorials.figures.object_detection.detection_sources import (CHECKPOINT_ITERATION, SAMPLE_IMAGE_NAME,
                                                                   SAMPLE_ITERATIONS, describe_class_name,
-                                                                  find_test_folder,
-                                                                  hexadecimal_to_rgb, load_run_model,
+                                                                  find_test_folder, hexadecimal_to_rgb, load_run_model,
                                                                   load_untrained_run_model, read_category_names,
                                                                   read_image_annotations, read_network_image,
                                                                   read_test_manifest, write_listing)
@@ -381,8 +380,7 @@ def make_target_figure(object_masks: torch.Tensor, object_boxes: torch.Tensor, o
     # Target of the proposal, the matched ground truth being the object
     target = build_mask_targets(ground_truth_masks=[object_masks],
                                 proposal_boxes=torch.cat(tensors=[torch.zeros(size=(1,)), proposal]).unsqueeze(dim=0),
-                                matched_ground_truth_indices=torch.tensor(data=[object_index]),
-                                mask_size=mask_size)[0]
+                                matched_ground_truth_indices=torch.tensor(data=[object_index]), mask_size=mask_size)[0]
 
     # Panels: the object with its mask and the proposal, the crop of the mask in the proposal, and the target
     colour = hexadecimal_to_rgb(colour=SERIES_COLOURS[4])
@@ -402,6 +400,9 @@ def make_target_figure(object_masks: torch.Tensor, object_boxes: torch.Tensor, o
         (f"target, {mask_size} × {mask_size}", f"RoIAlign aligned, >= 0.5: {int(target.sum())} of "
                                                 f"{mask_size ** 2} pixels",
          target_image.convert(mode="RGB"))], output_path=output_path)
+
+    # Facts of the target scene: the object, the overlap and box of the proposal, the foreground of the target and the
+    # boxes of the three panels
     return {"target.object": object_names[object_index], "target.object_text": object_text,
             "target.proposal_iou": round_fact(value=float(overlaps[proposal_index])),
             "target.proposal_box": [round_fact(value=value) for value in proposal.tolist()],
@@ -513,6 +514,9 @@ def make_prediction_figures(outputs: Dict[str, Any], object_masks: torch.Tensor,
         inside_box = torch.zeros_like(input=object_mask)
         inside_box[max(top, 0):bottom, max(left, 0):right] = True
         hole_mask = torch.from_numpy(fill_mask_holes(mask=object_mask.numpy())) & ~object_mask
+
+        # Facts of the detection: its class, score and level, its mask and box overlaps with its object, the pixel
+        # counts above and the box of its tile
         facts.update({f"{prefix}.name": labels[detection_index],
                       f"{prefix}.name_text": describe_class_name(class_name=labels[detection_index]),
                       f"{prefix}.score": round_fact(value=scores[detection_index]),

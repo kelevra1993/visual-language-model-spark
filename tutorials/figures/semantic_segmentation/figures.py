@@ -62,6 +62,8 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
     # The expensive forward pass of the trained segmenter, then every family drawn from it or from the run files
     inference_facts = run_segmentation_inference(output_folder=output_folder, run_folder=run_folder,
                                                  sample_record=sample_record, force=force)
+
+    # Overlay of the training curves, whose facts the base image drawn among the families below gives
     draw_training_curves(output_folder=output_folder, run_folder=run_folder, with_curves=True)
     experiment_configuration = configuration["ExperimentConfiguration"]
 
@@ -81,6 +83,8 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
          "sample_image_number": int(Path(SAMPLE_IMAGE_NAME).stem.split("_")[-1]),
          "generator_shape_categories": len(TASK_CATEGORIES[TASK_NAME]),
          "evaluation_boundary_counts": len(BOUNDARY_COUNT_COLUMNS)},
+
+        # Families of the data scenes, then of the model scenes
         write_manifest_listing(output_folder=output_folder, sample_record=sample_record,
                                label_mapping_path=Path(configuration["Data"]["label_mapping"]["mapping_file_path"])),
         draw_mask_figure(output_folder=output_folder, sample_record=sample_record, label_dictionary=label_dictionary,
@@ -89,6 +93,8 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
         count_configuration_decoder_shortcuts(),
         describe_export_specification(run_folder=run_folder),
         draw_level_figure(output_folder=output_folder, inference_facts=inference_facts, number_classes=number_classes),
+
+        # Families of the training scenes, the curves drawn as the empty-axes base image, then of the evaluation scenes
         draw_training_curves(output_folder=output_folder, run_folder=run_folder, with_curves=False),
         describe_pixel_shares(run_folder=run_folder, number_classes=number_classes),
         read_training_throughput(run_folder=run_folder),

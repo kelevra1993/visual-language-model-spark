@@ -186,6 +186,9 @@ def write_labels_listing(output_folder: Path, sample_record: Dict[str, Any], obj
              f'   "bbox": {format_json_value(value=single_annotation["bbox"])},']
     lines += wrap_json_list(prefix='"keypoints": ', values=single_annotation["keypoints"], values_per_line=6,
                             indentation=3)
+
+    # End of the single annotation, the distractor annotation with its empty keypoints, then the category of the single
+    # object with its keypoint names, its skeleton and its extra fields
     lines += [f'   "num_keypoints": {single_annotation["num_keypoints"]}}},',
               f'  {{"id": {distractor["id"]}, "image_id": {distractor["image_id"]}, '
               f'"category_id": {distractor["category_id"]},',
@@ -447,6 +450,8 @@ def make_target_figures(output_folder: Path, sample_record: Dict[str, Any], chan
     cell_column, cell_row = int(position_x // HEATMAP_STRIDE), int(position_y // HEATMAP_STRIDE)
     window = stride_heatmaps["stride_4"][1][channel, cell_row - GRID_HALF_SIDE:cell_row + GRID_HALF_SIDE + 1,
                                             cell_column - GRID_HALF_SIDE:cell_column + GRID_HALF_SIDE + 1]
+
+    # Values and labels of the window, the keypoint in pixels and in cells, its four neighbours and the Gaussian radius
     facts.update({"grid_class_name": single_object["class_name"],
                   "grid_keypoint_name": single_object["keypoint_names"][keypoint_index],
                   "grid_keypoint_label": format_class_label(class_name=single_object["keypoint_names"][keypoint_index]),

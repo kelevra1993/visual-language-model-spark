@@ -100,7 +100,8 @@ def read_test_sequence(test_folder: Path, sequence: Dict[str, Any], image_size: 
 
 def count_parameters(module: torch.nn.Module) -> int:
     """
-    Counts the parameters of a module of a model.
+    Counts the parameters of a module of a run, for the parameters.* facts of the model scenes (backbone, temporal
+    module, classification head and whole model).
 
     Args:
         module (torch.nn.Module): The module.
@@ -266,12 +267,16 @@ def make_model_figures(output_folder: Path, flatten_model: TaskModel, run_folder
                               for run_name in [MAIN_RUN_NAME, AVERAGE_RUN_NAME])
     if not checkpoints_present:
         restore_committed_figures(output_folder=output_folder, family_folder="model")
+
+    # Inference facts of the previous build, dropped when another version of this module wrote them
     facts = read_reused_facts(facts_path=facts_path, required_paths=[], force=force and checkpoints_present)
     if facts is not None and facts.get("model.version") != MODEL_FACTS_VERSION:
         if not checkpoints_present:
             raise ValueError(f"The committed model facts {facts_path} are of version {facts.get('model.version')}, "
                              f"not {MODEL_FACTS_VERSION}: build with the real runs, then write the snapshots again.")
         facts = None
+
+    # Inference on the CPU with both checkpoints, every run reading the test frames at its own frame size
     if facts is None:
         average_model = load_sequence_model(run_folder=run_folders[AVERAGE_RUN_NAME],
                                             iteration=checkpoint_iterations[AVERAGE_RUN_NAME], allow_untrained=False)

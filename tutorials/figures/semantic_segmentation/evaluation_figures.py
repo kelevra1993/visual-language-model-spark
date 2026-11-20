@@ -57,11 +57,14 @@ def stack_sample_images(output_folder: Path, run_folder: Path) -> Dict[str, Any]
     Returns:
         Dict[str, Any]: The boxes of the rows and of their right halves, and the size of the figure.
     """
+    # Sample image of the test image of the chapters, as the evaluation of every checkpoint wrote it
     images = []
     for iteration in EVALUATED_ITERATIONS:
         with Image.open(fp=run_folder / EVALUATION_FOLDER_NAME / f"Iteration_{iteration}" / "Samples" /
                         SAMPLE_IMAGE_NAME) as sample_image:
             images.append(sample_image.convert(mode="RGB"))
+
+    # Images stacked on the card colour, with the box of every row and of its left and right halves
     width = max(image.width for image in images)
     height = sum(image.height for image in images) + SAMPLE_GAP * (len(images) - 1)
     stacked = Image.new(mode="RGB", size=(width, height), color=CARD_COLOUR)
@@ -138,6 +141,7 @@ def draw_boundary_figure(output_folder: Path, run_folder: Path, boundary_toleran
     Returns:
         Dict[str, Any]: The facts of the region and boundary metrics of every class.
     """
+    # Classes of the last evaluation from the highest IoU to the lowest, one row each
     register_fonts()
     rows = read_csv_rows(csv_path=run_folder / EVALUATION_FOLDER_NAME / f"Iteration_{CHECKPOINT_ITERATION}" /
                          "class_metrics.csv")
@@ -147,6 +151,8 @@ def draw_boundary_figure(output_folder: Path, run_folder: Path, boundary_toleran
     axes = figure.add_axes(rect=(0.12, 0.12, 0.84, 0.78))
     style_chart_panel(axes=axes, title=f"Region and contour of every class, iteration {CHECKPOINT_ITERATION}",
                       x_label="Value", y_label=None)
+
+    # Every class: a line from its boundary IoU to its IoU, and a marker for its IoU, boundary IoU and boundary F1
     positions = numpy.arange(len(rows))
     iou_values = [float(row["iou"]) for row in rows]
     boundary_values = [float(row["boundary_iou"]) for row in rows]
@@ -159,6 +165,8 @@ def draw_boundary_figure(output_folder: Path, run_folder: Path, boundary_toleran
                  label=f"boundary IoU, {boundary_tolerance} pixel tolerance")
     axes.scatter(f1_values, positions, s=(9 * POINTS_PER_PIXEL) ** 2, color=SERIES_COLOURS[4], zorder=3, marker="D",
                  label="boundary F1")
+
+    # Class names on the rows, the highest IoU on top, and the values on an axis of percentages
     axes.set_yticks(ticks=positions, labels=[row["class"].replace("_", " ") for row in rows])
     axes.set_ylim(bottom=len(rows) - 0.5, top=-0.5)
     axes.set_xlim(left=0.0, right=1.02)

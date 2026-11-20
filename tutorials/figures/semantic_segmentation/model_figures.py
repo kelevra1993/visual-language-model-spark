@@ -4,9 +4,9 @@ tutorials/figures/semantic_segmentation/figures.py: the shapes of the skip conne
 of the decoder recorded on the test image by the inference of segmentation_inference.py, the parameters of the
 components and the receptive field of the encoder (the labels of the U-Net diagram), the residual shortcuts every block
 adds once residual_nets is turned on (the caveat of the decoder), for the run and for the decoder of the synthetic
-configuration the decoder scene shows, the figure of what every level computes, the mean
-absolute activation of the skip connections and of the decoder levels next to the predicted class map, and the shapes
-and tolerances of the export of the segmenter given by the export specification of the deployment code.
+configuration the decoder scene shows, the figure of what every level computes, the mean absolute activation of the
+skip connections and of the decoder levels next to the predicted class map, and the shapes and tolerances of the export
+of the segmenter given by the export specification of the deployment code.
 """
 
 import copy
@@ -267,6 +267,8 @@ def draw_level_figure(output_folder: Path, inference_facts: Dict[str, Any], numb
             [(f"level_{block}", f"decoder level {block}") for block in reversed(level_blocks)] +
             [("class_map", "class map")]]
     facts = {}
+
+    # Every panel of both rows: the class map in the class colours, every other map scaled to its own 99th percentile
     for row_index, row in enumerate(rows):
         top = row_index * (LEVEL_TITLE_HEIGHT + LEVEL_PANEL_SIDE + LEVEL_ROW_GAP)
         for column_index, (name, title) in enumerate(row):
@@ -282,6 +284,8 @@ def draw_level_figure(output_folder: Path, inference_facts: Dict[str, Any], numb
                 subtitle = format_shape(shape=shapes[name])
             draw_level_panel(figure=figure, left=left, top=top, image=image, title=title, subtitle=subtitle)
         facts[f"levels_row_{row_index + 1}_box"] = [0, top, CHART_WIDTH, top + LEVEL_TITLE_HEIGHT + LEVEL_PANEL_SIDE]
+
+    # Figure of the model folder, with the pixel accuracy of the class map measured by the inference
     save_figure(figure=figure, output_path=output_folder / "model" / "levels.png")
     pyplot.close(fig=figure)
     facts["levels_pixel_accuracy"] = inference_facts["inference_pixel_accuracy"]

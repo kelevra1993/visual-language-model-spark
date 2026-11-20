@@ -251,7 +251,8 @@ def describe_triton_configurations(output_folder: Path, classification_run_folde
         export_settings (Dict[str, Any]): The facts of describe_export_settings.
 
     Returns:
-        Dict[str, Any]: The facts triton.* and the image size and classes of the classifier.
+        Dict[str, Any]: The facts triton.*, the image size and classes of the classifier (classifier.*), and the image
+            size, maximum detections and output count of the detector (detector.*).
     """
     # Classifier: a stand-in holding the input size and class count of its configuration and label dictionary, all its
     # export specification reads (InferenceClassifier takes them from the backbone and the label dictionary), so that
@@ -285,6 +286,7 @@ def describe_triton_configurations(output_folder: Path, classification_run_folde
     write_served_outputs_listing(specification=detection_specification, export_format="torchscript",
                                  output_path=output_folder / "listings" / "detector_torchscript_outputs.txt")
 
+    # Settings read back from the written classifier configuration, then the attributes of both stand-ins
     return {"triton.queue_delay_microseconds": configuration_values["queue_delay_microseconds"],
             "triton.queue_delay_milliseconds": configuration_values["queue_delay_microseconds"] /
                                                    MICROSECONDS_PER_MILLISECOND,
@@ -341,7 +343,7 @@ def describe_request_sizes(classification_image_size: int, detection_image_size:
 
 def describe_compose_file(repository_folder: Path) -> Dict[str, Any]:
     """
-    Reads the ports and the image of the Triton docker compose file.
+    Reads the ports and the image of the Triton docker compose file, which the serving chapter quotes.
 
     Args:
         repository_folder (Path): The repository root.
@@ -416,7 +418,9 @@ def describe_model_repository(output_folder: Path) -> Dict[str, Any]:
 
 def make_export_values(output_folder: Path, experiments_folder: Path) -> Dict[str, Any]:
     """
-    Makes the listings and facts of the export and serving chapters.
+    Makes the listings and facts of the export and serving chapters of the deployment series, from the code of the
+    repository, the classification, detection benchmark and sequence labelling runs of tutorial_sources.yaml and the
+    committed file list of the model repository of the serving benchmark.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -434,15 +438,13 @@ def make_export_values(output_folder: Path, experiments_folder: Path) -> Dict[st
     # Outputs of the frame selection decoder, then the settings of the export script and everything derived from them
     write_decoder_outputs_listing(output_path=output_folder / "listings" / "decoder_outputs.txt")
     export_settings = describe_export_settings(repository_folder=repository_folder)
-    triton_facts = describe_triton_configurations(output_folder=output_folder,
-                                                  classification_run_folder=classification_run_folder,
-                                                  detection_run_folder=detection_run_folder,
-                                                  export_settings=export_settings)
+    triton_facts = describe_triton_configurations(
+        output_folder=output_folder, classification_run_folder=classification_run_folder,
+        detection_run_folder=detection_run_folder, export_settings=export_settings)
     return {**export_settings, **triton_facts,
             **describe_check_batches(sequence_run_folder=sequence_run_folder),
             **describe_comparison_tolerances(),
-            **describe_input_contract(output_folder=output_folder,
-                                      classification_run_folder=classification_run_folder),
+            **describe_input_contract(output_folder=output_folder, classification_run_folder=classification_run_folder),
             **describe_request_sizes(classification_image_size=triton_facts["classifier.image_size"],
                                      detection_image_size=triton_facts["detector.image_size"]),
             **describe_compose_file(repository_folder=repository_folder),

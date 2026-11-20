@@ -186,6 +186,9 @@ def draw_thresholds_figure(run_folder: Path, output_path: Path) -> Dict[str, Any
     figure.text(x=0.012, y=0.905, s="Green: right choice · red: wrong choice · yellow tick: threshold of the class, "
                                     "a choice under it is flagged low confidence", color=TEXT_SECONDARY_COLOUR,
                 fontsize=18 * POINTS_PER_PIXEL, va="center")
+
+    # One panel per compared evaluation, its chosen frames read from its selections.csv, with the pixel box of the
+    # panel and its labels for the highlights of the scene
     facts = {}
     for axes, iteration in zip(panel_axes, THRESHOLD_ITERATIONS):
         evaluation_folder = run_folder / EVALUATION_FOLDER_NAME / f"Iteration_{iteration}"

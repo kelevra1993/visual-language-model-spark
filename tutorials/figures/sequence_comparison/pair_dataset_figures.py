@@ -1,11 +1,11 @@
 """
-Dataset figures of the sequence comparison tutorials (chapter 1), made by tutorials/figures/sequence_comparison/
-figures.py from the object loss pairs dataset the comparison run trained on: the first frames of both members of a
-training pair and of a test pair copied for the HTML scenes under the name of their role, the listings of the split
-layout and of its labels.json entry, the chart of the member lengths of every class, the mask of one training batch
-padded like the pair dataset and batched by the collate of the loaders, and the share of padding frames in the batches
-of the run. Its facts are the sizes of the splits, the classes and their class indices, the shown pairs, the size of
-the frames on disk, the lengths and the padding the narration quotes.
+Dataset figures of the sequence comparison tutorials (chapter 1), made by
+tutorials/figures/sequence_comparison/figures.py from the object loss pairs dataset the comparison run trained on: the
+first frames of both members of a training pair and of a test pair copied for the HTML scenes under the name of their
+role, the listings of the split layout and of its labels.json entry, the chart of the member lengths of every class,
+the mask of one training batch padded like the pair dataset and batched by the collate of the loaders, and the share of
+padding frames in the batches of the run. Its facts are the sizes of the splits, the classes and their class indices,
+the shown pairs, the size of the frames on disk, the lengths and the padding the narration quotes.
 """
 
 import json
@@ -144,6 +144,8 @@ def draw_member_length_figure(output_path: Path, pairs: List[Dict[str, Any]],
                                      dpi=DOTS_PER_INCH, sharey=True)
     figure.patch.set_facecolor(SURFACE_COLOUR)
     figure.subplots_adjust(left=0.07, right=0.985, top=0.80, bottom=0.12, wspace=0.08)
+
+    # One panel per class, the bars of the before and after members side by side at every number of frames
     all_lengths = sorted({len(pair[member]) for pair in pairs for member in PAIR_MEMBERS})
     bar_width = 0.4
     facts = {}
@@ -160,6 +162,8 @@ def draw_member_length_figure(output_path: Path, pairs: List[Dict[str, Any]],
         axes.grid(visible=False, axis="x")
         facts[f"lengths.panel_{panel_index}_box"] = compute_pixel_box(figure=figure, axes=axes, with_labels=True,
                                                                       margin=6)
+
+    # Legend of the two members above the panels
     legend_handles = [Line2D(xdata=[0], ydata=[0], color=SERIES_COLOURS[1], linewidth=10 * POINTS_PER_PIXEL),
                       Line2D(xdata=[0], ydata=[0], color=SERIES_COLOURS[3], linewidth=10 * POINTS_PER_PIXEL)]
     figure.legend(handles=legend_handles, labels=["before member", "after member"], loc="center left",
@@ -227,7 +231,10 @@ def build_training_batch_mask(train_folder: Path, label_dictionary: Dict[int, in
 def make_pair_dataset_figures(output_folder: Path, train_folder: Path, label_dictionary: Dict[int, int],
                               batch_size: int) -> Dict[str, Any]:
     """
-    Makes the dataset figures of the series from the object loss pairs dataset of the run, and gives their facts.
+    Makes the dataset figures of the first chapter from the object loss pairs dataset of the run (the frames of the
+    shown pairs, the listings of the split, the member lengths chart and the mask of one training batch), and gives
+    their facts: the sizes and classes of the splits, the class indices, the shown pairs, the frame size, the member
+    lengths and the padding of the batches.
 
     Args:
         output_folder (Path): The figures folder of the series.

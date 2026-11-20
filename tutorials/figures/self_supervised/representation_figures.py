@@ -205,6 +205,8 @@ def draw_neighbour_mosaic(output_path: Path, rows: List[Dict[str, Any]], query_s
             for spine in axes.spines.values():
                 spine.set_color(TEXT_SECONDARY_COLOUR if column_index > 0 else TEXT_PRIMARY_COLOUR)
                 spine.set_linewidth(2 * POINTS_PER_PIXEL)
+
+            # Class of the image in its colour under its left corner, its similarity (or "query") under its right one
             caption = "query" if shown_image["similarity"] is None else f"{shown_image['similarity']:.3f}"
             figure.text(x=left, y=bottom - 10 / CHART_HEIGHT, s=sample["class_name"].replace("_", " "), va="top",
                         ha="left", color=CLASS_COLOURS[sample["class_index"]], fontsize=19 * POINTS_PER_PIXEL,
@@ -361,6 +363,8 @@ def measure_colour_cue(run_folder: Path, trained_model: SelfSupervisedModel, aug
             facts[f"cue.{model_name}_{view_name}_accuracy"] = round_fact(value=float(numpy.mean(accuracies)))
             facts[f"cue.{model_name}_{view_name}_loss"] = round_fact(value=float(numpy.mean(losses)))
         model.eval()
+
+    # The untrained network must find more partners on colour views than on grayscale ones, the cue the scene shows
     if facts["cue.untrained_colour_accuracy"] <= facts["cue.untrained_grayscale_accuracy"]:
         raise ValueError(f"The untrained network finds {facts['cue.untrained_colour_accuracy']:.4f} of the partners "
                          f"on colour views and {facts['cue.untrained_grayscale_accuracy']:.4f} on grayscale views: "
@@ -492,6 +496,8 @@ def make_representation_figures(output_folder: Path, run_folder: Path, force: bo
             model=model, augmenter=augmenter, sample=query_sample, image_size=image_size, keep_ratio=keep_ratio))
         if iteration not in (evaluated_iterations[0], evaluated_iterations[-1]):
             continue
+
+        # Neighbourhood of the star among the encoded reference images, and its nearest images shown by the mosaic
         query_representation = encode_images(model=model, samples=[query_sample], image_size=image_size,
                                              keep_ratio=keep_ratio)[0]
         reference_representations = encode_images(model=model, samples=reference_samples, image_size=image_size,

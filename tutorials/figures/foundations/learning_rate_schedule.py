@@ -215,9 +215,9 @@ def make_learning_rate_schedule_figure(output_folder: Path, configuration_path: 
     # Learning rate of every iteration of the configuration, from the schedule function of the repository
     learning_rate, number_iterations, optimization_configuration = read_schedule_settings(
         configuration_path=configuration_path)
-    iterations, learning_rates = compute_learning_rates(learning_rate=learning_rate,
-                                                        number_iterations=number_iterations,
-                                                        optimization_configuration=optimization_configuration)
+    iterations, learning_rates = compute_learning_rates(
+        learning_rate=learning_rate, number_iterations=number_iterations,
+        optimization_configuration=optimization_configuration)
     warmup_iterations = optimization_configuration["warmup_iterations"]
     decay_iterations = optimization_configuration["decay_iterations"]
     minimum_ratio = optimization_configuration["minimum_learning_rate_ratio"]

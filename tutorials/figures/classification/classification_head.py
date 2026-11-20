@@ -166,8 +166,8 @@ def describe_star_outputs(class_names: List[str], logits: numpy.ndarray,
     # Classes from the most probable one, the test star first
     class_order = numpy.argsort(-probabilities, kind="stable").tolist()
     if class_names[class_order[0]] != STAR_CATEGORY_NAME:
-        raise ValueError(f"The test star {STAR_IMAGE_NAME} is predicted {class_names[class_order[0]]}: pick a test star "
-                         f"the run classifies right (STAR_IMAGE_NAME of tutorials/figures/figure_utilities.py).")
+        raise ValueError(f"The test star {STAR_IMAGE_NAME} is predicted {class_names[class_order[0]]}: pick a test "
+                         f"star the run classifies right (STAR_IMAGE_NAME of tutorials/figures/figure_utilities.py).")
 
     # Bars of the scene: the most probable classes, then one bar for the others with their summed probability
     shown_order, other_order = class_order[:SHOWN_STAR_CLASSES], class_order[SHOWN_STAR_CLASSES:]
@@ -297,8 +297,8 @@ def make_classification_head_figures(output_folder: Path, run_folder: Path, forc
         force (bool): Whether the checkpoint is run again even when the previous build left the figures.
 
     Returns:
-        Dict[str, Any]: The facts of the figures, named star_image.*, hidden_features.*, class_weights.* and
-            parameters.*.
+        Dict[str, Any]: The facts of the figures, named star_image.*, hidden_features.*, class_weights.*,
+            parameters.*, backbone.* and head.*.
     """
     # Figures of the previous build, or those committed in the run snapshots for a run without its checkpoint
     model_folder = output_folder / MODEL_FAMILY_FOLDER
@@ -342,6 +342,9 @@ def make_classification_head_figures(output_folder: Path, run_folder: Path, forc
     draw_correlation_figure(correlation=correlation, output_path=model_folder / "hidden_feature_correlation.png")
     decorrelation = compute_decorrelation_loss(hidden_features=hidden_features,
                                                weight=decorrelation_configuration["weight"])
+
+    # Share of the unit pairs off the diagonal above STRONG_CORRELATION, and the sum of the squared correlations that
+    # the sampling noise of these images alone would give
     image_count, unit_count = hidden_features.shape
     off_diagonal = numpy.abs(correlation[~numpy.eye(unit_count, dtype=bool)])
     facts.update({"hidden_features.image_count": image_count, "hidden_features.unit_count": unit_count,

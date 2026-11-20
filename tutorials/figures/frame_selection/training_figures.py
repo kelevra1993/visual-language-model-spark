@@ -208,6 +208,8 @@ def make_training_figures(output_folder: Path, run_folder: Path, run_label: str,
     accuracy_axes.legend(loc="lower right", frameon=False, labelcolor=TEXT_PRIMARY_COLOUR,
                          fontsize=18 * POINTS_PER_PIXEL)
     save_figure(figure=figure, output_path=output_folder / "training" / f"{FIGURE_NAME}.png")
+
+    # Box of every panel with its labels for the highlights, and without them for the reveal region of the overlay
     facts = {}
     for panel_name, panel_axes in [("loss", loss_axes), ("accuracy", accuracy_axes)]:
         facts[f"training.{panel_name}_panel_box"] = compute_pixel_box(figure=figure, axes=panel_axes,

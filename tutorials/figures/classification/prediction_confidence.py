@@ -106,8 +106,8 @@ def draw_confidence_panel(axes: Any, predicted_probabilities: numpy.ndarray, cor
         correct (numpy.ndarray): The [N] booleans of the right predictions.
         class_count (int): The number of classes of the run.
     """
-    style_chart_panel(axes=axes, title="Probability of the predicted class", x_label="Probability of the predicted class",
-                      y_label="Share of the images of the group")
+    style_chart_panel(axes=axes, title="Probability of the predicted class",
+                      x_label="Probability of the predicted class", y_label="Share of the images of the group")
     probability_bins = numpy.linspace(start=1 / class_count, stop=1.0, num=PROBABILITY_BIN_COUNT + 1)
     for selection, colour, label in [(correct, CORRECT_COLOUR, f"right: {int(correct.sum()):,} images"),
                                      (~correct, WRONG_COLOUR, f"wrong: {int((~correct).sum()):,} images")]:

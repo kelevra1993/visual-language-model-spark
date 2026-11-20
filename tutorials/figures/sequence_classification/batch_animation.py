@@ -4,13 +4,12 @@ tutorials/figures/sequence_classification/figures.py: four sequences drawn by th
 (generate_moving_shape_sequence, with the frame size and the range of frames of the main block of the generator, the
 way the moving shapes dataset is written), saved and read back as the sequence dataset reads them (at the frame size of
 the run), batched by the collate of the loaders (collate_padded_sequences) and run through the frame encoder of the
-trained flatten run on the CPU. It writes
-the frames, the frame vectors drawn as heat squares and the layout file of animations/07_sequence_classification/
-frame_batches.js, whose phases are the samples, the padded batch, its mask, the real frames gathered for the backbone,
-their vectors and the vectors scattered back; its facts are the real lengths and shapes the narration quotes. The
-family is made again at every build with the checkpoint, its facts written in batch/ next to its figures
-(BATCH_FACTS_NAME) so that a build from the committed snapshots (tutorials/run_snapshots, without checkpoints) reuses
-the committed outputs (figure_reuse/sequence_classification/batch and animations).
+trained flatten run on the CPU. It writes the frames, the frame vectors drawn as heat squares and the layout file of
+animations/07_sequence_classification/frame_batches.js, whose phases are the samples, the padded batch, its mask, the
+real frames gathered for the backbone, their vectors and the vectors scattered back; its facts are the real lengths and
+shapes the narration quotes. The family is made again at every build with the checkpoint, its facts written in batch/
+next to its figures (BATCH_FACTS_NAME) so that a build from the committed snapshots (tutorials/run_snapshots, without
+checkpoints) reuses the committed outputs (figure_reuse/sequence_classification/batch and animations).
 """
 
 import cv2
@@ -74,7 +73,8 @@ def draw_example_sequences(output_folder: Path) -> Dict[str, Any]:
         output_folder (Path): The folder receiving the frame folders of the sequences.
 
     Returns:
-        Dict[str, Any]: The 'seed', and the 'frame_files' and 'category_identifier' of every sequence.
+        Dict[str, Any]: The 'seed', and the 'sequences', each with its 'frames', 'category_identifier' and
+            'frame_files'.
 
     Raises:
         RuntimeError: If no seed below MAXIMUM_SEED gives such a batch.
@@ -87,10 +87,11 @@ def draw_example_sequences(output_folder: Path) -> Dict[str, Any]:
         sequences = []
         for _ in range(SEQUENCE_COUNT):
             number_frames = int(random_generator.integers(low=minimum_frames, high=maximum_frames + 1))
-            frames, category_identifier = generate_moving_shape_sequence(image_size=generator_image_size,
-                                                                         number_frames=number_frames,
-                                                                         random_generator=random_generator)
+            frames, category_identifier = generate_moving_shape_sequence(
+                image_size=generator_image_size, number_frames=number_frames, random_generator=random_generator)
             sequences.append({"frames": frames, "category_identifier": category_identifier})
+
+        # Seed kept when its lengths are distinct and fit the grid and the gathered row, and its directions distinct
         lengths = [len(sequence["frames"]) for sequence in sequences]
         categories = [sequence["category_identifier"] for sequence in sequences]
         if len(set(lengths)) == SEQUENCE_COUNT and max(lengths) <= LONGEST_SHOWN_FRAMES and \
@@ -111,9 +112,10 @@ def draw_example_sequences(output_folder: Path) -> Dict[str, Any]:
 
 def compute_block_shapes(model: TaskModel, gathered_frames: torch.Tensor) -> List[List[int]]:
     """
-    Gives the shape of the output of every backbone block for the gathered real frames, running the blocks of the
-    trained backbone the way Backbone.forward does (input normalization, then the layers and the pooling of every
-    block), the batch normalization of the run needing no sequence grouping.
+    Gives the shape of the output of every backbone block for the gathered real frames, for the backbone text of the
+    encode phase of the animated batch and its batch.block_* facts, running the blocks of the trained backbone the way
+    Backbone.forward does (input normalization, then the layers and the pooling of every block), the batch
+    normalization of the run needing no sequence grouping.
 
     Args:
         model (TaskModel): The trained sequence classifier.
@@ -306,6 +308,8 @@ def make_batch_animation(output_folder: Path, model: TaskModel, label_dictionary
     positive_values = frame_features[frame_features > 0]
     maximum_value = float(torch.quantile(input=positive_values, q=0.99))
     frame_images, vector_images = [], []
+
+    # Every real frame written as the PNG the animation shows, with the vector square of its frame vector
     for sequence_index, length in enumerate(lengths):
         frame_images.append([])
         vector_images.append([])
@@ -320,6 +324,8 @@ def make_batch_animation(output_folder: Path, model: TaskModel, label_dictionary
                                 output_path=batch_folder / vector_name)
             frame_images[-1].append(f"../batch/{frame_name}")
             vector_images[-1].append(f"../batch/{vector_name}")
+
+    # Square of a zero vector, shown on the padding frames once the vectors are scattered back
     write_vector_square(vector=numpy.zeros(shape=frame_features.shape[-1]), map_shape=map_shape,
                         maximum_value=maximum_value, side_pixels=TILE_SIDE * 2,
                         output_path=batch_folder / "vector_zero.png")
@@ -351,6 +357,8 @@ def make_batch_animation(output_folder: Path, model: TaskModel, label_dictionary
                                               zip(predicted_names, class_names)),
              "batch.padding_vector_maximum": float(padding_values.abs().max()) if len(padding_values) else 0.0,
              "batch.frame_vector_features": int(frame_features.shape[-1])}
+
+    # Shapes of the layout texts, the shape, channels and size after every backbone block and every length as facts
     for shape_name, shape_text in shapes.items():
         facts[f"batch.shape.{shape_name}"] = shape_text
     facts["batch.frame_channels"] = int(batch["images"].shape[2])

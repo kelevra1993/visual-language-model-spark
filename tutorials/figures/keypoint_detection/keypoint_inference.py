@@ -164,8 +164,7 @@ def build_sample_targets(sample: Dict[str, Any], channel_table: numpy.ndarray, n
                                   channel_table=torch.from_numpy(channel_table), number_channels=number_channels,
                                   image_height=image_height, image_width=image_width,
                                   heatmap_strides=[HEATMAP_STRIDE, HEATMAP_STRIDE // BRANCH_SCALE_FACTOR],
-                                  tag_stride=HEATMAP_STRIDE,
-                                  heatmap_sigma=heatmap_sigma)
+                                  tag_stride=HEATMAP_STRIDE, heatmap_sigma=heatmap_sigma)
 
 
 def attach_shape_recorders(model: nn.Module, recorder: ShapeRecorder) -> List[torch.utils.hooks.RemovableHandle]:

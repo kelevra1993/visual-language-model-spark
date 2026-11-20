@@ -94,7 +94,8 @@ def make_head_benchmark_facts() -> Dict[str, Any]:
         Dict[str, Any]: The facts, named benchmark.*.
 
     Raises:
-        ValueError: If the compared launches differ in image size or classes, or a column name is not one of results.csv.
+        ValueError: If the compared launches differ in image size or classes, or a column name is not one of
+            results.csv.
     """
     rows = read_benchmark_rows()
     facts = {f"benchmark.{name}": round_fact(value=average_launches(rows=rows, launches=launches, column=column))

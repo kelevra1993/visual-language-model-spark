@@ -31,6 +31,7 @@ from typing import Dict, List, Optional, Tuple
 
 from vision_training.configuration_processing.configuration_loader import load_configuration
 from vision_training.trainers.weight_averaging import compute_update_decay
+from vision_training.utilities.os_utilities import format_path_link
 
 # Launches of the reference pair of the detection benchmark, the settings shipped in the detection configurations
 REFERENCE_LAUNCHES = ["run_21", "run_22"]
@@ -71,7 +72,8 @@ def read_launch_curves(results_path: Path, launches: List[str]) -> Dict[Tuple[st
     for launch in launches:
         for evaluated_weights in ["trained", "ema"]:
             if (launch, evaluated_weights) not in curves:
-                raise ValueError(f"{results_path} holds no {evaluated_weights} row for {launch}.")
+                raise ValueError(f"{format_path_link(path=results_path)} holds no {evaluated_weights} row for "
+                                 f"{launch}.")
     return curves
 
 
@@ -102,7 +104,7 @@ def read_launch_decay(results_path: Path, experiments_folder: Path, launches: Li
                 run_folders[row["launch"]] = row["run_folder"]
     missing_launches = [launch for launch in launches if launch not in run_folders]
     if missing_launches:
-        raise ValueError(f"{results_path} holds no row for {missing_launches}.")
+        raise ValueError(f"{format_path_link(path=results_path)} holds no row for {missing_launches}.")
 
     # Decay of every launch, from the moving average section of its saved configuration
     decays = {}
@@ -111,7 +113,7 @@ def read_launch_decay(results_path: Path, experiments_folder: Path, launches: Li
         moving_average_configuration = load_configuration(
             configuration_path=configuration_path)["Optimization"]["exponential_moving_average"]
         if not moving_average_configuration["activated"]:
-            raise ValueError(f"{configuration_path} keeps no moving average of the weights.")
+            raise ValueError(f"{format_path_link(path=configuration_path)} keeps no moving average of the weights.")
         decays[launch] = float(moving_average_configuration["decay"])
     if len(set(decays.values())) != 1:
         raise ValueError(f"The launches {launches} were trained with different decays {decays}.")

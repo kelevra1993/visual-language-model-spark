@@ -35,6 +35,8 @@ from tensorboard.backend.event_processing.event_file_loader import RawEventFileL
 from tensorboard.compat.proto import event_pb2
 from tensorboard.summary.writer.record_writer import RecordWriter
 
+from vision_training.utilities.os_utilities import format_path_link
+
 # Files of the tutorial folder read by the writer, relative to the repository root
 TUTORIALS_FOLDER = Path("tutorials")
 SOURCES_FILE_NAME = "tutorial_sources.yaml"
@@ -145,7 +147,7 @@ def expand_source_files(root_folder: Path, pattern: str, optional: bool) -> List
     """
     matches = sorted(Path(match) for match in glob.glob(str(root_folder / pattern), recursive=True))
     if not matches and not optional:
-        raise FileNotFoundError(f"Nothing matches {pattern!r} under {root_folder}.")
+        raise FileNotFoundError(f"Nothing matches {pattern!r} under {format_path_link(path=root_folder)}.")
     return matches
 
 
@@ -245,7 +247,8 @@ def reduce_json_keys(source_path: Path, destination_path: Path, options: Dict[st
     content = json.loads(source_path.read_text(encoding="utf-8"))
     missing_keys = [key for key in options["keys"] if key not in content]
     if missing_keys:
-        raise KeyError(f"{source_path} has no keys {missing_keys}, its keys being {sorted(content)}.")
+        raise KeyError(f"{format_path_link(path=source_path)} has no keys {missing_keys}, its keys being "
+                       f"{sorted(content)}.")
     reduced_content = {key: content[key] for key in options["keys"]}
     destination_path.parent.mkdir(parents=True, exist_ok=True)
     destination_path.write_text(data=json.dumps(obj=reduced_content, indent=2), encoding="utf-8")
@@ -268,7 +271,7 @@ def reduce_text_lines(source_path: Path, destination_path: Path, options: Dict[s
     lines = source_path.read_text(encoding="utf-8", errors="strict").splitlines(keepends=True)
     kept_lines = [line for line in lines if pattern.search(line)]
     if not kept_lines:
-        raise ValueError(f"No line of {source_path} matches {options['pattern']!r}.")
+        raise ValueError(f"No line of {format_path_link(path=source_path)} matches {options['pattern']!r}.")
     destination_path.parent.mkdir(parents=True, exist_ok=True)
     destination_path.write_text(data="".join(kept_lines), encoding="utf-8")
 
@@ -291,7 +294,8 @@ def reduce_csv_columns(source_path: Path, destination_path: Path, options: Dict[
         header = next(reader)
         missing_columns = [column for column in options["columns"] if column not in header]
         if missing_columns:
-            raise KeyError(f"{source_path} has no columns {missing_columns}, its columns being {header}.")
+            raise KeyError(f"{format_path_link(path=source_path)} has no columns {missing_columns}, its columns "
+                           f"being {header}.")
         kept_indices = [index for index, column in enumerate(header) if column in options["columns"]]
         destination_path.parent.mkdir(parents=True, exist_ok=True)
         with open(destination_path, "w", newline="", encoding="utf-8") as destination_file:
@@ -339,13 +343,14 @@ def reduce_manifest_subset(source_path: Path, destination_path: Path, options: D
              "other_annotations": options.get("other_annotations", "slim")}
     for mode_name, mode in modes.items():
         if mode not in ["keep", "slim", "drop"]:
-            raise ValueError(f"Unknown {mode_name} {mode!r} for {source_path}: keep, slim or drop.")
+            raise ValueError(f"Unknown {mode_name} {mode!r} for {format_path_link(path=source_path)}: keep, slim or "
+                             f"drop.")
 
     # Images kept whole, by file name, the others reduced as asked
     kept_image_identifiers = {image["id"] for image in content["images"] if image["file_name"] in kept_names}
     found_names = {image["file_name"] for image in content["images"] if image["file_name"] in kept_names}
     if found_names != kept_names:
-        raise ValueError(f"{source_path} has no images {sorted(kept_names - found_names)}.")
+        raise ValueError(f"{format_path_link(path=source_path)} has no images {sorted(kept_names - found_names)}.")
     reduced_content = {key: value for key, value in content.items() if key not in ["images", "annotations"]}
     reduced_content["images"] = [image if image["id"] in kept_image_identifiers or modes["other_images"] == "keep"
                                  else {field: image[field] for field in image_fields if field in image}
@@ -403,7 +408,7 @@ def copy_file(source_path: Path, destination_path: Path, options: Dict[str, Any]
 def find_reduction(reduction_name: str) -> Callable[[Path, Path, Dict[str, Any]], None]:
     """
     Gives the function of a reduction: a built-in one, or a "module:function" of the repository for a reduction only
-    one series needs, called with the source path, the destination path and the entry options.
+    one series needs, called with the keyword arguments source_path, destination_path and options (the entry options).
 
     Args:
         reduction_name (str): The reduction of the entry.
@@ -458,9 +463,9 @@ def plan_series_entries(series_name: str, specification: Dict[str, Any], sources
         run_folders = [run_entry["folder"]] if "folder" in run_entry else run_entry["folders"]
         for run_folder_text in run_folders:
             for file_specification in run_specification["files"]:
-                for source_path in expand_source_files(root_folder=experiments_folder / run_folder_text,
-                                                       pattern=file_specification["path"],
-                                                       optional=file_specification.get("optional", False)):
+                for source_path in expand_source_files(
+                        root_folder=experiments_folder / run_folder_text, pattern=file_specification["path"],
+                        optional=file_specification.get("optional", False)):
                     planned_files.append(build_planned_file(source_path=source_path, root_folder=experiments_folder,
                                                             destination_root=snapshot_root, source_kind="run",
                                                             file_specification=file_specification))
@@ -477,7 +482,8 @@ def plan_series_entries(series_name: str, specification: Dict[str, Any], sources
     for family_specification in specification.get("figure_reuse", []):
         family_folder = figures_folder / series_name / family_specification["family"]
         if not family_folder.is_dir():
-            raise FileNotFoundError(f"No figures folder {family_folder}: build the figures of {series_name} first.")
+            raise FileNotFoundError(f"No figures folder {format_path_link(path=family_folder)}: build the figures of "
+                                    f"{series_name} first.")
         for source_path in sorted(path for path in family_folder.rglob("*") if path.is_file()):
             planned_files.append(build_planned_file(
                 source_path=source_path, root_folder=figures_folder / series_name,
@@ -508,7 +514,8 @@ def build_planned_file(source_path: Path, root_folder: Path, destination_root: P
     resolved_source = source_path.resolve()
     resolved_root = root_folder.resolve()
     if not resolved_source.is_relative_to(resolved_root):
-        raise ValueError(f"{source_path} is outside {root_folder}, which the snapshot mirrors.")
+        raise ValueError(f"{format_path_link(path=source_path)} is outside {format_path_link(path=root_folder)}, "
+                         f"which the snapshot mirrors.")
     relative_path = resolved_source.relative_to(resolved_root)
     reduction = file_specification.get("reduction", "copy")
     if reduction == "folder_listing":
@@ -547,10 +554,10 @@ def merge_planned_files(planned_by_series: Dict[str, List[Dict[str, Any]]]) -> D
                 existing_file = merged_files[destination]
                 if (existing_file["source"], existing_file["reduction"], existing_file["options"]) != (
                         planned_file["source"], planned_file["reduction"], planned_file["options"]):
-                    raise ValueError(f"{destination} is planned with {existing_file['reduction']} "
-                                     f"{existing_file['options']} by {existing_file['series']} and with "
-                                     f"{planned_file['reduction']} {planned_file['options']} by {series_name}: "
-                                     f"give both series the same entry.")
+                    raise ValueError(f"{format_path_link(path=destination)} is planned with "
+                                     f"{existing_file['reduction']} {existing_file['options']} by "
+                                     f"{existing_file['series']} and with {planned_file['reduction']} "
+                                     f"{planned_file['options']} by {series_name}: give both series the same entry.")
                 existing_file["series"].append(series_name)
                 continue
             merged_files[destination] = {**planned_file, "series": [series_name]}
@@ -580,19 +587,24 @@ def write_planned_file(planned_file: Dict[str, Any], maximum_file_bytes: int) ->
 
     # Reduce (and compress) into the temporary file, removed on a failure so that no stray file enters the snapshot
     try:
-        find_reduction(reduction_name=planned_file["reduction"])(planned_file["source"], temporary_path,
-                                                                 reduction_options)
+        reduction_function = find_reduction(reduction_name=planned_file["reduction"])
+        reduction_function(source_path=planned_file["source"], destination_path=temporary_path,
+                           options=reduction_options)
         if planned_file["options"].get("compress") == "gzip":
             compress_file(file_path=temporary_path)
     except BaseException:
         temporary_path.unlink(missing_ok=True)
         raise
+
+    # Size of the written file against the git-friendly maximum, the file removed when it is above it
     written_bytes = temporary_path.stat().st_size
     if written_bytes > maximum_file_bytes:
         temporary_path.unlink()
-        raise ValueError(f"{destination} would be {written_bytes / BYTES_PER_MEGABYTE:.2f} megabytes, above the "
-                         f"{maximum_file_bytes / BYTES_PER_MEGABYTE:.0f} of the snapshots: reduce it in "
-                         f"snapshot_files.yaml of {planned_file['series']}.")
+        raise ValueError(f"{format_path_link(path=destination)} would be {written_bytes / BYTES_PER_MEGABYTE:.2f} "
+                         f"megabytes, above the {maximum_file_bytes / BYTES_PER_MEGABYTE:.0f} of the snapshots: "
+                         f"reduce it in snapshot_files.yaml of {planned_file['series']}.")
+
+    # Manifest record: the sizes and SHA-256 of the source and of the written file, main filling in its snapshot path
     source = planned_file["source"]
     record = {"snapshot_path": None, "source_kind": planned_file["source_kind"],
               "source_path": planned_file["source_relative"], "reduction": planned_file["reduction"],
@@ -666,12 +678,16 @@ def check_snapshot(snapshot_root: Path) -> None:
             if not snapshot_path.exists():
                 problems.append(f"missing {record['snapshot_path']} ({manifest_path.name})")
             elif compute_sha256(file_path=snapshot_path) != record["snapshot_sha256"]:
-                problems.append(f"changed {record['snapshot_path']} ({manifest_path.name})")
+                problems.append(f"changed {format_path_link(path=snapshot_path, label=record['snapshot_path'])} "
+                                f"({manifest_path.name})")
+
+    # Files of the snapshot folder that no manifest names, the manifests and the README left out
     unlisted_paths = [path for path in snapshot_root.rglob("*") if path.is_file() and path not in listed_paths
                       and MANIFESTS_FOLDER_NAME not in path.relative_to(snapshot_root).parts
                       and path.name != "README.md"]
     for unlisted_path in sorted(unlisted_paths):
-        print(f"Not in any manifest: {unlisted_path.relative_to(snapshot_root)}")
+        print(f"Not in any manifest: "
+              f"{format_path_link(path=unlisted_path, label=str(unlisted_path.relative_to(snapshot_root)))}")
     if problems:
         raise ValueError("The snapshot differs from its manifests:\n" + "\n".join(problems))
     print(f"{len(listed_paths)} snapshot files match their manifests")
@@ -737,7 +753,8 @@ def main() -> None:
         if refused_paths:
             raise ValueError("These files changed and are also read by series not written now; add those series to "
                              "--series (or write every series) to replace them:\n"
-                             + "\n".join(str(path.relative_to(snapshot_root)) for path in refused_paths))
+                             + "\n".join(format_path_link(path=path, label=str(path.relative_to(snapshot_root)))
+                                         for path in refused_paths))
     except BaseException:
         for temporary_path in temporary_paths.values():
             temporary_path.unlink(missing_ok=True)

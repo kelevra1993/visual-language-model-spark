@@ -36,7 +36,7 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
 
     Args:
         output_folder (Path): The figures folder of the series in the cache of the build.
-        experiments_folder (Path): The folder of the real runs.
+        experiments_folder (Path): The folder of the real runs, or the committed snapshots.
         force (bool): Whether the expensive figures are made again even when the previous build left them.
 
     Returns:

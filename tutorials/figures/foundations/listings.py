@@ -8,11 +8,10 @@ saved configuration of the run, without any training. The storyboards show them 
 figures:foundations/listings/...). A run read from the committed run snapshots, which hold no checkpoint nor large
 file, gives the same tree from the listing of the real run folder committed with it (RUN_FOLDER_LISTING_NAME). It also
 gives the facts of the chapter on the backbone read from that model (the receptive field, parameters and residual
-pairs of every block), those of the chapter
-on the data pipeline read from the configuration file that chapter shows (the augmentation types activated and the
-share of the training images they change), and the counts of the repository quoted by the overview and the closing
-chapter (tasks, image and sequence tasks, test files), so that their narration and drawings follow the run and the
-repository when they change.
+pairs of every block), those of the chapter on the data pipeline read from the configuration file that chapter shows
+(the augmentation types activated and the share of the training images they change), and the counts of the repository
+quoted by the overview and the closing chapter (tasks, image and sequence tasks, test files), so that their narration
+and drawings follow the run and the repository when they change.
 """
 
 import contextlib
@@ -320,7 +319,7 @@ def describe_data_pipeline(data_configuration: Dict[str, Any]) -> Dict[str, Any]
     # Activated types in their order of application, the geometric types first
     activated_types = []
     for type_name in AUGMENTATION_TYPES:
-        type_settings = augmentation["types"].get(type_name, {"activated": False})
+        type_settings = augmentation["types"][type_name]
         if type_settings["activated"]:
             activated_types.append({"name": type_name, "probability": float(type_settings["probability"]),
                                     "geometric": type_name in GEOMETRIC_AUGMENTATION_TYPES})
@@ -422,6 +421,7 @@ def describe_backbone_blocks(model: ImageClassifier, example_block_number: int) 
             "listings.input_size": int(backbone.input_image_size),
             "listings.input_channels": int(backbone.input_channels),
             "listings.kernel_size": kernel_size, "listings.pooling_size": pooling_size,
+            # Parameters of every block, of the head and of the Squeeze-and-Excitation modules, and the block labels
             "listings.block_parameter_counts": block_parameter_counts,
             "listings.backbone_parameter_count": backbone_parameter_count,
             "listings.head_parameter_count": model_parameter_count - backbone_parameter_count,
@@ -433,6 +433,7 @@ def describe_backbone_blocks(model: ImageClassifier, example_block_number: int) 
             "listings.block_parameter_labels": [f"{count:,}" for count in block_parameter_counts],
             "listings.block_labels": [f"block {block_number}" for block_number in range(1, len(blocks) + 1)],
             "listings.block_table": block_table,
+            # Blocks with and without a residual shortcut, then the block drawn layer by layer
             "listings.residual_blocks": join_numbers(values=residual_blocks),
             "listings.residual_block_count": len(residual_blocks),
             "listings.non_residual_blocks": join_numbers(values=non_residual_blocks),
@@ -522,6 +523,8 @@ def make_listings(output_folder: Path, run_folder: Path, data_configuration_path
                          f"after its blocks, while the run name scene of the first foundations chapter describes "
                          f"{RUN_NAME_BACKBONE_TRANSFER_TOKENS} (a backbone started from pre-trained weights, neither "
                          f"frozen nor with its normalization fixed): update the scene and this constant.")
+
+    # Facts of the chapters, then the folder tree, run name and model of the run, and the schedule of its training
     return {**backbone_facts, **data_facts, **repository_facts,
             "listings.checkpoint_count": len(checkpoint_names), "listings.evaluation_count": len(evaluation_names),
             "listings.run_name": run_folder.name, "listings.run_name_sections": run_name_sections,

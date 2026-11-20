@@ -192,6 +192,8 @@ def draw_loss_figure(output_folder: Path, curves: Dict[str, Dict[str, Any]], num
         axes.annotate(text=f"ln {number_classes} = {chance_loss:.3f}, a uniform guess",
                       xy=(last_iteration, chance_loss), xytext=(-8, 10), textcoords="offset points", ha="right",
                       va="bottom", color=TEXT_SECONDARY_COLOUR, fontsize=17 * POINTS_PER_PIXEL)
+
+    # Legend of the three runs above the panels, and the note telling the faint raw curves from the smoothed ones
     run_order = [MAIN_RUN_NAME, AVERAGE_RUN_NAME, FLATTEN_512_RUN_NAME]
     legend_handles = [Line2D(xdata=[0], ydata=[0], color=curves[run_name]["colour"], linewidth=3 * POINTS_PER_PIXEL)
                       for run_name in run_order]
@@ -224,7 +226,8 @@ def draw_loss_figure(output_folder: Path, curves: Dict[str, Dict[str, Any]], num
 
 def compute_true_probabilities(predictions: List[Dict[str, str]]) -> numpy.ndarray:
     """
-    Gives the probability the model gave to the true class of every test sequence of a predictions file.
+    Gives the probability the model gave to the true class of every test sequence of a predictions file, for the
+    probability histograms and the length accuracy facts of the evaluation scenes.
 
     Args:
         predictions (List[Dict[str, str]]): The rows of predictions.csv.
@@ -253,6 +256,8 @@ def draw_probability_figure(output_path: Path, probability_sets: Dict[str, Dict[
                                      dpi=DOTS_PER_INCH, sharey=True)
     figure.patch.set_facecolor(SURFACE_COLOUR)
     figure.subplots_adjust(left=0.07, right=0.985, top=0.86, bottom=0.13, wspace=0.08)
+
+    # One histogram panel per run on a square-root count scale, its box kept as a fact for the highlights
     facts = {}
     for panel_index, (axes, (run_name, probability_set)) in enumerate(zip(panels, probability_sets.items())):
         counts, _ = numpy.histogram(a=probability_set["probabilities"], bins=PROBABILITY_BINS)
@@ -447,9 +452,9 @@ def make_evaluation_figures(output_folder: Path, run_folders: Dict[str, Path], l
     # Console summary of the first interval of the flatten run, its metric lines written by the current formatter with
     # their logged values, and the throughputs and losses of every log
     logged_lines = extract_interval_block(log_path=log_paths[MAIN_RUN_NAME], iteration=100)
-    metric_tracker = build_console_metric_tracker(run_folder=run_folders[MAIN_RUN_NAME],
-                                                  trainer_class=SequenceClassificationTrainer,
-                                                  trainer_attributes={"decorrelation_activated": False})
+    metric_tracker = build_console_metric_tracker(
+        run_folder=run_folders[MAIN_RUN_NAME], trainer_class=SequenceClassificationTrainer,
+        trainer_attributes={"decorrelation_activated": False})
     console_lines = reformat_console_summary(lines=logged_lines, metric_tracker=metric_tracker)
     console_boxes = draw_console_figure(lines=console_lines, output_path=output_folder / "evaluation" /
                                         "training_console.png", font_size=17,
@@ -468,6 +473,8 @@ def make_evaluation_figures(output_folder: Path, run_folders: Dict[str, Path], l
     facts.update({f"console.{MAIN_RUN_NAME}.validation_batches": int(validation_match.group(1)),
                   f"console.{MAIN_RUN_NAME}.validation_ratio": int(validation_match.group(2)),
                   f"console.{MAIN_RUN_NAME}.interval_iterations": int(interval_match.group(1))})
+
+    # Throughputs and interval losses of the console log of every run
     for run_name, log_path in log_paths.items():
         summaries = read_interval_summaries(log_path=log_path)
         throughputs = [summary["throughput"] for summary in summaries]
@@ -532,6 +539,7 @@ def make_evaluation_figures(output_folder: Path, run_folders: Dict[str, Path], l
                                          if key.startswith("probability_")])
         probability_sets[run_name] = {"title": row_headings[len(probability_sets)], "colour":
                                       run_labels[run_name][1], "probabilities": true_probabilities}
+        # Lowest and median probability of the true class, the confident sequences and the range of every probability
         facts.update({f"probabilities.{run_name}.minimum_true": round_fact(value=true_probabilities.min()),
                       f"probabilities.{run_name}.median_true": round_fact(value=numpy.median(true_probabilities)),
                       f"probabilities.{run_name}.above_0_9": int((true_probabilities > CONFIDENT_PROBABILITY).sum()),
@@ -610,6 +618,9 @@ def make_evaluation_figures(output_folder: Path, run_folders: Dict[str, Path], l
         row_headings=[f"Samples/{SAMPLE_SEQUENCE}.png"], column_headings=[row_headings[0], row_headings[1]],
         image_height=400, output_path=output_folder / "evaluation" / "samples.png")
     facts.update({f"samples.{name}": box for name, box in sample_facts.items()})
+
+    # Frames of the sample sequence, then the class, correctness and probability every run gives it, checked against
+    # what the sample scene says
     test_manifest = json.loads((test_folder / "labels.json").read_text(encoding="utf-8"))
     sample_entry = next(sequence for sequence in test_manifest["sequences"] if sequence["name"] == SAMPLE_SEQUENCE)
     facts.update({"samples.sequence": SAMPLE_SEQUENCE, "samples.frames": len(sample_entry["frames"])})

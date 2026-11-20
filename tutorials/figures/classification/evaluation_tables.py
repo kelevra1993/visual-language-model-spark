@@ -271,7 +271,8 @@ def describe_confusion_matrices(run_folder: Path) -> Dict[str, Any]:
         for class_index, class_name in enumerate(class_names):
             facts[f"{prefix}.recall.{class_name}"] = round_fact(value=row_shares[class_index, class_index])
             facts[f"{prefix}.precision.{class_name}"] = round_fact(
-                value=counts[class_index, class_index] / column_totals[class_index] if column_totals[class_index] else 0)
+                value=counts[class_index, class_index] / column_totals[class_index]
+                if column_totals[class_index] else 0)
 
     # Largest confusions of the last checkpoint and weakest classes of the first one, by their role
     last_counts, first_counts = matrices[LAST_ITERATION], matrices[CONFUSION_ITERATIONS[0]]
@@ -352,9 +353,9 @@ def describe_class_metrics(run_folder: Path) -> Dict[str, Any]:
     # Worst and best classes by F1, ties in class order, as the report block sorts them
     sorted_rows = sorted(rows, key=order_by_f1)
     bar_rows = sorted_rows[:WORST_BAR_CLASSES] + sorted_rows[-BEST_BAR_CLASSES:]
-    facts = {"class_metrics.iteration": LAST_ITERATION, "class_metrics.target_precision": thresholds["target_precision"],
-             "class_metrics.class_count": len(rows), "class_metrics.worst_bar_count": WORST_BAR_CLASSES,
-             "class_metrics.best_bar_count": BEST_BAR_CLASSES,
+    facts = {"class_metrics.iteration": LAST_ITERATION,
+             "class_metrics.target_precision": thresholds["target_precision"], "class_metrics.class_count": len(rows),
+             "class_metrics.worst_bar_count": WORST_BAR_CLASSES, "class_metrics.best_bar_count": BEST_BAR_CLASSES,
              "class_metrics.bar_class_names": [format_class_name(class_name=row["class"]) for row in bar_rows],
              "class_metrics.bar_f1": [round_fact(value=row["f1"]) for row in bar_rows],
              "class_metrics.bar_f1_labels": [format_percentage(value=row["f1"]) for row in bar_rows],
@@ -411,7 +412,8 @@ def describe_class_metrics(run_folder: Path) -> Dict[str, Any]:
                   "class_metrics.first_never_reaching.class_name": format_class_name(
                       class_name=never_reaching_rows[0]["class"]),
                   "class_metrics.first_never_reaching.report_name": never_reaching_rows[0]["class"],
-                  "class_metrics.lowest_reaching.class_name": format_class_name(class_name=lowest_reaching_row["class"]),
+                  "class_metrics.lowest_reaching.class_name": format_class_name(
+                      class_name=lowest_reaching_row["class"]),
                   "class_metrics.lowest_reaching.recall_at_target_precision": round_fact(
                       value=lowest_reaching_row["recall_at_target_precision"])})
     return facts

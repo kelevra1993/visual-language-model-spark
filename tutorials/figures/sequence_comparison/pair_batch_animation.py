@@ -187,6 +187,7 @@ def build_pair_layout(member_lengths: List[List[int]], pair_names: List[str], cl
                "colour": "aqua", "phases": ["batch"]},
               {"text": "after", "position": [after_left, batch_bottom + 24], "anchor": "la", "font": "diagram_small",
                "colour": "magenta", "phases": ["batch"]},
+              # Shapes of the split halves, then of the stacked members and of their frame vectors
               {"text": f"before_images {shapes['member_images']}\nbefore_mask {shapes['member_mask']}",
                "position": [FRAMES_LEFT, 28], "anchor": "la", "font": "diagram_monospace_small", "colour": "aqua",
                "phases": ["split"]},
@@ -278,6 +279,8 @@ def make_pair_batch_animation(output_folder: Path, model: TaskModel, train_folde
     maximum_value = float(stacked_features.max())
     map_shape = (stacked_features.shape[-1], 1, 1)
     frame_images, vector_images = [], []
+
+    # Every real frame of every member written smaller as a PNG, with the vector square of its frame vector
     for pair_number, lengths in enumerate(member_lengths):
         frame_images.append([])
         vector_images.append([])
@@ -297,6 +300,8 @@ def make_pair_batch_animation(output_folder: Path, model: TaskModel, train_folde
                                     output_path=batch_folder / vector_name)
                 frame_images[-1][-1].append(f"../batch/{frame_name}")
                 vector_images[-1][-1].append(f"../batch/{vector_name}")
+
+    # Square of a zero vector, shown on the padding frames once the members are encoded
     write_vector_square(vector=numpy.zeros(shape=stacked_features.shape[-1]), map_shape=map_shape,
                         maximum_value=maximum_value, side_pixels=TILE_SIDE * 2,
                         output_path=batch_folder / "vector_zero.png")

@@ -1,12 +1,12 @@
 """
-Figures and facts of the sequence classification (M2O) series of the tutorial videos, made by make_figures.py (python
--m tutorials.figures.make_figures --series sequence_classification) at every build, from the runs of
+Figures and facts of the sequence classification (M2O) series of the tutorial videos, made by make_figures.py
+(python -m tutorials.figures.make_figures --series sequence_classification) at every build, from the runs of
 tutorials/tutorial_sources.yaml (the flatten run at 256 pixels of the synthetic configuration, and the average pooling
 and flatten runs at 512 pixels it is compared with), their moving shapes dataset and the code of the repository: the
 dataset figures and listings, the animated padded batch drawn by the synthetic generator, the model figures computed
 with the checkpoints on the CPU, and the training and evaluation figures. Every figure family is a module of this folder
-writing into a subfolder of the output folder (dataset/, batch/, model/, evaluation/, ...), its facts gathered here
-into the facts.json the storyboards quote as {{sequence_classification.<name>}}. A build from the committed snapshots
+writing into a subfolder of the output folder (dataset/, batch/, model/, evaluation/, ...), its facts gathered here into
+the facts.json the storyboards quote as {{sequence_classification.<name>}}. A build from the committed snapshots
 (tutorials/run_snapshots, without checkpoints) builds the flatten run from its configuration for the facts of its
 structure and reuses the committed outputs of the families computed with the trained weights.
 """
@@ -126,9 +126,9 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
         facts[f"batch_sizes.{run_name}"] = compared_configuration["ExperimentConfiguration"]["batch_size"]
     return add_number_words(facts=merge_facts(fact_groups=[
         facts,
-        make_dataset_figures(output_folder=output_folder,
-                             train_folder=Path(experiment_configuration["train_data_folder"]),
-                             batch_size=experiment_configuration["batch_size"]),
+        make_dataset_figures(
+            output_folder=output_folder, train_folder=Path(experiment_configuration["train_data_folder"]),
+            batch_size=experiment_configuration["batch_size"]),
         make_batch_animation(output_folder=output_folder, model=flatten_model, label_dictionary=label_dictionary,
                              image_size=image_size, has_trained_weights=flatten_has_trained_weights,
                              keep_ratio=run_configuration["Data"]["image_settings"]["keep_ratio"]),

@@ -73,7 +73,8 @@ IMAGE_GAP = 24
 
 def read_selection_rows(selections_path: Path) -> Dict[Tuple[str, str], Dict[str, str]]:
     """
-    Reads selections.csv of an evaluation, one row per test sequence and wanted class.
+    Reads selections.csv of an evaluation of the run, one row per test sequence and wanted class, the record the CPU
+    run of the wrong picks is checked against and the decoding counts and the thresholds figure are drawn from.
 
     Args:
         selections_path (Path): The selections.csv file.
@@ -363,6 +364,8 @@ def decode_readme_example() -> Tuple[Dict[str, Any], Dict[str, Any]]:
                                     class_names=README_CLASS_NAMES, unselected_class_index=unselected_class_index)
     matrix_data["true_cells"] = []
     matrix_data["row_labels"] = [f"frame {frame_index + 1}" for frame_index in range(len(probabilities))]
+
+    # Labelling each decoding gives the frames (the unselected class where it picks none) and its probability
     facts = {}
     for decoding, picks in matrix_data["picks"].items():
         frame_classes = [unselected_class_index] * len(probabilities)
@@ -461,11 +464,13 @@ def make_selection_figures(output_folder: Path, run_folder: Path, force: bool) -
         check_against_evaluation(probabilities=probabilities, sequence_name=sequence_name,
                                  class_names=dataset.class_names, wanted_class_indices=wanted_class_indices,
                                  selected_frames=selected_frames, selection_rows=selection_rows)
+
+        # Chosen frames flagged low confidence against the class thresholds, then the selection image of the sequence
         selected_probabilities = gather_frame_probabilities(probabilities=probabilities, frames=selected_frames,
                                                             wanted_class_indices=wanted_class_indices)
-        low_confidence = flag_low_confidence(selected_frames=selected_frames,
-                                             selected_probabilities=selected_probabilities,
-                                             class_thresholds=class_thresholds)
+        low_confidence = flag_low_confidence(
+            selected_frames=selected_frames, selected_probabilities=selected_probabilities,
+            class_thresholds=class_thresholds)
         selection_images.append(build_frame_selection_image(
             frames=convert_image_to_array(image=batch["images"][sample_index, :frame_count]),
             probabilities=probabilities, frame_labels=frame_labels, selected_frames=selected_frames,
@@ -478,6 +483,8 @@ def make_selection_figures(output_folder: Path, run_folder: Path, force: bool) -
                                                   class_names=class_names, wanted_class_indices=wanted_class_indices)
         facts.update(pick_facts)
         headings.append(heading)
+
+        # Matrix data of the animations from the matrix sequence, with the pick and gain of every wanted class
         if sequence_name == MATRIX_SEQUENCE_NAME:
             matrix_data = build_matrix_data(probabilities=probabilities, logits=logits,
                                             frame_labels=frame_labels.tolist(), class_names=class_names,
@@ -486,6 +493,8 @@ def make_selection_figures(output_folder: Path, run_folder: Path, force: bool) -
                 facts[f"matrix.{class_names[class_index]}_pick"] = frame_index
                 facts[f"matrix.{class_names[class_index]}_pick_gain"] = matrix_data["values"]["gains"][frame_index][
                     class_index]
+
+            # Size, name and true frames of the matrix sequence, whether both decodings agree, and its wrong class
             facts["matrix.frame_count"] = frame_count
             facts["matrix.sequence_name"] = sequence_name
             facts["matrix.sequence_number"] = find_sequence_number(sequence_name=sequence_name)
@@ -496,6 +505,8 @@ def make_selection_figures(output_folder: Path, run_folder: Path, force: bool) -
             facts["matrix.decodings_agree"] = matrix_data["picks"]["hungarian"] == matrix_data["picks"]["greedy"]
             facts.update(describe_matrix_wrong_class(matrix_data=matrix_data, class_names=class_names,
                                                      unselected_class_index=unselected_class_index))
+
+    # The matrix sequence must be one of the wrong picks, the only sequences the checkpoint is run on
     if matrix_data is None:
         raise ValueError(f"MATRIX_SEQUENCE_NAME {MATRIX_SEQUENCE_NAME} is not one of the sequences of WRONG_PICKS, "
                          f"the only ones the checkpoint is run on.")
@@ -526,6 +537,8 @@ def make_selection_figures(output_folder: Path, run_folder: Path, force: bool) -
         frame_features = encode_frames(backbone=model.backbone, global_pooling=model.global_pooling,
                                        input_tensor=images, sequence_mask=batch["sequence_mask"])
         temporal_features = model.temporal_module(frame_features=frame_features, sequence_mask=batch["sequence_mask"])
+
+    # Parameters of every component and their float32 megabytes, the shapes of every stage and the head of the model
     parameters = count_model_parameters(model=model)
     facts.update({"model.backbone_parameters": parameters["backbone"],
                   "model.temporal_parameters": parameters["temporal_module"],
@@ -543,5 +556,7 @@ def make_selection_figures(output_folder: Path, run_folder: Path, force: bool) -
                   "model.logits_shape": str(list(outputs["class_logits"].shape)),
                   "model.wanted_class_mask": model.wanted_class_mask.tolist(),
                   "model.head": str(model.classification_head)})
+
+    # Facts kept next to the figures and the matrix data, so that the next build reuses them unless forced
     write_reused_facts(facts_path=reused_facts_path, figure_paths=[figure_path] + data_paths, facts=facts)
     return facts
