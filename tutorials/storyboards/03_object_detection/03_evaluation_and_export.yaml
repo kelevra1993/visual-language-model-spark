@@ -141,7 +141,7 @@ scenes:
     image: "figures:object_detection/evaluation/class_average_precision.png"
     narration:
       - "The classes spread widely: the {{object_detection.classes.worst_name_text}} reaches {{object_detection.classes.worst_ap_50:percent}} at 0.5, the {{object_detection.classes.best_name_text}} {{object_detection.classes.best_ap_50:percent}}, the orange marks giving the AP at 0.75."
-      - "Next to the bars, the class thresholds file: the lowest score at which a class keeps a precision of {{object_detection.classes.target_precision:percent_label}}, with the recall left."
+      - "Next to the bars, the class thresholds file: the score threshold keeping the highest recall of a class at a precision of {{object_detection.classes.target_precision:percent_label}}, with that recall."
       - "The {{object_detection.classes.most_recall.name_text}} keeps the most, {{object_detection.classes.most_recall.recall:percent}} of its objects from a score of {{object_detection.classes.most_recall.threshold:.2f}}; {{object_detection.classes.without_threshold_count:words}} classes never reach that precision: the {{object_detection.classes.without_threshold_text}}."
       - "With the per-class report, a Per Class Recall table adds the share of the objects of every class found at 0.5 and 0.75, whatever the score, with its exact {{constant:vision_training/evaluation/recall_intervals.py#CONFIDENCE_LEVEL:percent_label}} interval."
 

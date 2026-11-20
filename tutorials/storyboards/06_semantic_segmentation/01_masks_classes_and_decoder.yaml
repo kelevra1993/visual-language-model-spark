@@ -103,11 +103,11 @@ scenes:
       start: "sample = self.samples"
     highlights:
       - {match: "resized_image = preprocess_image", sentences: [0]}
-      - {match: "resized_mask = preprocess_image|interpolation=cv2.INTER_NEAREST", sentences: [0, 1]}
+      - {match: "resized_mask = preprocess_image|interpolation=cv2.INTER_NEAREST_EXACT", sentences: [0, 1]}
       - {match: "mask_tensor = ", sentences: [2]}
     narration:
       - "The image is resized with a bilinear interpolation and the mask with the nearest one, under the same letterbox, the padding of the mask set to {{constant:vision_training/data/segmentation/segmentation_dataset.py#IGNORED_MASK_VALUE}}."
-      - "The nearest interpolation keeps every pixel a category, but the mask ends about half a pixel off its image, and a random crop adds another half pixel: weigh that shift against the boundary tolerance, {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#ExperimentConfiguration.evaluation.boundary_tolerance:words}} pixels at the network resolution, knowing that it grows at the original resolution of a large image."
+      - "The exact variant of the nearest interpolation keeps every pixel a category and reads the mask at the centres of the image pixels, so the mask stays on its image, after a random crop as well."
       - "The lookup table then turns the categories of the resized mask into class indices."
 
   - kind: yaml

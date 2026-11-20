@@ -133,7 +133,7 @@ scenes:
     narration:
       - "The macro ROC AUC ranks the frames by the probability of each class: {{sequence_labelling.predictions.macro_roc_auc_all_frames:percent}} over all the frames, and {{sequence_labelling.predictions.macro_roc_auc_later_frames:percent}} on the later frames only."
       - "Since a change class is never the first frame, a model ranking by position alone would only look good over all the frames; on the later frames, this one keeps its score."
-      - "The thresholds file gives every class the lowest probability reaching a precision of {{sequence_labelling.thresholds.target_precision:percent_label}}: {{sequence_labelling.thresholds.reached_classes}} classes reach it, and {{sequence_labelling.thresholds.null_classes}} never do."
+      - "The thresholds file gives every class the probability threshold keeping the highest recall at a precision of {{sequence_labelling.thresholds.target_precision:percent_label}}: {{sequence_labelling.thresholds.reached_classes}} classes reach it, and {{sequence_labelling.thresholds.null_classes}} never do."
       - "No change reaches it from a probability of {{sequence_labelling.thresholds.no_change_threshold:.2f}}, with a recall of {{sequence_labelling.thresholds.no_change_recall:percent}}: the threshold makes up for the probabilities the weights shrank."
 
   - kind: html
@@ -267,10 +267,8 @@ scenes:
     title: "Pitfalls"
     elements:
       - {type: box, box: [40, 60, 1720, 220], text: "test_{{sequence_labelling.subset.sequence_count}} holds a copy of the labels and a link to the frames of the full test split:\ngenerating the data set again makes its labels name other frames, without any error  (create_sequence_split_subset)", font: diagram_small, outline: red, highlight: [0]}
-      - {type: box, box: [40, 280, 1720, 440], text: "A sequence without any labelled frame counts as an exact match,\nand a batch without any labelled frame gives a NaN loss", font: diagram_small, outline: violet, appear: 1, highlight: [1]}
     narration:
       - "Imagine that you generate the data set again: the test {{sequence_labelling.subset.sequence_count:words}} subset holds a copy of the labels and a link to the frames of the full test split, so its labels name other frames, without any error."
-      - "And a sequence without any labeled frame counts as an exact match."
 
   - kind: html
     page: diagram

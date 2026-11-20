@@ -85,7 +85,7 @@ scenes:
       - "Its first block, iteration {{sequence_classification.evaluation.flatten_256.first_iteration}}, gives an accuracy of {{sequence_classification.evaluation.flatten_256.first.accuracy:percent}}, {{sequence_classification.evaluation.flatten_256.first.wrong_count}} of the {{sequence_classification.probabilities.flatten_256.sequences}} test sequences being wrong."
       - "The most confident mistake is sequence {{sequence_classification.evaluation.flatten_256.first.wrong.number}}, a {{sequence_classification.evaluation.flatten_256.first.wrong.true_class}} shape given {{sequence_classification.evaluation.flatten_256.first.wrong.predicted_class}} at {{sequence_classification.evaluation.flatten_256.first.wrong.probability:.2f}}."
       - "At iteration {{sequence_classification.evaluation.flatten_256.last_iteration}}, the last evaluated checkpoint, the accuracy reaches {{sequence_classification.evaluation.flatten_256.last.accuracy:percent}}, with {{sequence_classification.evaluation.flatten_256.last.wrong_count}} sequences wrong."
-      - "The per-class table is sorted by F1, worst first, with the lowest threshold keeping a precision of {{sequence_classification.run.target_precision:percent_label}} and the recall it keeps."
+      - "The per-class table is sorted by F1, worst first, with the threshold keeping the highest recall at a precision of {{sequence_classification.run.target_precision:percent_label}}, and that recall."
       - "Every rate of the report is written as a percentage."
 
   - kind: code

@@ -90,7 +90,8 @@ def draw_threshold_panel(axes: matplotlib.axes.Axes, selection_rows: Dict[Any, D
                                                                          fill_value=float(row_position)),
                      s=260, color=WRONG_COLOUR, edgecolors=SURFACE_COLOUR, linewidths=2, zorder=4)
 
-        # Threshold of the class, the lowest probability from which its choices reach the target precision
+        # Threshold of the class, the probability from which its choices reach the target precision keeping the most true
+        # frames
         class_threshold = thresholds["classes"][class_name]
         if class_threshold is not None:
             axes.plot([class_threshold["threshold"]] * 2, [row_position - 0.34, row_position + 0.34],
