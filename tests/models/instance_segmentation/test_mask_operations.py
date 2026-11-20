@@ -69,6 +69,15 @@ def test_mask_head_doubles_its_pooled_features_up_to_the_mask_resolution(roi_ali
                      fine_features=None).shape == (0, 6, mask_resolution, mask_resolution)
 
 
+def test_unknown_mask_head_upsampling_is_refused() -> None:
+    """
+    Verifies that a misspelled upsampling of the mask head reaching the model without the configuration checks stops
+    with the list of the valid upsamplings, instead of being built as the bilinear upsampling.
+    """
+    with pytest.raises(expected_exception=ValueError, match="'MaskHead.upsampling' must be one of .* got 'nearest'"):
+        build_mask_head(roi_align_pool_size=7, mask_resolution=28, upsampling="nearest")
+
+
 def test_mask_targets_crop_the_matched_ground_truth_masks() -> None:
     """
     Verifies that a proposal equal to the box of a square ground truth mask gets a full target, that a proposal

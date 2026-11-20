@@ -19,6 +19,9 @@ from vision_training.models.components.fully_connected_block import build_fully_
 # channel, the "flatten" setting keeping every value of the feature map instead
 GLOBAL_POOLING_LAYERS = {"average": nn.AdaptiveAvgPool2d, "max": nn.AdaptiveMaxPool2d}
 
+# Every value of 'global_pooling' the models can build, listed by the error raised on any other value
+GLOBAL_POOLINGS = list(GLOBAL_POOLING_LAYERS) + ["flatten"]
+
 
 def build_global_pooling(global_pooling: str) -> nn.Sequential:
     """
@@ -33,10 +36,15 @@ def build_global_pooling(global_pooling: str) -> nn.Sequential:
     Returns:
         nn.Sequential: The pooling, mapping [B, C, H, W] feature maps to [B, C] vectors, or to [B, C x H x W] vectors
             when flattening.
+
+    Raises:
+        ValueError: If the global pooling is not one of GLOBAL_POOLINGS.
     """
     if global_pooling == "flatten":
         return nn.Sequential(nn.Flatten(start_dim=1))
-    return nn.Sequential(GLOBAL_POOLING_LAYERS[global_pooling](output_size=1), nn.Flatten(start_dim=1))
+    if global_pooling in GLOBAL_POOLING_LAYERS:
+        return nn.Sequential(GLOBAL_POOLING_LAYERS[global_pooling](output_size=1), nn.Flatten(start_dim=1))
+    raise ValueError(f"The global pooling must be one of {GLOBAL_POOLINGS}, got {global_pooling!r}.")
 
 
 def compute_pooled_features(global_pooling: str, backbone: Backbone) -> int:
@@ -53,11 +61,16 @@ def compute_pooled_features(global_pooling: str, backbone: Backbone) -> int:
 
     Returns:
         int: The number of features of the pooled vector.
+
+    Raises:
+        ValueError: If the global pooling is not one of GLOBAL_POOLINGS, instead of giving the channel count.
     """
     final_layer = backbone.compute_receptive_field_information()[-1]
     if global_pooling == "flatten":
         return final_layer["output_channels"] * final_layer["output_size"] * final_layer["output_size"]
-    return final_layer["output_channels"]
+    if global_pooling in GLOBAL_POOLING_LAYERS:
+        return final_layer["output_channels"]
+    raise ValueError(f"The global pooling must be one of {GLOBAL_POOLINGS}, got {global_pooling!r}.")
 
 
 def print_classification_head_summary(head_configuration: Dict[str, Any], input_features: int,

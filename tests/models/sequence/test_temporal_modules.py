@@ -188,3 +188,13 @@ def test_causal_modules_do_not_look_ahead(temporal_type: str, causal: bool) -> N
         changed_outputs = module(frame_features=changed_features, sequence_mask=sequence_mask)
     assert torch.allclose(input=outputs[:, :3], other=changed_outputs[:, :3])
     assert not torch.allclose(input=outputs[:, 3:], other=changed_outputs[:, 3:])
+
+
+def test_unknown_temporal_type_is_refused() -> None:
+    """
+    Verifies that a misspelled temporal module type reaching the builder without the configuration checks (a script,
+    a test or an older saved configuration) stops with the list of the valid types, instead of building a temporal
+    convolution.
+    """
+    with pytest.raises(expected_exception=ValueError, match="'TemporalModel.type' must be one of .* got 'transformr'"):
+        build_test_module(temporal_type="transformr", keep_time_axis=True)

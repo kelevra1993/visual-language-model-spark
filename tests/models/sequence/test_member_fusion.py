@@ -62,3 +62,13 @@ def test_cross_attention_ignores_padding_frames() -> None:
     assert torch.equal(input=attended_before[~before_mask], other=torch.zeros(size=(3, 8)))
     assert torch.equal(input=attended_after[~after_mask], other=torch.zeros(size=(2, 8)))
     assert not torch.allclose(input=attended_before[before_mask], other=before_features[before_mask])
+
+
+def test_unknown_fusion_type_is_refused() -> None:
+    """
+    Verifies that a misspelled fusion of the members reaching the model without the configuration checks stops with
+    the list of the valid fusions, instead of being built as the difference fusion.
+    """
+    with pytest.raises(expected_exception=ValueError, match="'Fusion.type' must be one of .* got 'sum'"):
+        MemberFusion(fusion_type="sum", frame_features=8, member_features=3, number_heads=2, dropout_rate=0.0,
+                     device=torch.device(device="cpu"), dtype=torch.float32)

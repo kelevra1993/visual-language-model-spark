@@ -71,7 +71,7 @@ Should you start on sequences of your own, `configuration_example.yaml` holds th
 | `ExperimentConfiguration.task` | `"sequence_labelling"` | `SequenceLabellingTrainer`, the M2M checks and the `M2M` run name code |
 | `Data.sequence_settings.maximum_sequence_length` | `50` | longest sequence fed whole, a longer one being left out with a red warning; `T50` token; positions of the transformer embedding |
 | `TemporalModel.type` | `"gru"` | `gru`, `lstm`, `transformer` or `temporal_convolution`; the poolings, which give one vector per sequence, are refused |
-| `TemporalModel.bidirectional`, `TemporalModel.causal` | `False`, `False` | a bidirectional GRU or LSTM also sees the frames after every frame (`-BI`, 256 features); `causal` (transformer, temporal convolution, `CAU`) only the frames before it; both together are refused |
+| `TemporalModel.bidirectional`, `TemporalModel.causal` | `False`, `False` | a bidirectional GRU or LSTM also sees the frames after every frame (`-BI`, 256 features); `causal` (transformer, temporal convolution, `CAU`) only the frames before it; both together are refused, and so is a causal module (or a GRU or LSTM that is not bidirectional) with `Backbone.normalization.feature_map_normalization: "sequence"` |
 | `ClassificationHead.global_pooling` | `"average"` | frame vector of 64 features at any image size; `flatten` keeps the positions (64 x 32 x 32 = 65,536 features at 512 pixels) |
 | `ClassificationHead.class_weighting` | `"none"` | `"balanced"`: weight N / (K x n_c) of every class over the labelled training frames (`CWB` token) |
 | `ClassificationHead.label_smoothing` | `0.0` | smoothing of the per-frame cross entropy (`LS<rate>` token) |
@@ -92,7 +92,6 @@ Whenever a checkpoint of the labeller is evaluated, the run folder, TensorBoard 
 ### Pitfalls
 - A run predicting `no_change` everywhere keeps a fair frame accuracy: the sequence labelling run of `experiments/readme_screenshots`, the synthetic configuration trained 2000 iterations from scratch on 2026-10-23 on the dataset of October (`suggestions.md` K29), gives Accuracy 46.97 % (the share of `no_change` frames of the `test_10000` of that dataset), Balanced Accuracy 1.41 % (1/71), Macro F1 0.90 % and Sequence Exact Match 5.89 % (the 589 sequences without change). Its `predictions.csv` gives `no_change` a probability of 0.9999 on the 10,000 first frames, always `no_change`, and about 0.38 on the 59,918 others, their share of `no_change`: read the balanced accuracy, the macro F1 and the segment metrics. That run has no class weights; in the experiment plan, a launch without class weights stayed at the macro F1 of a model predicting only `no_change` for its 6000 iterations, and the plan kept `class_weighting: "balanced"` at the same learning rate, 1e-3 (`configuration_example.yaml`).
 - The frames of unmapped categories get the label -100: they are left out of the loss and the metrics, and end a segment. A sequence whose `frame_category_ids` does not hold one category per frame is refused when the dataset is built, the first 20 such sequences being listed with their counts and the others counted; a batch without labelled frame gives a NaN loss while the sequences without labelled frame count as exact matches (`suggestions.md` L11, `sequence_losses.py`, `compute_sequence_exact_matches()`).
-- A causal module (`causal: True`, or a GRU or LSTM that is not bidirectional) with `Backbone.normalization.feature_map_normalization: "sequence"` still uses the future frames: the statistics of every backbone layer are those of the whole sequence (`bug_standards.md` B8).
 - `label_smoothing` above 0 with `class_weighting: "balanced"` pulls every frame towards the rarest classes (`suggestions.md` C2); on the training split of the dataset of October the balanced weight of `no_change` would be 0.030 against 1.82 to 1.89 for a change class (819,173 of the 1,749,690 frames, `data.json`).
 - `test_10000` holds a copy of the labels and a link to the frames of `synthetic_changing_shapes/test`: generating the dataset again makes its labels name other frames without any error (an audit finding the user dropped, so it stays as it is). The test split of the synthetic configuration holds all 50,000 test sequences, whose evaluation took 26 minutes at 256 pixels in the experiment plan.
 - `Data.sequence_settings` only takes `maximum_sequence_length`: a sequence is never cut into windows, a longer one is left out with a red warning (Step 2.8), and a step runs the backbone on up to `batch_size` x `maximum_sequence_length` frames (comment of `batch_size` in the configuration).
@@ -127,7 +126,7 @@ main()
 │               ├── check_sequence_settings()             maximum_sequence_length a positive integer, multi_class head
 │               └── check_temporal_model_configuration()  an ordered module only (GRU, LSTM, transformer, temporal
 │                                                         convolution): the poolings give one vector per sequence;
-│                                                         causal allowed
+│                                                         causal allowed, but not with the sequence normalization
 │
 ├── get_trainer_class(task)  -> SequenceLabellingTrainer
 │
@@ -259,7 +258,7 @@ dict: {1: 0, 2: 1, 3: 2, 4: 3, ..., 70: 69, 71: 70}
 ```
 
 ### Step 1.5 — `check_configuration()`
-The common checks run first, then `check_sequence_labelling_configuration()`: the checks of the sequence classification (`maximum_sequence_length` a positive integer, a `multi_class` head), except that the temporal module must model the frame order and keep one vector per frame (the poolings summarise a whole sequence into one vector, so they are refused), and that it may be causal: a causal module only looks at the past frames, so the class of a frame can be given as soon as the frame arrives.
+The common checks run first, then `check_sequence_labelling_configuration()`: the checks of the sequence classification (`maximum_sequence_length` a positive integer, a `multi_class` head), except that the temporal module must model the frame order and keep one vector per frame (the poolings summarise a whole sequence into one vector, so they are refused), and that it may be causal: a causal module only looks at the past frames, so the class of a frame can be given as soon as the frame arrives. A causal module (`causal: True`, or a GRU or LSTM that is not bidirectional) is refused with `Backbone.normalization.feature_map_normalization: "sequence"`, whose statistics come from every frame of the sequence in training and in inference, so that every frame would still see the frames after it.
 
 **Example: output with `TemporalModel.type: "mean_pooling"` and `maximum_sequence_length: 0` in the YAML**
 ```text

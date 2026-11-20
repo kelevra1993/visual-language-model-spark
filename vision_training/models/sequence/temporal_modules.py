@@ -419,6 +419,9 @@ def build_temporal_module(temporal_configuration: Dict[str, Any], input_features
 
     Returns:
         nn.Module: The temporal module.
+
+    Raises:
+        ValueError: If 'type' is not one of the temporal module types.
     """
     temporal_type = temporal_configuration["type"]
 
@@ -450,10 +453,17 @@ def build_temporal_module(temporal_configuration: Dict[str, Any], input_features
                                          positional_embedding=temporal_configuration["positional_embedding"],
                                          keep_time_axis=keep_time_axis, maximum_length=maximum_length, device=device,
                                          dtype=dtype)
-    # The temporal convolution otherwise
-    return TemporalConvolutionModule(input_features=input_features, hidden_size=temporal_configuration["hidden_size"],
-                                     number_layers=temporal_configuration["number_layers"],
-                                     kernel_size=temporal_configuration["kernel_size"],
-                                     dropout_rate=temporal_configuration["dropout_rate"],
-                                     causal=temporal_configuration["causal"], keep_time_axis=keep_time_axis,
-                                     device=device, dtype=dtype)
+    # Dilated convolutions over time, padded on the past side only when causal
+    if temporal_type == "temporal_convolution":
+        return TemporalConvolutionModule(input_features=input_features,
+                                         hidden_size=temporal_configuration["hidden_size"],
+                                         number_layers=temporal_configuration["number_layers"],
+                                         kernel_size=temporal_configuration["kernel_size"],
+                                         dropout_rate=temporal_configuration["dropout_rate"],
+                                         causal=temporal_configuration["causal"], keep_time_axis=keep_time_axis,
+                                         device=device, dtype=dtype)
+
+    # A misspelled type reaching the builder without the configuration checks stops here instead of building another
+    # module
+    raise ValueError(f"'TemporalModel.type' must be one of {POOLING_TEMPORAL_TYPES + ORDERED_TEMPORAL_TYPES}, got "
+                     f"{temporal_type!r}.")

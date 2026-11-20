@@ -190,3 +190,17 @@ def test_head_input_follows_the_pooled_feature_map(global_pooling: str, image_si
     assert outputs["class_logits"].shape == (2, 3)
     if global_pooling == "flatten":
         assert final_feature_map[0].numel() == expected_features
+
+
+def test_unknown_global_pooling_is_refused() -> None:
+    """
+    Verifies that a misspelled global pooling reaching the classifier without the configuration checks stops with the
+    list of the valid poolings, both when the head is sized from the backbone (which gave the channel count) and when
+    the pooling is built (which raised a bare KeyError).
+    """
+    configuration, device, dtype = get_classification_model_configuration(output_mode="multi_class")
+    configuration["ClassificationHead"]["global_pooling"] = "avg"
+    with pytest.raises(expected_exception=ValueError, match="The global pooling must be one of .* got 'avg'"):
+        ImageClassifier(configuration=configuration, device=device, dtype=dtype)
+    with pytest.raises(expected_exception=ValueError, match="The global pooling must be one of .* got 'avg'"):
+        build_global_pooling(global_pooling="avg")

@@ -12,6 +12,11 @@ import torch
 from torch import nn
 from typing import List
 
+from vision_training.configuration_processing.configuration_values import VALID_FEATURE_MAP_NORMALIZATIONS
+
+# Normalizations of the outputs of the hidden linear layers, the values of the feature map normalizations
+FULLY_CONNECTED_NORMALIZATIONS = VALID_FEATURE_MAP_NORMALIZATIONS
+
 
 class FeatureBatchNormalization(nn.BatchNorm1d):
     """
@@ -70,7 +75,15 @@ def build_fully_connected_block(input_dimension: int, dimensions: List[int], dro
 
     Returns:
         FullyConnectedBlock: The fully connected layers.
+
+    Raises:
+        ValueError: If the normalization is not "batch", "layer" or "none".
     """
+    # A misspelled normalization reaching the builder without the configuration checks stops here instead of building
+    # the layers without normalization
+    if normalization not in FULLY_CONNECTED_NORMALIZATIONS:
+        raise ValueError(f"The normalization of the fully connected layers must be one of "
+                         f"{FULLY_CONNECTED_NORMALIZATIONS}, got {normalization!r}.")
     fully_connected_layers = []
     current_dimension = input_dimension
 

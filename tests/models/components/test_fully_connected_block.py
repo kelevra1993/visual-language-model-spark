@@ -129,3 +129,14 @@ def test_head_keeps_the_features_of_a_hidden_layer_before_its_relu(normalization
         assert torch.allclose(input=kept_features, other=expected_features, atol=1e-6)
         assert (kept_features < 0).any()
         assert torch.allclose(input=class_logits, other=reference_logits, atol=1e-6)
+
+
+def test_unknown_normalization_is_refused() -> None:
+    """
+    Verifies that a misspelled normalization of the hidden layers reaching the builder without the configuration
+    checks stops with the list of the valid normalizations, instead of building the layers without normalization.
+    """
+    with pytest.raises(expected_exception=ValueError, match="must be one of .* got 'batchnorm'"):
+        build_fully_connected_block(input_dimension=12, dimensions=[8], dropout_rate=0.0, add_dropout_layers=True,
+                                    normalization="batchnorm", batch_normalization_momentum=0.1, device=DEVICE,
+                                    dtype=DTYPE)
