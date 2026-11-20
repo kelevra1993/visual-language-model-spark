@@ -185,11 +185,11 @@ scenes:
           - {name: "eager, in the process", colour: dim, values: ["{{deployment.speed.DET.eager.p50_batch_1}}", "{{deployment.speed.DET.eager.p50_batch_4}}", "{{deployment.speed.DET.eager.p50_batch_16}}"], value_labels: ["{{deployment.speed.DET.eager.p50_batch_1:.1f}}", "{{deployment.speed.DET.eager.p50_batch_4:.1f}}", "{{deployment.speed.DET.eager.p50_batch_16:,.1f}}"]}
           - {name: "TensorRT FP16, before the NMS fix", colour: yellow, values: ["{{deployment.speed.DET.tensorrt_fp16.p50_batch_1}}", "{{deployment.speed.DET.tensorrt_fp16.p50_batch_4}}", "{{deployment.speed.DET.tensorrt_fp16.p50_batch_16}}"], value_labels: ["{{deployment.speed.DET.tensorrt_fp16.p50_batch_1:.1f}}", "{{deployment.speed.DET.tensorrt_fp16.p50_batch_4:.1f}}", "{{deployment.speed.DET.tensorrt_fp16.p50_batch_16:.1f}}"]}
       - {type: box, box: [1200, 90, 1740, 400], text: "two torchvision nms calls\nproposals and detections\nevery box of the batch\nin one call, groups moved apart", font: diagram_small, outline: red, appear: 1, highlight: [1]}
-      - {type: box, box: [1200, 440, 1740, 640], text: "README TODO: suppress\ncandidates in the process,\na top-k before the export NMS", font: diagram_small, outline: border, appear: 2, highlight: [2]}
+      - {type: box, box: [1200, 440, 1740, 640], text: "left to do: suppress\ncandidates in the process,\na top-k before the export NMS", font: diagram_small, outline: border, appear: 2, highlight: [2]}
     narration:
       - "In the process, a batch of the detector takes {{deployment.speed.DET.eager.p50_batch_1:.1f}}, {{deployment.speed.DET.eager.p50_batch_4:.1f}} and {{deployment.speed.DET.eager.p50_batch_16:,.0f}} milliseconds at batch {{deployment.sweep.batch_sizes[0]}}, {{deployment.sweep.batch_sizes[1]}} and {{deployment.sweep.batch_sizes[2]}}, about the square of the batch size, while the TensorRT engine grows far less than the batch."
       - "The PyTorch profiler put the cause in the two torchvision nms calls of the inference detector, each given every box of the whole batch with the groups moved apart, while the backbone and neck grow linearly."
-      - "Say you size a server from the eager or TorchScript detector: batches would look slower than single images, which only holds outside TensorRT; the candidates of a fix are listed in the to do list of the README."
+      - "Say you size a server from the eager or TorchScript detector: batches would look slower than single images, which only holds outside TensorRT; the fixes left to do are a score threshold before the suppression in the process and a fixed top-k before the exported one."
 
   - kind: text_panel
     title: "Pitfalls of the measurement"
@@ -231,4 +231,4 @@ scenes:
       - {text: "Plan and results: documentation/architecture_benchmarking/serving_benchmark_*", monospace: true}
     narration:
       - "To recap: serve TensorRT FP16 when its test metric matches the eager model, check that metric through the served engine, prefer shared memory for large images, and measure the server settings before keeping the exported ones."
-      - "The serving plan and its results files keep every number of this chapter, and the to do list of the README holds the follow-ups."
+      - "The serving plan and its results files keep every number of this chapter, and its follow-ups section holds the work left to do."

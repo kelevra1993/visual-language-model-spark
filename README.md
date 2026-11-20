@@ -41,7 +41,6 @@
   - [Running A Training](#running-a-training)
   - [Kubernetes Pods](#kubernetes-pods)
 - [Repository Structure](#repository-structure)
-- [TODO](#todo)
 
 ## Description
 If you are new to the repository, start from its tasks: it trains, evaluates and exports PyTorch models for nine vision tasks, plus a self-supervised task that pre-trains a backbone the other tasks can load. All tasks use the same backbone design (convolution blocks with optional residual, squeeze-and-excitation and inception modules), each run training its own weights unless it loads pre-trained ones, and share the training loop, the configuration format, the evaluation report and the export to Triton; each adds its own dataset, head, losses and metrics.
@@ -1500,12 +1499,3 @@ To find your way in the code, the diagram follows the packages along the path of
 ├── tests/                             # Tests, mirroring vision_training/ and scripts/
 └── tutorials/                         # Narrated tutorial videos: storyboards, figure scripts, run snapshots, MAINTAINING.md
 ```
-
-## TODO
-In case you pick up open work, these entries are still to do:
-- **Batches of the detector outside TensorRT.** The inference detector runs two torchvision NMS calls over the whole batch, one on the proposals of every image (`suppress_overlapping_proposals` of `region_proposer.py`) and one on every (proposal, foreground class) pair (`postprocess_detections` of `postprocessing.py`), each moving its groups apart in one call (`suppress_groups_apart` of `vision_training/models/detection/postprocessing.py`, through `suppress_stacked_groups`), so that their pairwise work grows with the square of the batch: the eager and TorchScript DET take 16 milliseconds for one image and 1.4 seconds for 16, the TensorRT engines 82 milliseconds with their NMS of one batch per group. Profiled on run_9 in the process, the two `nms` calls (proposals and detections) take 4.2 milliseconds at batch 1 and 1,313 milliseconds at batch 16 (89 % of the GPU time), the backbone and neck 9.1 and 140.7. Candidates: the score threshold before the NMS of the evaluation (`suppress_candidates_only`) in the process, a fixed top-k of the pairs per image before the NMS in the exports.
-- **Serving defaults of the export**, from the [Serving Benchmark Results](#serving-benchmark-results):
-  - Dynamic batching off for the three models, with two instances for CLS and M2M (CLS 1,747 against 1,168 images per second at 16 requests in flight, twice the throughput at one client; DET 166 against 153 without it since the NMS fix).
-  - The TensorRT engine cache mounted by `docker-compose.yml`, or native engines built at export with optimization profiles of the batch sizes, the only route to BF16 since the ONNX Runtime backend of Triton 26.01 refuses it.
-  - Inputs smaller than float32 tensors over gRPC (uint8 images normalized in the model), a batch of 16 large images being bound by the request.
-- **Capture `README/run_inference_output.png` again** on the idle GPU (the figure of [Triton Server](#triton-server) was measured while three trainings shared the GPU).

@@ -11,6 +11,7 @@
 - [Protocol](#protocol)
 - [Outputs](#outputs)
 - [Results](#results)
+- [Follow-Ups](#follow-ups)
 - [Status](#status)
 
 ## Rows
@@ -240,6 +241,15 @@ To read the tables in one pass:
 - **A gRPC request of large images costs more than the model.** One Python client sending batches of 16 over gRPC gets CLS 109 images per second against 1,215 over shared memory with TensorRT FP16 (DET 27 against 246, M2M 470 against 6,249): building and sending 50 MB (CLS) to 201 MB (DET) requests dominates. Over gRPC the best is many clients sending single images (CLS 860 images per second at batch 1 and concurrency 16, M2M 3,661 frames per second), the server batching them.
 - **The eager and TorchScript DET lose from batches:** in the process a batch takes 16.0, 130.7 and 1,424.1 milliseconds at 1, 4 and 16 images (62, 30 and 11 images per second), about the square of the batch size, while the TensorRT FP16 engine takes 17.6, 27.5 and 64.0 milliseconds (56, 144 and 246 images per second). The PyTorch profiler of the eager model puts the cause in its two torchvision `nms` calls (proposals and detections), each given every box of the whole batch with the images moved apart (`suppress_groups_apart`): 4.2 milliseconds of GPU time at batch 1 and 1,313 at batch 16 (89 % of the 1,479), while the backbone and neck grow from 9.1 to 140.7 milliseconds, in proportion to the batch.
 
+## Follow-Ups
+In case you pick up the work this benchmark left open, these entries are still to do:
+- **Batches of the detector outside TensorRT.** The inference detector runs two torchvision NMS calls over the whole batch, one on the proposals of every image (`suppress_overlapping_proposals` of `region_proposer.py`) and one on every (proposal, foreground class) pair (`postprocess_detections` of `postprocessing.py`), each moving its groups apart in one call (`suppress_groups_apart` of `vision_training/models/detection/postprocessing.py`, through `suppress_stacked_groups`), so that their pairwise work grows with the square of the batch: the eager and TorchScript DET take 16 milliseconds for one image and 1.4 seconds for 16, the TensorRT engines 82 milliseconds with their NMS of one batch per group. Profiled on run_9 in the process, the two `nms` calls (proposals and detections) take 4.2 milliseconds at batch 1 and 1,313 milliseconds at batch 16 (89 % of the GPU time), the backbone and neck 9.1 and 140.7. Candidates: the score threshold before the NMS of the evaluation (`suppress_candidates_only`) in the process, a fixed top-k of the pairs per image before the NMS in the exports.
+- **Serving defaults of the export**, from the [Serving Benchmark Results](../../README.md#serving-benchmark-results):
+  - Dynamic batching off for the three models, with two instances for CLS and M2M (CLS 1,747 against 1,168 images per second at 16 requests in flight, twice the throughput at one client; DET 166 against 153 without it since the NMS fix).
+  - The TensorRT engine cache mounted by `docker-compose.yml`, or native engines built at export with optimization profiles of the batch sizes, the only route to BF16 since the ONNX Runtime backend of Triton 26.01 refuses it.
+  - Inputs smaller than float32 tensors over gRPC (uint8 images normalized in the model), a batch of 16 large images being bound by the request.
+- **Capture `README/run_inference_output.png` again** on the idle GPU (the figure of [Triton Server](../../README.md#triton-server) was measured while three trainings shared the GPU).
+
 ## Status
 In order to follow the benchmark, this section keeps its steps.
 
@@ -248,7 +258,7 @@ In order to follow the benchmark, this section keeps its steps.
 - 2026-11-17, about 12:44: pilot stopped when `perf_analyzer` over gRPC filled the memory of the machine; gRPC moved to the tritonclient client, `perf_analyzer` kept for shared memory in a container limited to 16 GB, the M2M ONNX outputs repaired.
 - 2026-11-17, 13:44 to 15:29: speed sweep of the focused scope, 324 measurements, none failed.
 - 2026-11-17, 15:29 to 17:31: test metric of the 15 rows (the eager model and the four served formats of each model), DET TensorRT FP16 7.88 points below the eager model.
-- 2026-11-17, 17:34 to 18:00: the eager DET profiled (the two `nms` calls take 89 % of a batch of 16), and the FP16 gap traced to the group offsets of the NMS overflowing in batches (200 test images sent one and 16 at a time, eager scores rounded to FP16 over the test split). Benchmark done; the follow-ups are in the TODO of the README.
+- 2026-11-17, 17:34 to 18:00: the eager DET profiled (the two `nms` calls take 89 % of a batch of 16), and the FP16 gap traced to the group offsets of the NMS overflowing in batches (200 test images sent one and 16 at a time, eager scores rounded to FP16 over the test split). Benchmark done; the follow-ups are in [Follow-Ups](#follow-ups).
 - 2026-11-17, 18:10 to 19:10: the exported NMS of the detectors without offsets (`suppress_stacked_groups`) and DIoU-NMS on boxes in fractions of the image; run_9 exported again (test metric of TensorRT FP16 and FP32, speed at batch 1 and 16, batching on and off) and a DIoU copy of run_9 checked on 200 test images.
 - 2026-11-18: the ONNX export restores the output frames of the sequence labeller and frame selector itself (`restore_dynamic_output_frames`) and checks them, the repair of the drivers removed.
 - 2026-11-18, about 14:25 to 14:45: the ONNX Runtime CUDA row of DET measured again with the NMS without offsets (speed at batch 1 and 16, test metric), and the M2M and frame selector networks exported again and served by Triton without repair.
