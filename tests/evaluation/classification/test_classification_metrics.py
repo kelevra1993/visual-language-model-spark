@@ -76,10 +76,8 @@ def test_top_k_accuracy() -> None:
     """
     probabilities = torch.tensor(data=[[0.5, 0.3, 0.2], [0.1, 0.2, 0.7], [0.6, 0.3, 0.1]])
     labels = torch.tensor(data=[1, 2, 2])
-    assert compute_top_k_accuracy(probabilities=probabilities, labels=labels, top_k=1) == pytest.approx(
-        expected=1 / 3)
-    assert compute_top_k_accuracy(probabilities=probabilities, labels=labels, top_k=2) == pytest.approx(
-        expected=2 / 3)
+    assert compute_top_k_accuracy(probabilities=probabilities, labels=labels, top_k=1) == pytest.approx(expected=1 / 3)
+    assert compute_top_k_accuracy(probabilities=probabilities, labels=labels, top_k=2) == pytest.approx(expected=2 / 3)
     assert compute_top_k_accuracy(probabilities=probabilities, labels=labels, top_k=10) == 1.0
 
 

@@ -74,7 +74,8 @@ def test_reference_samples_are_the_same_in_any_order_and_bounded_per_class() -> 
     samples = ([{"identifier": index, "file_name": f"zero/{index}.png", "class_indices": [0]} for index in range(5)] +
                [{"identifier": 10 + index, "file_name": f"one/{index}.png", "class_indices": [1]}
                 for index in range(2)] +
-               [{"identifier": 20 + index, "file_name": f"none/{index}.png", "class_indices": []} for index in range(3)])
+               [{"identifier": 20 + index, "file_name": f"none/{index}.png", "class_indices": []}
+                for index in range(3)])
     reference_samples = select_reference_samples(samples=samples, number_images_per_class=3)
     reference_identifiers = [sample["identifier"] for sample in reference_samples]
 

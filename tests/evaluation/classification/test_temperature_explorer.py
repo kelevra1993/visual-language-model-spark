@@ -1,12 +1,13 @@
 """
 Tests of vision_training/evaluation/classification/temperature_explorer.py: the page draws the classes in class index
 order, each with the histogram of its score over its own images at every temperature of the grid, the thresholds saved
-from the page are written next to it, those of other classes than its class_thresholds.json being refused, and the
-class logits written next to the page give it back with any other temperature and the thresholds of every class at
-it; the score ranges of the served page count the images of every
-class by their own class score, a score equal to a cut point counting in the range above, and wrong cut points are
-refused; write_explorer_evaluation writes the evaluation folder of the serve script tests. The percentages written by the script of the page are those of the report helpers
-(run with Node.js when it is installed).
+from the page are written next to it, those of other classes than its class_thresholds.json being refused, and the class
+logits written next to the page give it back with any other temperature and the thresholds of every class at it; the
+score ranges of the served page count the images of every class by their own class score, a score equal to a cut point
+counting in the range above, and wrong cut points are refused; the positives of the class thresholds are set as booleans
+without the int64 one-hot table, a class index outside the classes being refused; write_explorer_evaluation writes the
+evaluation folder of the serve script tests. The percentages written by the script of the page are those of the report
+helpers (run with Node.js when it is installed).
 """
 
 import json
@@ -104,6 +105,9 @@ def test_saved_thresholds_are_written_next_to_the_page(tmp_path: Path) -> None:
     """
     Verifies that thresholds of the classes and target precisions of the evaluation, at a temperature above 0, are
     written next to the page as posted, a second save replacing the first.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, the evaluation folder of the page.
     """
     write_class_thresholds_file(evaluation_folder=tmp_path)
     for logit_temperature in [2.0, 3]:
@@ -121,6 +125,11 @@ def test_saved_thresholds_of_another_evaluation_are_refused(tmp_path: Path, save
     """
     Verifies that thresholds of other classes than the class_thresholds.json of the folder are refused with the
     reason, and that nothing is written.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, the evaluation folder of the page.
+        saved_thresholds (Any): The thresholds posted by the page, naming other classes than the evaluation.
+        expected_message (str): The part of the error message giving the reason.
     """
     write_class_thresholds_file(evaluation_folder=tmp_path)
     with pytest.raises(expected_exception=ValueError, match=expected_message):
@@ -198,6 +207,9 @@ def test_class_logits_give_back_the_page_and_any_temperature(tmp_path: Path) -> 
     Verifies that the class logits written next to the page give back its data exactly, the description of a
     temperature of its slider (2) and of a typed one (2.3, on no slider), and the thresholds of every class at both,
     equal to those the page shows and accepted against class_thresholds.json.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, the evaluation folder written by write_explorer_evaluation.
     """
     class_logits_record = write_explorer_evaluation(evaluation_folder=tmp_path, seed=3, with_logits=True)
     page_data = read_explorer_page_data(explorer_path=tmp_path / "temperature_explorer.html")
@@ -230,6 +242,10 @@ def test_class_histograms_count_the_own_images_in_class_index_order(tmp_path: Pa
     Verifies that the page describes the temperatures of the grid only, draws the classes in class index order, each
     with the histogram of its score over its own images (adding up to its images, the other images left out), and that
     above the largest number of classes the classes of lowest F1 are kept, still in class index order.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, the evaluation folder written by write_explorer_evaluation.
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture lowering the largest number of classes of the page.
     """
     class_logits_record = write_explorer_evaluation(evaluation_folder=tmp_path, seed=3, with_logits=True)
     page_data = build_explorer_data_from_logits(class_logits_record=class_logits_record)
@@ -261,6 +277,9 @@ def test_temperatures_outside_the_range_are_refused(logit_temperature: Any) -> N
     """
     Verifies that a temperature typed on the page outside LOGIT_TEMPERATURE_RANGE, or not a number, is refused, and
     that one within it is kept.
+
+    Args:
+        logit_temperature (Any): A typed temperature outside LOGIT_TEMPERATURE_RANGE, or not a number.
     """
     with pytest.raises(expected_exception=ValueError, match="Expected a logit temperature from 0.05 to 100"):
         check_logit_temperature(logit_temperature=logit_temperature)
@@ -272,6 +291,9 @@ def test_score_ranges_count_every_class_by_its_own_score(tmp_path: Path) -> None
     Verifies that the score ranges of the served page count the images of every drawn class, in the order of the page,
     by the range their score for their own class falls in at the temperature asked, the counts of a class adding up to
     its images on the page.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, the evaluation folder written by write_explorer_evaluation.
     """
     class_logits_record = write_explorer_evaluation(evaluation_folder=tmp_path, seed=3, with_logits=True)
     page_data = read_explorer_page_data(explorer_path=tmp_path / "temperature_explorer.html")
@@ -317,6 +339,9 @@ def test_wrong_cut_points_are_refused(cut_points: Any) -> None:
     """
     Verifies that cut points of the score ranges outside ]0, 1[, repeated, not numbers or too many are refused, and that
     accepted ones are sorted, up to the largest number of cut points.
+
+    Args:
+        cut_points (Any): Cut points that are missing, outside ]0, 1[, repeated, not numbers, not a list or too many.
     """
     with pytest.raises(expected_exception=ValueError,
                        match=f"Expected 1 to {MAXIMUM_SCORE_CUT_POINTS} distinct scores strictly between 0 and 1"):
@@ -330,6 +355,9 @@ def test_page_written_before_the_save_button_is_refused(tmp_path: Path) -> None:
     """
     Verifies that the data of a page written before the save button (no class indices) is refused with the way out,
     the serve script being unable to save its thresholds.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, the evaluation folder written by write_explorer_evaluation.
     """
     write_explorer_evaluation(evaluation_folder=tmp_path, seed=3, with_logits=False)
     page_path = tmp_path / "temperature_explorer.html"
@@ -368,6 +396,9 @@ def test_positive_masks_are_the_one_hot_labels_without_the_int64_table(monkeypat
     Verifies that the positives of the class thresholds of a multi-class evaluation are the one-hot labels as booleans,
     set without torch.nn.functional.one_hot, whose int64 [N, K] table took 8.7 GB at 50,000 test images over 21,842
     classes, and that an empty split gives an empty table.
+
+    Args:
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture making torch.nn.functional.one_hot unusable.
     """
     labels = torch.randint(low=0, high=7, size=(50,), generator=torch.Generator().manual_seed(0))
     expected_masks = torch.nn.functional.one_hot(input=labels, num_classes=7).to(dtype=torch.bool)
@@ -375,7 +406,7 @@ def test_positive_masks_are_the_one_hot_labels_without_the_int64_table(monkeypat
     # The one-hot function made unusable, so that the masks must be set without it
     monkeypatch.setattr(target=torch.nn.functional, name="one_hot", value=None)
     positive_masks = build_positive_masks(labels=labels, output_mode="multi_class", number_classes=7)
-    assert positive_masks.dtype == torch.bool and torch.equal(positive_masks, expected_masks)
+    assert positive_masks.dtype == torch.bool and torch.equal(input=positive_masks, other=expected_masks)
     empty_masks = build_positive_masks(labels=torch.zeros(size=(0,), dtype=torch.int64), output_mode="multi_class",
                                        number_classes=7)
     assert empty_masks.shape == (0, 7)
@@ -386,6 +417,9 @@ def test_positive_masks_refuse_class_indices_outside_the_classes(wrong_label: in
     """
     Verifies that a class index below 0 or not below the number of classes is refused, rather than set from the end of
     the classes by a negative index.
+
+    Args:
+        wrong_label (int): A class index below 0 or not below the 7 classes.
     """
     labels = torch.tensor(data=[0, 3, wrong_label])
     with pytest.raises(expected_exception=ValueError, match="Expected class indices between 0 and 6"):
