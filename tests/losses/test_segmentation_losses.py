@@ -65,7 +65,6 @@ def test_dice_loss_leaves_out_the_absent_classes() -> None:
     assert compute_dice_loss(class_logits=logits, masks=ignored_masks) == 0.0
 
 
-
 def test_lovasz_loss_of_hard_predictions_is_one_minus_the_iou() -> None:
     """
     Verifies that for hard predictions (probabilities of 0 or 1) the Lovász-Softmax loss is exactly the mean of

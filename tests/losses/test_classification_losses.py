@@ -71,8 +71,7 @@ def test_decorrelation_loss_sums_the_squared_off_diagonal_correlations() -> None
     outputs = compute_decorrelation_loss(hidden_features=hidden_features * 7.0 + 3.0, weight=0.2)
     assert torch.allclose(input=outputs["decorrelation_loss"], other=0.2 * off_diagonal.pow(exponent=2).sum(),
                           rtol=1e-4)
-    assert torch.allclose(input=outputs["hidden_feature_correlation"], other=off_diagonal.abs().sum() / 30,
-                          rtol=1e-4)
+    assert torch.allclose(input=outputs["hidden_feature_correlation"], other=off_diagonal.abs().sum() / 30, rtol=1e-4)
     with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
         autocast_outputs = compute_decorrelation_loss(hidden_features=hidden_features, weight=0.2)
     assert autocast_outputs["decorrelation_loss"].dtype == torch.float32
