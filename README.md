@@ -88,7 +88,7 @@ uv sync
 
 Besides the dependencies, `uv sync` installs the `dev` group (pytest) and the `datasets` group (FiftyOne, for `data_retriever.py`), both left out of the Docker image.
 
-Every script runs as a module from the repository root. The training takes `--configuration_path`, the task being read from the file; the other scripts take no arguments, their settings being the variables of their `if __name__ == "__main__":` block.
+Every script runs as a module from the repository root. The training and the [configuration check](#configurations) (`vision_training.check_configuration`) take `--configuration_path`, the task being read from the file; the other scripts take no arguments, their settings being the variables of their `if __name__ == "__main__":` block.
 
 <p align="center">
   <img src="README/scripts_and_requirements.png" width="100%" />
@@ -213,7 +213,7 @@ At every evaluation it prints the report appended to `Results.txt` (with `evalua
 </p>
 <p align="center"><em>The report of the synthetic shapes classifier of the README screenshots at iteration 2000, up to its per-class table of the 35 classes; the recall table with its intervals and the links to the files of the evaluation follow it.</em></p>
 
-TensorBoard holds `Train` and `Validation` (every iteration), `Test` (scalars and sample images at every evaluation) and `Test_EMA` (the averaged weights); open http://localhost:6006 after:
+To follow the curves rather than the console, TensorBoard holds `Train` and `Validation` (every iteration), `Test` (scalars and sample images at every evaluation) and `Test_EMA` (the averaged weights, with the moving average on); open http://localhost:6006 after:
 
 ```bash
 uv run tensorboard --logdir <experiment_folder>/<run name>/Tensorboard
@@ -222,6 +222,7 @@ uv run tensorboard --logdir <experiment_folder>/<run name>/Tensorboard
 <p align="center">
   <img src="README/tensorboard.png" width="100%" />
 </p>
+<p align="center"><em>The scalars of the same classifier with the smoothing set to 0 (TensorBoard smooths by 0.6 by default, pulling the last points towards the earlier ones): the accuracy and total loss of every training and validation iteration, and the accuracy and balanced accuracy of the four test evaluations, the last balanced accuracy being the 81.65 % of the report above.</em></p>
 
 ### Augmentation And Diagnosis Modes
 Suppose a run learns nothing: look at what the network receives before blaming the model.
@@ -288,7 +289,7 @@ Say you bring your own data: every task reads a folder per split with its images
 | CLS | `category_id`, or `category_ids` with `ClassificationHead.output_mode: "multi_label"`; `class_folder_manifests.py` converts one folder per class | `ClassificationHead` | accuracy, macro F1, top-5, per-class metrics and thresholds at `target_precision`, misclassified images in `Errors/` | [reference](documentation/reference/tasks_reference.md#classification-cls) · [workflow](documentation/task%20workflows/classification_workflow.md) |
 | DET | COCO, boxes `[x, y, width, height]` in pixels | `DetectionLevels`, `Neck`, `RegionProposal`, `Detector` | mAP@[0.5:0.95] and by object size, anchor and proposal recall, confusion with a background class | [reference](documentation/reference/tasks_reference.md#object-detection-det) · [workflow](documentation/task%20workflows/object_detection_workflow.md) |
 | INS | COCO `segmentation` (polygons or RLE) | the sections of DET, `MaskHead`, `Data.instance_index_maps` | mask and box mAP, `Mask mAP@0.5/area` comparing the checkpoints | [reference](documentation/reference/tasks_reference.md#instance-segmentation-ins) · [workflow](documentation/task%20workflows/instance_segmentation_workflow.md) |
-| KPT | COCO `keypoints`, with the keypoint names and `skeleton` of every category | `Backbone` as the stem, `HRNet`, `KeypointHead` | OKS mAP, PCK@0.05, mean OKS | [reference](documentation/reference/tasks_reference.md#keypoint-detection-kpt) · [workflow](documentation/task%20workflows/keypoint_detection_workflow.md) |
+| KPT | COCO `keypoints`, with the keypoint names and optional `skeleton` of every category | `Backbone` as the stem, `HRNet`, `KeypointHead` | OKS mAP, PCK@0.05, mean OKS | [reference](documentation/reference/tasks_reference.md#keypoint-detection-kpt) · [workflow](documentation/task%20workflows/keypoint_detection_workflow.md) |
 | SEG | `masks/`: uint8 PNG, 0 for the background, 255 ignored | `SegmentationDecoder`, `SegmentationLoss`, `Data.tiling` | mean IoU and Dice, boundary IoU and F1 | [reference](documentation/reference/tasks_reference.md#semantic-segmentation-seg) · [workflow](documentation/task%20workflows/semantic_segmentation_workflow.md) |
 | M2O | frames in `data/<sequence name>/`, one `category_id` per sequence | `Data.sequence_settings`, `TemporalModel` | the CLS metrics on the sequences | [reference](documentation/reference/tasks_reference.md#sequence-classification-m2o) · [workflow](documentation/task%20workflows/sequence_classification_workflow.md) |
 | M2M | `frame_category_ids` | the sections of M2O, `TemporalModel.causal` for live streams | frame metrics, edit score, segment F1@10, @25 and @50 | [reference](documentation/reference/tasks_reference.md#sequence-labelling-m2m) · [workflow](documentation/task%20workflows/sequence_labelling_workflow.md) |
@@ -344,7 +345,7 @@ To turn the categories into classes, `label_mapping.json` (`Data.label_mapping.m
 }                 //   not written
 ```
 
-A category left out skips its samples (CLS, M2O, CMP), leaves the classes of its multi-label samples, makes its frames ignored (M2M) or unselected (SEL), its objects ignored (DET, INS, KPT) and its pixels background (SEG). DET, INS and SEG also accept `mode: "binary"`, every category becoming class 1 without a mapping file.
+A category left out skips its samples (CLS, M2O, CMP), leaves the classes of its multi-label samples, makes its frames ignored (M2M) or unselected (SEL), its objects left out (DET, INS, KPT) and its pixels background (SEG). DET, INS and SEG also accept `mode: "binary"`, every category becoming class 1 without a mapping file.
 
 If each image shows one class (CLS, and SSL, whose categories only serve its k-NN evaluation), `labels.json` gives one entry per image, its `file_name` relative to `data/`:
 
@@ -747,7 +748,7 @@ It writes into `<run>/Checkpoint_Evaluation/` (`Checkpoint_Evaluation_nms_<crite
   <img src="README/checkpoint_evaluation_folder.png" width="100%" />
 </p>
 
-To find where a classifier fails, read its confusion matrix (percent of every true class, precision and recall in the margins; above 1,000 classes no image is drawn, and `confusion_cells.csv` lists the non-zero cells as `true_class,predicted_class,count` in place of `confusion_matrix.csv`), then the misclassified images saved in `Errors/<true>-TO-<predicted>/` (at most `maximum_error_images_per_class_pair` per pair), named after the sample and the probability of the predicted class.
+To find where a classifier fails, read its confusion matrix (counts coloured by their share of the true class, precision and recall in the margins; above 1,000 classes no image is drawn, and `confusion_cells.csv` lists the non-zero cells as `true_class,predicted_class,count` in place of `confusion_matrix.csv`), then the misclassified images saved in `Errors/<true>-TO-<predicted>/` (at most `maximum_error_images_per_class_pair` per pair), named after the sample and the probability of the predicted class.
 
 <p align="center">
   <img src="README/confusion_matrix.png" width="80%" />
@@ -877,7 +878,7 @@ If you would rather watch than read, narrated tutorial videos (the 13 series of 
 </p>
 <p align="center"><em>Three scenes of the built videos: the receptive field of the backbone (Foundations), the anchors of block 5 then of blocks 6 and 7 (Object Detection) and the Hungarian decoding (Frame Selection), each naming the file and function it shows.</em></p>
 
-`tutorials/README.md` describes the build and how to write a chapter:
+To be able to rebuild the videos, `tutorials/README.md` describes the build and how to write a chapter:
 
 ```bash
 # Rebuild every series, or one, or only check the storyboards against the repository
