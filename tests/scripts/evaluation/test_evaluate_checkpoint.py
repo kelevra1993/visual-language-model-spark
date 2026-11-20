@@ -6,15 +6,25 @@ detection run is replaced by the evaluated one, whose evaluations get an output 
 from the one of the run, invalid settings being refused and the tasks without detector skipped. The predictions file
 of every evaluated sample is turned on or off for the tasks writing one, the others being skipped, and the error image
 limit turns the error images on for the tasks saving them, a configuration without 'evaluation' section being refused.
+Another labelled split is evaluated into a folder of its own, a folder holding the evaluations of another split being
+refused, and a run without checkpoint, or a given iteration without one, stops the script before anything is written.
 """
 
+import json
 import pytest
 
-from typing import Any, Dict, Optional, Tuple
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple, Union
 
 from scripts.evaluation.evaluate_checkpoint import (apply_error_image_limit, apply_nms_criterion,
-                                                    apply_save_predictions, apply_target_precisions)
+                                                    apply_save_predictions, apply_target_precisions,
+                                                    apply_test_data_folder, check_evaluation_folder_split,
+                                                    list_evaluated_iterations, point_to_checkpoint_evaluation)
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
+from vision_training.data.data_record import DATA_RECORD_FILE_NAME
+from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
+from vision_training.trainers.checkpointing import get_checkpoint_file, update_checkpoint_registry
+from tests.trainers.test_base_trainer import build_dummy_trainer
 
 # Detection configuration of the run whose final NMS is replaced, set to the greedy NMS ("iou", exponent 1.0) of the
 # runs trained before DIoU-NMS was kept
@@ -196,3 +206,143 @@ def test_save_predictions_replaces_the_experiment_one_or_is_skipped(capsys: pyte
     apply_save_predictions(experiment_configuration=detection_configuration, save_predictions=True)
     assert "save_predictions" not in detection_configuration["evaluation"]
     assert "save_predictions is skipped" in capsys.readouterr().out
+
+
+def test_another_split_is_evaluated_into_a_folder_of_its_own(tmp_path: Path) -> None:
+    """
+    Verifies that another labelled split replaces the test split of the run and names the output subfolder of its
+    evaluations after its folder and the folder holding it, so that the evaluations of two splits never share a folder,
+    while None or the test split of the run given again (written differently) keep the Checkpoint_Evaluation folder.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, holding the run folder and the dataset folders.
+    """
+    run_test_data_folder = tmp_path / "synthetic_shapes" / "test"
+    run_folder = tmp_path / "experiments" / "CLS_RUN_MC3"
+    expected_folder_names = {None: CHECKPOINT_EVALUATION_FOLDER_NAME,
+                             f"{run_test_data_folder}/": CHECKPOINT_EVALUATION_FOLDER_NAME,
+                             tmp_path / "synthetic_shapes" / "validation":
+                                 f"{CHECKPOINT_EVALUATION_FOLDER_NAME}_split_synthetic_shapes_validation",
+                             tmp_path / "newer_shapes" / "test":
+                                 f"{CHECKPOINT_EVALUATION_FOLDER_NAME}_split_newer_shapes_test"}
+    for test_data_folder, expected_folder_name in expected_folder_names.items():
+        experiment_configuration = {"test_data_folder": run_test_data_folder}
+        folder_suffix = apply_test_data_folder(experiment_configuration=experiment_configuration,
+                                               test_data_folder=test_data_folder)
+        evaluation_folder = point_to_checkpoint_evaluation(experiment_configuration=experiment_configuration,
+                                                           experiment_folder=run_folder, folder_suffix=folder_suffix)
+        assert evaluation_folder == run_folder / expected_folder_name
+        expected_test_data_folder = run_test_data_folder if test_data_folder is None else Path(test_data_folder)
+        assert experiment_configuration["test_data_folder"] == expected_test_data_folder
+
+
+def write_evaluation_data_record(evaluation_folder: Path, test_data_folder: Union[str, Path]) -> None:
+    """
+    Writes the data.json of an evaluation folder, as the trainer of a standalone evaluation records the data it
+    evaluated, reduced to the data folder of its test split read by check_evaluation_folder_split.
+
+    Args:
+        evaluation_folder (Path): The evaluation folder, created.
+        test_data_folder (Union[str, Path]): The evaluated split recorded as the test split.
+    """
+    evaluation_folder.mkdir(parents=True)
+    data_record = {"splits": {"test": {"data_folder": str(test_data_folder)}}}
+    (evaluation_folder / DATA_RECORD_FILE_NAME).write_text(data=json.dumps(obj=data_record), encoding="utf-8")
+
+
+def test_evaluation_folder_of_another_split_is_refused(tmp_path: Path) -> None:
+    """
+    Verifies that the evaluations of a split are refused in a folder whose data.json records another test split, e.g.
+    a Checkpoint_Evaluation folder written by the evaluation of another split before every split had a folder of its
+    own, while the same split, a new folder and a folder without data record are accepted.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, holding the evaluation folders.
+    """
+    run_test_data_folder = tmp_path / "synthetic_shapes" / "test"
+    other_data_folder = tmp_path / "synthetic_shapes" / "validation"
+
+    # A new folder, then a folder written before the record of the data existed
+    check_evaluation_folder_split(evaluation_folder=tmp_path / "new", test_data_folder=run_test_data_folder)
+    (tmp_path / "without_record").mkdir()
+    check_evaluation_folder_split(evaluation_folder=tmp_path / "without_record", test_data_folder=run_test_data_folder)
+
+    # A folder holding the evaluations of the validation split, accepted for it only
+    evaluation_folder = tmp_path / CHECKPOINT_EVALUATION_FOLDER_NAME
+    write_evaluation_data_record(evaluation_folder=evaluation_folder, test_data_folder=other_data_folder)
+    check_evaluation_folder_split(evaluation_folder=evaluation_folder, test_data_folder=f"{other_data_folder}/")
+    with pytest.raises(expected_exception=ValueError, match="holds the evaluations of the split"):
+        check_evaluation_folder_split(evaluation_folder=evaluation_folder, test_data_folder=run_test_data_folder)
+
+
+def test_standalone_evaluation_records_the_split_its_folder_is_checked_against(tmp_path: Path) -> None:
+    """
+    Verifies on the dummy task that the data.json a standalone evaluation writes in its Checkpoint_Evaluation folder
+    records the split check_evaluation_folder_split compares, so that a later evaluation of the same split is accepted
+    in the folder and one of another split is refused before its trainer replaces that record.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=5, view_input_images=False,
+                                  number_sample_images=0)
+    trainer.run_training_loop()
+    evaluation_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=5,
+                                             view_input_images=False, number_sample_images=0,
+                                             evaluated_run_folder=trainer.experiment_folder)
+
+    # The dummy splits are named after their folders, 'test' being the one of the run
+    evaluation_folder = evaluation_trainer.experiment_folder
+    check_evaluation_folder_split(evaluation_folder=evaluation_folder, test_data_folder=Path("test"))
+    with pytest.raises(expected_exception=ValueError, match="holds the evaluations of the split"):
+        check_evaluation_folder_split(evaluation_folder=evaluation_folder, test_data_folder=Path("validation"))
+
+
+def save_empty_checkpoints(weights_directory: Path, iterations: list[int]) -> None:
+    """
+    Saves empty weight files at the given iterations, recorded in the registry in that order as the trainer records
+    its checkpoints, the listing of the evaluated iterations reading only the registry and the presence of the files.
+
+    Args:
+        weights_directory (Path): The 'Weights' folder of the run, created.
+        iterations (list[int]): The iterations of the checkpoints, in their saving order.
+    """
+    for iteration in iterations:
+        checkpoint_path = get_checkpoint_file(weights_directory=weights_directory, iteration=iteration)
+        checkpoint_path.parent.mkdir(parents=True)
+        checkpoint_path.write_bytes(data=b"")
+        update_checkpoint_registry(weights_directory=weights_directory, iteration=iteration)
+
+
+def test_evaluated_iterations_need_a_checkpoint_on_the_disk(tmp_path: Path) -> None:
+    """
+    Verifies that a run stopped before its first save (no registry nor checkpoint) stops the script for the last, every
+    or a given checkpoint, that a run with checkpoints gives every checkpoint of the registry from the last saved one,
+    the last one or the given one, a given iteration without checkpoint being refused, and that a checkpoint of the
+    registry deleted from the disk is left to the evaluation, which skips it, as long as another one is still saved.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, holding the 'Weights' folder.
+    """
+    weights_directory = tmp_path / "Weights"
+    weights_directory.mkdir()
+    for iteration in [None, "all", 4]:
+        with pytest.raises(expected_exception=FileNotFoundError, match="No checkpoint to evaluate"):
+            list_evaluated_iterations(weights_directory=weights_directory, iteration=iteration)
+
+    # Checkpoints of iterations 2, 4 and 5, the last saved first for "all"
+    save_empty_checkpoints(weights_directory=weights_directory, iterations=[2, 4, 5])
+    expected_iterations = {"all": [5, 4, 2], None: [5], 4: [4]}
+    for iteration, evaluated_iterations in expected_iterations.items():
+        assert list_evaluated_iterations(weights_directory=weights_directory, iteration=iteration) == \
+            evaluated_iterations
+    with pytest.raises(expected_exception=FileNotFoundError, match=r"checkpoints of the registry: \[2, 4, 5\]"):
+        list_evaluated_iterations(weights_directory=weights_directory, iteration=3)
+
+    # Deleted checkpoints: skipped later while one is left, refused once none is
+    get_checkpoint_file(weights_directory=weights_directory, iteration=2).unlink()
+    assert list_evaluated_iterations(weights_directory=weights_directory, iteration="all") == [5, 4, 2]
+    for iteration in [4, 5]:
+        get_checkpoint_file(weights_directory=weights_directory, iteration=iteration).unlink()
+    with pytest.raises(expected_exception=FileNotFoundError, match="No checkpoint to evaluate"):
+        list_evaluated_iterations(weights_directory=weights_directory, iteration="all")

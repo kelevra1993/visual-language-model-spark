@@ -24,7 +24,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from functools import partial
 from pathlib import Path
-from shutil import copyfile
+from shutil import copyfile, rmtree
 from torch import nn
 from torch.utils.data import DataLoader
 from torch.utils.data.dataloader import _BaseDataLoaderIter, _MultiProcessingDataLoaderIter
@@ -2755,7 +2755,8 @@ class BaseTrainer(ABC):
         whole test split and reports them to the console, TensorBoard and the Results.txt file of the run. The model
         runs as in deployment, through the predict_batch hook and within the evaluation context of the task, and every
         test sample is evaluated exactly once. The images of the fixed test samples are drawn on the way and added to
-        the results of the task, with a note and their folder.
+        the results of the task, with a note and their folder. An evaluation saving error images first removes those
+        an earlier evaluation of the same checkpoint and weights left in its 'Errors' folder.
 
         Args:
             iteration (int): The training iteration of the evaluated checkpoint.
@@ -2769,6 +2770,13 @@ class BaseTrainer(ABC):
         samples_folder = self.get_evaluation_folder(iteration=iteration) / "Samples"
         sample_images = {}
         weights_description = f" ({AVERAGED_WEIGHTS_LABEL})" if self.evaluating_averaged_weights else ""
+
+        # Error images of an earlier evaluation of the same weights removed before this one saves its own (the tasks
+        # saving error images give their folder), so that the 'Errors' folder never mixes two evaluations, e.g. the
+        # standalone evaluations of a checkpoint with two limits per pair of classes
+        if "errors_folder" in accumulator and self.error_dumps_configuration["activated"]:
+            if accumulator["errors_folder"].exists():
+                rmtree(path=accumulator["errors_folder"])
 
         # The evaluation settings of the task are always restored, even when the evaluation fails
         with self.evaluation_context(), torch.no_grad():
