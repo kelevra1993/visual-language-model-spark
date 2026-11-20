@@ -6,7 +6,7 @@ temperature explorer. From the evaluation of the checkpoint by scripts/evaluatio
 accuracy and balanced accuracy in percent (confusion_matrix.csv), the precision-recall curve of every class with the
 threshold of every target precision, at the temperature saved with scripts/evaluation/serve_temperature_explorer.py
 (class_logits.npz, saved_temperature_thresholds.json) and, given the group of every sample in a JSON Lines manifest
-(e.g. its truck), the balanced accuracy on the groups seen in training and on those never seen (predictions.csv,
+(e.g. its camera), the balanced accuracy on the groups seen in training and on those never seen (predictions.csv,
 written by the evaluation with save_predictions); from the training of the run, the validation balanced accuracy of
 the trained and averaged weights at every evaluated checkpoint, the kept one ringed (Tensorboard/Test,
 Tensorboard/Test_EMA), drawn like the evaluation curves of every run (vision_training/evaluation/evaluation_curves.py).
@@ -381,12 +381,12 @@ def draw_precision_recall_figure(class_logits_record: Dict[str, Any], thresholds
     """
     # Probabilities of the exported model at the temperature, and the curves of every class with their thresholds
     class_names = class_logits_record["class_names"]
-    probabilities = compute_temperature_probabilities(class_logits=class_logits_record["class_logits"],
-                                                      output_mode=class_logits_record["output_mode"],
-                                                      logit_temperature=thresholds["logit_temperature"])
-    positive_masks = build_positive_masks(labels=class_logits_record["labels"],
-                                          output_mode=class_logits_record["output_mode"],
-                                          number_classes=len(class_names))
+    probabilities = compute_temperature_probabilities(
+        class_logits=class_logits_record["class_logits"], output_mode=class_logits_record["output_mode"],
+        logit_temperature=thresholds["logit_temperature"])
+    positive_masks = build_positive_masks(
+        labels=class_logits_record["labels"], output_mode=class_logits_record["output_mode"],
+        number_classes=len(class_names))
     target_precisions, target_thresholds = list_class_target_thresholds(thresholds=thresholds, class_names=class_names)
     class_curves = compute_class_score_curves(probabilities=probabilities, positive_masks=positive_masks,
                                               class_thresholds=target_thresholds)
@@ -523,9 +523,9 @@ def draw_training_curves_figure(curves: Dict[str, Dict[int, float]], iteration: 
 
 def read_sample_groups(manifest_path: Path, file_name_key: str, group_key: str) -> Dict[str, str]:
     """
-    Reads the group of every sample from a JSON Lines manifest, one object per sample, e.g. the frames_manifest.jsonl
-    of a dataset built from truck images, whose 'truck' names the truck of every image, so that the validation samples
-    are split into the groups seen in training and the groups never seen.
+    Reads the group of every sample from a JSON Lines manifest, one object per sample, e.g. a manifest of a dataset
+    built from the images of several cameras, whose 'camera' names the camera of every image, so that the evaluated
+    samples are split into the groups seen in training and the groups never seen.
 
     Args:
         manifest_path (Path): The JSON Lines manifest.
@@ -648,7 +648,7 @@ def compare_seen_and_never_seen_groups(predictions: List[Dict[str, str]], sample
     """
     Splits the evaluated samples of the kept checkpoint into the samples of the groups seen in training (a group with
     at least one training sample) and those of the groups never seen, and describes both sets and all the samples,
-    the chart and the table of the never seen trucks section of the report. The predictions must be those of the
+    the chart and the table of the never seen groups section of the report. The predictions must be those of the
     evaluation: they give its confusion matrix exactly.
 
     Args:
@@ -707,11 +707,11 @@ def draw_groups_figure(group_comparison: Dict[str, Any], group_plural: str, samp
     """
     Draws the balanced accuracy of the kept checkpoint on the samples of the groups seen in training and on those of
     the groups never seen, two bars from zero with their value above them and, under each, its numbers of groups and
-    samples and the classes it has no sample of, the chart of the never seen trucks section of the report.
+    samples and the classes it has no sample of, the chart of the never seen groups section of the report.
 
     Args:
         group_comparison (Dict[str, Any]): The seen and never seen sets (compare_seen_and_never_seen_groups).
-        group_plural (str): What the groups are, in the plural, e.g. 'trucks'.
+        group_plural (str): What the groups are, in the plural, e.g. 'cameras'.
         sample_kind (str): What the samples are, in the plural, e.g. 'images' or 'frames'.
         split_name (str): The name of the evaluated split, written on the vertical axis, e.g. 'validation'.
         output_path (Path): The PNG written.
@@ -778,7 +778,7 @@ def draw_report_figures(experiment_folder: Path, iteration: int, weights: str, e
             the groups chart.
         file_name_key (str): The key of the file name of a sample in the manifest.
         group_key (str): The key of the group of a sample in the manifest.
-        group_plural (str): What the groups are, in the plural, e.g. 'trucks'.
+        group_plural (str): What the groups are, in the plural, e.g. 'cameras'.
         training_labels_path (Optional[Path]): The labels.json of the training split, None for the one of the
             train_data_folder of the run.
         predictions_path (Optional[Path]): The predictions file of the evaluation, None for the predictions.csv of the
@@ -886,35 +886,32 @@ def draw_report_figures(experiment_folder: Path, iteration: int, weights: str, e
 
 if __name__ == "__main__":
     # Run folder of the kept classifier, in the experiments root folder of its configuration ('experiment_folder'),
-    # and its kept checkpoint: the iteration and the weights, "trained" or "ema" (the moving average of the weights)
-    run_name = ("CLS_IN-384_SE-RES-BN-B1x64.2x64.2x64.4x64.5x64.5x64-PT_HFLAT.256.128-HLN-CWB_MC6_"
-                "waste-stream-imagenet-constant")
-    experiment_folder = Path(__file__).absolute().parents[2] / "ficha-experiments-staged-schedule" / run_name
-    iteration = 7500
-    weights = "ema"
+    # and its kept checkpoint: the iteration and the weights, "trained" or "ema" (the moving average of the weights),
+    # here the 35-class synthetic shapes classifier of the README screenshots, trained without moving average
+    run_name = "CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35"
+    experiment_folder = Path.home() / "Data" / "tutorial_runs" / "readme_screenshots" / run_name
+    iteration = 2000
+    weights = "trained"
     # Folder of the evaluation of the checkpoint in the run folder: 'Checkpoint_Evaluation' of
     # scripts/evaluation/evaluate_checkpoint.py, whose temperature explorer page saves the temperature of the export,
     # or 'Evaluation' of the training
     evaluation_folder_name = CHECKPOINT_EVALUATION_FOLDER_NAME
     # Name shown for every class, in the order of the curves (two classes: the first in red) or of the panels, None for
-    # the class names in class index order
-    class_display_names = {"sortable_waste": "Sortable waste", "residual_waste": "Residual waste",
-                           "biowaste": "Biowaste", "glass_waste": "Glass", "green_waste": "Green waste",
-                           "empty_bin": "Empty bin"}
-    # What the samples are and the evaluated split, written in the titles and labels ("on the 1,942 validation
-    # images")
+    # the class names in class index order, e.g. {"square": "Square", "circle": "Circle", ...} naming every class
+    class_display_names = None
+    # What the samples are and the evaluated split, written in the titles and labels ("on the 50,000 test images")
     sample_kind = "images"
-    split_name = "validation"
+    split_name = "test"
     # Left end of the recall axis of the precision-recall figure, 0, or close to 1 when every threshold keeps nearly
-    # every sample (0.98 for the compactor classifier)
+    # every sample (e.g. 0.98)
     minimum_recall = 0.0
-    # JSON Lines manifest giving the group of every training and evaluated sample, e.g. the frames_manifest.jsonl of a
-    # dataset built from truck images ('file_name', 'truck'), None to skip the seen and never seen chart. The chart
-    # also reads the predictions.csv of the evaluation (save_predictions = True in evaluate_checkpoint.py, or
-    # predictions_path) and the labels.json of the training split (training_labels_path, None for the one of the
-    # train_data_folder of the run)
+    # JSON Lines manifest giving the group of every training and evaluated sample, e.g. a manifest of a dataset built
+    # from the images of several cameras ('file_name', 'camera'), None to skip the seen and never seen chart, the
+    # synthetic shapes having no group. The chart also reads the predictions.csv of the evaluation (save_predictions =
+    # True in evaluate_checkpoint.py, or predictions_path) and the labels.json of the training split
+    # (training_labels_path, None for the one of the train_data_folder of the run)
     group_manifest_path = None
-    file_name_key, group_key, group_plural = "file_name", "truck", "trucks"
+    file_name_key, group_key, group_plural = "file_name", "camera", "cameras"
     training_labels_path = None
     predictions_path = None
 

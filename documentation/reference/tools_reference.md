@@ -51,14 +51,14 @@ Should a research report need its figures again, after a new evaluation of its k
 
 | Setting | Meaning |
 |---|---|
-| `run_name`, `experiment_folder` | the run of the kept classifier, `<experiments>/<run name>` |
+| `run_name`, `experiment_folder` | the run of the kept classifier, `<experiments>/<run name>`, the 35-class README classifier of `~/Data/tutorial_runs/readme_screenshots` in the main block |
 | `iteration`, `weights` | the kept checkpoint, its weights `"trained"` or `"ema"` |
 | `evaluation_folder_name` | `Checkpoint_Evaluation` (`evaluate_checkpoint.py`, where the temperature explorer saves the temperature) or `Evaluation` (the training) |
 | `class_display_names` | the name shown for every class, in the order of the curves or panels, `None` for the class names in class index order |
-| `sample_kind`, `split_name` | written in the titles, e.g. "on the 1,942 validation images" |
+| `sample_kind`, `split_name` | written in the titles, e.g. "on the 50,000 test images" |
 | `minimum_recall` | the left end of the recall axis, 0, or close to 1 when every threshold keeps nearly every sample (e.g. 0.98) |
 | `group_manifest_path` | a JSON Lines manifest, one object per sample, giving the group of every training and evaluated sample (such as the camera or vehicle of every frame), `None` to skip the groups chart |
-| `file_name_key`, `group_key`, `group_plural` | the keys of the file name and of the group in the manifest, and the groups in the plural (`"file_name"`, `"truck"`, `"trucks"` in the main block) |
+| `file_name_key`, `group_key`, `group_plural` | the keys of the file name and of the group in the manifest, and the groups in the plural (`"file_name"`, `"camera"`, `"cameras"` in the main block) |
 | `training_labels_path` | the `labels.json` of the training split, `None` for the one of the `train_data_folder` of the run |
 | `predictions_path` | the predictions of the evaluation, `None` for its `predictions.csv` (`save_predictions = True` in `evaluate_checkpoint.py`) |
 
