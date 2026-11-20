@@ -103,7 +103,7 @@ scenes:
       - "The channel table, {{keypoint_detection.channels_table_rows}} rows by {{keypoint_detection.channels_table_columns}} positions, the most key points of a class, is a buffer of the model, saved in every checkpoint; the grouping reads the candidates of a class with it."
 
   - kind: code
-    title: "Nothing else names a channel"
+    title: "Naming the channels"
     code_reference: "vision_training/models/keypoints/keypoint_detector.py · build_keypoint_channel_table"
     source:
       file: vision_training/models/keypoints/keypoint_detector.py
@@ -113,7 +113,7 @@ scenes:
       - {match: "channel_names.append", sentences: [1, 2]}
     narration:
       - "The table is filled with minus one, then every key point of every class takes the next free channel."
-      - "Its names exist only here: if you transfer a key point head from another run, it is checked on its class names, settings and tensors, never on key point names."
+      - "Its names are also written in the data json file of the run: a key point head transferred from another run must give every channel the same class and key point name."
       - "The export writes no channel names either, so keep the categories of the training labels with the model."
 
   - kind: yaml
