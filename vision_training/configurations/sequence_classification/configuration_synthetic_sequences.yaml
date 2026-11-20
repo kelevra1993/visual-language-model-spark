@@ -102,8 +102,8 @@ Optimization:
 
 Data:
   image_settings:
-    # Input resolution of every frame: 128, the size of the synthetic frames, gives a flattened frame vector of 4096
-    # features, against 65536 at 512 pixels, whose 50 million GRU weights stayed at chance.
+    # Input resolution of every frame: 128, the 512-pixel synthetic frames resized, gives a flattened frame vector of
+    # 4096 features, against 65536 at 512 pixels, whose 50 million GRU weights stayed at chance.
     size: 128
     # Keeps the original aspect ratio when resizing.
     keep_ratio: True

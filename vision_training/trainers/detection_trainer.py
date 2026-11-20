@@ -141,9 +141,9 @@ class DetectionTrainer(CocoSplitTrainer):
 
     def uses_exiting_diagnosis_mode(self) -> bool:
         """
-        Tells whether a diagnosis mode ends the program before the training: the input viewer of every task, or the
-        anchor coverage of the splits ('diagnosis_modes.compute_anchor_coverage'), which checks the anchor setting
-        without creating the run folder.
+        Tells whether a diagnosis mode ends the program before the training: the input viewer and the speed benchmark
+        of every task (BaseTrainer.uses_exiting_diagnosis_mode), or the anchor coverage of the splits
+        ('diagnosis_modes.compute_anchor_coverage'), which checks the anchor setting without creating the run folder.
 
         Returns:
             bool: Whether the program exits after the diagnosis.
