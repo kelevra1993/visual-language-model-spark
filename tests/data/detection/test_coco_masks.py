@@ -43,8 +43,7 @@ def test_square_polygon_gives_its_exact_pixels() -> None:
     extra row and column of cv2.fillPoly, at the original size, scaled, and letterboxed with padding above and below.
     """
     square = [[2.0, 2.0, 6.0, 2.0, 6.0, 6.0, 2.0, 6.0]]
-    original_size = rasterize_polygons(polygons=square, image_width=10, image_height=10, image_size=10,
-                                       keep_ratio=True)
+    original_size = rasterize_polygons(polygons=square, image_width=10, image_height=10, image_size=10, keep_ratio=True)
     assert np.array_equal(original_size, build_square_mask(size=10, first_pixel=2, end_pixel=6))
 
     # Scaled twice, the square covers twice as many rows and columns
@@ -129,7 +128,6 @@ def test_compressed_encoding_writes_the_coco_string_and_decodes_back() -> None:
         assert np.array_equal(decode_run_length_encoding(segmentation=compressed_encoding), mask)
 
 
-
 def decode_compressed_counts_one_character_at_a_time(compressed_counts: str) -> list:
     """
     Reference decoder of the compressed COCO counts, reading the string one character at a time as the COCO API does,
@@ -188,6 +186,7 @@ def test_numpy_decoder_matches_the_character_decoder_on_non_square_masks() -> No
         assert decoded_mask.shape == mask.shape and decoded_mask.flags["C_CONTIGUOUS"]
         assert np.array_equal(decoded_mask, mask)
     assert decode_compressed_counts(compressed_counts="").shape == (0,)
+
 
 def test_polygon_and_encoding_of_one_object_give_the_same_mask() -> None:
     """
@@ -300,7 +299,6 @@ def test_segmentation_boxes_match_the_decoded_masks(compressed: bool) -> None:
     assert compute_segmentation_bounding_box(segmentation=[[1.0, 1.0, 2.0, 2.0]]) == [0.0, 0.0, 0.0, 0.0]
 
 
-
 def build_disjoint_object_masks(image_height: int, image_width: int, seed: int) -> list:
     """
     Builds the visible masks of synthetic objects of a non-square image, as the synthetic instance segmentation
@@ -367,7 +365,7 @@ def test_index_map_gives_the_per_object_masks_and_boxes(keep_ratio: bool, image_
     assert index_map.shape == (image_size, image_size) and index_map.dtype == np.uint8
     expanded_masks = expand_instance_index_maps(index_maps=torch.from_numpy(index_map)[None],
                                                 object_counts=[len(segmentations)])[0]
-    assert expanded_masks.dtype == torch.uint8 and torch.equal(expanded_masks, expected_masks)
+    assert expanded_masks.dtype == torch.uint8 and torch.equal(input=expanded_masks, other=expected_masks)
 
     # Objects covering a pixel and their boxes, as the per-object masks give them
     is_present, boxes = find_index_map_objects(index_map=index_map, number_objects=len(segmentations))

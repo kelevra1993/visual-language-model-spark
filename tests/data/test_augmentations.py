@@ -214,8 +214,7 @@ def test_clahe_and_luminance_equalization_give_the_values_of_kornia(device: str)
     equalized_luminance = vision_functional.equalize(yuv_images[..., 0:1, :, :].clamp(min=0.0, max=1.0))
     expected_equalized_images = (yuv_to_rgb(torch.cat(tensors=[equalized_luminance, yuv_images[..., 1:, :, :]],
                                                       dim=-3)).clamp(min=0.0, max=1.0) * 255.0).flip(dims=(-3,))
-    assert torch.equal(input=DataAugmenter.equalize_histogram_augment(image=images)[0],
-                       other=expected_equalized_images)
+    assert torch.equal(input=DataAugmenter.equalize_histogram_augment(image=images)[0], other=expected_equalized_images)
 
 
 @pytest.mark.parametrize(argnames="dtype", argvalues=[torch.float32])
@@ -714,8 +713,7 @@ def test_geometric_augmentation_moves_instance_masks_and_recomputes_boxes(augmen
                               atol=BOX_TOLERANCES[augmentation_type])
 
         # Every box is the tight box of its moved mask
-        assert torch.equal(input=boxes[0], other=compute_mask_bounding_boxes(
-            instance_masks=moved_masks[0]))
+        assert torch.equal(input=boxes[0], other=compute_mask_bounding_boxes(instance_masks=moved_masks[0]))
 
 
 def test_rotation_leaves_the_uncovered_corners_of_instance_masks_as_background() -> None:
@@ -785,9 +783,8 @@ def test_zoom_out_shrinks_the_image_boxes_and_masks_onto_a_black_canvas() -> Non
 
     for seed in range(5):
         random.seed(seed)
-        image, boxes, mask, area_scale, _ = augmenter.random_zoom_out(image=create_rectangle_image(box=box),
-                                                                      bounding_boxes=torch.tensor(data=[box]),
-                                                                      mask=class_mask)
+        image, boxes, mask, area_scale, _ = augmenter.random_zoom_out(
+            image=create_rectangle_image(box=box), bounding_boxes=torch.tensor(data=[box]), mask=class_mask)
 
         # The box follows the shrunk rectangle, and its area shrinks by the area scale
         assert torch.allclose(input=boxes[0], other=torch.tensor(data=get_bright_region_box(image=image)), atol=2.0)
@@ -800,9 +797,8 @@ def test_zoom_out_shrinks_the_image_boxes_and_masks_onto_a_black_canvas() -> Non
 
         # The instance masks stay binary, background around the shrunk image
         random.seed(seed)
-        _, _, moved_masks, _, _ = augmenter.random_zoom_out(image=create_rectangle_image(box=box),
-                                                            bounding_boxes=torch.tensor(data=[box]),
-                                                            mask=instance_masks)
+        _, _, moved_masks, _, _ = augmenter.random_zoom_out(
+            image=create_rectangle_image(box=box), bounding_boxes=torch.tensor(data=[box]), mask=instance_masks)
         assert moved_masks.dtype == torch.uint8 and set(moved_masks.unique().tolist()) <= {0, 1}
         assert int(moved_masks.sum()) == int((mask == 1).sum())
 
@@ -824,9 +820,8 @@ def test_translation_shifts_the_image_boxes_and_masks_by_whole_pixels() -> None:
 
     for seed in range(30):
         random.seed(seed)
-        image, boxes, mask, area_scale, _ = augmenter.random_translation(image=create_rectangle_image(box=box),
-                                                                         bounding_boxes=torch.tensor(data=[box]),
-                                                                         mask=class_mask)
+        image, boxes, mask, area_scale, _ = augmenter.random_translation(
+            image=create_rectangle_image(box=box), bounding_boxes=torch.tensor(data=[box]), mask=class_mask)
 
         # The box moves by whole pixels within the limits, the sizes being kept
         shift_x, shift_y = float(boxes[0, 0] - box[0]), float(boxes[0, 1] - box[1])
@@ -845,9 +840,8 @@ def test_translation_shifts_the_image_boxes_and_masks_by_whole_pixels() -> None:
 
         # The instance mask moves with the same draw, stays binary and keeps all the pixels of its object
         random.seed(seed)
-        _, _, moved_masks, _, _ = augmenter.random_translation(image=create_rectangle_image(box=box),
-                                                               bounding_boxes=torch.tensor(data=[box]),
-                                                               mask=instance_masks)
+        _, _, moved_masks, _, _ = augmenter.random_translation(
+            image=create_rectangle_image(box=box), bounding_boxes=torch.tensor(data=[box]), mask=instance_masks)
         assert moved_masks.dtype == torch.uint8 and set(moved_masks.unique().tolist()) <= {0, 1}
         assert torch.equal(input=compute_mask_bounding_boxes(instance_masks=moved_masks), other=boxes)
         assert int(moved_masks.sum()) == int(instance_masks.sum())
