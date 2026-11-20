@@ -26,7 +26,7 @@ comes from the code, a configuration or a real run, and nothing a rebuild needs 
 ## Prerequisites
 Before following this file, the machine needs what [README.md](README.md#prerequisites) lists, and:
 - Python 3.13 for both environments: `uv sync --python 3.13` at the repository root (the `datasets` group, fiftyone, is not needed by the figure scripts: `uv sync --python 3.13 --no-group datasets`), and `uv sync --project tutorials`.
-- About 6 GB of disk for a full build: the cache measured 5.2 GB after many builds (scene segments 1.5 GB, narration 1.2 GB, audio tracks 0.9 GB, chapter videos 0.8 GB, voice and speech models 0.5 GB), plus 1 GB of videos.
+- About 7.5 GB of disk for a full build: the cache measured 6.3 GB on 2026-11-20 after many builds (scene segments 2.2 GB, narration 1.4 GB, audio tracks 1.0 GB, chapter videos 0.9 GB, voice and speech models 0.5 GB, previews 0.4 GB), plus 1 GB of videos.
 - Internet once, for the voice model (Kokoro, `model-files-v1.0` release), the speech recognition model (faster-whisper `base.en`) and the Playwright Chromium if no Chrome is installed; every downloaded file is checked against its SHA-256. On macOS Chrome is not on the PATH: pass `--chrome-executable "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"`.
 
 ## What Lives Where
@@ -42,7 +42,7 @@ To find your way between the repository and the machine, every input of a build 
 | Launch files of the runs trained for the tutorials | `tutorials/run_configurations/` | yes |
 | Small copies of the runs, their dataset files and the figures that need a checkpoint | `tutorials/run_snapshots/`, written by `tutorials/make_run_snapshots.py` from `tutorials/figures/<series>/snapshot_files.yaml` | yes |
 | The builder (fonts, palette, scene engine, voice and checks) | private repository, pinned by tag in `tutorials/pyproject.toml` | its own repository |
-| The real runs, with their checkpoints | `~/Data/tutorial_runs` (`experiments_folder` of `tutorial_project.yaml`) | no, too large (9.5 GB, 7.3 GB of checkpoints) |
+| The real runs, with their checkpoints | `~/Data/tutorial_runs` (`experiments_folder` of `tutorial_project.yaml`) | no, too large (12.1 GB on 2026-11-20, 9.0 GB of checkpoints) |
 | The datasets of the runs | `~/Data/<task>_data/...`, paths written in the saved configurations | no |
 | Caches: models, narration, figures, previews, scene segments | `~/.cache/vlms_tutorials` | no |
 | The videos, subtitles, index page and verification report | `~/Data/tutorial_videos` | never: the videos are rebuilt, never edited by hand or committed |
@@ -64,7 +64,7 @@ FreeType, numpy and ffmpeg; a facts file that differs from the one of the last b
 snapshot file.
 
 ## Run Snapshots
-To be able to rebuild without the 9.5 GB of runs, `tutorials/run_snapshots/` holds, at the same relative paths as the
+To be able to rebuild without the 12 GB of runs, `tutorials/run_snapshots/` holds, at the same relative paths as the
 experiments folder, the small files the figure scripts and the storyboards read from every run (configurations, label
 dictionaries, TensorBoard scalars, results and evaluation files, sample images, console logs), so that
 `--experiments-folder tutorials/run_snapshots` needs no change of code or storyboard. Next to them:
