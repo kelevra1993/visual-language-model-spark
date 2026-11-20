@@ -77,8 +77,9 @@ def read_results_curves(results_path: Path) -> Tuple[str, Dict[Tuple[str, str], 
 
     Returns:
         Tuple[str, Dict[Tuple[str, str], Dict[int, float]]]: The metric prefix of the file (accuracy, macro_f1,
-            map_50_95) and, for every launch and evaluated weights ("trained" or "ema", the launches written before
-            the averaged weights having no label and counting as trained), the value at every evaluated iteration.
+            map_50_95, mask_map_50_95) and, for every launch and evaluated weights ("trained" or "ema", the launches
+            written before the averaged weights having no label and counting as trained), the value at every evaluated
+            iteration.
 
     Raises:
         ValueError: If the file has metric columns of several prefixes or none, or the same launch twice.

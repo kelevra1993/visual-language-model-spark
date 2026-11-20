@@ -175,6 +175,9 @@ def test_report_figures_are_drawn_from_the_evaluation_and_the_training(tmp_path:
     the saved ones at their temperature, written with the fewest decimals selecting the same images, the kept
     checkpoint is the balanced accuracy of its weights during the training, and the groups chart splits the validation
     images of the trucks with training images from those of the trucks never seen.
+
+    Args:
+        tmp_path (Path): The temporary folder of the test, holding the fake run.
     """
     fake_run = write_fake_run(run_folder=tmp_path / "run", class_names=THREE_CLASS_NAMES, weights="ema",
                               saved_temperature=SAVED_TEMPERATURE, averaged_curve=AVERAGED_CURVE)
@@ -203,6 +206,8 @@ def test_report_figures_are_drawn_from_the_evaluation_and_the_training(tmp_path:
             target["classes"][class_name] for target in saved_thresholds["additional_targets"]]
         assert [target["target_precision"] for target in class_targets if target] == [
             precision for precision, saved_target in zip(TARGET_PRECISIONS, saved_targets) if saved_target]
+
+        # Every reached target: the saved threshold and recall, its written text keeping the same images
         for class_target, saved_target in zip(class_targets, saved_targets):
             assert (class_target is None) == (saved_target is None)
             if class_target is None:
@@ -240,6 +245,10 @@ def test_binary_classifier_without_saved_temperature_is_drawn_at_one(tmp_path: P
     Without saved_temperature_thresholds.json, the thresholds are found from the logits at a temperature of 1 and a
     warning says so; the two classes of a binary classifier share one plot, the trained weights of a run without moving
     average giving the training curves, and no groups chart is drawn without manifest.
+
+    Args:
+        tmp_path (Path): The temporary folder of the test, holding the fake run.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed warning.
     """
     write_fake_run(run_folder=tmp_path / "run", class_names=TWO_CLASS_NAMES, weights="trained", saved_temperature=None,
                    averaged_curve=None)
@@ -260,6 +269,9 @@ def test_saved_thresholds_must_be_found_again_from_the_logits(tmp_path: Path) ->
     """
     Saved thresholds that the class logits do not give again at their temperature are refused, the figure marking the
     thresholds deployed with the export.
+
+    Args:
+        tmp_path (Path): The temporary folder of the test, holding the fake run.
     """
     fake_run = write_fake_run(run_folder=tmp_path / "run", class_names=THREE_CLASS_NAMES, weights="trained",
                               saved_temperature=SAVED_TEMPERATURE, averaged_curve=None)
@@ -280,6 +292,9 @@ def test_groups_chart_inputs_are_checked_before_any_figure(tmp_path: Path) -> No
     The groups chart needs the predictions of the evaluation itself (they give its confusion matrix), the group of
     every image, and images of trucks both seen and never seen; each of these inputs is refused before any figure is
     drawn, the folder of the figures never being created.
+
+    Args:
+        tmp_path (Path): The temporary folder of the test, holding the fake run.
     """
     fake_run = write_fake_run(run_folder=tmp_path / "run", class_names=THREE_CLASS_NAMES, weights="trained",
                               saved_temperature=None, averaged_curve=None)
@@ -328,6 +343,9 @@ def test_training_curves_need_the_kept_checkpoint(tmp_path: Path) -> None:
     """
     The kept checkpoint must have been evaluated during the training with its weights: an iteration never evaluated,
     or averaged weights of a run without moving average, are refused.
+
+    Args:
+        tmp_path (Path): The temporary folder of the test, holding the fake run.
     """
     write_fake_run(run_folder=tmp_path / "run", class_names=TWO_CLASS_NAMES, weights="ema", saved_temperature=None,
                    averaged_curve=None)
@@ -368,6 +386,9 @@ def test_confusion_matrix_and_manifest_are_checked(tmp_path: Path) -> None:
     """
     A confusion matrix whose rows are not the classes of its header is refused, and so is a manifest giving a sample two
     groups or a sample without group.
+
+    Args:
+        tmp_path (Path): The temporary folder of the test, holding the table and the manifest.
     """
     table_path = tmp_path / "confusion_matrix.csv"
     table_path.write_text(data="true \\ predicted,cat,dog\ndog,1,2\ncat,3,4\n")
@@ -390,6 +411,11 @@ def test_missing_report_font_keeps_the_default_font(tmp_path: Path, monkeypatch:
                                                     capsys: pytest.CaptureFixture) -> None:
     """
     Without the Inter font of the reports, the figures keep matplotlib's default font, a warning saying so.
+
+    Args:
+        tmp_path (Path): The temporary folder of the test, standing for a font folder without fonts.
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture pointing the script to that folder.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed warning.
     """
     monkeypatch.setattr(draw_report_figures_module, "REPORT_FONT_FOLDER", tmp_path / "no_fonts")
 

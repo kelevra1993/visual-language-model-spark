@@ -327,9 +327,9 @@ def build_run_row(run_folder: Path, best_evaluation: Dict[str, Any], columns: Li
 
         # Setting of the training configuration, its keys joined by dots
         elif column.startswith(CONFIGURATION_COLUMN_PREFIX):
-            row[title] = str(read_setting(configuration=configuration,
-                                          keys=tuple(column[len(CONFIGURATION_COLUMN_PREFIX):].split(".")),
-                                          configuration_path=configuration_path))
+            row[title] = str(read_setting(
+                configuration=configuration, keys=tuple(column[len(CONFIGURATION_COLUMN_PREFIX):].split(".")),
+                configuration_path=configuration_path))
 
         # Count of a split, total or per class
         elif COUNT_COLUMN_PATTERN.fullmatch(string=column.split("/")[0]) is not None:
