@@ -1480,7 +1480,6 @@ To find your way in the code, the diagram follows the packages along the path of
 ├── Dockerfile, .dockerignore          # Trainer image (stages uv, base, builder, test, runtime) and the files of its build
 ├── documentation/
 │   ├── architecture_benchmarking/     # Experiment plans, copies of their results, stage figures, experiment_comparisons.yaml
-│   ├── bug_standards.md               # Audit of the bugs and coding standards of the repository, its open items
 │   ├── presentation/                  # Slide deck of the repository: deck.json, deck.css, one HTML file per slide and the figures made for it
 │   ├── reference/                     # Training, tasks, configurations, tools and pretraining (ImageNet-22k, order of the T to XL sizes) in detail
 │   ├── task workflows/                # One run of every task followed function by function

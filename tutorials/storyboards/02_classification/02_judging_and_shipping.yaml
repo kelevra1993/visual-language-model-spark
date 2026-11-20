@@ -34,7 +34,6 @@ references:
   - "vision_training/deployment/export_specifications.py · TASK_MODEL_NAMES"
   - "scripts/evaluation/evaluate_checkpoint.py"
   - "documentation/suggestions.md"
-  - "documentation/bug_standards.md"
   - "documentation/task workflows/classification_workflow.md"
 scenes:
   - kind: title_card

@@ -19,7 +19,6 @@ references:
   - "vision_training/trainers/self_supervised_trainer.py · SelfSupervisedTrainer.build_sample_image"
   - "vision_training/deployment/export_specifications.py · TASK_MODEL_NAMES"
   - "vision_training/models/model_transfer.py · load_pretrained_component"
-  - "documentation/bug_standards.md"
   - "documentation/task workflows/self_supervised_workflow.md"
 scenes:
   - kind: title_card
