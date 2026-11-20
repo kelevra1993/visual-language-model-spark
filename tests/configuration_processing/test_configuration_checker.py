@@ -50,8 +50,7 @@ COCO_PERSON_SKELETON = [[16, 14], [14, 12], [17, 15], [15, 13], [12, 13], [6, 12
                         [8, 10], [9, 11], [2, 3], [1, 2], [1, 3], [2, 4], [3, 5], [4, 6], [5, 7]]
 
 
-def write_modified_configuration(temporary_directory: Path,
-                                 modify_function: Callable[[Dict[str, Any]], None]) -> Path:
+def write_modified_configuration(temporary_directory: Path, modify_function: Callable[[Dict[str, Any]], None]) -> Path:
     """
     Writes a copy of the example configuration, altered by the given function, so that each test can check how
     load_experiment_configuration reacts to one specific inconsistency.
@@ -362,8 +361,7 @@ def test_missing_configuration_key_is_reported_with_its_path(tmp_path: Path, cap
     assert "Missing configuration key 'Detector.modules.residual_nets'." in capsys.readouterr().out
 
 
-@pytest.mark.parametrize(argnames=("run_name_suffix", "accepted"),
-                         argvalues=[(None, True), ("runs/v1", False)])
+@pytest.mark.parametrize(argnames=("run_name_suffix", "accepted"), argvalues=[(None, True), ("runs/v1", False)])
 def test_run_name_suffix_is_checked(tmp_path: Path, capsys: pytest.CaptureFixture, run_name_suffix: Any,
                                     accepted: bool) -> None:
     """
@@ -581,8 +579,7 @@ def test_classification_configurations_are_consistent(tmp_path: Path, configurat
     """
     configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="classification",
                                                   configuration_name=configuration_name, modify_function=None)
-    experiment_configuration, model_configuration = load_experiment_configuration(
-        configuration_path=configuration_path)
+    experiment_configuration, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
     assert experiment_configuration["task"] == "classification"
     assert model_configuration["Data"]["label_dictionary"] == {1: 0, 2: 1, 3: 2, 4: 3}
 
@@ -804,8 +801,7 @@ def test_sequence_tasks_keep_their_settings(tmp_path: Path, task_folder: str, co
     configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder=task_folder,
                                                   configuration_name=configuration_name, modify_function=None)
 
-    experiment_configuration, model_configuration = load_experiment_configuration(
-        configuration_path=configuration_path)
+    experiment_configuration, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
 
     augmentation_configuration = model_configuration["Data"]["data_augmentation"]
     assert "independent_frames" in augmentation_configuration and "shuffle_frames" in augmentation_configuration
@@ -924,8 +920,7 @@ def test_sequence_classification_configurations_are_consistent(tmp_path: Path, c
     """
     configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="sequence_classification",
                                                   configuration_name=configuration_name, modify_function=None)
-    experiment_configuration, model_configuration = load_experiment_configuration(
-        configuration_path=configuration_path)
+    experiment_configuration, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
     assert experiment_configuration["task"] == "sequence_classification"
     assert model_configuration["Data"]["label_dictionary"] == {1: 0, 2: 1, 3: 2, 4: 3}
 
@@ -1044,8 +1039,7 @@ def test_causal_transformer_is_accepted_for_sequence_labelling(tmp_path: Path, c
     configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="sequence_labelling",
                                                   configuration_name="configuration_example.yaml",
                                                   modify_function=use_causal_transformer)
-    experiment_configuration, model_configuration = load_experiment_configuration(
-        configuration_path=configuration_path)
+    experiment_configuration, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
     assert experiment_configuration["task"] == "sequence_labelling"
     assert {key: model_configuration["TemporalModel"][key] for key in ["type", "causal", "bidirectional"]} == \
         {"type": "transformer", "causal": True, "bidirectional": False}
@@ -1073,8 +1067,7 @@ def test_frame_selection_configurations_are_consistent(tmp_path: Path, configura
     """
     configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="frame_selection",
                                                   configuration_name=configuration_name, modify_function=None)
-    experiment_configuration, model_configuration = load_experiment_configuration(
-        configuration_path=configuration_path)
+    experiment_configuration, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
     assert experiment_configuration["task"] == "frame_selection"
     assert sorted(model_configuration["Data"]["sequence_settings"]) == ["maximum_sequence_length"]
 
@@ -1153,8 +1146,7 @@ def test_sequence_comparison_configurations_are_consistent(tmp_path: Path, confi
     """
     configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="sequence_comparison",
                                                   configuration_name=configuration_name, modify_function=None)
-    experiment_configuration, model_configuration = load_experiment_configuration(
-        configuration_path=configuration_path)
+    experiment_configuration, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
     assert experiment_configuration["task"] == "sequence_comparison"
     assert sorted(model_configuration["Data"]["sequence_settings"]) == ["maximum_sequence_length"]
 
@@ -1361,8 +1353,7 @@ def test_segmentation_configurations_are_consistent(tmp_path: Path, configuratio
     """
     configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="semantic_segmentation",
                                                   configuration_name=configuration_name, modify_function=None)
-    experiment_configuration, model_configuration = load_experiment_configuration(
-        configuration_path=configuration_path)
+    experiment_configuration, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
     assert experiment_configuration["task"] == "semantic_segmentation"
     assert model_configuration["Data"]["label_dictionary"] == {1: 1, 2: 2, 3: 3, 4: 4, "background": 0}
 
@@ -1553,8 +1544,7 @@ def test_instance_segmentation_configurations_are_consistent(tmp_path: Path, con
     """
     configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="instance_segmentation",
                                                   configuration_name=configuration_name, modify_function=None)
-    experiment_configuration, model_configuration = load_experiment_configuration(
-        configuration_path=configuration_path)
+    experiment_configuration, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
     assert experiment_configuration["task"] == "instance_segmentation"
     assert model_configuration["Data"]["label_dictionary"]["background"] == 0
     assert model_configuration["MaskHead"]["mask_resolution"] == 28
@@ -1816,8 +1806,7 @@ def test_self_supervised_configurations_are_consistent(tmp_path: Path, configura
     """
     configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="self_supervised",
                                                   configuration_name=configuration_name, modify_function=None)
-    experiment_configuration, model_configuration = load_experiment_configuration(
-        configuration_path=configuration_path)
+    experiment_configuration, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
     assert experiment_configuration["task"] == "self_supervised"
     assert model_configuration["Data"]["label_dictionary"] == {1: 0, 2: 1, 3: 2, 4: 3}
 
@@ -1974,9 +1963,8 @@ def test_keypoint_configurations_are_consistent_with_their_injected_categories(t
                       "skeleton": [[start - 1, end - 1] for start, end in COCO_PERSON_SKELETON]}
 
     # Synthetic configuration: the 33 classes with keypoints
-    synthetic_path = write_keypoint_configuration(temporary_directory=tmp_path,
-                                                  configuration_name="configuration_synthetic_shapes.yaml",
-                                                  modify_function=None)
+    synthetic_path = write_keypoint_configuration(
+        temporary_directory=tmp_path, configuration_name="configuration_synthetic_shapes.yaml", modify_function=None)
     _, model_configuration = load_experiment_configuration(configuration_path=synthetic_path)
     keypoint_categories = model_configuration["Data"]["keypoint_categories"]
     label_dictionary = model_configuration["Data"]["label_dictionary"]
