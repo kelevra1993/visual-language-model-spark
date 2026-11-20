@@ -4,7 +4,7 @@ This document follows one sequence comparison run (CMP: one class per pair of se
 
 The examples come from real runs on CPU, so that the GPU stayed free for another training:
 - **Stages 1 and 2**: `vision_training/configurations/sequence_comparison/configuration_synthetic_pairs.yaml` (synthetic object loss pairs, 2 classes `loss_of_object` and `same_number_of_objects`, members of 2 to 6 frames, a maximum sequence length of 50 frames per member, frames read at 512 pixels, batch size 16, a mean pooling and a difference fusion), with the run folder redirected to a temporary folder. The dataset is the one the configuration points to (`/home/robert_kelevra/Data/sequence_data/synthetic_object_loss_pairs`) as it was when they were recorded, generated before the generator drew 2 to 12 frames of 512 pixels per member: its members held 2 to 6 frames of 128 pixels. It was generated again on 2026-11-18, with members of 2 to 12 frames of 512 pixels, 2 to 6 objects in the before member, textured or low contrast backgrounds and objects that may overlap or be cut by the border; the README run trained on it. The dataset of `configuration_example.yaml` is not on this machine.
-- **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers (a setting when these examples were recorded; the code fixes 1 worker per loader), with the error images and the MLflow tracking turned on. After 12 iterations the network predicts `same_number_of_objects` for every test pair (2 classes: a loss near ln 2 = 0.693), so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps. This run was recorded on 2026-10-10, before the ROC and precision-recall curves joined the evaluation (2026-10-20): the steps say where the current code prints more, and the README run of `experiments/readme_screenshots/` (`CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2`, the synthetic configuration trained from scratch for 1,000 iterations on 2026-11-19 on the dataset generated on 2026-11-18, its checkpoints 500 and 1000 evaluated again right after its training into its `Checkpoint_Evaluation` folder) gives the outputs of the evaluation with the curves. The run of Stage 3 was recorded when the k of the top-k accuracy was a setting (`top_k: 1`), so its reports show `Top-1 Accuracy`, equal to the accuracy, where the current code, whose k is fixed at 5, writes `Top-5 Accuracy`, always 100.00 % for the 2 classes of the synthetic pairs. It also ran its training and validation forward passes in float32 (`mixed_precision: False`, a setting then), which run in bfloat16 autocast since 2026-10-29 (Step 3.9), as in the README run. The rates of the recorded console summaries, reports and best checkpoint lines are shown as the current code writes them, as percentages with two decimals (`46.00 %`, a change of the console summary in percentage points such as `+31.25 %`), the thresholds and losses keeping their decimals; the files, the result dictionaries, TensorBoard and MLflow keep their recorded values between 0 and 1.
+- **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers (a setting when these examples were recorded; the code fixes 1 worker per loader), with the error images and the MLflow tracking turned on. After 12 iterations the network predicts `same_number_of_objects` for every test pair (2 classes: a loss near ln 2 = 0.693), so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps. This run was recorded on 2026-10-10, before the ROC and precision-recall curves joined the evaluation (2026-10-20): the steps say where the current code prints more, and the README run of `~/Data/tutorial_runs/readme_screenshots/` (the tutorial runs folder of `tutorials/tutorial_project.yaml`; `CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2`, the synthetic configuration trained from scratch for 1,000 iterations on 2026-11-19 on the dataset generated on 2026-11-18, its checkpoints 500 and 1000 evaluated again right after its training into its `Checkpoint_Evaluation` folder) gives the outputs of the evaluation with the curves. The run of Stage 3 was recorded when the k of the top-k accuracy was a setting (`top_k: 1`), so its reports show `Top-1 Accuracy`, equal to the accuracy, where the current code, whose k is fixed at 5, writes `Top-5 Accuracy`, always 100.00 % for the 2 classes of the synthetic pairs. It also ran its training and validation forward passes in float32 (`mixed_precision: False`, a setting then), which run in bfloat16 autocast since 2026-10-29 (Step 3.9), as in the README run. The rates of the recorded console summaries, reports and best checkpoint lines are shown as the current code writes them, as percentages with two decimals (`46.00 %`, a change of the console summary in percentage points such as `+31.25 %`), the thresholds and losses keeping their decimals; the files, the result dictionaries, TensorBoard and MLflow keep their recorded values between 0 and 1.
 
 In the console, every file or folder path is a terminal hyperlink (`format_path_link()` of `vision_training/utilities/os_utilities.py`) showing the name of the file or folder, underlined; the examples write the `file://` URI the link opens, except where they show that name.
 
@@ -17,7 +17,7 @@ Before following the stages, this summary tells what the task is for, where its 
 To find your way in the stages below, this block follows the pairs of the synthetic configuration from their manifest to the probabilities of the export.
 
 ```text
-<split>/labels.json {"id": 1, "name": "train_000000", "before": [5 frames], "after": [6 frames], "category_id": 2}
+<split>/labels.json {"id": 1, "name": "train_000000", "before": [9 frames], "after": [9 frames], "category_id": 2}
 <split>/data/train_000000/before/000000.png ..., after/000000.png ...          label_mapping.json {"1": 0, "2": 1}
 SequencePairDataset: a pair with a member longer than maximum_sequence_length (50) left out; every member read
    (read_sequence_frames, 512) and padded to the longer member T_i ─► images [2 T_i, 3, 512, 512] uint8 (before,
@@ -101,11 +101,13 @@ If one wishes to change what the comparator learns or how it reads the pairs, th
 
 ### What A Run Writes
 
-Whenever a run saves and evaluates a checkpoint, its run folder receives the files below.
+Whenever a run is launched, or saves and evaluates a checkpoint, its run folder receives the files below.
 
-- `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Pairs · <date>`, with `Accuracy` (the headline metric), `Balanced Accuracy`, `Macro F1`, `Top-5 Accuracy` and, with `per_class_report`, `Macro ROC AUC`, `Macro Average Precision`, the per-class table and the `Per Class Recall` table (the recall of every class with its exact 95 % confidence interval over the test pairs, worst recall first); the note `Sample Images : 8 fixed test pairs`. Every rate is written as a percentage with two decimals (`98.50 %`), as for CLS, the thresholds staying between 0 and 1.
+- `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Pairs · <date>`, with `Accuracy` (the headline metric), `Balanced Accuracy`, `Macro F1`, `Top-5 Accuracy` and, with `per_class_report`, `Macro ROC AUC`, `Macro Average Precision`, the per-class table and the `Per Class Recall` table (the recall of every class with its exact 95 % confidence interval over the test pairs, worst recall first); the note `Sample Images : 8 fixed test pairs`. Every rate is written as a percentage with two decimals (`88.50 %`), as for CLS, the thresholds staying between 0 and 1.
 - `Evaluation/Iteration_<n>/`: the files of CLS (`confusion_matrix.csv`, above 1,000 classes `confusion_cells.csv` with its non-zero cells only, `class_metrics.csv`, `class_thresholds.json`, and with `per_class_report` `confusion_matrix.png` (up to 1,000 classes), `roc_curves.png`, `precision_recall_curves.png`, `precision_recall_thresholds.png`), `class_thresholds.json` starting with `"logit_temperature": 1.0`, the temperature of the probabilities its thresholds were found on, and no `temperature_explorer.html` nor `class_logits.npz`, which only the image classification writes (`saves_temperature_explorer()` of `classification_trainer.py`); `predictions.csv` with `save_predictions`, one row per test pair, its `pair` name before the classes and probabilities; `Samples/<pair>.png` and `Errors/<TRUE>-TO-<PREDICTED>/<pair>_<score>.png`, the numbered grid of the real before frames (`0 before`, ...) above the grid of the real after frames, 4 columns, under the caption `true -> predicted probability` (2068 pixels wide and 1064, 1580, 2096 or 2612 pixels high for the samples of the README run, each member taking 1 to 3 rows of 512 pixel frames).
 - `data.json`: the `pairs` of every class in every split, and the frames of both members of every pair of every split.
+- `Evaluation/evaluation_summary.csv` and `evaluation_curves.png`: every evaluation adds the row of its iteration (every test scalar) to the summary and draws the curves again, the accuracy of every evaluated iteration with the best one ringed (`update_evaluation_curves()` of `base_trainer.py`, Step 4.11).
+- `Input_Samples/`: written before the first iteration of every launch, the first 10 pairs of every split by identifier drawn as the input viewer draws them (Step 2.22) into `Training/`, `Validation/` and `Test/`, the training ones augmented, with `samples.json` naming every pair (`{"pair": "train_000000"}`) (Step 3.1).
 - `Tensorboard/Test`: 6 headline scalars, `Precision`, `Recall`, `F1`, `ROC AUC` and `Average Precision` of both classes, the images `Samples/<pair>`, `Confusion Matrix`, `ROC Curves`, `Precision Recall Curves` and `Precision Recall Thresholds`; `Train` and `Validation` as in M2O.
 - The console summary gives the `Pairs Per Second` and the real `Frames Per Second` of both members, sent to MLflow as `train/throughput` and `train/frame_throughput`.
 
@@ -117,7 +119,7 @@ Suppose a comparison run behaves unexpectedly: these behaviours of the task are 
 - The synthetic configuration keeps the left-right flip as its only geometric augmentation: a crop, a zoom, a shift or a rotation can cut an object at the border or push it out, changing the count of a pair keeping its objects (comment of `Data.data_augmentation.types` in `configuration_synthetic_pairs.yaml`); grayscale stays off for the same reason, an object matching the luminance of the background vanishing.
 - `Fusion.number_heads`, `Fusion.dropout_rate` and `Fusion.sequence_normalization_scope` are required for every fusion type and checked even when unused, and `SNP` only appears with the `sequence` normalization of the backbone (`check_fusion_configuration()` of `sequence_checks.py`, `build_fusion_tokens()` of `run_name.py`).
 - Blocks 2 and 4 of the synthetic backbone (16 to 32 and 32 to 64 channels, 2 layers each) add no residual shortcut, their first layer changing the channel count, so only blocks 3 and 5 add one (`count_residual_additions()` of `convolution_block.py`; `bug_standards.md` H4, dropped).
-- `Iterations Per Epoch` and the split descriptions count the pairs before the label mapping, a pair of an unmapped category being left out by the dataset only (`count_split_pairs()` of `split_description.py`; `bug_standards.md` B46, dropped).
+- `Iterations Per Epoch` and the split descriptions count the pairs before the label mapping, a pair of an unmapped category being left out by the dataset only (`count_split_pairs()` of `split_description.py`, left as it is).
 - `predictions.csv` names a pair by its name only, without its frames, and the test loader shuffles the pairs, so the order of its rows changes from one evaluation to the next (`SequencePairDataset.describe_sample()`, `build_native_loader()`).
 
 ## Table of Contents
@@ -133,6 +135,7 @@ Suppose a comparison run behaves unexpectedly: these behaviours of the task are 
 
 ## Call Tree Overview
 
+To be able to follow one comparison run from its launch to the evaluation of a checkpoint, this tree gives every function in the order it runs, with what it does.
 
 ```text
 main()
@@ -203,6 +206,9 @@ main()
 │
 └── trainer.run_training_loop()  [STAGE 3]
     └── run_training_iterations()
+        ├── save_input_samples()                 Input_Samples/: the first 10 pairs of every split, the before grid
+        │                                        above the after grid, the training ones augmented (Step 3.1)
+        ├── setup_tensorboard_writers() / initialize_training_loop_state() / start_experiment_tracking()
         ├── for each training_iteration, from start_iteration to number_iterations (the total of the run):
         │   ├── get_next_batch()                 a batch failing to load is dropped and the next one taken
         │   │   ├── SequencePairDataset.__getitem__() -> read_sequence_frames() for each member
@@ -232,7 +238,8 @@ main()
 run_test_evaluation(iteration)  [STAGE 4]
 └── the evaluation of the classification on pairs: the error and sample images show the before grid above the after
     grid, and predictions.csv names every pair; with per_class_report, the ROC and precision-recall curves, the zoom
-    on the class thresholds (precision_recall_thresholds.png) and the Per Class Recall table too.
+    on the class thresholds (precision_recall_thresholds.png) and the Per Class Recall table too; then the row of the
+    iteration in Evaluation/evaluation_summary.csv and evaluation_curves.png drawn again (update_evaluation_curves()).
 
 scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
 └── same as every task
@@ -577,7 +584,7 @@ The comparator adds the Member Fusion panel between the temporal module and the 
 ```
 
 ### Step 2.22 — `view_input_batches()` → `show_input_samples()`
-With `diagnosis_modes.view_input_images`, the overridden `build_sample_frame_grid()` lays out the real frames of the before member above those of the after member, every frame captioned with its member (`0 before`, `0 after`), and the information panel gives the class of the pair, the real frames of both members (`Real frames : 3 + 2`) and, for the training pair, the augmentations and the order of the frames of each member (`Frame order : shuffled, showing frames 2, 0, 1 | 5, 4`). It needs a display, so it has no console output to show here.
+With `diagnosis_modes.view_input_images`, the overridden `build_sample_frame_grid()` lays out the real frames of the before member above those of the after member, every frame captioned with its member (`0 before`, `0 after`), and the information panel gives the class of the pair, the real frames of both members (`Real frames : 3 + 2`) and, for the training pair, the augmentations and the order of the frames of each member (`Frame order : shuffled, showing frames 2, 0, 1 | 5, 4`). It needs a display, so it has no console output to show here. The same grids and panels are written without a display to `Input_Samples/` at every launch (Step 3.1).
 
 ### Step 2.23 — `restore_last_model()`
 **Example output: a new run**
@@ -595,6 +602,11 @@ We Generate A New Model That Will Be Trained From Scratch.            -> start_i
 
 ### Step 3.1 — `trainer.run_training_loop()` → `run_training_iterations()`
 The loop of every task (see `classification_workflow.md`, Step 3.1): from `start_iteration` to `number_iterations`, the total of the run, each iteration takes its training step, then saves its checkpoint, runs its validation batch and prints its summary on the iterations set for each, and evaluates its checkpoint last.
+
+Before its first iteration, `run_training_iterations()` calls `save_input_samples()` (added on 2026-11-18, after this run was recorded): the first 10 pairs of every split by identifier are drawn as in Step 2.22 into `Input_Samples/Training`, `Validation` and `Test` (`sample_00.png` to `sample_09.png`, the training ones augmented), with `samples.json` naming every pair. The README run printed
+```text
+- Input Samples           : Input_Samples (30 images written in 5.43 seconds)
+```
 
 **Example: what happens at each iteration of the run**, in the order of the rows within an iteration, after its training step
 
@@ -959,6 +971,8 @@ MLflow: test/Accuracy, test/Balanced Accuracy, test/Macro F1, test/Top-1 Accurac
 ```
 The current evaluation writes 16 scalars to `Tensorboard/Test` (6 global + 10 per class) and 12 images (the 8 samples, `Confusion Matrix`, `ROC Curves`, `Precision Recall Curves` and `Precision Recall Thresholds`), as `Checkpoint_Evaluation/Tensorboard/Test` of the README run holds, and also sends `test/Macro ROC AUC`, `test/Macro Average Precision`, 10 `test_class/` scalars, `roc_curves.png`, `precision_recall_curves.png` and `precision_recall_thresholds.png` to MLflow.
 
+After the tracking, `update_evaluation_curves()` (added on 2026-11-18, after this run was recorded) writes the row of the iteration into `Evaluation/evaluation_summary.csv`, draws `evaluation_curves.png` of the run folder again (the accuracy of every evaluated iteration, the best one ringed), prints `  - Evaluation Curves : file:///.../evaluation_curves.png` under the block and, with the tracking on, sends both files to the root of the MLflow run, next to `Results.txt`.
+
 
 ---
 
@@ -990,18 +1004,26 @@ MLflow Run Created In The Experiment 'sequence_comparison' : 7f5220908af54c13aaf
 ```
 
 ### Step 5.5 — `summarise_checkpoint_evaluations()`
+Every evaluation has added its row to `Checkpoint_Evaluation/evaluation_summary.csv` and drawn `Checkpoint_Evaluation/evaluation_curves.png` (Step 4.11), the rows in increasing iteration order; the summary gives their links, then the best checkpoint. The example was recorded before the curves (2026-11-18), when the rows followed the evaluation order: they are shown in the order and with the `Evaluation Curves` line of the current code.
+
 **Example output** (every checkpoint predicts `same_number_of_objects` for the 40 pairs, so the four iterations tie and are listed in their evaluation order)
 ```text
 Evaluation Summary Of 4 Checkpoints : file:///.../runs/CMP_IN-KAR-64_..._MC2/Checkpoint_Evaluation/evaluation_summary.csv
+  - Evaluation Curves : file:///.../runs/CMP_IN-KAR-64_..._MC2/Checkpoint_Evaluation/evaluation_curves.png
   - Best Checkpoint : iterations 12, 9, 6, 3 tie (Accuracy 52.50 %)
 
 iteration,Accuracy,Balanced Accuracy,Macro F1,Top-1 Accuracy,Precision/loss_of_object,Recall/loss_of_object,F1/loss_of_object, ...
-12,0.525,0.5,0.34426229508196726,0.525,0.0,0.0,0.0,0.525,1.0,0.6885245901639345
-9,0.525,0.5,0.34426229508196726,0.525,0.0,0.0,0.0,0.525,1.0,0.6885245901639345
-6,0.525,0.5,0.34426229508196726,0.525,0.0,0.0,0.0,0.525,1.0,0.6885245901639345
 3,0.525,0.5,0.34426229508196726,0.525,0.0,0.0,0.0,0.525,1.0,0.6885245901639345
+6,0.525,0.5,0.34426229508196726,0.525,0.0,0.0,0.0,0.525,1.0,0.6885245901639345
+9,0.525,0.5,0.34426229508196726,0.525,0.0,0.0,0.0,0.525,1.0,0.6885245901639345
+12,0.525,0.5,0.34426229508196726,0.525,0.0,0.0,0.0,0.525,1.0,0.6885245901639345
 ```
-The columns are the scalars of every evaluation (`build_summary_columns()`), those of every class only with `per_class_report`: the current evaluation inserts `Macro ROC AUC` and `Macro Average Precision` after `Top-1 Accuracy`, and `ROC AUC/<class>` and `Average Precision/<class>` after the F1 of each class.
+The columns are the scalars of every evaluation (`build_summary_columns()`), those of every class only with `per_class_report`: the current evaluation writes `Top-5 Accuracy` instead of `Top-1 Accuracy`, inserts `Macro ROC AUC` and `Macro Average Precision` after it, and `ROC AUC/<class>` and `Average Precision/<class>` after the F1 of each class. The README run evaluated again gives, in its `Checkpoint_Evaluation/evaluation_summary.csv` (shortened):
+```text
+iteration,Accuracy,Balanced Accuracy,Macro F1,Top-5 Accuracy,Macro ROC AUC,Macro Average Precision,Precision/loss_of_object,...
+500,0.885,0.8840536214485795,0.8845120634681529,1.0,0.9421768707482994,0.9225531889718139,...
+1000,0.95,0.9489795918367347,0.949753793588584,1.0,0.9832933173269308,0.982727272476577,...
+```
 
 ### Step 5.6 — `run_test_evaluation()` for each checkpoint
 **Example output: the block of the checkpoint of iteration 9 on the 40 pairs**
