@@ -206,6 +206,7 @@ main()
 │       │               Same torch DataLoader as the classification.
 │       ├── check_loaders_give_batches()          refuses a split whose loader gives no batch, and a validation
 │       │                                         loader built against the validation setting
+│       ├── save_data_record()                    data.json
 │       ├── get_test_sample_classes() + choose_sample_identifiers()
 │       │       Counting the classes of every test mask would be slow, so every test image gets an empty class list,
 │       │       and the sample images are evenly spread over the test split.
