@@ -255,7 +255,7 @@ CUDA_VISIBLE_DEVICES= PYTHONPATH=. COLUMNS=120 .venv/bin/python vision_training/
 ### Step 1.2 — `load_experiment_configuration()`
 The model sections are `Optimization`, `Data`, `Backbone`, `HRNet` and `KeypointHead`. `Data.image_settings.size` is the side of the square network input; the whole image is resized to it. `Data.keypoint_categories` is not in the YAML, it is added by `inject_keypoint_categories()` (Step 1.5).
 
-`HRNet` holds the network after the stem (`base_width`, the channels of its highest resolution branch, doubled at every lower branch; `modules_per_stage`; `blocks_per_branch`; `modules`; `normalization`; `pretrained`). `KeypointHead` holds:
+`HRNet` holds the network after the stem (`base_width`, the channels of its highest resolution branch, doubled at every lower branch; `modules_per_stage`; `blocks_per_branch`; `modules`; `normalization`, batch, layer or none, the convolutions of the network and of the keypoint head having a bias only with none; `pretrained`). `KeypointHead` holds:
 - `higher_resolution`: the higher resolution branch of HigherHRNet, which predicts a second set of heatmaps at 1/2 of the image (Step 2.8).
 - `hidden_width`: the channels of a 3x3 convolution before the 1x1 convolution of the predictions, in both heads (0 for none). The 243 heatmaps outnumber the 16 channels of the highest resolution branch by far, and a 1x1 convolution on 16 channels cannot raise every heatmap on its own keypoints only.
 - `heatmap_sigma`: the standard deviation of the target Gaussians, in heatmap cells, at both strides.

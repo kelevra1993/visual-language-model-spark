@@ -256,7 +256,8 @@ HRNet:
     # Residual nets (https://arxiv.org/abs/1512.03385): a shortcut around every pair of branch convolutions
     residual_nets: True
   normalization:
-    # "batch", "layer" (over channels) or "none"
+    # "batch", "layer" (over channels) or "none", the convolutions of the network and the keypoint head having a bias
+    # only with "none".
     feature_map_normalization: "batch"
   # High resolution network of another KPT run initialising this one; base_width, modules_per_stage, blocks_per_branch,
   # modules, normalization and the channels of the last stem block must match.

@@ -9,7 +9,8 @@ the 3x3 hidden convolution of the prediction heads (the outputs and their shapes
 probability and the first tags near 0, the heatmaps the sigmoid of the logits, the losses given only with the ground
 truth and equal to the losses of the logits and of the targets, the heatmap loss training every heatmap channel and the
 tag losses the tags of the cells of the labelled keypoints only, and the heatmap loss leaving out the cells of the
-ignored regions but their keypoint cells).
+ignored regions but their keypoint cells), and the bias of the convolutions of the high resolution network and of the
+keypoint head, kept only without normalization.
 """
 
 import pytest
@@ -343,3 +344,36 @@ def test_heatmap_loss_leaves_out_the_ignored_regions(higher_resolution: bool) ->
     assert int((ignored_cells & keypoint_cells).sum()) == 4
     assert not trained_cells[ignored_cells & ~keypoint_cells].any()
     assert bool(trained_cells[~ignored_cells | keypoint_cells].all())
+
+
+@pytest.mark.parametrize("feature_map_normalization, expected_bias", [("batch", False), ("layer", False),
+                                                                       ("none", True)])
+def test_high_resolution_convolutions_keep_a_bias_only_without_normalization(feature_map_normalization: str,
+                                                                              expected_bias: bool) -> None:
+    """
+    Verifies that every convolution of the high resolution network and of the keypoint head that is followed by a
+    normalization (the branches, the exchange units, the transposed convolution and the refinement of the higher
+    resolution branch, the hidden 3x3 convolutions of the prediction heads) has no bias, the normalization shifting the
+    activations, and that with the 'none' normalization every one of them has a bias, so that the activations can
+    still shift their thresholds; the 1x1 prediction convolutions always keep theirs.
+
+    Args:
+        feature_map_normalization (str): The 'HRNet.normalization.feature_map_normalization' of the detector.
+        expected_bias (bool): Whether the convolutions followed by the normalization are expected to have a bias.
+    """
+    torch.manual_seed(seed=0)
+    configuration, device, dtype = get_keypoint_model_configuration(higher_resolution=True, hidden_width=16)
+    configuration["HRNet"]["normalization"]["feature_map_normalization"] = feature_map_normalization
+    model = KeypointDetector(configuration=configuration, device=device, dtype=dtype)
+
+    # The 1x1 prediction convolutions, which end the heads, are left out of the convolutions followed by a normalization
+    prediction_convolutions = [model.keypoint_head["prediction_convolution"][-1],
+                               model.keypoint_head["higher_resolution_branch"].heatmap_head[-1]]
+    assert all(convolution.bias is not None for convolution in prediction_convolutions)
+    normalized_convolutions = [module for part in [model.high_resolution_network, model.keypoint_head]
+                               for module in part.modules()
+                               if isinstance(module, (nn.Conv2d, nn.ConvTranspose2d))
+                               and not any(module is convolution for convolution in prediction_convolutions)]
+    assert len(normalized_convolutions) > 0
+    assert [convolution.bias is not None for convolution in normalized_convolutions] == \
+        [expected_bias] * len(normalized_convolutions)
