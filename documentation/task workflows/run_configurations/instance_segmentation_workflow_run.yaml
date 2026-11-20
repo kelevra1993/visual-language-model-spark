@@ -1,5 +1,5 @@
 # Run of documentation/task workflows/instance_segmentation_workflow.md (trained 2026-10-24, 5000 iterations), a copy of
-# configuration_synthetic_shapes.yaml (20 classes) in experiments/workflow_runs, loading one mask per object.
+# configuration_synthetic_shapes.yaml as it was then (20 classes) in workflow_runs, loading one mask per object.
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "instance_segmentation" trains the Mask R-CNN-like segmenter;
   # needs RegionProposal, DetectionLevels, Detector, MaskHead and COCO 'segmentation' labels.
