@@ -342,7 +342,7 @@ Predicts one class per frame (many to many). With `TemporalModel.causal: True` (
 - **Configuration**: the keys of M2O, with the temporal types `gru`, `lstm`, `transformer` and `temporal_convolution` only.
 - **Evaluation**: the metrics of CLS on the frames (the interval of the recall of every class being a Korn-Graubard interval, the frames of a sequence being correlated: exact at the effective sample size of the variance of 1000 bootstrap resamples of the test sequences, fixed seed, or over the sequences holding the class when they all have the same recall), the sequence exact match (every frame right), and two segment metrics, a segment being a run of frames of one class:
   - **Edit Score**: 1 minus the segments to insert, remove or replace to turn the predicted order of segments into the true one, divided by the larger number of segments. It is low when the prediction is fragmented.
-  - **Segment F1@10, @25 and @50**: a predicted segment is right when it overlaps an unmatched true segment of its class by at least 10, 25 or 50 % IoU.
+  - **Segment F1@10, @25 and @50**: a predicted segment is right when the true segment of its class it overlaps most is not matched yet and overlaps it by at least 10, 25 or 50 % IoU (`count_segment_matches`).
 
 For example, true `A A A A A B B B B B` predicted `A A B A A B B A B B` has 80.00 % of its frames right, an edit score of 33.33 % (`A B` against `A B A B A B`), a segment F1@10 of 50.00 % and a segment F1@50 of 0.00 %. The report writes the sequence exact match, the edit score and the segment F1 as percentages like the frame metrics, and its note `Segments` counts the true and predicted segments.
 
@@ -370,7 +370,7 @@ Chooses in every sequence the `Selection.frames_per_class` frames of every wante
 - `hungarian`: the most probable labelling of the sequence with every wanted class chosen `frames_per_class` times, every frame at most once.
 - `greedy`: every frame takes its most probable class; a class with too many frames keeps the most probable, one with too few is completed with the best unselected frames.
 
-For example, with classes A and B and three frames of probabilities (A, B, unselected) (0.50, 0.45, 0.05), (0.45, 0.05, 0.50) and (0.02, 0.08, 0.90), the greedy rule gives A to frame 1 and B to frame 3, while the Hungarian assignment gives B to frame 1 and A to frame 2, a labelling ten times more probable. Both are scored at every evaluation; `Selection.decoding` is the one drawn, thresholded and deployed.
+For example, with classes A and B and three frames of probabilities (A, B, unselected) (0.50, 0.45, 0.05), (0.45, 0.05, 0.50) and (0.02, 0.08, 0.90), the greedy rule gives A to frame 1 and B to frame 3, while the Hungarian assignment gives B to frame 1 and A to frame 2, a labelling about nine times more probable. Both are scored at every evaluation; `Selection.decoding` is the one drawn, thresholded and deployed.
 
 **Data.** The layout of M2M, `frame_category_ids` giving the unselected or a wanted category for every frame. The mapping must map the unselected category, and a sequence without exactly `frames_per_class` frames of every wanted class stops the training at startup.
 

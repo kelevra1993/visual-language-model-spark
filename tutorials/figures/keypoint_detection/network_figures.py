@@ -408,6 +408,63 @@ def draw_training_curves(output_folder: Path, run_folder: Path, with_curves: boo
     return facts
 
 
+def describe_architecture_layout(configuration: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Gives the facts of the scenes of the network chapter that read the architecture keys one by one, from the
+    configuration alone (no checkpoint): every block of the stem (its convolutions, channels and map side, and the
+    side after its max pooling, read from compute_receptive_field_information of the backbone built from
+    Backbone.convolutions), every branch of the high resolution network (its channels from HRNet.base_width, its
+    stride and map side), every stage (its exchange modules and branches from HRNet.modules_per_stage) and the 3 x 3
+    convolutions of one module box (two per residual pair of HRNet.blocks_per_branch).
+
+    Args:
+        configuration (Dict[str, Any]): The repository configuration, with the model sections of the run.
+
+    Returns:
+        Dict[str, Any]: The flat facts of the layout, numbered from 1 for the blocks, branches and stages.
+
+    Raises:
+        ValueError: If the stem does not end at HEATMAP_STRIDE, the scenes then describing a network that is not built.
+    """
+    image_size = configuration["Data"]["image_settings"]["size"]
+    stem = build_backbone(backbone_configuration=configuration["Backbone"], input_image_size=image_size,
+                          device=torch.device("cpu"), dtype=torch.float32)
+    layers = stem.compute_receptive_field_information()
+    facts = {}
+
+    # Every stem block: the side of its convolutions, then the side left by its max pooling (the same without one)
+    for block_index, (number_layers, channels) in enumerate(configuration["Backbone"]["convolutions"].values(),
+                                                            start=1):
+        block_layers = [layer for layer in layers if layer["block_number"] == block_index]
+        convolution_sides = [layer["output_size"] for layer in block_layers if layer["name"] != "Max Pooling"]
+        facts.update({f"stem_block_{block_index}_layers": number_layers, f"stem_block_{block_index}_channels": channels,
+                      f"stem_block_{block_index}_side": convolution_sides[-1],
+                      f"stem_block_{block_index}_pooled_side": block_layers[-1]["output_size"],
+                      f"stem_block_{block_index}_pooled": block_layers[-1]["name"] == "Max Pooling"})
+    stem_side = layers[-1]["output_size"]
+    if image_size // stem_side != HEATMAP_STRIDE:
+        raise ValueError(f"The stem ends at a side of {stem_side} for {image_size} pixel images, not at the heatmap "
+                         f"stride {HEATMAP_STRIDE}: the scenes of the stem describe another network.")
+    facts.update({"stem_output_side": stem_side, "stem_output_channels": layers[-1]["output_channels"]})
+
+    # Every branch: channels doubled and side halved from the stride 4 branch, one branch more than the stages
+    network_configuration = configuration["HRNet"]
+    modules_per_stage = network_configuration["modules_per_stage"]
+    for branch_index in range(len(modules_per_stage) + 1):
+        facts.update({f"branch_{branch_index + 1}_channels":
+                          network_configuration["base_width"] * BRANCH_SCALE_FACTOR ** branch_index,
+                      f"branch_{branch_index + 1}_stride": HEATMAP_STRIDE * BRANCH_SCALE_FACTOR ** branch_index,
+                      f"branch_{branch_index + 1}_side": stem_side // BRANCH_SCALE_FACTOR ** branch_index})
+
+    # Every stage: its modules and branches; one module box: two convolutions per residual pair
+    for stage_index, number_modules in enumerate(modules_per_stage, start=1):
+        facts.update({f"stage_{stage_index}_modules": number_modules, f"stage_{stage_index}_branches": stage_index + 1})
+    convolutions_per_module = 2 * network_configuration["blocks_per_branch"]
+    facts.update({"module_convolutions": convolutions_per_module,
+                  "branch_1_convolutions": convolutions_per_module * sum(modules_per_stage)})
+    return facts
+
+
 def describe_stem_and_run(configuration: Dict[str, Any], run_folder: Path) -> Dict[str, Any]:
     """
     Gives the facts of the stem and of the training of the run that the network chapter quotes: the receptive field

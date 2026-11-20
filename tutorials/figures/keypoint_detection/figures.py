@@ -27,6 +27,7 @@ from tutorials.figures.keypoint_detection.keypoint_sources import (describe_samp
                                                                   read_label_dictionary, read_repository_configuration,
                                                                   select_story_objects)
 from tutorials.figures.keypoint_detection.network_figures import (describe_architecture_constants,
+                                                                  describe_architecture_layout,
                                                                   describe_heatmap_losses, describe_network,
                                                                   describe_stem_and_run, describe_tags,
                                                                   draw_training_curves)
@@ -103,6 +104,7 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
                                 channel_table=channel_table, heatmap_sigma=head_configuration["heatmap_sigma"]),
         describe_tags(inference_facts=inference_facts, story_objects=story_objects, output_folder=output_folder),
         describe_stem_and_run(configuration=configuration, run_folder=run_folder),
+        describe_architecture_layout(configuration=configuration),
         draw_training_curves(output_folder=output_folder, run_folder=run_folder, with_curves=False,
                              tag_loss_weight=architecture_facts["tag_loss_weight"]),
 
