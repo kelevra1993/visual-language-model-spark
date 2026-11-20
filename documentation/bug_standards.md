@@ -4,8 +4,8 @@
 > standards S1 to S10 and the bugs B7, B20, B34, B47 and B50 were fixed on 2026-10-20 (not committed yet). On
 > 2026-10-21, C3, C4 (the anchors and `last_max_pooling`), H6, M6, M7, M8, M17, M20, L13, B9, B11, B30 and B44
 > were fixed, with the host waits of `random_black_out`. On 2026-10-25, B45, B51, B53 and B56 were fixed, and on
-> 2026-11-04 B48, and on 2026-11-14 B41 (the parameter removed). The items dropped by the user are deleted from
-> this file, the other items are still open.
+> 2026-11-04 B48, on 2026-11-11 B40, on 2026-11-12 B29, and on 2026-11-14 B41 (the parameter removed). The items
+> dropped by the user are deleted from this file, the other items are still open.
 > Nine reviewers each read one area end to end (configuration, data generation, data loading, core
 > models, detection and keypoint models, training loop, task trainers and losses, evaluation and tracking, deployment
 > and scripts) and reproduced their findings with small scripts on the synthetic datasets, the dummy task or hand-made
@@ -173,6 +173,9 @@
   `compare_best_evaluations.py` silently reports whichever split ran last.
 - **Fix:** include the evaluated split in the output folder name, or refuse a folder whose data.json records another
   split; clear `Errors/` of the iteration first.
+- **Still open on 2026-11-20:** the evaluations go to `<run>/Checkpoint_Evaluation/` since `main` 9c90f90
+  (`evaluate_checkpoint.py`, `point_to_checkpoint_evaluation`), whatever `test_data_folder` is; the MLflow run of the
+  evaluation is tagged with the evaluated split, the folder is not.
 
 ### Low
 
@@ -222,6 +225,11 @@
   `ExperimentConfiguration.evaluation.keypoint_sigmas`; the `load_configuration` docstring promises `yaml.YAMLError` but
   an unchained ValueError is raised.
 - **Fix:** regenerate the examples, fix the key path and the docstring.
+- **Still open on 2026-11-20:** the header comments of the two classification files give no run name since `main`
+  20a0217 (2026-11-02), and no document names `Evaluation.keypoint_sigmas` since the README was shortened (`main`
+  9e13863); the Run Names table of the README still shows `HAVG.128_MC4` for CLS and `T8` for M2O (the synthetic files
+  give `HFLAT.128-HLN-CWB_MC35` and a 128 pixel input with `T50`), and `load_configuration` still promises
+  `yaml.YAMLError` (`configuration_loader.py:33`) while raising a ValueError (45).
 
 #### B28. Comments left from the top-down keypoint detector contradict the code
 - **Area:** data generation · **Severity:** low · **Status:** confirmed (history traced by the reviewer) · **Category:**
@@ -235,12 +243,15 @@
 - **Fix:** rewrite both comments for the bottom-up detector, the renumbered mapping and the never-renamed keypoints.
 
 #### B29. The README gives the wrong number of objects per synthetic keypoint image
-- **Area:** data generation · **Severity:** low · **Status:** confirmed · **Category:** documentation
+- **Area:** data generation · **Severity:** low · **Status:** fixed on 2026-11-12 (found confirmed) · **Category:**
+  documentation
 - **Where:** README line 125; `create_synthetic_dataset.py:2710` (`"keypoint_detection": 5`).
 - **Problem:** the KPT row says "2 to 4 objects per 512 pixel image"; the generator,
   `configuration_synthetic_shapes.yaml` and the keypoint workflow say 2 to 5 (commit 95456e3 raised it without the
   README).
 - **Fix:** "2 to 5 objects".
+- **Fixed:** the KPT row of the synthetic datasets table of the README says "2 to 5 objects per image" (`main`
+  6d24f46).
 
 #### B30. A category mapped to 0 to exclude it names the background class and is counted under it in data.json
 - **Area:** data loading · **Severity:** low · **Status:** fixed on 2026-10-21 (found confirmed, reproduced by the
@@ -334,8 +345,8 @@
 - **Fix:** `bias=True` when the normalization is "none", or refuse "none" for HRNet in the checker.
 
 #### B40. The batch_assign_targets_to_anchors docstring promises a positive anchor for every ground truth
-- **Area:** detection and keypoint models · **Severity:** low · **Status:** confirmed (reproduced by the reviewer) ·
-  **Category:** documentation
+- **Area:** detection and keypoint models · **Severity:** low · **Status:** fixed on 2026-11-11 (found confirmed,
+  reproduced by the reviewer) · **Category:** documentation
 - **Where:** `vision_training/models/detection/target_assignment.py:129-130` (docstring), `186-212`.
 - **Problem:** the best anchor of a ground truth becomes positive, but it is assigned to the ground truth it overlaps
   most (or the last one resurrecting it in strict mode), so a small object sharing its best anchor with a larger one, or
@@ -343,6 +354,9 @@
 - **Failure scenario:** anchors `[[0,0,100,100],[300,300,400,400]]` and ground truths `[[0,0,30,30],[0,0,100,90]]`:
   ground truth 0 has no positive anchor in both modes.
 - **Fix:** describe the actual behaviour (as in torchvision).
+- **Fixed:** the docstring and comments say that the forced best anchor of a box regresses to the box it overlaps the
+  most, as in torchvision and Detectron2, so that a box whose best anchor overlaps another box more, or a box
+  overlapping no anchor, gets no positive anchor (`main` ddadf40).
 
 #### B42. Training and validation forwards of the detector do inference-only work, with one host synchronisation per image
 - **Area:** detection and keypoint models · **Severity:** low · **Status:** likely (read by the reviewer, not timed) ·
