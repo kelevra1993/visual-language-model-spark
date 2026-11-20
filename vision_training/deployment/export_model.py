@@ -16,7 +16,7 @@ import onnxruntime
 import torch
 
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.deployment.export_formats import export_onnx, export_torchscript, hide_known_export_warnings
@@ -26,7 +26,8 @@ from vision_training.deployment.frame_selection_deployment import (build_decodin
                                                                    export_frame_selection_decoding)
 from vision_training.deployment.input_contract import (build_input_contract, write_onnx_input_contract,
                                                        write_preprocessing_file)
-from vision_training.deployment.triton_configuration import write_triton_configuration
+from vision_training.deployment.triton_configuration import (EXPORT_FORMATS, TENSORRT_PRECISIONS,
+                                                             write_triton_configuration)
 from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
 from vision_training.evaluation.classification.temperature_explorer import (SAVED_THRESHOLDS_FILE_NAME,
                                                                             check_saved_thresholds)
@@ -183,6 +184,34 @@ def install_staged_models(staging_folder: Path, repository: Path, model_version:
         print_color(color="green", output=f"Installed : {format_path_link(path=model_directory)}", indent=1)
 
 
+def check_export_settings(formats: Any, model_version: Any, maximum_batch_size: Any, tensorrt_precision: Any) -> None:
+    """
+    Checks the settings of an export before anything is loaded or written, at the start of export_experiment and by
+    the export button of the temperature explorer before its job is prepared (explorer_export.py), so that a wrong
+    value is refused with its reason instead of failing in the middle of the export, and a misspelled format
+    ('TorchScript', 'tensorrt') is never exported as an ONNX model served without its TensorRT setting.
+
+    Args:
+        formats (Any): The export formats, a non-empty list of distinct values of EXPORT_FORMATS.
+        model_version (Any): The Triton version of the exported models, a whole number from 1.
+        maximum_batch_size (Any): The largest batch size of the exported models, a whole number from 1.
+        tensorrt_precision (Any): One of TENSORRT_PRECISIONS.
+
+    Raises:
+        ValueError: If a setting is not one the export accepts.
+    """
+    # Known formats are checked before the repeated ones, so that a value that cannot be hashed is reported too
+    if (not isinstance(formats, list) or not formats or
+            not all(export_format in EXPORT_FORMATS for export_format in formats) or
+            len(set(formats)) != len(formats)):
+        raise ValueError(f"Expected distinct export formats among {EXPORT_FORMATS}, got {formats!r}.")
+    for setting_name, setting_value in [("model_version", model_version), ("maximum_batch_size", maximum_batch_size)]:
+        if not isinstance(setting_value, int) or isinstance(setting_value, bool) or setting_value < 1:
+            raise ValueError(f"Expected {setting_name} to be a whole number from 1, got {setting_value!r}.")
+    if tensorrt_precision not in TENSORRT_PRECISIONS:
+        raise ValueError(f"Expected a TensorRT precision among {TENSORRT_PRECISIONS}, got {tensorrt_precision!r}.")
+
+
 def export_experiment(experiment_folder: Path, iteration: Optional[int], use_averaged_weights: bool,
                       formats: List[str], repository: Path, model_version: int, maximum_batch_size: int,
                       tensorrt_precision: Optional[str], use_saved_temperature: bool,
@@ -209,7 +238,7 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
         iteration (Optional[int]): The iteration to export, or None for the last saved one.
         use_averaged_weights (bool): True to export the moving average of the weights stored in the checkpoint
             instead of the trained weights.
-        formats (List[str]): The export formats, among 'torchscript' and 'onnx'.
+        formats (List[str]): The export formats, distinct values among 'torchscript' and 'onnx'.
         repository (Path): The Triton model repository.
         model_version (int): The Triton version of the exported models, i.e. the name of their version folder.
         maximum_batch_size (int): The largest batch size of the exported models.
@@ -224,11 +253,16 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
     Raises:
         RuntimeError: If an exported model does not reproduce the eager outputs, the repository being left unchanged.
         FileNotFoundError: If use_saved_temperature finds no saved thresholds for the exported checkpoint.
-        ValueError: If use_saved_temperature is set for another task than the classification, or the saved
-            thresholds are ambiguous or do not belong to the exported checkpoint, or saved_thresholds_path is given
-            without use_saved_temperature, or the input contract cannot describe the input of the run (another
-            interpolation, padding, placement or channel order).
+        ValueError: If a format, the model version, the maximum batch size or the TensorRT precision is not one the
+            export accepts (check_export_settings, before anything is loaded), if use_saved_temperature is set for
+            another task than the classification, or the saved thresholds are ambiguous or do not belong to the
+            exported checkpoint, or saved_thresholds_path is given without use_saved_temperature, or the input
+            contract cannot describe the input of the run (another interpolation, padding, placement or channel
+            order).
     """
+    # A misspelled format or precision stops the export here, before the checkpoint is loaded
+    check_export_settings(formats=formats, model_version=model_version, maximum_batch_size=maximum_batch_size,
+                          tensorrt_precision=tensorrt_precision)
     if saved_thresholds_path is not None and not use_saved_temperature:
         raise ValueError(f"saved_thresholds_path {saved_thresholds_path} is only read with use_saved_temperature.")
 
@@ -378,7 +412,7 @@ if __name__ == "__main__":
     # True exports the moving average of the weights stored in the checkpoint (runs with
     # Optimization.exponential_moving_average activated), False the trained weights
     use_averaged_weights = False
-    # Export formats, among 'torchscript' and 'onnx'
+    # Export formats, among 'torchscript' and 'onnx', any other value being refused
     formats = ["torchscript", "onnx"]
     # Triton model repository, mounted by deployment/triton/docker-compose.yml
     repository = DEFAULT_REPOSITORY

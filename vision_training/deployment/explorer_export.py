@@ -18,7 +18,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from vision_training.deployment.export_model import export_experiment, hide_known_export_warnings
+from vision_training.deployment.export_model import (check_export_settings, export_experiment,
+                                                     hide_known_export_warnings)
+from vision_training.deployment.triton_configuration import EXPORT_FORMATS, TENSORRT_PRECISIONS
 from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
 from vision_training.evaluation.classification.temperature_explorer import (SAVED_THRESHOLDS_FILE_NAME,
                                                                             check_logit_temperature)
@@ -34,9 +36,8 @@ EXPORT_JOB_FILE_NAME = "export_job.json"
 EXPORT_LOG_FILE_NAME = "export_log.txt"
 EXPORT_RECORD_FILE_NAME = "export_record.json"
 
-# Settings the page can choose, and those it shows first (the values of the main block of export_model.py)
-EXPORT_FORMATS = ["torchscript", "onnx"]
-TENSORRT_PRECISIONS = ["FP32", "FP16", None]
+# Settings the page can choose (EXPORT_FORMATS and TENSORRT_PRECISIONS, imported for the serve script, the export
+# refusing any other value), and those it shows first (the values of the main block of export_model.py)
 DEFAULT_EXPORT_SETTINGS = {"formats": ["torchscript", "onnx"], "model_version": 1, "maximum_batch_size": 16,
                            "tensorrt_precision": "FP32"}
 
@@ -119,30 +120,6 @@ def list_checkpoint_exports(run_folder: Path, iteration: int, use_averaged_weigh
         exports.append({"folder": export_folder,
                         "record": json.loads(s=record_path.read_text()) if record_path.is_file() else None})
     return sorted(exports, key=lambda export: export["folder"].stat().st_mtime, reverse=True)
-
-
-def check_export_settings(formats: Any, model_version: Any, maximum_batch_size: Any, tensorrt_precision: Any) -> None:
-    """
-    Checks the export settings chosen on the page before the export is started, so that a wrong value is refused with
-    its reason instead of failing in the middle of the export.
-
-    Args:
-        formats (Any): The export formats, a non-empty list of distinct values of EXPORT_FORMATS.
-        model_version (Any): The Triton version of the exported models, a whole number from 1.
-        maximum_batch_size (Any): The largest batch size of the exported models, a whole number from 1.
-        tensorrt_precision (Any): One of TENSORRT_PRECISIONS.
-
-    Raises:
-        ValueError: If a setting is not one the export accepts.
-    """
-    if (not isinstance(formats, list) or not formats or len(set(formats)) != len(formats) or
-            not all(export_format in EXPORT_FORMATS for export_format in formats)):
-        raise ValueError(f"Expected distinct export formats among {EXPORT_FORMATS}, got {formats!r}.")
-    for setting_name, setting_value in [("model_version", model_version), ("maximum_batch_size", maximum_batch_size)]:
-        if not isinstance(setting_value, int) or isinstance(setting_value, bool) or setting_value < 1:
-            raise ValueError(f"Expected {setting_name} to be a whole number from 1, got {setting_value!r}.")
-    if tensorrt_precision not in TENSORRT_PRECISIONS:
-        raise ValueError(f"Expected a TensorRT precision among {TENSORRT_PRECISIONS}, got {tensorrt_precision!r}.")
 
 
 def prepare_export_job(evaluation_folder: Path, formats: List[str], model_version: int, maximum_batch_size: int,

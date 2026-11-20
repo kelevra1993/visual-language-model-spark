@@ -1,8 +1,9 @@
 """
 Measures the inference throughput of a trained experiment of any task, run locally in this process and served by
 Triton as TorchScript and ONNX (TensorRT), on the images of deployment/inference_data, a frame selector being measured
-with the decoding of its selection (its Triton ensembles). Run as a script once the models are exported by
-deployment/export_model.py and the Triton server is started.
+with the decoding of its selection (its Triton ensembles), a semantic segmentation run trained on tiles being refused
+(load_inference_inputs). Run as a script once the models are exported by deployment/export_model.py and the Triton
+server is started.
 """
 
 from pathlib import Path

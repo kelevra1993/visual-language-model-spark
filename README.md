@@ -1214,7 +1214,7 @@ Should a model run in INT8 or FP8, every tensor first needs a **scale**, the num
 - **Calibration.** Choosing the scales of the activations from data: TensorRT runs representative images through the model, about 500 for an ImageNet classifier, and records the range of every tensor. This implicit quantization is deprecated since TensorRT 10.1.
 - **Q/DQ nodes.** QuantizeLinear and DequantizeLinear nodes written into the ONNX graph, each with its scale, marking where a tensor becomes INT8 or FP8 and where it returns to a wider format; TensorRT converts exactly where they say (explicit quantization), the only path to FP8 and FP4.
 
-None of this is implemented: the export writes neither Q/DQ nodes nor a calibration table, `tensorrt_precision` documents only "FP32", "FP16" and None (the temperature explorer refuses any other value), the ONNX Runtime backend of Triton has no FP8 `precision_mode`, and the export check never runs a TensorRT engine ([What Is Exported Today](#what-is-exported-today)).
+None of this is implemented: the export writes neither Q/DQ nodes nor a calibration table, `tensorrt_precision` accepts only "FP32", "FP16" and None (the export refuses any other value), the ONNX Runtime backend of Triton has no FP8 `precision_mode`, and the export check never runs a TensorRT engine ([What Is Exported Today](#what-is-exported-today)).
 
 #### Summary Of The Formats
 In case you need the facts of one format again, here they are, computed by PyTorch (TF32 and FP4 from their bit layouts):
@@ -1240,7 +1240,7 @@ For a served model to read less memory at every request, a reduced precision als
 The DGX Spark gives its GPU 273 GB/s of memory bandwidth shared with the CPU ([specifications](https://www.nvidia.com/en-us/products/workstations/dgx-spark/)), so halving the bytes of weights and activations halves the traffic of a memory-bound layer; TensorRT FP16 serves 1.9 times the images of TensorRT FP32 at batch 16 on CLS and M2M, and DET serves 189 images per second with both since the fix of its exported NMS ([Serving Benchmark Results](#serving-benchmark-results)).
 
 ### Export
-When a run is ready to be served, `vision_training/deployment/export_model.py` writes it to the Triton model repository as [TorchScript](#torchscript) and [ONNX](#onnx), with the Triton configuration of every model, and checks every export against the [eager](#the-eager-model) PyTorch model, the served models being replaced only once every format matches ([How The Export Records The Graph](#how-the-export-records-the-graph)). Set `experiment_folder`, `iteration`, `use_averaged_weights`, `formats`, `maximum_batch_size` and `tensorrt_precision` (`"FP16"`, `"FP32"`, or `None` for ONNX Runtime CUDA only) in its main block, then run:
+When a run is ready to be served, `vision_training/deployment/export_model.py` writes it to the Triton model repository as [TorchScript](#torchscript) and [ONNX](#onnx), with the Triton configuration of every model, and checks every export against the [eager](#the-eager-model) PyTorch model, the served models being replaced only once every format matches ([How The Export Records The Graph](#how-the-export-records-the-graph)). Set `experiment_folder`, `iteration`, `use_averaged_weights`, `formats` (`"torchscript"` and `"onnx"`), `maximum_batch_size` and `tensorrt_precision` (`"FP16"`, `"FP32"`, or `None` for ONNX Runtime CUDA only) in its main block, any other format or precision stopping the export before it starts, then run:
 
 ```bash
 uv run python -m vision_training.deployment.export_model
@@ -1296,7 +1296,7 @@ docker compose up
   <img src="README/triton_request_flow.png" width="100%" />
 </p>
 
-`uv run python -m vision_training.deployment.run_inference` then sends the images of `vision_training/deployment/inference_data/` to the model of a run, in the process and through Triton, and prints the throughput of each. It sends one request at a time from one client, so the dynamic batcher never forms a batch of more than one image, and its in-process reference is the eager PyTorch model on the GPU, not the TorchScript file.
+`uv run python -m vision_training.deployment.run_inference` then sends the images of `vision_training/deployment/inference_data/` to the model of a run, in the process and through Triton, and prints the throughput of each. It sends one request at a time from one client, so the dynamic batcher never forms a batch of more than one image, and its in-process reference is the eager PyTorch model on the GPU, not the TorchScript file. A SEG run trained on tiles is refused, since a photo needs many tile requests where the script would letterbox it into one.
 
 <p align="center">
   <img src="README/run_inference_output.png" width="100%" />
