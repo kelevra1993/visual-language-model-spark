@@ -659,7 +659,8 @@ committed): every image can be taken again from them without training, except wh
 - **Effect:**
   - A proposal regressed out of the image becomes zero-area after clamping, and torchvision NMS keeps identical
     zero-area boxes.
-  - In the training-model eval path (the test mAP), padding can duplicate them into false-positive detections.
+  - In the training-model eval path (the test mAP), padding could duplicate them into false-positive detections,
+    until the eager detector masked the padding copies like the deployed one (B35, 2026-11-20).
 - **Fix:** mask boxes narrower or shorter than 1e-3 px after clamping, in both filters and in the postprocessing.
 - **Status (2026-11-12):** `RegionProposal.proposal_selection: "per_level"`, in the object detection configurations
   since stage 7, leaves out the proposals narrower or shorter than 1e-3 px, `"joint"` keeping them for its runs. On

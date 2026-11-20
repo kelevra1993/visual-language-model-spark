@@ -344,6 +344,8 @@ class TwoStageDetector(TaskModel):
                 - "sliced_proposals" (torch.Tensor): Shape [total_proposals, 5]
                 - "sliced_batch_indices" (torch.Tensor): Shape [total_proposals, 1]
                 - "sliced_origins" (torch.Tensor): Shape [total_proposals], the detection level of every proposal
+                - "sliced_valid_mask" (torch.Tensor): Shape [total_proposals], False for the padding copies of the
+                  region proposal filter
                 - "detection_boxes" (Optional[torch.Tensor]): Shape [total_proposals, number_classes, 4]
                 - "sliced_labels" (Optional[torch.Tensor]): Shape [total_proposals] (only in training)
                 - "sliced_regression_targets" (Optional[torch.Tensor]): Shape [total_proposals, 4] (only in training)
@@ -358,6 +360,7 @@ class TwoStageDetector(TaskModel):
         aggregated_detection_boxes = []
         aggregated_batch_indices = []
         aggregated_origins = []
+        aggregated_valid_masks = []
         aggregated_matched_indices = []
 
         has_labels = False
@@ -368,6 +371,7 @@ class TwoStageDetector(TaskModel):
             aggregated_batch_indices.append(predictions["sliced_batch_indices"])
             aggregated_detection_boxes.append(predictions["detection_boxes"])
             aggregated_origins.append(predictions["sliced_origins"])
+            aggregated_valid_masks.append(predictions["sliced_valid_mask"])
 
             # During both training and validation (when ground truth is available), we extract the targets
             # to compute the network's loss metrics. This condition dynamically passes targets through if they exist
@@ -385,6 +389,7 @@ class TwoStageDetector(TaskModel):
             "sliced_batch_indices": torch.cat(tensors=aggregated_batch_indices, dim=0),
             "sliced_proposals": torch.cat(tensors=aggregated_proposals, dim=0),
             "sliced_origins": torch.cat(tensors=aggregated_origins, dim=0),
+            "sliced_valid_mask": torch.cat(tensors=aggregated_valid_masks, dim=0),
             "sliced_labels": torch.cat(tensors=aggregated_labels, dim=0) if has_labels else None,
             "sliced_regression_targets": torch.cat(tensors=aggregated_regression_targets,
                                                    dim=0) if has_labels else None,
@@ -397,9 +402,9 @@ class TwoStageDetector(TaskModel):
         """
         Re-arranges the flattened network predictions back into a batched list format.
         
-        This method groups the predicted class scores, box regressions, final bounding boxes and the detection level
-        of every proposal by their original batch index. This is particularly useful during inference 
-        or metric calculation, where predictions need to be associated with their specific 
+        This method groups the predicted class scores, box regressions, final bounding boxes, the detection level
+        of every proposal and the mask of the valid proposals by their original batch index. This is particularly
+        useful during inference or metric calculation, where predictions need to be associated with their specific
         input images.
         
         Args:
@@ -415,7 +420,8 @@ class TwoStageDetector(TaskModel):
                 `[batch_size, ...]`, containing the predictions for each specific image.
         """
 
-        tensor_names = ["classification_scores", "box_regressions", "detection_boxes", "sliced_origins"]
+        tensor_names = ["classification_scores", "box_regressions", "detection_boxes", "sliced_origins",
+                        "sliced_valid_mask"]
         rearranged_predictions = {key: [] for key in tensor_names}
 
         # Squeeze the indices since they are of shape [K, 1]
@@ -437,22 +443,26 @@ class TwoStageDetector(TaskModel):
         return rearranged_predictions
 
     def _prepare_detector_inputs(self, filtered_boxes: torch.Tensor, filtered_origins: torch.Tensor,
+                                 valid_proposal_mask: torch.Tensor,
                                  ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
                                  ground_truth_labels: Optional[List[torch.Tensor]] = None
                                  ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor],
-                                            torch.Tensor, Optional[torch.Tensor]]:
+                                            torch.Tensor, Optional[torch.Tensor], torch.Tensor]:
         """
         Prepares the formatted inputs required by the Detection Head's RoIAlign and loss functions.
         
         With ground truth (training and validation loss), it writes the ground truth boxes into the last slots of
         the filtered proposals of their image (add_ground_truth_proposals), assigns ground truth targets to the
         proposals, computes regression targets, and samples a balanced set of positive and negative proposals.
-        During inference, it simply flattens the filtered proposals and prepends batch indices.
+        During inference, it simply flattens the filtered proposals and prepends batch indices, with the mask of the
+        valid proposals, so that the padding copies of the region proposal filter never become detections.
         
         Args:
             filtered_boxes (torch.Tensor): The filtered region proposals of shape [Batch, Num_Proposals, 4].
             filtered_origins (torch.Tensor): The detection scale origins of the proposals of shape
                 [Batch, Num_Proposals].
+            valid_proposal_mask (torch.Tensor): The boolean mask of the survivors of the suppression, False for the
+                padding copies of random survivors, of shape [Batch, Num_Proposals].
             ground_truth_bounding_boxes (Optional[List[torch.Tensor]]): List of ground truth bounding boxes.
             ground_truth_labels (Optional[List[torch.Tensor]]): List of ground truth class labels.
             
@@ -466,6 +476,8 @@ class TwoStageDetector(TaskModel):
                 - detection_matched_ground_truth_indices (Optional[torch.Tensor]): The index of the matched ground truth
                   of every sampled proposal within its image, -1 for the background, of shape [K] (None without
                   ground truth), read by the instance segmenter to pick the ground truth masks.
+                - detection_valid_mask (torch.Tensor): The boolean mask of the proposals that may give a final
+                  detection, of shape [K]: the valid proposals at inference, every sampled proposal with ground truth.
         """
         batch_size, number_proposals, _ = filtered_boxes.shape
 
@@ -511,6 +523,11 @@ class TwoStageDetector(TaskModel):
             detection_regression_targets = detection_regression_targets[sampled_mask]
             detection_matched_ground_truth_indices = detector_matched_ground_truth_indices[sampled_mask]
 
+            # Every sampled proposal is a box of the image, a survivor, a copy trained like it or a ground truth box
+            # written over the padding; the detections of this path are those of the validation loss only, the
+            # evaluation running the detector without ground truth
+            detection_valid_mask = torch.ones_like(input=detection_proposals_origins, dtype=torch.bool)
+
         else:
             # During inference, simply flatten the valid proposals and prepend the batch indices
             detection_batch_indices = batch_indices.reshape(-1).unsqueeze(dim=-1)
@@ -518,13 +535,14 @@ class TwoStageDetector(TaskModel):
 
             detection_proposals = torch.cat(tensors=[detection_batch_indices, flattened_boxes], dim=-1)
             detection_proposals_origins = filtered_origins.reshape(-1)
+            detection_valid_mask = valid_proposal_mask.reshape(-1)
 
             detection_labels = None
             detection_regression_targets = None
             detection_matched_ground_truth_indices = None
 
         return (detection_proposals, detection_proposals_origins, detection_labels, detection_regression_targets,
-                detection_batch_indices, detection_matched_ground_truth_indices)
+                detection_batch_indices, detection_matched_ground_truth_indices, detection_valid_mask)
 
     def _forward_region_proposals(
             self, backbone_output_tensor_dictionary: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, torch.Tensor]]:
@@ -559,7 +577,8 @@ class TwoStageDetector(TaskModel):
 
     def _forward_detections(self, backbone_output_tensor_dictionary: Dict[str, torch.Tensor],
                             detection_proposals: torch.Tensor, detection_proposals_origins: torch.Tensor,
-                            detection_batch_indices: torch.Tensor, detection_labels: Optional[torch.Tensor] = None,
+                            detection_batch_indices: torch.Tensor, detection_valid_mask: torch.Tensor,
+                            detection_labels: Optional[torch.Tensor] = None,
                             detection_regression_targets: Optional[torch.Tensor] = None,
                             detection_matched_ground_truth_indices: Optional[torch.Tensor] = None) -> Dict[str, Any]:
         """
@@ -571,6 +590,8 @@ class TwoStageDetector(TaskModel):
             detection_proposals (torch.Tensor): Formatted proposals of shape [K, 5] (batch_index + coords).
             detection_proposals_origins (torch.Tensor): Origins of shape [K].
             detection_batch_indices (torch.Tensor): Batch indices of shape [K, 1].
+            detection_valid_mask (torch.Tensor): The mask of the proposals that may give a final detection, of shape
+                [K].
             detection_labels (Optional[torch.Tensor]): Target labels for training of shape [K].
             detection_regression_targets (Optional[torch.Tensor]): Target regressions for training of shape [K, 4].
             detection_matched_ground_truth_indices (Optional[torch.Tensor]): Index of the matched ground truth of
@@ -585,6 +606,7 @@ class TwoStageDetector(TaskModel):
                 - "sliced_regression_targets" (Optional[torch.Tensor]): Shape [K_scale, 4]
                 - "sliced_proposals" (torch.Tensor): Shape [K_scale, 5]
                 - "sliced_origins" (torch.Tensor): Shape [K_scale]
+                - "sliced_valid_mask" (torch.Tensor): Shape [K_scale]
                 - "sliced_matched_ground_truth_indices" (Optional[torch.Tensor]): Shape [K_scale]
         """
         detection_output_dictionary = {}
@@ -621,6 +643,7 @@ class TwoStageDetector(TaskModel):
                 "sliced_regression_targets": scale_regression_targets,
                 "sliced_matched_ground_truth_indices": scale_matched_indices,
                 "sliced_origins": detection_proposals_origins[scale_indices],
+                "sliced_valid_mask": detection_valid_mask[scale_indices],
                 "sliced_proposals": scale_proposals}
 
         return detection_output_dictionary
@@ -685,7 +708,10 @@ class TwoStageDetector(TaskModel):
                 - "box_regressions" (torch.Tensor): Shape [Batch, Post_NMS_Proposals, number_classes, 4].
                 - "detection_boxes" (torch.Tensor): Shape [Batch, Post_NMS_Proposals, number_classes, 4].
                 - "sliced_origins" (torch.Tensor): Shape [Batch, Post_NMS_Proposals], the level of every proposal.
-                - the final detections of postprocess_detections, in evaluation mode only.
+                - "sliced_valid_mask" (torch.Tensor): Shape [Batch, Post_NMS_Proposals], False for the padding copies
+                  of the region proposal filter, in the order of the head outputs.
+                - the final detections of postprocess_detections, in evaluation mode only, the padding copies giving
+                  none, as in the deployed InferenceDetector.
                 - "proposal_boxes", "proposal_levels" and "valid_proposal_mask" (torch.Tensor): The [Batch,
                   Post_NMS_Proposals, 4] filtered proposals, their level and the mask of the survivors of the
                   suppression, in evaluation mode only, Post_NMS_Proposals being capped by the pre-NMS count and the
@@ -727,16 +753,16 @@ class TwoStageDetector(TaskModel):
         # Prepare the filtered proposals to be safely digested by the Detection Head's RoIAlign
         (detection_proposals, detection_proposals_origins,
          detection_labels, detection_regression_targets, detection_batch_indices,
-         detection_matched_ground_truth_indices) = self._prepare_detector_inputs(
-            filtered_boxes=filtered_boxes, filtered_origins=filtered_origins,
+         detection_matched_ground_truth_indices, detection_valid_mask) = self._prepare_detector_inputs(
+            filtered_boxes=filtered_boxes, filtered_origins=filtered_origins, valid_proposal_mask=valid_proposal_mask,
             ground_truth_bounding_boxes=ground_truth_bounding_boxes, ground_truth_labels=ground_truth_labels)
 
         # Route the formatted proposals to their appropriate detection heads to compute final box scores and regressions
         detection_output_tensor_dictionary = self._forward_detections(
             backbone_output_tensor_dictionary=backbone_output_tensor_dictionary,
             detection_proposals=detection_proposals, detection_proposals_origins=detection_proposals_origins,
-            detection_batch_indices=detection_batch_indices, detection_labels=detection_labels,
-            detection_regression_targets=detection_regression_targets,
+            detection_batch_indices=detection_batch_indices, detection_valid_mask=detection_valid_mask,
+            detection_labels=detection_labels, detection_regression_targets=detection_regression_targets,
             detection_matched_ground_truth_indices=detection_matched_ground_truth_indices)
 
         # Aggregate the final detection head outputs across all scales
@@ -752,13 +778,13 @@ class TwoStageDetector(TaskModel):
             prediction_tensors_dictionary=aggregated_detections_dictionary)
 
         # At inference, turn the raw head outputs into the final thresholded, per-class NMS filtered detections, with
-        # the greedy NMS or DIoU-NMS of 'Detector.nms_criterion'
+        # the greedy NMS or DIoU-NMS of 'Detector.nms_criterion', the padding copies of the proposal filter masked as
+        # in the deployed detector, since the NMS cannot remove identical boxes at a threshold of 1.0 nor empty boxes
         if not self.training:
             model_output_dictionary.update(postprocess_detections(
                 classification_scores=model_output_dictionary["classification_scores"],
                 detection_boxes=model_output_dictionary["detection_boxes"],
-                valid_proposal_mask=torch.ones_like(input=model_output_dictionary["classification_scores"][..., 0],
-                                                    dtype=torch.bool),
+                valid_proposal_mask=model_output_dictionary["sliced_valid_mask"],
                 score_threshold=self.detection_score_threshold, nms_iou_threshold=self.detection_nms_iou_threshold,
                 nms_criterion=self.detection_nms_criterion, nms_distance_exponent=self.detection_nms_distance_exponent,
                 maximum_detections=self.maximum_detections, input_image_size=self.input_image_size,

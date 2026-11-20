@@ -981,6 +981,7 @@ classification_scores              (2, 250, 21) float32
 box_regressions                    (2, 250, 21, 4) float32
 detection_boxes                    (2, 250, 21, 4) float32
 sliced_origins                     (2, 250) int64
+sliced_valid_mask                  (2, 250) bool
 final_detection_boxes              (2, 100, 4) float32
 final_detection_scores             (2, 100) float32
 final_detection_labels             (2, 100) int64
