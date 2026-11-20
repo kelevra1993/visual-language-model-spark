@@ -1,14 +1,16 @@
 """
 Record of the data a run is trained on: the 'data.json' file the base trainer writes in the run folder next to
 'training_configuration.yaml', giving the classes of the run in class index order, each with its name, the
-manifest categories mapped to it and its number of images (or annotations, sequences, frames, pairs) in every split,
-and, for every split (train, validation, test), its data folder, the SHA-256 of its 'labels.json' and the list of its
-images, so that the classes and the images a model was trained and evaluated on stay known when the data folders
-change, and that a run adding classes after those of its source run can check that the source classes come first
-(model_transfer.py). The images are read from the four manifest formats of the framework: the COCO 'images' of the
-detection tasks, the 'samples' of the classification and semantic segmentation, the frames of the 'sequences' of the
-sequence tasks and the frames of both members of the 'pairs' of the sequence comparison. A resumed run compares its
-data with the saved record (BaseTrainer.save_data_record) and keeps the previous record when the data changed.
+manifest categories mapped to it, the names of their keypoints for the keypoint detection, and its number of images
+(or annotations, sequences, frames, pairs) in every split, and, for every split (train, validation, test), its data
+folder, the SHA-256 of its 'labels.json' and the list of its images, so that the classes and the images a model was
+trained and evaluated on stay known when the data folders change, that a run adding classes after those of its source
+run can check that the source classes come first and that a keypoint head only initialises a run predicting the same
+keypoints on the same channels (model_transfer.py). The images are read from the four manifest formats of the
+framework: the COCO 'images' of the detection tasks, the 'samples' of the classification and semantic segmentation,
+the frames of the 'sequences' of the sequence tasks and the frames of both members of the 'pairs' of the sequence
+comparison. A resumed run compares its data with the saved record (BaseTrainer.save_data_record) and keeps the
+previous record when the data changed.
 """
 
 import hashlib
@@ -31,6 +33,10 @@ CLASSES_RECORD_KEY = "classes"
 
 # Entry of the records written before the classes were counted, holding only their names, still read from a source run
 CLASS_NAMES_RECORD_KEY = "class_names"
+
+# Entry of the record of a class whose categories define keypoints (keypoint detection), their names in order, from
+# which the transfer of the keypoint head reads the heatmap and tag channels of the source run
+KEYPOINTS_RECORD_KEY = "keypoints"
 
 # Split of the record written for every data folder of the experiment configuration
 DATA_RECORD_SPLITS = {"train": "train_data_folder", "validation": "validation_data_folder",
@@ -221,8 +227,11 @@ def build_class_records(class_names: List[str], label_dictionary: Dict[Any, int]
     """
     Describes the classes of a run for the record of its data ('classes' of 'data.json'): the index and name of every
     class, the manifest categories mapped to it (none for the background of the detection and segmentation tasks),
-    and its number of images, annotations, sequences, frames or pairs in every split (count_manifest_classes), so that
-    the class balance of the data a model was trained and evaluated on is read from its run folder.
+    the keypoint names of its categories when they define keypoints (keypoint detection, the names of its first
+    category, the training refusing a class whose categories define other keypoints), and its number of images,
+    annotations, sequences, frames or pairs in every split (count_manifest_classes), so that the class balance of the
+    data a model was trained and evaluated on is read from its run folder, and the transfer of a keypoint head finds
+    the keypoints its heatmap and tag channels predict.
 
     Args:
         class_names (List[str]): The class names of the run, in class index order (BaseTrainer.list_class_names).
@@ -233,8 +242,8 @@ def build_class_records(class_names: List[str], label_dictionary: Dict[Any, int]
         split_data_folders (Dict[str, str | Path]): The root folder of every split, containing a 'labels.json'.
 
     Returns:
-        List[Dict[str, Any]]: The 'class_index', 'class_name', 'category_ids' and the count of every split by unit of
-            every class.
+        List[Dict[str, Any]]: The 'class_index', 'class_name', 'category_ids', the 'keypoints' of the classes whose
+            categories define them, and the count of every split by unit of every class.
     """
     split_labels = {split_name: read_manifest(labels_path=Path(split_data_folder) / "labels.json")
                     for split_name, split_data_folder in split_data_folders.items()}
@@ -253,12 +262,19 @@ def build_class_records(class_names: List[str], label_dictionary: Dict[Any, int]
                     for split_name, labels in split_labels.items()}
     units = list(dict.fromkeys(unit for class_counts in split_counts.values() for unit in class_counts))
 
-    # One record per class, with the categories mapped to it and its count in every split for every unit
+    # One record per class, with the categories mapped to it, their keypoint names when they define keypoints, and its
+    # count in every split for every unit
     class_records = []
     for class_index, class_name in enumerate(class_names):
         class_record = {"class_index": class_index, "class_name": class_name,
                         "category_ids": [category for category, mapped_index in category_classes.items()
                                          if mapped_index == class_index]}
+        keypoint_lists = [merged_categories[category_id][KEYPOINTS_RECORD_KEY]
+                          for category_id in class_record["category_ids"]
+                          if KEYPOINTS_RECORD_KEY in merged_categories[category_id]
+                          and merged_categories[category_id][KEYPOINTS_RECORD_KEY]]
+        if keypoint_lists:
+            class_record[KEYPOINTS_RECORD_KEY] = list(keypoint_lists[0])
         for unit in units:
             class_record[unit] = {split_name: class_counts[unit][class_index] if unit in class_counts else 0
                                   for split_name, class_counts in split_counts.items()}

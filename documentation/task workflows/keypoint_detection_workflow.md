@@ -163,7 +163,7 @@ main()
 │       │   └── get_keypoint_dataloaders()
 │       │       └── CocoDetectionDataset(load_keypoints=True) per split    one whole image per sample
 │       ├── check_loaders_give_batches()                           refuses a split whose loader gives no batch
-│       ├── save_data_record()                                     data.json
+│       ├── save_data_record()                                     data.json, the keypoint names of every class
 │       ├── get_test_sample_classes() + choose_sample_identifiers()       16 fixed test images
 │       ├── build_model()
 │       │   └── KeypointDetector.__init__()
@@ -476,7 +476,7 @@ higher_resolution_branch
 ```
 
 ### Step 2.9 — `initialise_pretrained_components()` + `build_optimizer()` + `get_tracked_metrics()`
-The three transferable components are the `Backbone`, the `HRNet` and the `KeypointHead` (with its higher resolution branch), each with its `pretrained` section (all null here). The tracked metrics are `{"total_loss": "Total Loss", "heatmap_loss": "Heatmap Loss", "tag_pull_loss": "Tag Pull Loss", "tag_push_loss": "Tag Push Loss"}`.
+The three transferable components are the `Backbone`, the `HRNet` and the `KeypointHead` (with its higher resolution branch), each with its `pretrained` section (all null here). The keypoint head only loads from a run whose heatmap and tag channels predict the same keypoints of the same classes in the same order, `class.keypoint` read from the `keypoints` of the classes of its `data.json`; a source run whose `data.json` has none (started before 2026-11-20) is refused. The tracked metrics are `{"total_loss": "Total Loss", "heatmap_loss": "Heatmap Loss", "tag_pull_loss": "Tag Pull Loss", "tag_push_loss": "Tag Push Loss"}`.
 
 ### Step 2.10 — `print_experiment_information()` (→ `describe_split()` → `count_split_images_and_annotations()`)
 `describe_split()` gives the number of images and annotations of every split from its `labels.json`, the distractors included; the iterations per epoch are counted in images: 300 / 8 = 38 iterations.

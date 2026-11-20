@@ -1,7 +1,8 @@
 """
 Tests of vision_training/data/data_record.py, the record of the images of every split written by the base trainer in
 the run folder ('data.json'): the images of the COCO and sample manifests, the classes counted with their categories,
-the class records of every split, and the splits found changed between two starts of a run.
+the class records of every split with the keypoint names of their categories, and the splits found changed between two
+starts of a run.
 """
 
 import json
@@ -10,9 +11,9 @@ import pytest
 from pathlib import Path
 from typing import Any, Dict, List
 
-from vision_training.data.data_record import (COMPARED_SPLIT_ENTRIES, RELABELLED_SPLIT_ENTRIES, build_class_records,
-                                              count_manifest_classes, find_changed_splits, list_manifest_images,
-                                              map_categories_to_classes)
+from vision_training.data.data_record import (COMPARED_SPLIT_ENTRIES, KEYPOINTS_RECORD_KEY, RELABELLED_SPLIT_ENTRIES,
+                                              build_class_records, count_manifest_classes, find_changed_splits,
+                                              list_manifest_images, map_categories_to_classes)
 
 
 @pytest.mark.parametrize(argnames=["labels", "expected_images"], argvalues=[
@@ -119,6 +120,29 @@ def test_class_records_count_every_split(tmp_path: Path) -> None:
          "images": {"train": 2, "validation": 0, "test": 0}, "annotations": {"train": 3, "validation": 0, "test": 0}},
         {"class_index": 2, "class_name": "person", "category_ids": [3],
          "images": {"train": 0, "validation": 1, "test": 0}, "annotations": {"train": 0, "validation": 1, "test": 0}}]
+
+
+def test_class_records_keep_the_keypoint_names_of_their_categories(tmp_path: Path) -> None:
+    """
+    Verifies that the class records of a keypoint detection run keep the keypoint names of the category of every class,
+    in their order, which give the heatmap and tag channels of its keypoint head, the background having none.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    labels = {"categories": [{"id": 1, "name": "triangle", "keypoints": ["top", "left", "right"]},
+                             {"id": 2, "name": "rectangle", "keypoints": ["top_left", "top_right"]}],
+              "images": [{"id": 1, "file_name": "1.png"}],
+              "annotations": [{"image_id": 1, "category_id": 1}, {"image_id": 1, "category_id": 2}]}
+    (tmp_path / "train").mkdir()
+    (tmp_path / "train" / "labels.json").write_text(data=json.dumps(obj=labels))
+
+    class_records = build_class_records(class_names=["background", "triangle", "rectangle"],
+                                        label_dictionary={"background": 0, 1: 1, 2: 2}, label_mode="multi_class",
+                                        unmapped_class_index=None, split_data_folders={"train": tmp_path / "train"})
+    assert [KEYPOINTS_RECORD_KEY in class_record for class_record in class_records] == [False, True, True]
+    assert class_records[1][KEYPOINTS_RECORD_KEY] == ["top", "left", "right"]
+    assert class_records[2][KEYPOINTS_RECORD_KEY] == ["top_left", "top_right"]
 
 
 def test_changed_splits_are_found() -> None:

@@ -303,8 +303,8 @@ KeypointHead:
     # Lowest object score (sum of its keypoint scores over its class keypoints) kept by deployment and sample images;
     # the evaluation keeps every object for the precision-recall curves.
     object_score_threshold: 0.2
-  # Keypoint head of another KPT run initialising this one; the classes, their keypoints and HRNet.base_width must
-  # match.
+  # Keypoint head of another KPT run initialising this one; the classes, their keypoints in the same order (read from
+  # the data.json of that run) and HRNet.base_width must match.
   pretrained:
     # Run folder of the loaded keypoint head, null for random weights; not reloaded when the run resumes.
     experiment_folder: null
