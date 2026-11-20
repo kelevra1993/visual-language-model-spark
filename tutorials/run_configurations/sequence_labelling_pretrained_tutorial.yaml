@@ -11,10 +11,10 @@ ExperimentConfiguration:
   task: "sequence_labelling"
   # Root of the training runs, each in a subfolder named after its settings (task, input, backbone, maximum sequence
   # length, temporal module, classification head, classes, optimizer and weight decay unless plain Adam): the same
-  # settings resume, changed ones start a new folder, e.g.
-  # M2M_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128_HAVG.64_MC71. The augmentation, batch size, learning
-  # rate and its schedule, gradient clipping and dropout rates give no token and can change on resume (format:
-  # vision_training/configuration_processing/run_name.py).
+  # settings resume, changed ones start a new folder, this file giving
+  # M2M_IN-KAR-256_SE-RES-BN-B1x16.2x16.2x16.4x32.5x32.5x32-PT_T50_LSTM2x96-BI_HFLAT.96.96-HLN-CWB_MC71.
+  # The augmentation, batch size, learning rate and its schedule, gradient clipping and dropout rates give no token and
+  # can change on resume (format: vision_training/configuration_processing/run_name.py).
   experiment_folder: "/home/robert_kelevra/Data/tutorial_runs/tutorials"
   # Last run name section, e.g. "v1" giving <run name>_v1, to start a new folder for the same settings with another
   # batch size, augmentation or learning rate. Letters, digits, '-' and '.', null for none.

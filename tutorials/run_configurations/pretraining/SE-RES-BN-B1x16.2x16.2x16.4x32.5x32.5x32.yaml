@@ -6,10 +6,11 @@ ExperimentConfiguration:
   task: "classification"
   # Root folder of all the training runs. Every run is saved in a subfolder named after its settings (task, input,
   # backbone modules, normalization and blocks, classification head, classes, optimizer and weight decay unless plain
-  # Adam), so that the same settings resume in the same folder and changed settings start a new one, e.g.
-  # CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128_MC4. The augmentation, batch size, learning rate
-  # and its schedule, gradient clipping and dropout rates give no token, so that a run can be resumed
-  # in its folder with changed values. The format is described in vision_training/configuration_processing/run_name.py.
+  # Adam), so that the same settings resume in the same folder and changed settings start a new one, this file giving
+  # CLS_IN-KAR-256_SE-RES-BN-B1x16.2x16.2x16.4x32.5x32.5x32_HFLAT.96.96-HLN-CWB_ML35_counted-shapes.
+  # The augmentation, batch size, learning rate and its schedule, gradient clipping and dropout rates give no token, so
+  # that a run can be resumed in its folder with changed values. The format is described in
+  # vision_training/configuration_processing/run_name.py.
   experiment_folder: "/home/robert_kelevra/Data/tutorial_runs/pretrained"
   # Suffix appended as the last section of the run name, e.g. "v1" giving <run name>_v1, so that a run of the
   # same settings with another batch size, augmentation or learning rate starts in a folder of its own instead of

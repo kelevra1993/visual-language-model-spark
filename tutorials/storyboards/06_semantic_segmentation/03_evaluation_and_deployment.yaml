@@ -190,7 +190,7 @@ scenes:
       - "So that a server builds these images as the training did, every export writes their resize, size, colour order and padding in a preprocessing file next to the model and in the ONNX metadata."
       - "The client brings the outputs back to its image with restore prediction to original image, which cuts the letterbox and resizes."
       - "Let's consider a run trained on tiles: it is exported with one tile as input, and the client scales and tiles its images itself, with the tile scale and overlap written in that same preprocessing file."
-      - "The throughput script, by contrast, times one letterboxed image per request."
+      - "The throughput script, by contrast, refuses such a run, since it only letterboxes whole images."
       - "The export check wants every probability within 10 to the minus {{semantic_segmentation.export_probability_tolerance_exponent}} and the same class on {{semantic_segmentation.export_minimum_equal_share:percent_label}} of the pixels, since a pixel whose two best classes are tied may flip."
 
   - kind: summary
