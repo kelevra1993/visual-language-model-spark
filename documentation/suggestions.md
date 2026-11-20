@@ -576,7 +576,6 @@ committed): every image can be taken again from them without training, except wh
 
 | Where | Statement | Reality |
 |---|---|---|
-| Every YAML with `residual_nets` | "Residual shortcuts every two convolutions from block 2" | No shortcut in the 2-layer channel-changing blocks (projection shortcuts of H4 dropped on 2026-11-05) |
 | `RegionProposal.foreground_iou_threshold.max` (YAML) | "Maximum matching IoU (capped at 1.0)" | Never read by the model, only by the checker |
 | `mean_average_precision.py`, `average_precision_report.py` | "COCO" mAP@[0.5:0.95] and 101-point values | VOC matching, kept on purpose (L6 dropped) |
 | `region_proposer.py` | aspect ratio = width / height | `anchors.py` and the YAMLs use height / width |

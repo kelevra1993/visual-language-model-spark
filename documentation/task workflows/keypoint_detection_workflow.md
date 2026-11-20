@@ -139,7 +139,7 @@ main()
 │       └── check_keypoint_configuration()
 │           ├── check_image_task_sequence_settings()               no sequence normalization
 │           ├── check_image_only_augmentation_types()              random_perspective and random_jigsaw off
-│           ├── check_keypoint_data_configuration()
+│           ├── check_keypoint_data_configuration()                classes 0 to K-1 without gaps, keypoint names
 │           ├── check_keypoint_stem_configuration()                the stem must end at 1/4 of the image
 │           ├── check_high_resolution_network_configuration()      image size a multiple of the lowest branch stride
 │           ├── check_keypoint_head_configuration()                hidden width, sigma, tag weights, grouping settings

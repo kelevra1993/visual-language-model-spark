@@ -219,7 +219,8 @@ Backbone:
     feature_map_normalization: "batch"
 
   modules:
-    # Residual shortcuts every two convolutions from block 2 (https://arxiv.org/abs/1512.03385).
+    # Residual shortcuts (https://arxiv.org/abs/1512.03385) around pairs of layers from block 2; a block
+    # changing the channel count pairs its layers from the second one, so with 2 layers it gets none.
     residual_nets: True
 
     # Pre-activation shortcuts (https://arxiv.org/abs/1603.05027): normalization and ReLU before every convolution.
@@ -265,7 +266,8 @@ SegmentationDecoder:
   modules:
     # Squeeze and excitation in every decoder block
     squeeze_and_excite: False
-    # Residual shortcuts every two decoder convolutions
+    # Residual shortcuts around pairs of decoder layers: a level changes the channel count at its first
+    # layer, so its first pair ends at its third layer and a level of 2 layers gets none.
     residual_nets: False
   # Decoder feature map normalization: "batch", "layer" or "none".
   feature_map_normalization: "batch"

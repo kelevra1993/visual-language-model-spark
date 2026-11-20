@@ -24,8 +24,10 @@ from vision_training.models.keypoints.keypoint_detector import HEATMAP_STRIDE
 def check_keypoint_data_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the 'Data' settings of the keypoint detection: the multi-class label mapping, each class having its own
-    keypoints, and the keypoint definitions injected by the configuration loader from the 'categories' of the training
-    split, one for every foreground class.
+    keypoints, with at least two classes indexed 0 (the background) to K-1 without gaps, so that the class names of the
+    evaluation and of the reports cover every class the targets carry (a gap would leave a class unnamed and outside the
+    per-class metrics), and the keypoint definitions injected by the configuration loader from the 'categories' of the
+    training split, one for every foreground class.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'Data' section.
@@ -40,8 +42,15 @@ def check_keypoint_data_configuration(model_configuration: Dict[str, Any]) -> Li
                       f"its own keypoints, got {label_mode!r}.")
         return errors
 
-    # The definitions are read from the 'labels.json' of the training split by the configuration loader
+    # Classes indexed from the background 0 without gaps, as the class names of the run are built for 0 to K-1
     data_configuration = model_configuration["Data"]
+    if "label_dictionary" in data_configuration:
+        class_indices = sorted(set(data_configuration["label_dictionary"].values()))
+        if len(class_indices) < 2 or class_indices != list(range(len(class_indices))):
+            errors.append(f"The classes of the label mapping must be at least two, indexed 0 (background) to K-1 "
+                          f"without gaps, got {class_indices}.")
+
+    # The definitions are read from the 'labels.json' of the training split by the configuration loader
     if "keypoint_categories" not in data_configuration:
         errors.append("The keypoint definitions of the classes could not be read: the 'labels.json' of "
                       "'ExperimentConfiguration.train_data_folder' must exist, with the 'keypoints' names of every "

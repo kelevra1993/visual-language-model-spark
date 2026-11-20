@@ -68,7 +68,7 @@ Details of every task, completing the [Tasks](../../README.md#tasks) section of 
 {"1": 0, "2": 1, "3": 1}
 ```
 
-- CLS, M2O, M2M, CMP and SEL predict the classes 0 to K-1. DET, INS, KPT and SEG predict 1 to K, 0 being the `background`. The class indices must have no gaps (checked for every task but KPT and SSL).
+- CLS, M2O, M2M, CMP and SEL predict the classes 0 to K-1. DET, INS, KPT and SEG predict 1 to K, 0 being the `background`. The class indices must have no gaps (checked for every task).
 - Categories mapped to one class are merged, the class being named `name_2+name_3` and counted once.
 - In DET, INS, KPT and SEG, a category mapped to 0 is left out. DET and INS warn about it, since a mapping numbered from 0, as written for the classifiers, drops its first category.
 - DET, INS and SEG accept `mode: "binary"`, which maps every category to the foreground class 1 without a mapping file.

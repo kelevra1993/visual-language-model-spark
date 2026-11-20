@@ -2160,3 +2160,26 @@ def test_merged_keypoint_categories_cannot_give_different_sigmas(tmp_path: Path,
     assert ("The categories merged into the class 'square+rectangle' give different sigmas [0.03, 0.05] to the "
             "keypoint 'top_left' in 'evaluation.keypoint_sigmas'.") in printed_output
     assert "Traceback" not in printed_output
+
+
+def test_keypoint_label_mapping_with_a_gap_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that a keypoint label mapping whose classes leave a gap stops the loading: with the triangle in class 1
+    and the stick figure in class 3, the class names of the run would cover the classes 0 to 2 only, leaving the stick
+    figure unnamed and outside the per-class metrics of the evaluation.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+    """
+    configuration_path = write_keypoint_configuration(
+        temporary_directory=tmp_path, configuration_name="configuration_synthetic_shapes.yaml", modify_function=None,
+        label_mapping={str(KEYPOINT_CATEGORIES["triangle"]): 1, str(KEYPOINT_CATEGORIES["stick_figure"]): 3})
+
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+
+    printed_output = capsys.readouterr().out
+    assert ("The classes of the label mapping must be at least two, indexed 0 (background) to K-1 without gaps, got "
+            "[0, 1, 3].") in printed_output
+    assert "Traceback" not in printed_output
