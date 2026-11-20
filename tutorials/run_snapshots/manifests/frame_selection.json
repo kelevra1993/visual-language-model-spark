@@ -215,55 +215,55 @@
       "reduction": "copy",
       "snapshot_bytes": 434,
       "snapshot_path": "readme_screenshots/SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1/Checkpoint_Evaluation/Iteration_1000/class_thresholds.json",
-      "snapshot_sha256": "4decc4fd7c75183d7b7a5a53cad9a30dfce281918a9127f03ef6f19bb99c0e2f",
+      "snapshot_sha256": "46f1e055c54040b15c1dfd66de54e9604f255bec6032713906d74044124ffd89",
       "source_bytes": 434,
       "source_kind": "run",
       "source_path": "readme_screenshots/SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1/Checkpoint_Evaluation/Iteration_1000/class_thresholds.json",
-      "source_sha256": "4decc4fd7c75183d7b7a5a53cad9a30dfce281918a9127f03ef6f19bb99c0e2f"
+      "source_sha256": "46f1e055c54040b15c1dfd66de54e9604f255bec6032713906d74044124ffd89"
     },
     {
       "options": {},
       "reduction": "copy",
       "snapshot_bytes": 74610,
       "snapshot_path": "readme_screenshots/SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1/Checkpoint_Evaluation/Iteration_1000/selections.csv",
-      "snapshot_sha256": "17cbeefb149ec5c2370269b427b4b3edb13817fbbde0d9f018c5f2a4bef7ebfb",
+      "snapshot_sha256": "0ae6b4b5e588007f98e8b66cb21b174e0216e9c7871aa37304088207f2718be0",
       "source_bytes": 74610,
       "source_kind": "run",
       "source_path": "readme_screenshots/SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1/Checkpoint_Evaluation/Iteration_1000/selections.csv",
-      "source_sha256": "17cbeefb149ec5c2370269b427b4b3edb13817fbbde0d9f018c5f2a4bef7ebfb"
+      "source_sha256": "0ae6b4b5e588007f98e8b66cb21b174e0216e9c7871aa37304088207f2718be0"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 433,
+      "snapshot_bytes": 434,
       "snapshot_path": "readme_screenshots/SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1/Checkpoint_Evaluation/Iteration_2000/class_thresholds.json",
-      "snapshot_sha256": "bc9d5d16b6cc4d3da22358e1f55dd26663409692460c32f81800f2b9fc6911b4",
-      "source_bytes": 433,
+      "snapshot_sha256": "755f7ae2044b69d5e925d7fec57bd566d26b2d9a6a44c3bee72f4a5b7be33bbd",
+      "source_bytes": 434,
       "source_kind": "run",
       "source_path": "readme_screenshots/SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1/Checkpoint_Evaluation/Iteration_2000/class_thresholds.json",
-      "source_sha256": "bc9d5d16b6cc4d3da22358e1f55dd26663409692460c32f81800f2b9fc6911b4"
+      "source_sha256": "755f7ae2044b69d5e925d7fec57bd566d26b2d9a6a44c3bee72f4a5b7be33bbd"
     },
     {
       "options": {},
       "reduction": "copy",
       "snapshot_bytes": 74610,
       "snapshot_path": "readme_screenshots/SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1/Checkpoint_Evaluation/Iteration_2000/selections.csv",
-      "snapshot_sha256": "d6eeccab210e519d9f67d9e8a5d25b4596f6f0a446c1f0f9d48ee7ce2b17397e",
+      "snapshot_sha256": "ee82b72c1998adcbceddaa740c5a15a9e521c75b98972fb2a2eb78ab3e9baf40",
       "source_bytes": 74610,
       "source_kind": "run",
       "source_path": "readme_screenshots/SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1/Checkpoint_Evaluation/Iteration_2000/selections.csv",
-      "source_sha256": "d6eeccab210e519d9f67d9e8a5d25b4596f6f0a446c1f0f9d48ee7ce2b17397e"
+      "source_sha256": "ee82b72c1998adcbceddaa740c5a15a9e521c75b98972fb2a2eb78ab3e9baf40"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 5958,
+      "snapshot_bytes": 11884,
       "snapshot_path": "readme_screenshots/SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1/Checkpoint_Evaluation/Results.txt",
-      "snapshot_sha256": "3d0b1036ad5d5a407d8e9b64fa589874552ec7d61bd11041b60ad8f0cc7554de",
-      "source_bytes": 5958,
+      "snapshot_sha256": "49bed6b5a5de919295c5acd71293498f3b40dbd26a60e30697616e3f85bf8e5c",
+      "source_bytes": 11884,
       "source_kind": "run",
       "source_path": "readme_screenshots/SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1/Checkpoint_Evaluation/Results.txt",
-      "source_sha256": "3d0b1036ad5d5a407d8e9b64fa589874552ec7d61bd11041b60ad8f0cc7554de"
+      "source_sha256": "49bed6b5a5de919295c5acd71293498f3b40dbd26a60e30697616e3f85bf8e5c"
     },
     {
       "options": {},
@@ -327,5 +327,5 @@
     }
   ],
   "series": "frame_selection",
-  "snapshot_bytes": 1988987
+  "snapshot_bytes": 1994914
 }

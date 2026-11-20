@@ -2338,7 +2338,7 @@ On the toy test split, the Hungarian decoding gets 5 of the 8 true frames, 62.50
 </p>
 <p align="center"><em>The toy test split, its true frames and the picks of both decodings, with the metrics of compute_selection_metrics: sequence 2 is the example of the tasks reference, sequence 3 a Hungarian pick of a background frame, sequence 4 a swap of both shapes; the most probable class of every frame gets 73.68 % of the frames right.</em></p>
 
-With one frame per class and few sequences, every pick moves the metric by whole points (one pick is 12.50 % of this toy split). A wrong pick for a class always means a true frame of that class missed and a frame chosen that is not one of them: the unselected precision and recall tell which kind of frame was taken.
+With one frame per class and few sequences, every pick moves the metric by whole points (one pick is 12.50 % of this toy split). A wrong pick for a class always means a true frame of that class missed and a frame chosen that is not one of them: the background and swapped picks tell which kind of frame was taken.
 
 #### Fully Right Sequences
 
@@ -2348,20 +2348,21 @@ On the toy test split, the Hungarian decoding is fully right on sequences 1 and 
 
 Compared with the selection accuracy, it tells whether the wrong picks gather in a few sequences: in the README run at iteration 1,000, 95.83 % of the Hungarian picks are right but 90.50 % of the 200 test sequences fully right, its 25 wrong picks falling in 19 sequences (`selections.csv`).
 
-#### Unselected Precision And Recall
+#### Background And Swapped Picks
 
-To keep the wrong picks that took a background frame apart from those that swapped two wanted classes, the report scores the frames the decoding leaves unchosen. `convert_selection_to_frame_labels` gives every frame its decoded class, the class of its pick or unselected, and `compute_selection_metrics` counts over all the frames of all the test sequences:
+To keep the wrong picks that took a background frame apart from those that swapped two wanted classes, `compute_selection_metrics` reads the true class of every frame a decoding chose for a wanted class and counts over all the picks of all the test sequences:
 
 ```
-Unselected Precision = frames unselected in truth and in the decoding / frames unselected in the decoding
-Unselected Recall    = frames unselected in truth and in the decoding / frames unselected in truth
+Background Picks = picks of a truly unselected frame / picks
+Swapped Picks    = picks of a true frame of another wanted class / picks
+right picks + background picks + swapped picks = picks
 ```
 
-named `<Decoding> Unselected Precision` and `<Decoding> Unselected Recall`, 0 when nothing is counted.
+named `<Decoding> Background Picks` and `<Decoding> Swapped Picks`, 0 when nothing is picked; a pick of a frame whose class is neither wanted nor unselected stops the evaluation with a `ValueError`. Since every sequence holds exactly `frames_per_class` true frames of every wanted class and both decodings pick that many, the selection accuracy and these two shares add up to 100 %.
 
-The toy test split holds 11 truly unselected frames out of 19, and both decodings keep 10 of them, 90.91 % for both metrics: the wrong Hungarian triangle of sequence 3 took an unselected frame, while the swap of sequence 4 took the true frames of the other shape and leaves both metrics unchanged.
+On the toy test split, the Hungarian decoding makes 1 background pick and 2 swapped picks of its 8, 12.50 % and 25.00 %: the wrong triangle of sequence 3 took an unselected frame, the swap of sequence 4 the true frames of the other shape. The greedy rule gets sequence 3 right but sequence 2 wrong, its triangle taking the true star frame and its star an unselected frame, which with the swap of sequence 4 gives 1 background and 3 swapped picks, 12.50 % and 37.50 %.
 
-Every sequence holding exactly `frames_per_class` true frames of every wanted class, both decodings leave unchosen as many frames as there are truly unselected ones, so the precision always equals the recall (97.81 % each for the Hungarian decoding of the README run at iteration 1,000). The missing share counts the picks of a background frame: 2.19 % of the 961 unselected test frames of that run are 21 of its 25 wrong picks, the other 4 taking the true frame of another wanted class.
+In the README run at iteration 1,000, 21 of the 600 Hungarian picks took a frame to leave unselected and 4 the true frame of another wanted class, 3.50 % and 0.67 % next to its 95.83 % selection accuracy (`Results.txt`, the picks counted in `selections.csv`): most of its wrong picks take an unselected frame (in these sequences a smaller copy of a wanted shape or another shape) rather than the true frame of another class.
 
 #### Top-k Selection Accuracy And Mean True Frame Rank
 

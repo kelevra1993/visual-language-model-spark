@@ -133,8 +133,8 @@ def test_frame_selection_training_saves_evaluates_and_resumes(tmp_path: Path, ca
     assert [(block["iteration"], block["evaluated_samples"]) for block in results_blocks] == [
         (4, f"3 Test Sequences, {number_test_frames} Frames")]
     for metric_name in ["Hungarian Selection Accuracy", "Greedy Selection Accuracy", "Hungarian Fully Right Sequences",
-                        "Greedy Unselected Recall", "Top-2 Selection Accuracy", "Mean True Frame Rank",
-                        "Frame Accuracy"]:
+                        "Greedy Background Picks", "Hungarian Swapped Picks", "Top-2 Selection Accuracy",
+                        "Mean True Frame Rank", "Frame Accuracy"]:
         assert metric_name in results["metrics"]
     assert results["headline_metric"] == "Hungarian Selection Accuracy"
     assert [row[0] for row in results["tables"][0]["rows"]] == SELECTION_WANTED_SHAPES

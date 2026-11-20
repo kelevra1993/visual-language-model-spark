@@ -96,7 +96,7 @@ If one wishes to change the synthetic configuration, these keys change the selec
 ### What A Run Writes
 To find your way in a run folder, this list gives what the training and every evaluated checkpoint write, and where.
 
-- `Results.txt`, one block per evaluated checkpoint: `Iteration <n> · <S> Test Sequences, <F> Frames · <date>`, the `Selection Accuracy`, `Fully Right Sequences`, `Unselected Precision` and `Unselected Recall` of each decoding, `Top-2 Selection Accuracy`, `Mean True Frame Rank`, `Frame Accuracy`, `Frame Balanced Accuracy`, `Frame Macro F1`, the note naming the decoding of the images and thresholds, then the `Per Class Selection` and `Per Class Recall` tables with `per_class_report`, the second giving the selection accuracy of every wanted class with the decoding of the run and its 95 % confidence interval, a Korn-Graubard interval from a bootstrap over the test sequences, worst first. Like the sequence labelling it is built on, the frame selection writes every rate as a percentage with two decimals (`99.50 %`) in the report, the confusion matrix image, the best checkpoint line and the console summaries (the frame accuracy, its change in percentage points written `+1.92 %`): every headline metric but the `Mean True Frame Rank` (`percent_metrics`), the accuracies and the `Recall @ P99 %` of the per-class table and the bounds of the recall table (`percent_columns`). The mean rank and the probability thresholds keep their decimals, and `class_metrics.csv`, `class_thresholds.json`, `selections.csv`, `evaluation_summary.csv`, TensorBoard and MLflow keep every rate between 0 and 1.
+- `Results.txt`, one block per evaluated checkpoint: `Iteration <n> · <S> Test Sequences, <F> Frames · <date>`, the `Selection Accuracy`, `Fully Right Sequences`, `Background Picks` and `Swapped Picks` of each decoding, `Top-2 Selection Accuracy`, `Mean True Frame Rank`, `Frame Accuracy`, `Frame Balanced Accuracy`, `Frame Macro F1`, the note naming the decoding of the images and thresholds, then the `Per Class Selection` and `Per Class Recall` tables with `per_class_report`, the second giving the selection accuracy of every wanted class with the decoding of the run and its 95 % confidence interval, a Korn-Graubard interval from a bootstrap over the test sequences, worst first. Like the sequence labelling it is built on, the frame selection writes every rate as a percentage with two decimals (`99.50 %`) in the report, the confusion matrix image, the best checkpoint line and the console summaries (the frame accuracy, its change in percentage points written `+1.92 %`): every headline metric but the `Mean True Frame Rank` (`percent_metrics`), the accuracies and the `Recall @ P99 %` of the per-class table and the bounds of the recall table (`percent_columns`). The mean rank and the probability thresholds keep their decimals, and `class_metrics.csv`, `class_thresholds.json`, `selections.csv`, `evaluation_summary.csv`, TensorBoard and MLflow keep every rate between 0 and 1.
 - `Evaluation/Iteration_<n>/`: `class_thresholds.json` (the target precision, the decoding, the unselected class, and the threshold and recall of every wanted class, `null` when never reached), `class_metrics.csv` (one row per wanted class, `<decoding>_accuracy_lower` and `<decoding>_accuracy_upper` following the accuracy of the decoding of the run), `confusion_matrix.csv` of the decoded frames and, with `per_class_report`, `confusion_matrix.png`; `selections.csv` with `save_predictions`.
 - `Samples/<sequence>.png` (8 fixed test sequences, evenly spread) and `Errors/<CLASS>/<sequence>.png` (with `error_dumps.activated`): the thumbnail grid of the whole sequence with the borders of the selection, the probability heat map and the number of right selections.
 - TensorBoard: `Train/` and `Validation/` `Total Loss`, `Classification Loss`, `Selection Loss` and `Accuracy` (of the real frames), `Train/` also `Learning Rate`; `Test/` the 13 global metrics, `Hungarian Selection Accuracy/<class>`, `Greedy Selection Accuracy/<class>`, `Mean True Frame Rank/<class>`, `Samples/<sequence>` and `Confusion Matrix`.
@@ -219,7 +219,7 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   │   ├── decode_frame_selection() -> decode_hungarian_selection() / decode_greedy_selection()   [W, N] frames
 │   │   ├── convert_selection_to_frame_labels()                   the decoded class of every frame
 │   │   └── compute_selection_metrics()                           selection accuracy, fully right sequences,
-│   │                                                             unselected precision and recall, right and
+│   │                                                             background and swapped picks, right and
 │   │                                                             true frames of every sequence and wanted class
 │   ├── compute_ranking_metrics() -> compute_frame_ranks()        top-k selection accuracy, mean true frame rank
 │   ├── the frame metrics of the most probable class              compute_confusion_matrix() +
@@ -688,7 +688,7 @@ Last Checkpoint Saved At Iteration 12. Exiting Training.
 
 ## Stage 4 — Test Evaluation of a Checkpoint
 
-> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (60 sequences, 463 frames), with `per_class_report: True`, `number_sample_images: 8`, `top_k: 2`, `save_predictions: True`, `error_dumps` activated with `maximum_per_class_pair: 2`, and the MLflow tracking on. Both checkpoints give `unselected` as the most probable class of every frame, with almost the same probabilities on all the frames of a sequence. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps. They were also captured before the per-class recall intervals were added (2026-11-01): `class_metrics.csv` now holds `hungarian_accuracy_lower` and `hungarian_accuracy_upper` after `hungarian_accuracy` (the decoding of this run), and with `per_class_report` the report shows a `Per Class Recall` table after `Per Class Selection` (Step 4.13). They were also captured before the evaluation summary and curves (2026-11-18), with which every evaluation, after its report, adds the row of its iteration to `Evaluation/evaluation_summary.csv`, draws `evaluation_curves.png` again next to `Results.txt` and prints its link, `- Evaluation Curves : evaluation_curves.png`, after those of the files (Step 4.15).
+> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (60 sequences, 463 frames), with `per_class_report: True`, `number_sample_images: 8`, `top_k: 2`, `save_predictions: True`, `error_dumps` activated with `maximum_per_class_pair: 2`, and the MLflow tracking on. Both checkpoints give `unselected` as the most probable class of every frame, with almost the same probabilities on all the frames of a sequence. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps. They were also captured before the per-class recall intervals were added (2026-11-01): `class_metrics.csv` now holds `hungarian_accuracy_lower` and `hungarian_accuracy_upper` after `hungarian_accuracy` (the decoding of this run), and with `per_class_report` the report shows a `Per Class Recall` table after `Per Class Selection` (Step 4.13). They were also captured before the evaluation summary and curves (2026-11-18), with which every evaluation, after its report, adds the row of its iteration to `Evaluation/evaluation_summary.csv`, draws `evaluation_curves.png` again next to `Results.txt` and prints its link, `- Evaluation Curves : evaluation_curves.png`, after those of the files (Step 4.15). The background and swapped picks of each decoding (Step 4.10) took the place of the unselected precision and recall after the capture: the outputs below give the values they take on the captured choices, counted from the captured confusion matrix of the decoded frames.
 
 ### Step 4.1 — `run_test_evaluation()`
 The evaluation loop of every task (see `classification_workflow.md`, Step 4.1).
@@ -760,9 +760,9 @@ The headline metric is the selection accuracy of the decoding of the run.
 **Example: the results of iteration 12**
 ```text
 evaluated_samples = '60 Test Sequences, 463 Frames'
-metrics           = {'Hungarian Selection Accuracy': 0.1222, 'Hungarian Fully Right Sequences': 0.0, 'Hungarian Unselected Precision': 0.6537,
-                     'Hungarian Unselected Recall': 0.6537, 'Greedy Selection Accuracy': 0.1222, 'Greedy Fully Right Sequences': 0.0,
-                     'Greedy Unselected Precision': 0.6537, 'Greedy Unselected Recall': 0.6537, 'Top-2 Selection Accuracy': 0.3333,
+metrics           = {'Hungarian Selection Accuracy': 0.1222, 'Hungarian Fully Right Sequences': 0.0, 'Hungarian Background Picks': 0.5444,
+                     'Hungarian Swapped Picks': 0.3333, 'Greedy Selection Accuracy': 0.1222, 'Greedy Fully Right Sequences': 0.0,
+                     'Greedy Background Picks': 0.5444, 'Greedy Swapped Picks': 0.3333, 'Top-2 Selection Accuracy': 0.3333,
                      'Mean True Frame Rank': 4.1444, 'Frame Accuracy': 0.6112, 'Frame Balanced Accuracy': 0.25, 'Frame Macro F1': 0.1897}
 notes             = ["Images, Thresholds And Confusion Matrix : hungarian decoding ('Selection.decoding')",
                      'Error Images : 6 in 3 classes, at most 2 per class', 'Sample Images : 8 fixed test sequences']
@@ -795,7 +795,7 @@ A decoding turns the `[T, K]` probabilities of a sequence into the `[W, N]` fram
 - **Hungarian**: the gain of choosing frame `f` for class `c` is `log p(f, c) − log p(f, unselected)`, every class column repeated `N` times, and `linear_sum_assignment()` finds the assignment with the largest total gain, every frame chosen at most once: the most probable labelling of the whole sequence in which every wanted class holds `N` frames. A frame wanted by two classes goes to the class that loses least without it.
 - **Greedy**: every frame takes its most probable class; a wanted class taken by too many frames keeps its most probable ones (the others become unselected); then every class still short of frames, in class order, takes the unselected frames most probable for it. It is cheaper, but it can give a frame to a class that only slightly prefers it over another class that has no better frame.
 
-`convert_selection_to_frame_labels()` then gives every chosen frame the class of its row and every other frame the unselected class, for the unselected precision and recall and the decoded confusion matrix.
+`convert_selection_to_frame_labels()` then gives every chosen frame the class of its row and every other frame the unselected class, for the decoded confusion matrix.
 
 **Example: the two decodings of test_000001 at iteration 12** (probabilities of Step 4.8)
 ```text
@@ -808,7 +808,7 @@ Every frame has `unselected` as its most probable class, so the greedy decoding 
 The scores of one decoding over all the test sequences:
 - **Selection Accuracy**: the share of the true frames of the wanted classes chosen for their class, per class (the recall of the class) and over all the classes, with the right and true frames of every sequence and wanted class (`sequence_class_right_frames`, `sequence_class_true_frames`) for the interval of Step 4.13;
 - **Fully Right Sequences**: the share of the sequences in which every wanted class gets exactly its true frames;
-- **Unselected Precision** and **Unselected Recall**: the frames left unchosen that are truly unselected, among the frames left unchosen and among the truly unselected frames.
+- **Background Picks** and **Swapped Picks**: the kind of every wrong pick, the share of the picks that took a truly unselected frame and the share of those that took the true frame of another wanted class, so that the right picks and these two make up every pick. A chosen frame of any other class stops the evaluation with a `ValueError`.
 
 **Example: `Evaluation/Iteration_12/confusion_matrix.csv`** (the decoded classes of the Hungarian decoding; the same at iteration 6)
 ```text
@@ -821,13 +821,14 @@ star,34,8,11,7
 
 **Example: how the numbers of iteration 12 are obtained**
 ```text
-selection accuracy   = (7 + 8 + 7) / (60 + 60 + 60)    = 22 / 180  = 0.1222
+selection accuracy   = (7 + 8 + 7) / (60 + 60 + 60)      = 22 / 180  = 0.1222
    circle 7 / 60 = 0.1167   triangle 8 / 60 = 0.1333   star 7 / 60 = 0.1167
-unselected precision = 185 / (185 + 28 + 36 + 34)      = 185 / 283 = 0.6537
-unselected recall    = 185 / (185 + 32 + 33 + 33)      = 185 / 283 = 0.6537
+picks                = 60 + 60 + 60                      = 180                  (wanted columns)
+background picks     = (32 + 33 + 33) / 180              = 98 / 180  = 0.5444   (unselected row)
+swapped picks        = (8 + 17 + 13 + 3 + 8 + 11) / 180  = 60 / 180  = 0.3333   (wanted rows, other wanted columns)
 fully right sequences = 0.0
 ```
-Every sequence has 3 true selected frames and the decoding chooses 3 frames, so the frames left unchosen are as many as the truly unselected frames (283), and the unselected precision equals the unselected recall.
+Every chosen frame is one decoded frame of a wanted class, so the 22 right picks, the 98 background picks and the 60 swapped picks make up the 180 picks.
 
 ### Step 4.11 — `compute_ranking_metrics()`
 The scores of the probabilities before any decoding, from the ranks of the true frames (Step 4.8): the **Top-k Selection Accuracy** is the share of the true frames among the `top_k` frames most probable for their class, and the **Mean True Frame Rank** the mean rank of the true frames, per class and over all of them. They tell how far a wrong selection was from the right frame.
@@ -900,13 +901,13 @@ Each time a checkpoint is evaluated, its block goes to the console and `Results.
 **Example output: the block of iteration 12** (the same text is appended to `Results.txt`)
 ```text
 Iteration 12 · 60 Test Sequences, 463 Frames · 2026-10-10 07:20 ────────────────────────────────────────────────────────
-  Hungarian Selection Accuracy     12.22 %   Hungarian Fully Right Sequences   0.00 %
-  Hungarian Unselected Precision   65.37 %   Hungarian Unselected Recall       65.37 %
-  Greedy Selection Accuracy        12.22 %   Greedy Fully Right Sequences      0.00 %
-  Greedy Unselected Precision      65.37 %   Greedy Unselected Recall          65.37 %
-  Top-2 Selection Accuracy         33.33 %   Mean True Frame Rank              4.1444
-  Frame Accuracy                   61.12 %   Frame Balanced Accuracy           25.00 %
-  Frame Macro F1                   18.97 %
+  Hungarian Selection Accuracy   12.22 %   Hungarian Fully Right Sequences   0.00 %
+  Hungarian Background Picks     54.44 %   Hungarian Swapped Picks           33.33 %
+  Greedy Selection Accuracy      12.22 %   Greedy Fully Right Sequences      0.00 %
+  Greedy Background Picks        54.44 %   Greedy Swapped Picks              33.33 %
+  Top-2 Selection Accuracy       33.33 %   Mean True Frame Rank              4.1444
+  Frame Accuracy                 61.12 %   Frame Balanced Accuracy           25.00 %
+  Frame Macro F1                 18.97 %
   Images, Thresholds And Confusion Matrix : hungarian decoding ('Selection.decoding')
   Error Images : 6 in 3 classes, at most 2 per class
   Sample Images : 8 fixed test sequences
@@ -945,7 +946,7 @@ This run was recorded before the record of the data existed (2026-10-15): a run 
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 20 sequences of the test split (its `labels.json` reduced, its `data/` folder linked). They were also captured before the per-class recall intervals (2026-11-01, Stage 4).
+> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 20 sequences of the test split (its `labels.json` reduced, its `data/` folder linked). They were also captured before the per-class recall intervals (2026-11-01, Stage 4) and before the background and swapped picks took the place of the unselected precision and recall: the summary and the block below give the values they take on the captured choices. Every one of the 20 sequences holds 3 true frames among its 155 frames, so that each decoding makes 60 picks and leaves 95 frames truly unselected; the background picks are the truly unselected frames that the captured unselected precision did not find left unchosen (95 − 61 = 34 for the Hungarian decoding at iteration 3), and the swapped picks the picks neither right nor background (60 − 9 − 34 = 17).
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
 The same script for every task (see `classification_workflow.md`, Stage 5). The test sequences are checked with the `Selection` section of the run, and both decodings are scored on every checkpoint.
@@ -981,13 +982,13 @@ Evaluation Summary Of 4 Checkpoints : evaluation_summary.csv
   - Evaluation Curves : evaluation_curves.png
   - Best Checkpoint : iterations 12, 9, 6, 3 tie (Hungarian Selection Accuracy 15.00 %)
 
-iteration,Hungarian Selection Accuracy,Hungarian Fully Right Sequences,Hungarian Unselected Precision,Hungarian Unselected Recall,
-Greedy Selection Accuracy,Greedy Fully Right Sequences,Greedy Unselected Precision,Greedy Unselected Recall,Top-2 Selection Accuracy,
+iteration,Hungarian Selection Accuracy,Hungarian Fully Right Sequences,Hungarian Background Picks,Hungarian Swapped Picks,
+Greedy Selection Accuracy,Greedy Fully Right Sequences,Greedy Background Picks,Greedy Swapped Picks,Top-2 Selection Accuracy,
 Mean True Frame Rank,Frame Accuracy,Frame Balanced Accuracy,Frame Macro F1,Hungarian Selection Accuracy/circle, ... ,Mean True Frame Rank/star
-3,0.15,0.0,0.6421052631578947,0.6421052631578947,0.18333333333333332,0.0,0.6631578947368421,0.6631578947368421,0.4,4.016666666666667,0.6129032258064516,0.25,0.19, ...
-6,0.15,0.0,0.6842105263157895,0.6842105263157895,0.15,0.0,0.6842105263157895,0.6842105263157895,0.38333333333333336,4.016666666666667,0.6129032258064516,0.25,0.19, ...
-9,0.15,0.0,0.6842105263157895,0.6842105263157895,0.15,0.0,0.6842105263157895,0.6842105263157895,0.38333333333333336,3.9833333333333334,0.6129032258064516,0.25,0.19, ...
-12,0.15,0.0,0.6842105263157895,0.6842105263157895,0.15,0.0,0.6842105263157895,0.6842105263157895,0.38333333333333336,4.05,0.6129032258064516,0.25,0.19, ...
+3,0.15,0.0,0.5666666666666667,0.2833333333333333,0.18333333333333332,0.0,0.5333333333333333,0.2833333333333333,0.4,4.016666666666667,0.6129032258064516,0.25,0.19, ...
+6,0.15,0.0,0.5,0.35,0.15,0.0,0.5,0.35,0.38333333333333336,4.016666666666667,0.6129032258064516,0.25,0.19, ...
+9,0.15,0.0,0.5,0.35,0.15,0.0,0.5,0.35,0.38333333333333336,3.9833333333333334,0.6129032258064516,0.25,0.19, ...
+12,0.15,0.0,0.5,0.35,0.15,0.0,0.5,0.35,0.38333333333333336,4.05,0.6129032258064516,0.25,0.19, ...
 ```
 
 ### Step 5.6 — `run_test_evaluation()` for each checkpoint
@@ -997,13 +998,13 @@ Mean True Frame Rank,Frame Accuracy,Frame Balanced Accuracy,Frame Macro F1,Hunga
 Evaluating : model_000003.pt
 -----------------------------
 Iteration 3 · 20 Test Sequences, 155 Frames · 2026-10-10 07:20 ─────────────────────────────────────────────────────────
-  Hungarian Selection Accuracy     15.00 %   Hungarian Fully Right Sequences   0.00 %
-  Hungarian Unselected Precision   64.21 %   Hungarian Unselected Recall       64.21 %
-  Greedy Selection Accuracy        18.33 %   Greedy Fully Right Sequences      0.00 %
-  Greedy Unselected Precision      66.32 %   Greedy Unselected Recall          66.32 %
-  Top-2 Selection Accuracy         40.00 %   Mean True Frame Rank              4.0167
-  Frame Accuracy                   61.29 %   Frame Balanced Accuracy           25.00 %
-  Frame Macro F1                   19.00 %
+  Hungarian Selection Accuracy   15.00 %   Hungarian Fully Right Sequences   0.00 %
+  Hungarian Background Picks     56.67 %   Hungarian Swapped Picks           28.33 %
+  Greedy Selection Accuracy      18.33 %   Greedy Fully Right Sequences      0.00 %
+  Greedy Background Picks        53.33 %   Greedy Swapped Picks              28.33 %
+  Top-2 Selection Accuracy       40.00 %   Mean True Frame Rank              4.0167
+  Frame Accuracy                 61.29 %   Frame Balanced Accuracy           25.00 %
+  Frame Macro F1                 19.00 %
   ...
                             Hungarian     Greedy      Top-2     Mean   Threshold    Recall
    Class      True Frames    Accuracy   Accuracy   Accuracy     Rank     @ P99 %   @ P99 %

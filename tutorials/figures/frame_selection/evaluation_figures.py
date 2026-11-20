@@ -17,17 +17,20 @@ import numpy
 
 from matplotlib import pyplot
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, MONOSPACE_FONT_FAMILY,
                                                 POINTS_PER_PIXEL, SERIES_COLOURS, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR,
                                                 TEXT_SECONDARY_COLOUR, compute_pixel_box, register_fonts, round_fact,
                                                 save_figure, style_chart_panel)
 from tutorials.figures.frame_selection.selection_figures import EVALUATION_FOLDER_NAME, read_selection_rows
-from tutorials.figures.sequence_labelling.sequence_utilities import (parse_block_metrics, read_results_block,
-                                                                     read_run_sections, write_listing)
+from tutorials.figures.sequence_labelling.sequence_utilities import (RATE_DECIMALS, parse_block_metrics,
+                                                                     read_results_block, read_run_sections,
+                                                                     write_listing)
 from tutorial_builder.layout import NAMED_COLOURS
 from vision_training.evaluation.report_formatting import PERCENT_SIGN, format_percentage_label
+from vision_training.evaluation.sequence.frame_selection_metrics import compute_selection_metrics
+from vision_training.models.sequence.frame_selection_decoding import NO_FRAME, VALID_DECODINGS
 
 # Iterations of the evaluations compared, the one of the wrong picks shown (SELECTION_ITERATION of the selection
 # figures) and the last one
@@ -155,6 +158,68 @@ def read_worst_class(block_lines: List[str], fact_prefix: str) -> Dict[str, Any]
                      f"'{block_lines[0][:40]}', but found none.")
 
 
+def count_pick_kinds(selection_rows: Dict[Tuple[str, str], Dict[str, str]],
+                     block_metrics: Dict[str, float]) -> Dict[str, Any]:
+    """
+    Counts the kind of every pick of both decodings from selections.csv of the listed iteration with
+    compute_selection_metrics of the repository: the number of picks that took a frame to leave unselected (background
+    picks) and of those that took the true frame of another wanted class (swapped picks), which the narration quotes
+    next to their shares in the report. The selection accuracy and both shares counted this way must give those of the
+    block, so that the counts belong to the report shown.
+
+    Args:
+        selection_rows (Dict[Tuple[str, str], Dict[str, str]]): The rows of selections.csv, one per sequence and
+            wanted class.
+        block_metrics (Dict[str, float]): The metrics of the listed block (parse_block_metrics), between 0 and 1.
+
+    Returns:
+        Dict[str, Any]: The counts evaluation.picks.<decoding>_background_count and _swapped_count, and the number of
+            picks evaluation.picks.count.
+
+    Raises:
+        ValueError: If the counted selection accuracy, background or swapped picks of a decoding differ from those of
+            the block.
+    """
+    class_names = sorted({class_name for _, class_name in selection_rows})
+    sequence_names = sorted({sequence_name for sequence_name, _ in selection_rows})
+    unselected_class_index = len(class_names)
+    facts = {}
+    for decoding in VALID_DECODINGS:
+        # Every frame named in the rows of a sequence gets a position, the true frames their class, the others the
+        # unselected class, which is what compute_selection_metrics reads at the true and chosen frames
+        frame_labels, selected_frames = [], []
+        for sequence_name in sequence_names:
+            rows = [selection_rows[(sequence_name, class_name)] for class_name in class_names]
+            true_frames = [[frame for frame in row["true_frames"].split(";") if frame] for row in rows]
+            chosen_frames = [[frame for frame in row[f"{decoding}_frames"].split(";") if frame] for row in rows]
+            frame_positions = {frame: position for position, frame in enumerate(sorted(
+                {frame for frames in true_frames + chosen_frames for frame in frames}))}
+            sequence_labels = numpy.full(shape=len(frame_positions), fill_value=unselected_class_index)
+            for class_index, frames in enumerate(true_frames):
+                sequence_labels[[frame_positions[frame] for frame in frames]] = class_index
+            row_length = max(len(frames) for frames in chosen_frames)
+            selected_frames.append(numpy.array(object=[[frame_positions[frame] for frame in frames] + [NO_FRAME] * (
+                row_length - len(frames)) for frames in chosen_frames]))
+            frame_labels.append(sequence_labels)
+
+        # Shares of the picks of the decoding, checked against the block, which writes them with RATE_DECIMALS
+        metrics = compute_selection_metrics(selected_frames=selected_frames, frame_labels=frame_labels,
+                                            wanted_class_indices=list(range(len(class_names))),
+                                            unselected_class_index=unselected_class_index)
+        for metric_key in ["selection_accuracy", "background_picks", "swapped_picks"]:
+            block_value = block_metrics[f"evaluation.{decoding}_{metric_key}"]
+            if abs(metrics[metric_key] - block_value) > 10 ** -RATE_DECIMALS:
+                raise ValueError(f"Expected the {decoding} {metric_key} counted from selections.csv to be the "
+                                 f"{block_value} of the report, got {metrics[metric_key]}.")
+
+        # Counts of the picks behind both shares, every pick being one chosen frame
+        number_picks = sum(int((selection != NO_FRAME).sum()) for selection in selected_frames)
+        for kind in ["background", "swapped"]:
+            facts[f"evaluation.picks.{decoding}_{kind}_count"] = round(metrics[f"{kind}_picks"] * number_picks)
+        facts["evaluation.picks.count"] = number_picks
+    return facts
+
+
 def draw_thresholds_figure(run_folder: Path, output_path: Path) -> Dict[str, Any]:
     """
     Draws the chosen frames and thresholds of the evaluations of THRESHOLD_ITERATIONS side by side and gives their
@@ -234,8 +299,14 @@ def make_evaluation_figures(output_folder: Path, run_folder: Path) -> Dict[str, 
                   "evaluation.last_iteration": THRESHOLD_ITERATIONS[-1],
                   "evaluation.results_listing_lines": len(block_lines),
                   "evaluation.top_k": int(experiment_configuration["evaluation"]["top_k"])})
-    facts.update(parse_block_metrics(block_lines=block_lines, fact_prefix="evaluation"))
+    block_metrics = parse_block_metrics(block_lines=block_lines, fact_prefix="evaluation")
+    facts.update(block_metrics)
     facts.update(read_worst_class(block_lines=block_lines, fact_prefix="evaluation"))
+
+    # Background and swapped picks of the listed iteration, counted from its selections
+    facts.update(count_pick_kinds(selection_rows=read_selection_rows(
+        selections_path=run_folder / EVALUATION_FOLDER_NAME / f"Iteration_{LISTED_ITERATION}" / "selections.csv"),
+        block_metrics=block_metrics))
 
     # Headline metrics and worst class of the last evaluation
     last_block_lines = read_results_block(results_path=results_path, iteration=THRESHOLD_ITERATIONS[-1])

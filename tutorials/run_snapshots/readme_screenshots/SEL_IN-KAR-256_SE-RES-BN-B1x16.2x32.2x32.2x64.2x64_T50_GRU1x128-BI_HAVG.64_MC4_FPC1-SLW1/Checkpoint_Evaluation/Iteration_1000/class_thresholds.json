@@ -4,7 +4,7 @@
     "unselected_class": "unselected",
     "classes": {
         "circle": {
-            "threshold": 0.018442708998918533,
+            "threshold": 0.018442707136273384,
             "recall": 0.99
         },
         "triangle": {

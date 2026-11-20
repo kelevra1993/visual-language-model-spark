@@ -30,7 +30,7 @@ ExperimentConfiguration:
   # Validation interval in iterations: 0 never, 1 every iteration, N every Nth.
   validation_iteration_ratio: 25
   # Test evaluation at every weight_saving_iterations checkpoint on every test sequence, Hungarian and greedy decodings:
-  # selection accuracy, fully right sequences, unselected precision and recall, top-k, mean rank, per-frame metrics.
+  # selection accuracy, fully right sequences, background and swapped picks, top-k, mean rank, per-frame metrics.
   evaluation:
     # Reports every wanted class: class and accuracy tables (console, Results.txt), TensorBoard scalars, decoded frame
     # confusion matrix. False: global metrics only; CSV and JSON files always saved.
