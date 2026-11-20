@@ -109,3 +109,25 @@ def test_skip_outputs_of_the_mask_heads() -> None:
     with pytest.raises(expected_exception=ValueError, match="must lie between 0"):
         build_backbone(backbone_configuration=configuration["Backbone"], input_image_size=64, device=device,
                        dtype=dtype, skip_block_indices=[5])
+
+
+def test_detection_input_information_leaves_the_backbone_untouched() -> None:
+    """
+    Verifies that the shape probe of the detection blocks, run by the detector at construction, leaves every weight and
+    batch normalization buffer as it was and keeps the training mode, and that it gives the sizes of a backbone whose
+    last block receives a 1 x 1 map, which a probe of one image in training mode refuses ("Expected more than 1 value
+    per channel") although training on batches of 2 works.
+    """
+    configuration, device, dtype = get_classification_model_configuration(output_mode="multi_class")
+    backbone = build_backbone(backbone_configuration=configuration["Backbone"], input_image_size=8, device=device,
+                              dtype=dtype, detection_convolution_block_indices=[3, 4]).train()
+    initial_state = {key: tensor.clone() for key, tensor in backbone.state_dict().items()}
+
+    # Blocks 3 and 4 receive 2 x 2 and 1 x 1 maps from the 8 pixel input, their poolings giving 1 x 1 outputs
+    detection_information = backbone.compute_detection_input_information()
+    assert detection_information == {"3": {"feature_map_size": 1, "number_channels": 16},
+                                     "4": {"feature_map_size": 1, "number_channels": 32}}
+
+    # Running statistics and batch counters unchanged, the training mode of the backbone and its blocks restored
+    assert all(torch.equal(input=initial_state[key], other=tensor) for key, tensor in backbone.state_dict().items())
+    assert backbone.training and all(module.training for module in backbone.modules())

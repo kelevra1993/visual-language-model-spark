@@ -468,7 +468,7 @@ model.detection_score_threshold = 0.5   model.maximum_detections = 100   model.d
 ```
 
 ### Step 2.13 — `build_backbone()` + `compute_detection_input_information()`
-The shared backbone (see `classification_workflow.md`, Step 2.14). The detector takes the feature maps of the blocks numbered by the keys of `DetectionLevels` instead of the final pooled vector; `compute_detection_input_information()` computes their size and channels once.
+The shared backbone (see `classification_workflow.md`, Step 2.14). The detector takes the feature maps of the blocks numbered by the keys of `DetectionLevels` instead of the final pooled vector; `compute_detection_input_information()` computes their size and channels once, from a zero image sent through the blocks in evaluation mode and without gradients, so that the batch normalization statistics stay as built and a block receiving a 1 x 1 map does not fail.
 
 **Example output**
 ```text
