@@ -41,13 +41,15 @@ runs:
         kept_classes: [hollow_parallelogram, hollow_trapezoid]
         compress: gzip
   # Standalone evaluation of the last checkpoint: the error images shown (the first of each of the four largest
-  # confusions, the counts coming from Results.txt), its headline metrics, and the report block, confusion matrix and
-  # precision-recall curves the storyboards show under runs:
+  # confusions, the counts coming from Results.txt), its headline metrics, the report block, confusion matrix and
+  # precision-recall curves the storyboards show under runs:, and the confusion matrix table whose accuracies the
+  # report figures write (report_figures.py; their precision-recall figure needs class_logits.npz, 7.4 MB, left out)
   - run: classification_evaluation
     files:
       - path: Tensorboard/Test/events.out.tfevents.*
         reduction: tensorboard_scalars
       - path: Results.txt
+      - path: Iteration_2000/confusion_matrix.csv
       - path: Iteration_2000/confusion_matrix.png
       - path: Iteration_2000/precision_recall_curves.png
       - path: Iteration_2000/Errors/hollow_parallelogram-TO-hollow_trapezoid/test_005285_0.604.png
