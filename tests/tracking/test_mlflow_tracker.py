@@ -329,6 +329,8 @@ def test_resumed_training_continues_its_run(tracking_root: Path, capsys: pytest.
     second_tracker.update_best_metric(metric_name="Accuracy", value=0.4, step=8, metric_prefix="test")
     second_tracker.close(status=FINISHED_STATUS)
 
+    # One run holds both sessions: the first parameter values, the changed batch size as a tag, the resume counted,
+    # the step 6 of the second session left out and the best accuracy kept at 0.5
     run_id = first_tracker.get_run_id()
     assert second_tracker.get_run_id() == run_id
     client = MlflowClient(tracking_uri=read_run_record(run_record_path=run_folder / RUN_RECORD_FILE_NAME)[

@@ -132,8 +132,8 @@ def test_training_loop_feeds_the_tracker(tmp_path: Path) -> None:
         trainer.run_training_loop()
     factory_mock.assert_called_once_with(tracking_configuration=trainer.tracking_configuration,
                                          tracking_root=tmp_path / "experiments", run_name="dummy_run",
-                                         task="dummy_task", run_record_path=trainer.experiment_folder /
-                                         RUN_RECORD_FILE_NAME)
+                                         task="dummy_task",
+                                         run_record_path=trainer.experiment_folder / RUN_RECORD_FILE_NAME)
 
     # Settings, derived values and tags of the run
     parameters = recording_tracker.started_with["parameters"]
