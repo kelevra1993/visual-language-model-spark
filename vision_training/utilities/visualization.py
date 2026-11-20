@@ -2,12 +2,11 @@
 OpenCV drawing helpers: the conversion of the network inputs into the arrays every drawing starts from, bounding boxes
 of the detection sample and error images and anchors, the input viewer of the trainers (every image next to a black
 information panel listing its target, with tables such as the objects per class, and its augmentations, the windows
-centred on the screen, also saved as the input samples of every training launch), the frame grids of the
-sequence tasks, the caption bars of the evaluation error images, the class colours,
-mask overlays, error maps and sample grids of the semantic segmentation, the instance mask overlays of the instance
-segmentation, the keypoints of the objects of an image with their skeleton and the keypoint sample grids of the
-keypoint detection, the selection grids with their probability heat map of the frame selection, and the batch mosaic
-of the self-supervised input viewer. Used by the trainers.
+centred on the screen, also saved as the input samples of every training launch), the frame grids of the sequence tasks,
+the caption bars of the evaluation error images, the class colours, mask overlays, error maps and sample grids of the
+semantic segmentation, the instance mask overlays of the instance segmentation, the keypoints of the objects of an image
+with their skeleton and the keypoint sample grids of the keypoint detection, the selection grids with their probability
+heat map of the frame selection, and the batch mosaic of the self-supervised input viewer. Used by the trainers.
 """
 
 import importlib
@@ -484,11 +483,11 @@ def build_viewer_window(window: ViewerWindow, hint: str = NAVIGATION_HINT) -> np
     # Draw each object's bounding box rectangle and its class caption, for the tasks with boxes
     if window.bounding_boxes is not None:
         for box, label in zip(window.bounding_boxes.detach().cpu().numpy(), window.labels.detach().cpu().numpy()):
-            box_x1, box_y1, box_x2, box_y2 = map(int, box)
+            box_left, box_top, box_right, box_bottom = map(int, box)
             caption = window.label_names.get(int(label), str(int(label))) if window.label_names else str(int(label))
-            cv2.rectangle(img=image_numpy, pt1=(box_x1, box_y1), pt2=(box_x2, box_y2), color=(0, 255, 0),
+            cv2.rectangle(img=image_numpy, pt1=(box_left, box_top), pt2=(box_right, box_bottom), color=(0, 255, 0),
                           thickness=2)
-            cv2.putText(img=image_numpy, text=caption, org=(box_x1, max(box_y1 - 10, 0)),
+            cv2.putText(img=image_numpy, text=caption, org=(box_left, max(box_top - 10, 0)),
                         fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.5, color=(0, 255, 0), thickness=2)
 
     # Resize the image so that its longest side is the display size, with sharp pixels when it is enlarged
@@ -1174,8 +1173,9 @@ def draw_keypoint_objects(image: np.ndarray, keypoints: np.ndarray, visibilities
                            else visibilities[object_index, :number_keypoints] > 0)
         if not drawn_keypoints.any():
             continue
-        drawn_points = [(int(round(x - 0.5)), int(round(y - 0.5))) if drawn else (0, 0)
-                        for (x, y), drawn in zip(object_keypoints.tolist(), drawn_keypoints.tolist(), strict=True)]
+        drawn_points = [(int(round(keypoint_x - 0.5)), int(round(keypoint_y - 0.5))) if drawn else (0, 0)
+                        for (keypoint_x, keypoint_y), drawn in zip(object_keypoints.tolist(), drawn_keypoints.tolist(),
+                                                                   strict=True)]
 
         # Skeleton lines between two drawn keypoints, in the colour of the class, under the keypoint discs
         for start_index, end_index in definition["skeleton"]:

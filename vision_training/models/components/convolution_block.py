@@ -25,8 +25,8 @@ class ChannelLayerNormalizer(nn.Module):
     """
     Applies Layer Normalization over the channel dimension for 4D image tensors.
 
-    This class is required because PyTorch's native LayerNorm expects the 
-    normalized dimension to be the last dimension. This wrapper permutes 
+    This class is required because PyTorch's native LayerNorm expects the
+    normalized dimension to be the last dimension. This wrapper permutes
     the tensor so normalization is applied across the channel dimension correctly.
     """
 
@@ -46,10 +46,10 @@ class ChannelLayerNormalizer(nn.Module):
     def forward(self, input_tensor: torch.Tensor) -> torch.Tensor:
         """
         Performs the forward pass for channel-wise layer normalization.
-        
+
         Args:
             input_tensor (torch.Tensor): The input image tensor of shape (Batch, Channels, Height, Width).
-            
+
         Returns:
             torch.Tensor: The normalized tensor of shape (Batch, Channels, Height, Width).
         """
@@ -371,8 +371,7 @@ class ConvolutionBlock(nn.Module):
         # Normalize and activate the output of the pre-activation layers, which ends with a convolution or a sum
         if self.pre_activation:
             if self.output_normalization is not None:
-                current_tensor = self.apply_layer_module(module=self.output_normalization,
-                                                         input_tensor=current_tensor,
+                current_tensor = self.apply_layer_module(module=self.output_normalization, input_tensor=current_tensor,
                                                          sequence_grouping=sequence_grouping)
             current_tensor = self.output_activation(current_tensor)
 

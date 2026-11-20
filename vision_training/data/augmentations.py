@@ -770,6 +770,7 @@ class DataAugmenter:
                                                       labels=sample_labels, mask=sample_mask,
                                                       instance_masks=sample_instance_masks, keypoints=sample_keypoints)
 
+            # Collect the sample, augmented or not, with its report
             augmented_images.append(sample_image)
             augmented_boxes.append(sample_boxes)
             augmented_labels.append(sample_labels)
@@ -1946,8 +1947,8 @@ class DataAugmenter:
         kornia's RandomPlasmaShadow of the views), whose detail grows with a roughness drawn within
         plasma_shadow_roughness_range, falls below a quantity drawn within plasma_shadow_quantity_range are darkened by
         an intensity drawn within plasma_shadow_intensity_range (up to 77 levels below a quantity of up to 0.5 in the
-        supervised tasks, up to 51 levels below a quantity of up to 0.3 in the self-supervised task). A sequence receives the same shadows on all its frames, unless its
-        photometric types are drawn frame by frame.
+        supervised tasks, up to 51 levels below a quantity of up to 0.3 in the self-supervised task). A sequence
+        receives the same shadows on all its frames, unless its photometric types are drawn frame by frame.
 
         Args:
             image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].

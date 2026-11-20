@@ -470,10 +470,9 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
             selections[decoding] = [self.decode_sequence(probabilities=sequence_probabilities, decoding=decoding)
                                     for sequence_probabilities in probabilities]
             decoded_frame_labels[decoding] = [
-                convert_selection_to_frame_labels(selected_frames=sequence_selection,
-                                                  wanted_class_indices=self.wanted_class_indices,
-                                                  number_frames=len(sequence_labels),
-                                                  unselected_class_index=self.unselected_class_index)
+                convert_selection_to_frame_labels(
+                    selected_frames=sequence_selection, wanted_class_indices=self.wanted_class_indices,
+                    number_frames=len(sequence_labels), unselected_class_index=self.unselected_class_index)
                 for sequence_selection, sequence_labels in zip(selections[decoding], frame_labels)]
 
             # Selection metrics of the decoding, reported under its name
@@ -549,9 +548,8 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
         decoded_confusion_matrix = compute_confusion_matrix(
             predicted_labels=torch.from_numpy(np.concatenate(decoded_frame_labels[self.decoding])), labels=all_labels,
             number_classes=number_classes)
-        files["Confusion Matrix Table"] = save_confusion_matrix_table(confusion_matrix=decoded_confusion_matrix,
-                                                                      class_names=self.class_names,
-                                                                      output_folder=evaluation_folder)
+        files["Confusion Matrix Table"] = save_confusion_matrix_table(
+            confusion_matrix=decoded_confusion_matrix, class_names=self.class_names, output_folder=evaluation_folder)
         if self.per_class_report:
             selection_accuracy_text = format_percentage(value=selection_metrics[self.decoding]["selection_accuracy"])
             files["Confusion Matrix Image"], images["Confusion Matrix"] = save_confusion_matrix_image(

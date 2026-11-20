@@ -107,9 +107,8 @@ def preprocess_image(image: np.ndarray, image_size: int, keep_ratio: bool = True
     """
     if keep_ratio:
         # Place of the resized image in the square input, centred between the padding
-        start_y, start_x, new_height, new_width = compute_letterbox_region(image_height=image.shape[0],
-                                                                           image_width=image.shape[1],
-                                                                           image_size=image_size)
+        start_y, start_x, new_height, new_width = compute_letterbox_region(
+            image_height=image.shape[0], image_width=image.shape[1], image_size=image_size)
 
         # Resize first to pure image pixels to avoid bilinear black padding bleed
         resized_image = cv2.resize(src=image, dsize=(new_width, new_height), interpolation=interpolation)

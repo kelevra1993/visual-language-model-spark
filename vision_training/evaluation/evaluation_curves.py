@@ -7,10 +7,10 @@ scripts/evaluation/evaluate_checkpoint.py, then draws 'evaluation_curves.png' ne
 headline metric of the task for the trained and the averaged weights against the iteration, the best iteration of each
 ringed with its value and, with the moving average on, the last 1 / (1 − d) iterations of the averaged weights of the
 highest evaluated iteration shaded, d being the decay of their last update, with the configured window behind while
-the warm-up of the decay shortens it. A summary missing at
-the first evaluation of a run evaluated before the summary existed is started from the TensorBoard test curves of the
-run. The same drawing gives the training curves of the research reports (scripts/evaluation/draw_report_figures.py),
-and the best iteration logic gives the best checkpoint printed by checkpoint_evaluation.py.
+the warm-up of the decay shortens it. A summary missing at the first evaluation of a run evaluated before the summary
+existed is started from the TensorBoard test curves of the run. The same drawing gives the training curves of the
+research reports (scripts/evaluation/draw_report_figures.py), and the best iteration logic gives the best checkpoint
+printed by checkpoint_evaluation.py.
 """
 
 import csv

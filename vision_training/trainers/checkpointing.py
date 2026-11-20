@@ -189,7 +189,7 @@ def update_checkpoint_registry(weights_directory: Path, iteration: int) -> None:
     registry_path = weights_directory / CHECKPOINT_REGISTRY_NAME
     temporary_registry_path = registry_path.with_name(registry_path.name + ".tmp")
 
-    # A failed write (e.g. a full disk) removes its partial temporary file before raising, leaving the registry as it was
+    # A failed write (a full disk) removes its partial temporary file before raising, leaving the registry as it was
     try:
         temporary_registry_path.write_text(data="".join(registry_lines))
         replace_durably(temporary_file_path=temporary_registry_path, file_path=registry_path)

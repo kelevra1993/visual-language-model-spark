@@ -256,10 +256,9 @@ def measure_keypoint_accuracy(objects: Dict[str, torch.Tensor], sigma_table: tor
     longest_sides = torch.maximum(boxes[:, 2] - boxes[:, 0], boxes[:, 3] - boxes[:, 1])
     labelled = objects["visibilities"] > 0
     correct = labelled & (distances <= CORRECT_KEYPOINT_FRACTION * longest_sides.unsqueeze(dim=1))
-    similarities = compute_object_keypoint_similarity(squared_distances=squared_distances,
-                                                      visibilities=objects["visibilities"],
-                                                      areas=compute_box_areas(boxes=boxes),
-                                                      sigmas=sigma_table[objects["labels"]])
+    similarities = compute_object_keypoint_similarity(
+        squared_distances=squared_distances, visibilities=objects["visibilities"], areas=compute_box_areas(boxes=boxes),
+        sigmas=sigma_table[objects["labels"]])
     return {"distances": distances, "labelled": labelled, "found": torch.isfinite(distances), "correct": correct,
             "similarities": similarities}
 
@@ -356,6 +355,8 @@ def summarise_keypoint_accuracy(objects: Dict[str, torch.Tensor], sigma_table: t
         "legend": f"Worst {CORRECT_KEYPOINTS_NAME} first. {CORRECT_KEYPOINTS_NAME} : labelled keypoints within "
                   f"{CORRECT_KEYPOINT_FRACTION:g} of the longest box side, a missed object or keypoint counting as "
                   f"wrong; errors of the keypoints found, in network input pixels. — : no labelled keypoint."}
+
+    # The same table for every keypoint of every class
     keypoint_table: EvaluationTable = {
         "title": "Keypoint Accuracy Per Keypoint", "rows": [
             [row["class"], row["keypoint"], row["labelled"], row["found"], row["percentage_correct_keypoints"],

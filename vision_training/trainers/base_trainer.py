@@ -1427,9 +1427,8 @@ class BaseTrainer(ABC):
                 return
 
             # Augment the training batch exactly as during training, so the viewer shows what the network receives
-            training_batch = self.augment_input_batch(batch={**training_batch,
-                                                             "images": training_batch["images"].to(
-                                                                 dtype=torch.float32)})
+            training_batch = self.augment_input_batch(
+                batch={**training_batch, "images": training_batch["images"].to(dtype=torch.float32)})
 
             # Display the training and validation samples at the same batch index next to each other
             for sample_index in range(number_samples):
@@ -1484,9 +1483,8 @@ class BaseTrainer(ABC):
             "changed_settings"])) or (self.data_record_changes is not None and bool(self.data_record_changes[
                 "changed_splits"])))
         input_samples_folder = self.experiment_folder / INPUT_SAMPLES_FOLDER_NAME
-        writes_samples, archived_folder = prepare_input_samples_folder(run_folder=self.experiment_folder,
-                                                                       resumed_iteration=resumed_iteration,
-                                                                       launch_changed=launch_changed)
+        writes_samples, archived_folder = prepare_input_samples_folder(
+            run_folder=self.experiment_folder, resumed_iteration=resumed_iteration, launch_changed=launch_changed)
         if not writes_samples:
             print_color(color="blue", output=f"- Input Samples           : "
                                              f"{format_path_link(path=input_samples_folder)} (kept, configuration "
@@ -1506,6 +1504,8 @@ class BaseTrainer(ABC):
                     print_color(color="blue", output=f"- Input Samples           : No {split_name} Images, "
                                                      f"'validation_iteration_ratio' Is 0 (No Validation Loader)")
                     continue
+
+                # A split failing to draw prints its traceback and is recorded with its error, the training going on
                 try:
                     split_records[split_name], split_sample_records = self.draw_input_split(
                         split_name=split_name, dataloader=dataloader, split_folder=input_samples_folder / split_name)
@@ -1684,7 +1684,7 @@ class BaseTrainer(ABC):
             return None
         checkpoint = load_checkpoint(weights_directory=self.weights_directory, iteration=checkpoint_iteration,
                                      device=self.device)
-        self.model.load_state_dict(checkpoint["model_state"])
+        self.model.load_state_dict(state_dict=checkpoint["model_state"])
         return checkpoint_iteration
 
     def run_evaluation_prediction(self, prepared_batch: Dict[str, Any],
@@ -1894,6 +1894,8 @@ class BaseTrainer(ABC):
         """
         row = {"label": inference_format["name"], "precision": inference_format["precision"], "batch_size": batch_size,
                "measurement": None, "status": MEASURED_STATUS, "frames_per_batch": None}
+
+        # Batch tiled to the batch size and prepared, and inference inputs built once, before the timed passes
         try:
             tiled_batch = self.tile_benchmark_batch(stored_batch=stored_batch, batch_size=batch_size)
             row["frames_per_batch"] = self.count_benchmark_frames(batch=tiled_batch)
@@ -1951,6 +1953,8 @@ class BaseTrainer(ABC):
         for label, batch_size in measured_batches:
             row = {"label": label, "precision": "BF16", "batch_size": batch_size, "measurement": None,
                    "status": OUT_OF_MEMORY_STATUS, "frames_per_batch": None}
+
+            # A batch size above the largest one found keeps its out of memory row, the others are timed
             if batch_size <= largest_batch_size:
                 batch = self.tile_benchmark_batch(stored_batch=stored_batch, batch_size=batch_size)
                 row["frames_per_batch"] = self.count_benchmark_frames(batch=batch)
@@ -2225,13 +2229,13 @@ class BaseTrainer(ABC):
     def shutdown_loader_workers(self) -> None:
         """
         Stops the worker processes of the training, validation and test loaders, and of the other loaders of the task
-        (list_dataloaders), once the training ends
-        (run_training_loop), whatever ended it, so that they free their memory at once instead of at the end of the
-        process. The workers are kept alive between the passes and evaluations of the training (persistent_workers of
-        build_native_loader). Left to the garbage collection of the trainer, the queues of a loader may be freed before
-        the loader itself, losing the stop message of its workers, which then wait the whole join timeout of PyTorch (5
-        seconds) before being terminated: 30 seconds for the 6 workers of a trainer, in a process running several
-        trainings such as the tests. A loader iterated again afterwards starts new workers.
+        (list_dataloaders), once the training ends (run_training_loop), whatever ended it, so that they free their
+        memory at once instead of at the end of the process. The workers are kept alive between the passes and
+        evaluations of the training (persistent_workers of build_native_loader). Left to the garbage collection of the
+        trainer, the queues of a loader may be freed before the loader itself, losing the stop message of its workers,
+        which then wait the whole join timeout of PyTorch (5 seconds) before being terminated: 30 seconds for the 6
+        workers of a trainer, in a process running several trainings such as the tests. A loader iterated again
+        afterwards starts new workers.
         """
         for dataloader in self.list_dataloaders():
             # Only a DataLoader has workers, the loaders of a task being any iterable of batches (build_dataloaders)
@@ -2362,8 +2366,7 @@ class BaseTrainer(ABC):
                 consecutive_errors = 0
 
             except KeyboardInterrupt:
-                print_color(color="red",
-                            output=f"Training Interrupted by User at iteration {training_iteration}.",
+                print_color(color="red", output=f"Training Interrupted by User at iteration {training_iteration}.",
                             add_separators=True)
                 stopped_status = KILLED_STATUS
                 break
@@ -2997,8 +3000,8 @@ class BaseTrainer(ABC):
         """
         checkpoint = load_checkpoint(weights_directory=self.weights_directory, iteration=iteration, device=self.device)
 
-        self.model.load_state_dict(checkpoint["model_state"])
-        self.optimizer.load_state_dict(checkpoint["optimizer_state"])
+        self.model.load_state_dict(state_dict=checkpoint["model_state"])
+        self.optimizer.load_state_dict(state_dict=checkpoint["optimizer_state"])
         self.load_exponential_moving_average(checkpoint=checkpoint, iteration=iteration)
 
     def load_exponential_moving_average(self, checkpoint: Dict[str, Any], iteration: int) -> None:

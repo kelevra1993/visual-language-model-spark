@@ -300,10 +300,9 @@ def run_frame_selection(probabilities: np.ndarray, decoding_settings: Dict[str, 
                                                     unselected_class_index=decoding_settings["unselected_class_index"])
 
     # Chosen frames of the decoding of the run, with their probabilities and confidence
-    selected_frames = decode_frame_selection(probabilities=probabilities,
-                                             unselected_class_index=decoding_settings["unselected_class_index"],
-                                             frames_per_class=decoding_settings["frames_per_class"],
-                                             decoding=decoding_settings["decoding"])
+    selected_frames = decode_frame_selection(
+        probabilities=probabilities, unselected_class_index=decoding_settings["unselected_class_index"],
+        frames_per_class=decoding_settings["frames_per_class"], decoding=decoding_settings["decoding"])
     selected_probabilities = gather_frame_probabilities(probabilities=probabilities, frames=selected_frames,
                                                         wanted_class_indices=wanted_class_indices)
     low_confidence = flag_low_confidence(selected_frames=selected_frames, selected_probabilities=selected_probabilities,

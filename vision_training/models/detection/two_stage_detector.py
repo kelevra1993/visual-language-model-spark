@@ -198,11 +198,11 @@ class TwoStageDetector(TaskModel):
     def _aggregate_all_anchors(self) -> torch.Tensor:
         """
         Aggregates the base unbatched anchors across all RegionProposal modules.
-        
+
         This method concatenates the absolute base anchors from every detection level
-        into a single unified tensor. This provides easy global 
+        into a single unified tensor. This provides easy global
         access to all anchors via `model.anchors`.
-        
+
         Returns:
             torch.Tensor: A tensor of shape [total_anchors, 4] containing all base bounding boxes.
         """
@@ -243,7 +243,7 @@ class TwoStageDetector(TaskModel):
     def _build_region_proposal_filter(self, region_proposal_configuration: Dict[str, Any]) -> RegionProposalFilter:
         """
         Instantiates the RegionProposalFilter module to prune and refine bounding box proposals.
-        
+
         This builder method provisions the filtering component with the NMS thresholds and bounding box
         count limits explicitly tailored for the current execution mode (training vs. inference), and with the
         number of anchors of every level, which 'RegionProposal.proposal_selection' "per_level" ranks one by one.
@@ -269,8 +269,8 @@ class TwoStageDetector(TaskModel):
         """
         Aggregates the multi-scale region proposals and batched anchors into a unified structure.
 
-        This method iterates over the outputs from the various levels of the feature pyramid, concatenating the 
-        classification scores, bounding box regressions, and proposal boxes along the sequence dimension. It leverages 
+        This method iterates over the outputs from the various levels of the feature pyramid, concatenating the
+        classification scores, bounding box regressions, and proposal boxes along the sequence dimension. It leverages
         the globally pre-aggregated `self.anchors` to construct the batched anchors efficiently in a single operation.
 
         Args:
@@ -328,12 +328,12 @@ class TwoStageDetector(TaskModel):
         """
         Aggregates the multi-scale detection outputs into a unified structure.
 
-        This method iterates over the detection outputs from the various levels of the feature pyramid, 
-        concatenating the classification scores, bounding box regressions, and corresponding sliced 
+        This method iterates over the detection outputs from the various levels of the feature pyramid,
+        concatenating the classification scores, bounding box regressions, and corresponding sliced
         targets (if in training mode) along the first dimension (total proposals across all scales).
 
         Args:
-            detection_output_dictionary (Dict[str, Dict[str, Optional[torch.Tensor]]]): A dictionary mapping detection 
+            detection_output_dictionary (Dict[str, Dict[str, Optional[torch.Tensor]]]): A dictionary mapping detection
             indices to their respective detection head predictions and sliced targets.
 
         Returns:
@@ -396,12 +396,12 @@ class TwoStageDetector(TaskModel):
                                         ) -> Dict[str, Optional[torch.Tensor]]:
         """
         Re-arranges the flattened network predictions back into a batched list format.
-        
+
         This method groups the predicted class scores, box regressions, final bounding boxes and the detection level
-        of every proposal by their original batch index. This is particularly useful during inference 
-        or metric calculation, where predictions need to be associated with their specific 
+        of every proposal by their original batch index. This is particularly useful during inference
+        or metric calculation, where predictions need to be associated with their specific
         input images.
-        
+
         Args:
             batch_size (int): The total number of images in the batch.
             detection_batch_indices (torch.Tensor): The batch indices mapping each proposal to an image. Shape: [K, 1]
@@ -443,19 +443,19 @@ class TwoStageDetector(TaskModel):
                                             torch.Tensor, Optional[torch.Tensor]]:
         """
         Prepares the formatted inputs required by the Detection Head's RoIAlign and loss functions.
-        
+
         With ground truth (training and validation loss), it writes the ground truth boxes into the last slots of
         the filtered proposals of their image (add_ground_truth_proposals), assigns ground truth targets to the
         proposals, computes regression targets, and samples a balanced set of positive and negative proposals.
         During inference, it simply flattens the filtered proposals and prepends batch indices.
-        
+
         Args:
             filtered_boxes (torch.Tensor): The filtered region proposals of shape [Batch, Num_Proposals, 4].
             filtered_origins (torch.Tensor): The detection scale origins of the proposals of shape
                 [Batch, Num_Proposals].
             ground_truth_bounding_boxes (Optional[List[torch.Tensor]]): List of ground truth bounding boxes.
             ground_truth_labels (Optional[List[torch.Tensor]]): List of ground truth class labels.
-            
+
         Returns:
             Tuple containing:
                 - detection_proposals (torch.Tensor): Formatted proposals of shape [K, 5] (batch_index + coords).
@@ -530,13 +530,13 @@ class TwoStageDetector(TaskModel):
             self, backbone_output_tensor_dictionary: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, torch.Tensor]]:
         """
         Executes the Region Proposal forward pass for all intermediate feature map scales.
-        
+
         Args:
             backbone_output_tensor_dictionary (Dict[str, torch.Tensor]): The multi-scale backbone feature maps of
                 shape [Batch, Channels, Height, Width].
-            
+
         Returns:
-            Dict[str, Dict[str, torch.Tensor]]: The predicted proposal scores, bounding box regressions, 
+            Dict[str, Dict[str, torch.Tensor]]: The predicted proposal scores, bounding box regressions,
                                                 and generated proposal boxes per detection block index.
                 - "classification_scores" (torch.Tensor): Shape [Batch, Anchors_in_scale]
                 - "bounding_box_regressions" (torch.Tensor): Shape [Batch, Anchors_in_scale, 4]
@@ -564,7 +564,7 @@ class TwoStageDetector(TaskModel):
                             detection_matched_ground_truth_indices: Optional[torch.Tensor] = None) -> Dict[str, Any]:
         """
         Executes the Detection Head forward pass for all proposals across their respective feature maps.
-        
+
         Args:
             backbone_output_tensor_dictionary (Dict[str, torch.Tensor]): The multi-scale backbone feature maps of
                 shape [Batch, Channels, Height, Width].
@@ -799,7 +799,7 @@ class TwoStageDetector(TaskModel):
     def print_summary(self) -> None:
         """
         Prints a structural summary of the overarching TwoStageDetector architecture.
-        
+
         This method delegates to the underlying Backbone to print its layer-by-layer
         spatial dimension summary, then prints the Neck, the Region Proposal and finally
         the Detection summaries, ensuring the structural integrity of the visual pipeline.
@@ -832,9 +832,9 @@ class TwoStageDetector(TaskModel):
     def print_region_proposal_summary(self) -> None:
         """
         Prints a structural summary of the Region Proposal Network components.
-        
-        This summary leverages rich panels to cleanly display the feature map size, the number 
-        of scales, aspect ratios, and the absolute anchor count for each configured RPN block, 
+
+        This summary leverages rich panels to cleanly display the feature map size, the number
+        of scales, aspect ratios, and the absolute anchor count for each configured RPN block,
         culminating in the total number of region proposal anchors across the entire network.
         """
         console = Console(width=60)
@@ -868,8 +868,8 @@ class TwoStageDetector(TaskModel):
     def print_detection_summary(self) -> None:
         """
         Prints a structural summary of the Detection Network components.
-        
-        This summary leverages rich panels to cleanly display the feature map size, the RoI Align 
+
+        This summary leverages rich panels to cleanly display the feature map size, the RoI Align
         pool size, and the spatial scale used for RoI pooling across each configured Detection block.
         """
         console = Console(width=80)

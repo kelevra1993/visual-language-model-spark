@@ -56,12 +56,10 @@ class InferenceInstanceSegmenter(InferenceDetector):
         # Level of every detection, read at its proposal
         detection_levels = torch.gather(input=detected_objects["proposal_levels"], dim=1,
                                         index=detections["final_detection_proposal_indices"])
-        detection_masks = self.predict_masks(feature_maps=detected_objects["feature_maps"],
-                                             skip_feature_maps=detected_objects["skip_feature_maps"],
-                                             detection_boxes=detections["final_detection_boxes"],
-                                             detection_labels=detections["final_detection_labels"],
-                                             detection_levels=detection_levels,
-                                             number_detections=detections["number_detections"])
+        detection_masks = self.predict_masks(
+            feature_maps=detected_objects["feature_maps"], skip_feature_maps=detected_objects["skip_feature_maps"],
+            detection_boxes=detections["final_detection_boxes"], detection_labels=detections["final_detection_labels"],
+            detection_levels=detection_levels, number_detections=detections["number_detections"])
         return (detections["final_detection_boxes"], detections["final_detection_scores"],
                 detections["final_detection_labels"], detections["number_detections"], detection_masks)
 
@@ -102,10 +100,9 @@ class InferenceInstanceSegmenter(InferenceDetector):
 
         # Run every level's head on all the detections and keep, for each detection, the mask of its own level
         for level_index, level_name in enumerate(self.level_names):
-            level_logits = self.mask_heads_dictionary[level_name](proposal_boxes=region_boxes,
-                                                                  input_tensor=feature_maps[level_name],
-                                                                  skip_feature_maps=skip_feature_maps,
-                                                                  fine_features=fine_features)
+            level_logits = self.mask_heads_dictionary[level_name](
+                proposal_boxes=region_boxes, input_tensor=feature_maps[level_name], skip_feature_maps=skip_feature_maps,
+                fine_features=fine_features)
             mask_size = level_logits.shape[-1]
             level_masks = torch.sigmoid(input=torch.gather(input=level_logits, dim=1,
                                                            index=class_indices.expand(-1, 1, mask_size, mask_size)))

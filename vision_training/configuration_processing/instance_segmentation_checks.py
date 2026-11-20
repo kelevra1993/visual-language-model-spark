@@ -25,10 +25,10 @@ def check_mask_head_configuration(model_configuration: Dict[str, Any]) -> List[s
     Verifies the mask heads, one MaskHead per detection level: the mask resolution and the upsampling shared by every
     level in the 'MaskHead' section, the RoIAlign pool size of every level in 'DetectionLevels.<level>.mask_head' (at
     most the mask resolution, the pooled features being only enlarged) and its [number_layers, output_channels]
-    convolutions (a multiple of 8 channels with inception modules), the normalization and the momentum of its batch
-    statistics, the module flags, the mask threshold of the inference, the 'pretrained' settings initialising the
-    mask heads with those of another run and their finer inputs (check_mask_head_fine_inputs). The presence of the
-    mask head of every level is checked by check_detection_levels.
+    convolutions (a multiple of 8 channels with inception modules), the feature map normalization, the module flags,
+    the mask threshold of the inference, the 'pretrained' settings initialising the mask heads with those of another
+    run and their finer inputs (check_mask_head_fine_inputs). The presence of the mask head of every level is checked
+    by check_detection_levels.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'MaskHead' section.

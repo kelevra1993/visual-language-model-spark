@@ -115,11 +115,11 @@ def select_image_objects(annotations: List[Dict[str, Any]], label_mode: str, lab
     """
     bounding_boxes, labels, kept_annotations = [], [], []
     for annotation in annotations:
-        raw_id = annotation['category_id']
+        category_identifier = annotation['category_id']
         if label_mode == "binary":
-            mapped_label = 1 if raw_id > 0 else 0
+            mapped_label = 1 if category_identifier > 0 else 0
         else:
-            mapped_label = label_dictionary.get(raw_id, label_dictionary.get(str(raw_id), 0))
+            mapped_label = label_dictionary.get(category_identifier, label_dictionary.get(str(category_identifier), 0))
 
         # Objects mapped to the background are not learnt
         if mapped_label > 0:
@@ -197,6 +197,7 @@ class CocoDetectionDataset(Dataset):
                 instance index maps with the original instances, the keypoints without a positive maximum_keypoints,
                 the ignored regions without the keypoints, or if two images of the manifest share an identifier.
         """
+        # Reject the combinations of options whose targets cannot be built together
         if load_original_instances and not load_instance_masks:
             raise ValueError("The objects at the original resolution (load_original_instances) are those of the "
                              "instance segmentation, which needs load_instance_masks.")
@@ -212,6 +213,8 @@ class CocoDetectionDataset(Dataset):
         if load_ignored_regions and not load_keypoints:
             raise ValueError("The ignored regions (load_ignored_regions) are the objects the keypoint detection leaves "
                              "out, which needs load_keypoints.")
+
+        # Settings read by __getitem__ and the methods adding the masks, keypoints and original instances of a sample
         self.data_directory = data_directory
         self.image_size = image_size
         self.keep_ratio = keep_ratio
@@ -368,10 +371,8 @@ class CocoDetectionDataset(Dataset):
             bounding_boxes_numpy = np.array(object=bounding_boxes, dtype=np.float32)
 
         # Dynamically scale the image and calculate the corresponding adjustments for the bounding boxes
-        resized_image, resized_bounding_boxes = preprocess_image_and_boxes(image=image,
-                                                                           bounding_boxes=bounding_boxes_numpy,
-                                                                           image_size=self.image_size,
-                                                                           keep_ratio=self.keep_ratio)
+        resized_image, resized_bounding_boxes = preprocess_image_and_boxes(
+            image=image, bounding_boxes=bounding_boxes_numpy, image_size=self.image_size, keep_ratio=self.keep_ratio)
         # Convert the resized array into a PyTorch tensor without dtype/device casting
         # Note: The standard division by 255.0 has been intentionally omitted to preserve raw pixel scale
         # The consumer (trainer) handles the cast per-batch for maximum data pipeline throughput

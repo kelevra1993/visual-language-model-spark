@@ -1,13 +1,12 @@
 """
-Trainer of the object detection task: the COCO-format loaders, the two-stage detector with its four
-losses, the geometric augmentations moving the bounding boxes, the anchor recall of the training objects printed at
-every launch (and of every split by the 'compute_anchor_coverage' diagnosis mode, which then exits), and the evaluation
-of the checkpoints on the test split with the mean average precision and the mean
-average recall (all the objects and every object size) and the average precision of every class, the proposal recall,
-the score threshold of every class reaching the target precision, the confusion matrix and the error images of the
-detections the deployed detector returns, and the sample images of fixed test images with their true and detected
-boxes. Registered for the object detection task in the task registry, and extended by the instance segmentation
-trainer.
+Trainer of the object detection task: the COCO-format loaders, the two-stage detector with its four losses, the
+geometric augmentations moving the bounding boxes, the anchor recall of the training objects printed at every launch
+(and of every split by the 'compute_anchor_coverage' diagnosis mode, which then exits), and the evaluation of the
+checkpoints on the test split with the mean average precision and the mean average recall (all the objects and every
+object size) and the average precision of every class, the proposal recall, the score threshold of every class reaching
+the target precision, the confusion matrix and the error images of the detections the deployed detector returns, and the
+sample images of fixed test images with their true and detected boxes. Registered for the object detection task in the
+task registry, and extended by the instance segmentation trainer.
 """
 
 import json
@@ -142,9 +141,9 @@ class DetectionTrainer(CocoSplitTrainer):
 
     def uses_exiting_diagnosis_mode(self) -> bool:
         """
-        Tells whether a diagnosis mode ends the program before the training: the input viewer of every task, or the
-        anchor coverage of the splits ('diagnosis_modes.compute_anchor_coverage'), which checks the anchor setting
-        without creating the run folder.
+        Tells whether a diagnosis mode ends the program before the training: the input viewer and the speed benchmark
+        of every task (BaseTrainer.uses_exiting_diagnosis_mode), or the anchor coverage of the splits
+        ('diagnosis_modes.compute_anchor_coverage'), which checks the anchor setting without creating the run folder.
 
         Returns:
             bool: Whether the program exits after the diagnosis.
@@ -543,14 +542,13 @@ class DetectionTrainer(CocoSplitTrainer):
     def save_error_analysis(self, accumulator: Dict[str, Any], iteration: int,
                             class_score_thresholds: Dict[int, Optional[Tuple[float, float]]]) -> Dict[str, Any]:
         """
-        Saves the outputs of the evaluation of a checkpoint telling where the detector fails, in its evaluation
-        folder, '<run>/[Checkpoint_]Evaluation/Iteration_<n>/', for compute_evaluation_results: the score threshold
-        of every class reaching the target precision in class_thresholds.json (the format of the classification tasks,
-        for the deployment), and the confusion matrix of the detections the deployed detector returns in
-        confusion_matrix.csv, both whatever the per-class report, the confusion matrix image only with it, its shares
-        written as percentages, also logged to TensorBoard. The
-        report gets a note counting the outcomes of the detections and, when the error images are on, a note counting
-        them with their folder.
+        Saves the outputs of the evaluation of a checkpoint telling where the detector fails, in its evaluation folder,
+        '<run>/[Checkpoint_]Evaluation/Iteration_<n>/', for compute_evaluation_results: the score threshold of every
+        class reaching the target precision in class_thresholds.json (the format of the classification tasks, for the
+        deployment), and the confusion matrix of the detections the deployed detector returns in confusion_matrix.csv,
+        both whatever the per-class report, the confusion matrix image only with it, its shares written as percentages,
+        also logged to TensorBoard. The report gets a note counting the outcomes of the detections and, when the error
+        images are on, a note counting them with their folder.
 
         Args:
             accumulator (Dict[str, Any]): The evaluation accumulator, with the confusion matrix and the error images.
@@ -578,9 +576,8 @@ class DetectionTrainer(CocoSplitTrainer):
         # Confusion matrix with its background row and column, the image only with the per-class report
         confusion_matrix = accumulator["confusion_matrix"]
         class_names = [self.class_names[class_index] for class_index in range(len(self.class_names))]
-        files["Confusion Matrix Table"] = save_confusion_matrix_table(confusion_matrix=confusion_matrix,
-                                                                      class_names=class_names,
-                                                                      output_folder=evaluation_folder)
+        files["Confusion Matrix Table"] = save_confusion_matrix_table(
+            confusion_matrix=confusion_matrix, class_names=class_names, output_folder=evaluation_folder)
         if self.per_class_report:
             files["Confusion Matrix Image"], images["Confusion Matrix"] = save_confusion_matrix_image(
                 confusion_matrix=confusion_matrix, class_names=class_names, output_folder=evaluation_folder,

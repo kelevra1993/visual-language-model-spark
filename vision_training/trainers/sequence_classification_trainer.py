@@ -315,7 +315,6 @@ class SequenceClassificationTrainer(ClassificationTrainer):
                              target_lines=[self.get_sample_caption(label=label),
                                            f"Real frames : {' + '.join(member_frame_counts)}"],
                              augmentation_lines=self.describe_input_augmentations(
-                                 batch=batch, sample_index=sample_index, split_name=split_name,
-                                 real_frames=real_frames) + self.describe_frame_order(batch=batch,
-                                                                                     sample_index=sample_index),
+                                 batch=batch, sample_index=sample_index, split_name=split_name, real_frames=real_frames)
+                             + self.describe_frame_order(batch=batch, sample_index=sample_index),
                              display_input_size=FRAME_GRID_DISPLAY_SIZE)]

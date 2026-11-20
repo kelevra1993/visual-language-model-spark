@@ -1868,6 +1868,9 @@ def place_shape(image: np.ndarray, shape_descriptor: Dict[str, Any], placed_boxe
             top = int(round(shape_centre[1] - (shape_box[1] + shape_box[3]) / 2))
             if not (-margin_x <= left <= largest_left and -margin_y <= top <= largest_top):
                 continue
+
+        # Box of the shape at that position, clipped to the image, rejected when empty, overlapping a placed box too
+        # much or the neighbour box too little
         box = [left + shape_box[0], top + shape_box[1], left + shape_box[2], top + shape_box[3]]
         clipped_box = [max(0, box[0]), max(0, box[1]), min(image_width, box[2]), min(image_height, box[3])]
         if clipped_box[2] <= clipped_box[0] or clipped_box[3] <= clipped_box[1]:
@@ -2396,8 +2399,9 @@ def build_keypoint_labels(image_records: List[Dict[str, Any]], image_size: int, 
     # The annotations follow the objects of the records in order, each one getting the keypoints of its object
     object_keypoints = [keypoints for record in image_records for _, _, keypoints in record["objects"]]
     for annotation, keypoints in zip(labels["annotations"], object_keypoints, strict=True):
-        annotation["keypoints"] = [value for x, y, visibility in keypoints
-                                   for value in (round(float(x), 2), round(float(y), 2), int(visibility))]
+        annotation["keypoints"] = [value for keypoint_x, keypoint_y, visibility in keypoints
+                                   for value in (round(float(keypoint_x), 2), round(float(keypoint_y), 2),
+                                                 int(visibility))]
         annotation["num_keypoints"] = int((keypoints[:, 2] > 0).sum())
 
     # Every category lists the names of its keypoints and its skeleton
@@ -3087,26 +3091,23 @@ def generate_sequence_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
             sequence_labels = {"category_id": category_identifier}
         elif chunk["task"] == "sequence_classification":
             # A shape crossing the frames, the sequence labelled with its direction
-            frames, category_identifier = generate_moving_shape_sequence(image_size=chunk["image_size"],
-                                                                         number_frames=number_frames,
-                                                                         random_generator=random_generator)
+            frames, category_identifier = generate_moving_shape_sequence(
+                image_size=chunk["image_size"], number_frames=number_frames, random_generator=random_generator)
             sequence_frames = {"frames": save_frames(data_folder=chunk["data_folder"], frame_folder=sequence_name,
                                                      frames=frames)}
             sequence_labels = {"category_id": category_identifier}
         elif chunk["task"] == "frame_selection":
             # Shapes of several sizes, the largest copy of every wanted shape labelled as the frame to select
-            frames, frame_category_ids = generate_selection_sequence(image_size=chunk["image_size"],
-                                                                     number_frames=number_frames,
-                                                                     random_generator=random_generator)
+            frames, frame_category_ids = generate_selection_sequence(
+                image_size=chunk["image_size"], number_frames=number_frames, random_generator=random_generator)
             sequence_frames = {"frames": save_frames(data_folder=chunk["data_folder"], frame_folder=sequence_name,
                                                      frames=frames)}
             sequence_labels = {"frame_category_ids": frame_category_ids}
         else:
             # Shapes appearing and disappearing, every frame labelled
-            frames, frame_category_ids = generate_shape_change_sequence(image_size=chunk["image_size"],
-                                                                        number_frames=number_frames,
-                                                                        maximum_objects=chunk["maximum_objects"],
-                                                                        random_generator=random_generator)
+            frames, frame_category_ids = generate_shape_change_sequence(
+                image_size=chunk["image_size"], number_frames=number_frames, maximum_objects=chunk["maximum_objects"],
+                random_generator=random_generator)
             sequence_frames = {"frames": save_frames(data_folder=chunk["data_folder"], frame_folder=sequence_name,
                                                      frames=frames)}
             sequence_labels = {"frame_category_ids": frame_category_ids}
@@ -3219,6 +3220,9 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
         masks_folder = os.path.join(split_folder, "masks") if task == "semantic_segmentation" else None
         if masks_folder is not None:
             os.makedirs(name=masks_folder, exist_ok=True)
+
+        # Every chunk carries the settings of the task that generate_image_chunk reads, then the worker processes
+        # generate the chunks
         chunks = [{"data_folder": data_folder, "masks_folder": masks_folder, "split_name": split_name,
                    "first_index": first_index, "number_images": min(IMAGES_PER_TASK, number_samples - first_index),
                    "image_size": image_size,
@@ -3414,17 +3418,16 @@ if __name__ == "__main__":
                    "frame_selection": 256, "self_supervised": 512, "multi_label_classification": 512}
     # Number of images (or sequences, or pairs) of every split, all of them labelled, for every task. The 128000
     # training images of the instance segmentation are the 2000 iterations of 64 images of the synthetic object
-    # detection and instance segmentation configurations, every image being seen once. The 250000 training images of
-    # the keypoint detection, of 2 to 5 objects, are seen about 1.3 times by the 20000 iterations of 16 images of its
+    # detection and instance segmentation configurations, every image being seen once. The 250000 training images of the
+    # keypoint detection, of 2 to 5 objects, are seen about 1.3 times by the 20000 iterations of 16 images of its
     # synthetic configuration. The 250000 training sequences of the sequence labelling are seen about 1.5 times by the
     # 6000 iterations of 64 sequences of most launches of its experiment plan, about half a time by the 2000 iterations
-    # of its learning rate stage. The 500000
-    # training images of the self-supervised dataset are not labelled for the training, their shape counts only
-    # labelling the k-nearest neighbour evaluation of the test split. The 512000 training images of the multi-label
-    # classification are seen 5 times by the 10000 iterations of 256 images of its configuration
-    # (classification/configuration_synthetic_counted_shapes.yaml). The 512000 training images of the object
-    # detection are those of the detection benchmark. The 50000 training images of the semantic segmentation, for 35
-    # classes, are seen about 5 times by the 8000 iterations of 32 images of its tutorial run
+    # of its learning rate stage. The 500000 training images of the self-supervised dataset are not labelled for the
+    # training, their shape counts only labelling the k-nearest neighbour evaluation of the test split. The 512000
+    # training images of the multi-label classification are seen 5 times by the 10000 iterations of 256 images of its
+    # configuration (classification/configuration_synthetic_counted_shapes.yaml). The 512000 training images of the
+    # object detection are those of the detection benchmark. The 50000 training images of the semantic segmentation, for
+    # 35 classes, are seen about 5 times by the 8000 iterations of 32 images of its tutorial run
     split_sizes = {"object_detection": {"train": 512000, "validation": 50000, "test": 50000},
                    "instance_segmentation": {"train": 128000, "validation": 20000, "test": 20000},
                    "keypoint_detection": {"train": 250000, "validation": 50000, "test": 50000},

@@ -144,6 +144,7 @@ def check_segmentation_decoder_configuration(model_configuration: Dict[str, Any]
                 errors.append(f"'SegmentationDecoder.deep_supervision_weights.{level_key}' must be a number > 0, "
                               f"got {level_weight!r}.")
 
+    # Decoder possibly initialised by the one of another run
     errors += check_pretrained_configuration(model_configuration=model_configuration,
                                              section_name="SegmentationDecoder")
     return errors

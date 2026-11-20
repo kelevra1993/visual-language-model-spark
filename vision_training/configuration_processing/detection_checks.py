@@ -325,9 +325,8 @@ def check_detector_configuration(model_configuration: Dict[str, Any]) -> List[st
     errors += check_probability_value(
         value=get_configuration_value(configuration=model_configuration, key_path="Detector.inference.score_threshold"),
         key_path="Detector.inference.score_threshold")
-    maximum_detection_errors = check_positive_integers(configuration=model_configuration,
-                                                       key_paths=["Detector.inference.maximum_detections"],
-                                                       allow_zero=False)
+    maximum_detection_errors = check_positive_integers(
+        configuration=model_configuration, key_paths=["Detector.inference.maximum_detections"], allow_zero=False)
     errors += maximum_detection_errors
 
     # The detections are selected among every (proposal, foreground class) pair kept at inference

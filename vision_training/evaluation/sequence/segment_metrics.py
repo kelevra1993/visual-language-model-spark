@@ -171,9 +171,8 @@ def compute_segment_metrics(sequences: List[Dict[str, np.ndarray]]) -> Dict[str,
 
         # True positives, false positives and false negatives of the sequence at every overlap
         for overlap_threshold in SEGMENT_OVERLAP_THRESHOLDS:
-            match_counts[overlap_threshold] += count_segment_matches(predicted_segments=predicted_segments,
-                                                                     true_segments=true_segments,
-                                                                     overlap_threshold=overlap_threshold)
+            match_counts[overlap_threshold] += count_segment_matches(
+                predicted_segments=predicted_segments, true_segments=true_segments, overlap_threshold=overlap_threshold)
 
     # Segment F1 of the counts summed over the sequences, 0 when nothing is right
     segment_f1 = {}

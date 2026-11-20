@@ -18,7 +18,7 @@ BEST_OVERLAP_CHUNK_SIZE = 32768
 class Anchors(nn.Module):
     """
     Generates bounding box anchors for a specific feature map level.
-    
+
     This module computes the reference bounding boxes (anchors) across a spatial grid
     corresponding to a specific feature map level. These anchors serve as the foundational
     coordinate references for the downstream Region Proposal Network and detector modules
@@ -29,7 +29,7 @@ class Anchors(nn.Module):
                  dtype: torch.dtype, device: torch.device) -> None:
         """
         Initializes the Anchors module and pre-computes the anchor grid.
-        
+
         Args:
             scales (List[float]): A list of base scales for the anchors.
             aspect_ratios (List[float]): A list of aspect ratios (height/width) for the anchors.
@@ -57,7 +57,7 @@ class Anchors(nn.Module):
     def generate_anchors(self) -> torch.Tensor:
         """
         Computes the Cartesian product of scales and ratios and shifts them across the feature map.
-        
+
         Returns:
             torch.Tensor: A tensor of shape [feature_map_size * feature_map_size * number_anchors, 4]
                           containing the absolute [x_min, y_min, x_max, y_max] coordinates for all anchors.

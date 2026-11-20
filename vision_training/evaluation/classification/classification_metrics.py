@@ -2,8 +2,8 @@
 Metrics of the classification-like tasks: confusion matrix, per-class precision, recall, F1 and support, accuracy,
 top-k accuracy and the multi-label metrics. Used by the classification trainer, from which the sequence classification
 and comparison trainers inherit, to evaluate a checkpoint on the test split, and by the k-NN evaluation of the
-self-supervised trainer. Above MAXIMUM_DENSE_CONFUSION_CLASSES classes (ImageNet-22k), these two
-evaluations count only the non-zero cells of the confusion matrix, a sparse tensor giving the same metrics.
+self-supervised trainer. Above MAXIMUM_DENSE_CONFUSION_CLASSES classes (ImageNet-22k), these two evaluations count
+only the non-zero cells of the confusion matrix, a sparse tensor giving the same metrics.
 """
 
 import torch

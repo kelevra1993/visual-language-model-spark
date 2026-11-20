@@ -78,11 +78,10 @@ def prepare_experiment_configuration(configuration_path: str | Path) -> Tuple[Di
     them and vision_training/check_configuration.py reports those of every file it is given. Archiving the yaml into
     the experiment folder is handled by the Trainer.
 
-    This function extracts the 'ExperimentConfiguration' section, processes
-    its paths and types, adds the 'tracking_root', 'run_name' (None) and 'standalone_evaluation_folder' (None) runtime
-    keys read by the trainer, and returns it alongside the rest of the configuration parameters. The label dictionary is
-    built from the mapping file, or
-    read from 'label_dictionary.json' when the file sits in a run folder holding one (the saved configuration of a
+    This function extracts the 'ExperimentConfiguration' section, processes its paths and types, adds the
+    'tracking_root', 'run_name' (None) and 'standalone_evaluation_folder' (None) runtime keys read by the trainer, and
+    returns it alongside the rest of the configuration parameters. The label dictionary is built from the mapping file,
+    or read from 'label_dictionary.json' when the file sits in a run folder holding one (the saved configuration of a
     run, loaded by the evaluation, export and model loading tools).
 
     Args:
@@ -133,9 +132,9 @@ def prepare_experiment_configuration(configuration_path: str | Path) -> Tuple[Di
     experiment_configuration["standalone_evaluation_folder"] = None
 
     # Convert numerics
-    int_keys = ["information_dump", "weight_saving_iterations", "intermediate_weight_saving_iterations",
-                "number_iterations"]
-    for key in int_keys:
+    integer_keys = ["information_dump", "weight_saving_iterations", "intermediate_weight_saving_iterations",
+                    "number_iterations"]
+    for key in integer_keys:
         if key in experiment_configuration:
             experiment_configuration[key] = int(float(experiment_configuration[key]))
 

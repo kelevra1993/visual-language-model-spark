@@ -7,8 +7,7 @@ same files while the trainer is built, which parsed the manifest of a training s
 segmentation benchmark dataset). Within read_manifests_once, used around the construction of the trainer by
 vision_training/main.py and scripts/evaluation/evaluate_checkpoint.py, a manifest is parsed once and shared by its
 readers, then freed with its heap memory before the first batch forks the loader workers; outside it, every read parses
-its file. The readers never
-modify a shared manifest.
+its file. The readers never modify a shared manifest.
 """
 
 import contextlib

@@ -1,13 +1,12 @@
 """
-SequenceDataset, the Native (OpenCV, CPU) dataset of the sequence classification, sequence labelling and frame
-selection tasks, giving every sequence of a 'labels.json' split whole with its sequence or frame labels (the frame
-labels being checked to give one category per frame, and the sequences of the frame selection to hold every wanted
-class), the sequences longer than
-'Data.sequence_settings.maximum_sequence_length' being left out with a warning. Also holds the frame reading and the
-warnings shared with the sequence pair dataset, and the collate function padding the batches of both datasets to their
-longest sequence. The kept sequences are packed into SerializedRecords (data/serialized_records.py), which the forked
-loader workers read without copying the Python objects of the main process. Instantiated by get_sequence_dataloaders
-of data/loaders.py.
+SequenceDataset, the Native (OpenCV, CPU) dataset of the sequence classification, sequence labelling and frame selection
+tasks, giving every sequence of a 'labels.json' split whole with its sequence or frame labels (the frame labels being
+checked to give one category per frame, and the sequences of the frame selection to hold every wanted class), the
+sequences longer than 'Data.sequence_settings.maximum_sequence_length' being left out with a warning. Also holds the
+frame reading and the warnings shared with the sequence pair dataset, and the collate function padding the batches of
+both datasets to their longest sequence. The kept sequences are packed into SerializedRecords
+(data/serialized_records.py), which the forked loader workers read without copying the Python objects of the main
+process. Instantiated by get_sequence_dataloaders of data/loaders.py.
 """
 
 import os

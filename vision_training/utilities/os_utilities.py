@@ -149,14 +149,14 @@ def print_color(color: str, output: str, add_separators: bool = False, indent: i
 def get_variable_name(target_variable: Any, namespace: Optional[Dict[str, Any]] = None) -> str:
     """
     Retrieves the string name of a variable by checking for its exact memory identity in a given namespace.
-    If no namespace is provided, it automatically inspects the caller's frame (two levels up) to find 
+    If no namespace is provided, it automatically inspects the caller's frame (two levels up) to find
     the original variable name, removing the need for manual typing.
-    
+
     Args:
         target_variable (Any): The variable whose name we want to find.
-        namespace (Optional[Dict[str, Any]]): The dictionary mapping variable names to values. 
+        namespace (Optional[Dict[str, Any]]): The dictionary mapping variable names to values.
                                               Defaults to None, triggering automatic frame inspection.
-        
+
     Returns:
         str: The name of the variable as a string, or 'Unknown_Variable' if not found.
     """

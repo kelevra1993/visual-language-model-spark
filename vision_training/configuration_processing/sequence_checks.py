@@ -18,6 +18,7 @@ from vision_training.models.sequence.frame_selection_decoding import VALID_DECOD
 from vision_training.models.sequence.member_fusion import FUSION_TYPES, SEQUENCE_NORMALIZATION_SCOPES
 from vision_training.models.sequence.temporal_modules import ORDERED_TEMPORAL_TYPES, POOLING_TEMPORAL_TYPES
 
+
 def check_sequence_settings(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the 'Data.sequence_settings' section of the sequence tasks, which gives the largest number of frames of a

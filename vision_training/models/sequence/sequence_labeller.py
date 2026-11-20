@@ -58,8 +58,7 @@ class SequenceLabeller(SequenceFrameModel):
 
         # Classification loss over the labelled frames when the labels are given
         if labels is not None:
-            outputs["classification_loss"] = compute_sequence_labelling_loss(class_logits=outputs["class_logits"],
-                                                                             labels=labels,
-                                                                             label_smoothing=self.label_smoothing,
-                                                                             class_weights=self.class_weights)
+            outputs["classification_loss"] = compute_sequence_labelling_loss(
+                class_logits=outputs["class_logits"], labels=labels, label_smoothing=self.label_smoothing,
+                class_weights=self.class_weights)
         return outputs

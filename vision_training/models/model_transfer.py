@@ -1092,8 +1092,7 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
     if section_name not in source_configuration:
         raise ValueError(f"The Source Run {format_path_link(path=source_folder)} Has No '{section_name}' Section: "
                          f"Its Task Has No {component_name.title()} To Initialise This Run.")
-    differences = compare_component_configurations(section_name=section_name,
-                                                   source_configuration=source_configuration,
+    differences = compare_component_configurations(section_name=section_name, source_configuration=source_configuration,
                                                    target_configuration=model_configuration)
     if differences:
         raise ValueError(f"The {component_name.title()} Of The Source Run {format_path_link(path=source_folder)} "
@@ -1158,6 +1157,8 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
     if number_shared_blocks is not None:
         component_state = select_backbone_prefix_state(component_state=component_state, target_state=target_state,
                                                        number_shared_blocks=number_shared_blocks)
+
+        # Tell which blocks come from the pretrained backbone and which keep the random weights of this run
         number_source_blocks = len(source_configuration["Backbone"]["convolutions"])
         number_target_blocks = len(model_configuration["Backbone"]["convolutions"])
         if number_target_blocks < number_source_blocks:
