@@ -88,9 +88,8 @@ def test_plain_convolution_block_state_dictionary_keys() -> None:
     convolution_block = ConvolutionBlock(input_channels=3, output_channels=16, bias=True, number_layers=2,
                                          kernel_size=3, stride=1, padding=1, feature_map_normalization="batch",
                                          batch_normalization_momentum=0.1, activation=True, dropout_rate=0.0,
-                                         add_pooling=True,
-                                         device=DEVICE, dtype=DTYPE, squeeze_and_excite=False, residual=False,
-                                         pre_activation=False, inception=False)
+                                         add_pooling=True, device=DEVICE, dtype=DTYPE, squeeze_and_excite=False,
+                                         residual=False, pre_activation=False, inception=False)
 
     # Layout per layer: convolution (0 / 3), batch normalization (1 / 4), activation (2 / 5), then pooling (6)
     expected_keys = ["block.0.weight", "block.0.bias",
@@ -133,10 +132,9 @@ def test_residual_shortcut_placement(squeeze_and_excite: bool) -> None:
     # Residual shortcuts require the spatial size to be preserved
     with pytest.raises(expected_exception=ValueError):
         ConvolutionBlock(input_channels=8, output_channels=8, bias=True, number_layers=2, kernel_size=3, stride=2,
-                         padding=1, feature_map_normalization="none", batch_normalization_momentum=0.1,
-                         activation=True, dropout_rate=0.0,
-                         add_pooling=False, device=DEVICE, dtype=DTYPE, squeeze_and_excite=False, residual=True,
-                         pre_activation=False, inception=False)
+                         padding=1, feature_map_normalization="none", batch_normalization_momentum=0.1, activation=True,
+                         dropout_rate=0.0, add_pooling=False, device=DEVICE, dtype=DTYPE, squeeze_and_excite=False,
+                         residual=True, pre_activation=False, inception=False)
 
 
 @pytest.mark.parametrize(argnames=("input_channels", "number_layers"), argvalues=[(3, 3)])
@@ -200,8 +198,7 @@ def build_residual_test_block(input_channels: int, number_layers: int, residual:
                             pre_activation=pre_activation, inception=False).eval()
 
 
-@pytest.mark.parametrize(argnames=("input_channels", "number_layers", "expected_additions"),
-                         argvalues=[(3, 2, 0)])
+@pytest.mark.parametrize(argnames=("input_channels", "number_layers", "expected_additions"), argvalues=[(3, 2, 0)])
 def test_summary_names_the_shortcuts_of_blocks_adding_one(input_channels: int, number_layers: int,
                                                           expected_additions: int) -> None:
     """

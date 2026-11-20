@@ -105,10 +105,9 @@ def test_every_object_gives_a_positive_proposal_with_its_ground_truth_box() -> N
     labels = [torch.tensor(data=[4, 7])]
     proposals = torch.tensor(data=[[[300.0, 300.0, 340.0, 340.0]] * 6])
     levels = torch.full(size=(1, 6), fill_value=5, dtype=torch.int64)
-    _, target_labels, _ = batch_assign_targets_to_proposals(batched_ground_truth_boxes=boxes,
-                                                            batched_proposals=proposals,
-                                                            batched_ground_truth_labels=labels,
-                                                            foreground_iou_threshold=0.5)
+    _, target_labels, _ = batch_assign_targets_to_proposals(
+        batched_ground_truth_boxes=boxes, batched_proposals=proposals, batched_ground_truth_labels=labels,
+        foreground_iou_threshold=0.5)
     assert int((target_labels > 0).sum()) == 0
 
     # The added ground truth boxes are the positives of their objects, already in place

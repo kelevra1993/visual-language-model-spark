@@ -40,8 +40,7 @@ def draw_random_boxes(image_size: int, number_boxes: int, seed: int) -> torch.Te
     return torch.cat(tensors=[centres - sides / 2, centres + sides / 2], dim=1)
 
 
-@pytest.mark.parametrize(argnames=["feature_map_size", "scales", "aspect_ratios"],
-                         argvalues=[(8, [24.0], [0.25, 3.0])])
+@pytest.mark.parametrize(argnames=["feature_map_size", "scales", "aspect_ratios"], argvalues=[(8, [24.0], [0.25, 3.0])])
 def test_best_overlaps_equal_the_best_of_every_anchor(feature_map_size: int, scales: List[float],
                                                        aspect_ratios: List[float],
                                                        monkeypatch: pytest.MonkeyPatch) -> None:

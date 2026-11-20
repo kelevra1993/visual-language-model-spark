@@ -186,9 +186,8 @@ def test_sequence_normalization_scope_of_the_pairs(normalization_scope: str, mem
     with torch.no_grad():
         before_features, _ = model.encode_members(before_images=before_images, after_images=after_images,
                                                   before_mask=full_mask, after_mask=full_mask)
-        changed_before_features, _ = model.encode_members(before_images=before_images,
-                                                          after_images=after_images * 0.5, before_mask=full_mask,
-                                                          after_mask=full_mask)
+        changed_before_features, _ = model.encode_members(before_images=before_images, after_images=after_images * 0.5,
+                                                          before_mask=full_mask, after_mask=full_mask)
     assert torch.allclose(input=before_features, other=changed_before_features) != members_share_statistics
 
     # Mask-free path with 3 before and 2 after real frames against the masked path of the padded members

@@ -81,8 +81,7 @@ def test_proposals_are_ranked_in_float32_under_mixed_precision() -> None:
     assert len(set(selected_scores[0].tolist())) == number_selected
 
 
-def select_two_level_proposals(proposal_selection: str, pre_nms_proposals: int,
-                               post_nms_proposals: int) -> tuple:
+def select_two_level_proposals(proposal_selection: str, pre_nms_proposals: int, post_nms_proposals: int) -> tuple:
     """
     Selects the proposals of one image holding two levels for the selection tests: a level of five disjoint boxes
     scored 10 to 6, whose first box is duplicated (score 9.5), then a level of three disjoint boxes scored 3 to 1, whose

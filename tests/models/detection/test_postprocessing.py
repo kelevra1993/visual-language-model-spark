@@ -4,8 +4,8 @@ of 'Detector.nms_criterion' "distance_iou" evaluated at stage 5b of the detectio
 the boxes of a greedy loop written from the authors' code (cython diounms and darknet diounms_sort), those of the
 batched_nms of torchvision when no centre distance separates the boxes, keeps two overlapping boxes whose centres are
 apart where the greedy NMS keeps one, never lets two groups suppress each other, handles empty inputs, single boxes and
-equal scores, and keeps the same boxes whatever its chunks and the precision of the boxes; and that the greedy suppression
-of the stacked groups of the exports keeps the boxes of batched_nms.
+equal scores, and keeps the same boxes whatever its chunks and the precision of the boxes; and that the greedy
+suppression of the stacked groups of the exports keeps the boxes of batched_nms.
 """
 
 import pytest
@@ -132,8 +132,7 @@ def test_distance_nms_without_centre_distance_equals_batched_nms() -> None:
         for iou_threshold in [0.3, 0.5, 0.7]:
             kept_indices = batched_distance_nms(boxes=boxes, scores=scores, group_indices=group_indices,
                                                 iou_threshold=iou_threshold, distance_exponent=1.0)
-            reference_indices = batched_nms(boxes=boxes, scores=scores, idxs=group_indices,
-                                            iou_threshold=iou_threshold)
+            reference_indices = batched_nms(boxes=boxes, scores=scores, idxs=group_indices, iou_threshold=iou_threshold)
             assert torch.equal(input=kept_indices, other=reference_indices), f"seed {seed}, threshold {iou_threshold}"
 
     # Boxes sharing their centre with an IoU of exactly 0.5 (2 / 4), kept by the strict suppression of both

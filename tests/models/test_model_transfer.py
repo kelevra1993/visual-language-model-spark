@@ -258,8 +258,7 @@ def test_temporal_module_and_head_initialise_another_sequence_classifier(tmp_pat
     Args:
         tmp_path (Path): The pytest temporary directory.
     """
-    configuration, source_model = write_sequence_classifier_run(run_folder=tmp_path / "source_run",
-                                                                temporal_type="gru")
+    configuration, source_model = write_sequence_classifier_run(run_folder=tmp_path / "source_run", temporal_type="gru")
     target_model = build_task_model(task="sequence_classification", configuration=configuration, seed=1)
     target_backbone_before = copy.deepcopy(target_model.backbone.state_dict())
 
@@ -357,8 +356,7 @@ def test_shorter_backbone_initialises_the_first_blocks_of_a_deeper_backbone(tmp_
     device, dtype = torch.device("cpu"), torch.float32
     torch.manual_seed(seed=0)
     source_classifier = ImageClassifier(configuration=source_configuration, device=device, dtype=dtype)
-    write_source_run(run_folder=tmp_path / "shorter_run", configuration=source_configuration,
-                     model=source_classifier)
+    write_source_run(run_folder=tmp_path / "shorter_run", configuration=source_configuration, model=source_classifier)
     torch.manual_seed(seed=1)
     target_classifier = ImageClassifier(configuration=target_configuration, device=device, dtype=dtype)
     target_backbone_before = copy.deepcopy(target_classifier.backbone.state_dict())
@@ -602,8 +600,7 @@ def write_detector_run(run_folder: Path, mask_head: bool = False,
     configuration, _, _ = get_detection_model_configuration(mask_head=mask_head)
     task = "instance_segmentation" if mask_head else "object_detection"
     source_detector = build_task_model(task=task, configuration=configuration, seed=0)
-    write_source_run(run_folder=run_folder, configuration=configuration, model=source_detector,
-                     class_names=class_names)
+    write_source_run(run_folder=run_folder, configuration=configuration, model=source_detector, class_names=class_names)
     return configuration, source_detector
 
 
