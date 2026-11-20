@@ -55,7 +55,7 @@ Before the first build, the machine needs:
 - SSH access to GitHub for the private builder repository: `uv sync` clones it with `ssh://git@github.com/kelevra1993/tutorial-video-builder.git`.
 - Chrome or Chromium, to capture the HTML scenes. The first `google-chrome`, `google-chrome-stable`, `chromium` or `chromium-browser` of the PATH is used, or the one given by `--chrome-executable` or `TUTORIAL_BUILDER_CHROME`; without any, run `uv run --project tutorials playwright install chromium`.
 - The real runs of `tutorial_sources.yaml` in the experiments folder (`~/Data/tutorial_runs`, outside the repository so that cleaning its `experiments/` keeps them), each with its dataset; or, on a machine without them, the committed snapshots: `--experiments-folder tutorials/run_snapshots` (see [MAINTAINING.md](MAINTAINING.md#building-on-a-new-machine)).
-- About 6 GB for the caches after many builds: the voice and speech recognition models (downloaded on the first build and checked against their SHA-256), the narration of every sentence, the figures, the previews and the scene segments.
+- About 6.5 GB for the caches after many builds: the voice and speech recognition models (downloaded on the first build and checked against their SHA-256), the narration of every sentence, the figures, the previews and the scene segments.
 
 ## Rebuilding The Videos
 Whenever the videos have to be made again, run the launcher from the repository root:

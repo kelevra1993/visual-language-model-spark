@@ -37,18 +37,18 @@
 
 ## Summary
 
-To find an open bug by area, the table links each one: 3 medium and 16 low bugs are open.
+To find an open bug by area, the table links each one: 3 medium and 14 low bugs are open.
 
 | Area | Medium | Low |
 |---|---|---|
 | Configuration |  | [B22](#b22-read_json-swallows-json-parse-errors-and-returns-none), [B24](#b24-stale-run-name-and-checker-documentation) |
-| Data generation |  | [B28](#b28-comments-left-from-the-top-down-keypoint-detector-contradict-the-code), [B29](#b29-the-readme-gives-the-wrong-number-of-objects-per-synthetic-keypoint-image) |
+| Data generation |  | [B28](#b28-comments-left-from-the-top-down-keypoint-detector-contradict-the-code) |
 | Core models | [B8](#b8-a-causal-sequence-labeller-or-frame-selector-with-sequence-normalization-uses-the-future-frames) | [B32](#b32-backbonecompute_detection_input_information-dry-runs-in-training-mode-with-gradients), [B33](#b33-model-builders-silently-fall-back-on-misspelled-option-strings) |
-| Detection and keypoint models | [B10](#b10-a-keypoint-head-transfer-compares-only-the-class-names-so-keypoints-in-another-order-land-on-the-wrong-channels) | [B35](#b35-the-eager-evaluation-ignores-the-valid-proposal-mask-so-padding-copies-can-become-duplicate-detections), [B37](#b37-get_box_dimensions_and_centers-ends-the-process-with-exit-and-status-0-on-a-wrong-box-shape), [B39](#b39-hrnet-with-feature_map_normalization-none-builds-every-convolution-without-bias), [B40](#b40-the-batch_assign_targets_to_anchors-docstring-promises-a-positive-anchor-for-every-ground-truth), [B42](#b42-training-and-validation-forwards-of-the-detector-do-inference-only-work-with-one-host-synchronisation-per-image) |
+| Detection and keypoint models | [B10](#b10-a-keypoint-head-transfer-compares-only-the-class-names-so-keypoints-in-another-order-land-on-the-wrong-channels) | [B35](#b35-the-eager-evaluation-ignores-the-valid-proposal-mask-so-padding-copies-can-become-duplicate-detections), [B37](#b37-get_box_dimensions_and_centers-ends-the-process-with-exit-and-status-0-on-a-wrong-box-shape), [B39](#b39-hrnet-with-feature_map_normalization-none-builds-every-convolution-without-bias), [B42](#b42-training-and-validation-forwards-of-the-detector-do-inference-only-work-with-one-host-synchronisation-per-image) |
 | Task trainers and losses |  | [B49](#b49-an-evaluation-score-threshold-above-the-deployment-threshold-silently-removes-detections-from-the-confusion-matrix-and-the-images) |
 | Evaluation and tracking |  | [B54](#b54-a-standalone-evaluation-is-tracked-in-another-mlflow-database-than-the-one-the-launch-panel-prints) |
 | Deployment and scripts | [B19](#b19-standalone-evaluations-of-another-split-overwrite-and-mix-with-the-earlier-ones-in-the-same-output-folder) | [B57](#b57-a-run-without-checkpoint-registry-is-evaluated-on-nothing-and-the-script-ends-normally), [B58](#b58-a-misspelled-export-format-is-silently-exported-as-onnx-and-its-tensorrt-setting-dropped), [B59](#b59-load_inference_inputs-claims-the-preprocessing-of-the-loaders-but-a-tiled-segmentation-run-gets-a-whole-image-squeezed-into-one-tile) |
-| **Total** | **3** | **16** |
+| **Total** | **3** | **14** |
 
 ## Bugs
 
@@ -98,6 +98,9 @@ To find an open bug by area, the table links each one: 3 medium and 16 low bugs 
   `compare_best_evaluations.py` silently reports whichever split ran last.
 - **Fix:** include the evaluated split in the output folder name, or refuse a folder whose data.json records another
   split; clear `Errors/` of the iteration first.
+- **Still open on 2026-11-20:** the evaluations go to `<run>/Checkpoint_Evaluation/` since `main` 9c90f90
+  (`evaluate_checkpoint.py`, `point_to_checkpoint_evaluation`), whatever `test_data_folder` is; the MLflow run of the
+  evaluation is tagged with the evaluated split, the folder is not.
 
 ### Low
 #### B22. read_json swallows JSON parse errors and returns None
@@ -125,6 +128,11 @@ To find an open bug by area, the table links each one: 3 medium and 16 low bugs 
   `ExperimentConfiguration.evaluation.keypoint_sigmas`; the `load_configuration` docstring promises `yaml.YAMLError` but
   an unchained ValueError is raised.
 - **Fix:** regenerate the examples, fix the key path and the docstring.
+- **Still open on 2026-11-20:** the header comments of the two classification files give no run name since `main`
+  20a0217 (2026-11-02), and no document names `Evaluation.keypoint_sigmas` since the README was shortened (`main`
+  9e13863); the Run Names table of the README still shows `HAVG.128_MC4` for CLS and `T8` for M2O (the synthetic files
+  give `HFLAT.128-HLN-CWB_MC35` and a 128 pixel input with `T50`), and `load_configuration` still promises
+  `yaml.YAMLError` (`configuration_loader.py:33`) while raising a ValueError (45).
 
 #### B28. Comments left from the top-down keypoint detector contradict the code
 - **Area:** data generation · **Severity:** low · **Status:** confirmed (history traced by the reviewer) · **Category:**
@@ -136,14 +144,6 @@ To find an open bug by area, the table links each one: 3 medium and 16 low bugs 
 - **Failure scenario:** a user trusting the comment turns flips on and expects swapped names, getting inconsistent
   targets.
 - **Fix:** rewrite both comments for the bottom-up detector, the renumbered mapping and the never-renamed keypoints.
-
-#### B29. The README gives the wrong number of objects per synthetic keypoint image
-- **Area:** data generation · **Severity:** low · **Status:** confirmed · **Category:** documentation
-- **Where:** README line 125; `create_synthetic_dataset.py:2710` (`"keypoint_detection": 5`).
-- **Problem:** the KPT row says "2 to 4 objects per 512 pixel image"; the generator,
-  `configuration_synthetic_shapes.yaml` and the keypoint workflow say 2 to 5 (commit 95456e3 raised it without the
-  README).
-- **Fix:** "2 to 5 objects".
 
 #### B32. Backbone.compute_detection_input_information dry-runs in training mode with gradients
 - **Area:** core models · **Severity:** low · **Status:** confirmed (reproduced by the reviewer) · **Category:** bug
@@ -207,17 +207,6 @@ To find an open bug by area, the table links each one: 3 medium and 16 low bugs 
 - **Failure scenario:** `HRNet.normalization.feature_map_normalization: "none"` silently trains activations that cannot
   shift their thresholds.
 - **Fix:** `bias=True` when the normalization is "none", or refuse "none" for HRNet in the checker.
-
-#### B40. The batch_assign_targets_to_anchors docstring promises a positive anchor for every ground truth
-- **Area:** detection and keypoint models · **Severity:** low · **Status:** confirmed (reproduced by the reviewer) ·
-  **Category:** documentation
-- **Where:** `vision_training/models/detection/target_assignment.py:129-130` (docstring), `186-212`.
-- **Problem:** the best anchor of a ground truth becomes positive, but it is assigned to the ground truth it overlaps
-  most (or the last one resurrecting it in strict mode), so a small object sharing its best anchor with a larger one, or
-  with a best IoU of 0, gets no anchor.
-- **Failure scenario:** anchors `[[0,0,100,100],[300,300,400,400]]` and ground truths `[[0,0,30,30],[0,0,100,90]]`:
-  ground truth 0 has no positive anchor in both modes.
-- **Fix:** describe the actual behaviour (as in torchvision).
 
 #### B42. Training and validation forwards of the detector do inference-only work, with one host synchronisation per image
 - **Area:** detection and keypoint models · **Severity:** low · **Status:** likely (read by the reviewer, not timed) ·
@@ -312,7 +301,7 @@ file; the fixed and dropped ones were removed from both files.
 | Statement contradicting the code | Status | Note |
 |---|---|---|
 | README "Stopping And Resuming", `build_run_name` docstring: "Changing any other setting gives another run name" | **open** | README line 249, `run_name.py:641-646` (see C4) |
-| Every YAML with `residual_nets`: "Shortcuts are added every two convolution layers" | **open** | H4 dropped on 2026-11-05: the comment should say that the channel-changing blocks get no shortcut |
+| Every YAML with `residual_nets`: "Residual shortcuts every two convolutions from block 2" | **open** | H4 dropped on 2026-11-05: the comment should say that the channel-changing blocks get no shortcut |
 | `RegionProposal.foreground_iou_threshold.max` (YAML) | **open** | still read only by the checker |
 | `mean_average_precision.py:16` "COCO" | **partly fixed** | still "COCO-style mAP@[0.5:0.95]" at line 22 and "(COCO)" in `average_precision_report.py:53` |
 | `region_proposer.py:34` aspect ratio = width / height | **open** | now line 126; `anchors.py` uses height / width |
