@@ -20,6 +20,7 @@ from torch import nn
 from torch.nn import functional as torch_functional
 from torchvision.ops import roi_align
 
+from vision_training.configuration_processing.configuration_values import VALID_UPSAMPLINGS
 from vision_training.models.backbones.backbone import SKIP_OUTPUT_PREFIX
 from vision_training.models.components.convolution_block import ConvolutionBlock
 
@@ -110,8 +111,16 @@ class MaskHead(nn.Module):
                 mask resolution before the predictor ('MaskHead.fusion_convolutions'), [0, 0] for none.
             dtype (torch.dtype): The data type of the parameters.
             device (torch.device): The device of the parameters.
+
+        Raises:
+            ValueError: If the upsampling is not one of VALID_UPSAMPLINGS.
         """
         super(MaskHead, self).__init__()
+
+        # A misspelled upsampling reaching the head without the configuration checks stops here instead of being built
+        # as the bilinear one
+        if upsampling not in VALID_UPSAMPLINGS:
+            raise ValueError(f"'MaskHead.upsampling' must be one of {VALID_UPSAMPLINGS}, got {upsampling!r}.")
 
         # Mask geometry of the level: its pool size, the doublings that fit in the mask resolution and their size
         self.number_classes = number_classes

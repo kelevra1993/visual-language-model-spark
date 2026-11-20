@@ -1,7 +1,8 @@
 """
 Tests of vision_training/utilities/os_utilities.py: the expandable segments of the CUDA allocator turned on by the
-training launch, the images of a folder listed with or without its subfolders, and the freed heap memory given back to
-the system after a dataset packs its manifest and at the end of the trainer launch, on Linux only.
+training launch, the images of a folder listed with or without its subfolders, the freed heap memory given back to
+the system after a dataset packs its manifest and at the end of the trainer launch, on Linux only, and the JSON files
+read whole, a malformed one stopping with its name.
 """
 
 import ctypes
@@ -12,7 +13,7 @@ import torch
 
 from pathlib import Path
 
-from vision_training.utilities.os_utilities import (enable_expandable_cuda_segments, get_image_paths,
+from vision_training.utilities.os_utilities import (enable_expandable_cuda_segments, get_image_paths, read_json,
                                                     release_freed_heap_memory)
 
 
@@ -122,3 +123,28 @@ def test_freed_heap_memory_is_left_outside_linux(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(target=ctypes, name="CDLL", value=lambda name: pytest.fail(reason=f"{name} loaded"))
 
     assert release_freed_heap_memory() is None
+
+
+def test_malformed_json_file_is_refused_with_its_name(tmp_path: Path) -> None:
+    """
+    Verifies that read_json parses a valid file, raises FileNotFoundError on a missing one, and stops on a data
+    record truncated by an interrupted write with an error naming the file and the position of the problem, instead
+    of returning None to a caller that indexes it (the resume then failing on a 'NoneType' object).
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    # A valid record is returned parsed
+    valid_path = tmp_path / "data.json"
+    valid_path.write_text(data='{"splits": {"train": {"images": 3}}}')
+    assert read_json(path=str(valid_path)) == {"splits": {"train": {"images": 3}}}
+
+    # A missing file keeps raising FileNotFoundError
+    with pytest.raises(expected_exception=FileNotFoundError):
+        read_json(path=str(tmp_path / "missing.json"))
+
+    # A truncated record stops with its file name and the line and column of the error
+    truncated_path = tmp_path / "truncated_data.json"
+    truncated_path.write_text(data='{"splits": {"train": ')
+    with pytest.raises(expected_exception=ValueError, match="truncated_data.json.* cannot be parsed: .*line 1 column"):
+        read_json(path=str(truncated_path))

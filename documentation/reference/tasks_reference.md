@@ -332,7 +332,7 @@ Predicts one class per sequence (many to one).
 - **Evaluation**: the metrics and files of CLS, on the sequences, without the temperature explorer and its class_logits.npz.
 
 ## Sequence Labelling (M2M)
-Predicts one class per frame (many to many). With `TemporalModel.causal: True` (transformer, temporal convolution), every frame only sees the frames before it, as in a live stream.
+Predicts one class per frame (many to many). With `TemporalModel.causal: True` (transformer, temporal convolution), every frame only sees the frames before it, as in a live stream; the sequence normalization of the backbone, whose statistics come from the whole sequence, is then refused.
 
 ```json
 {"id": 1, "name": "sequence_0001", "frame_category_ids": [1, 1, 2], "frames": ["sequence_0001/000000.png", "sequence_0001/000001.png", "sequence_0001/000002.png"]}

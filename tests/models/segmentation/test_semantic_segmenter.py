@@ -123,3 +123,14 @@ def test_deep_supervision_heads_add_the_losses_of_the_intermediate_levels() -> N
     assert bool(torch.any(head_gradient != 0))
     with torch.no_grad():
         assert sorted(model(input_tensor=images)) == ["class_logits", "class_probabilities"]
+
+
+def test_unknown_decoder_upsampling_is_refused() -> None:
+    """
+    Verifies that a misspelled upsampling of the decoder levels reaching the segmenter without the configuration
+    checks stops with the list of the valid upsamplings, instead of being built as the bilinear upsampling.
+    """
+    configuration, device, dtype = get_segmentation_model_configuration(upsampling="nearest")
+    with pytest.raises(expected_exception=ValueError,
+                       match="'SegmentationDecoder.upsampling' must be one of .* got 'nearest'"):
+        SemanticSegmenter(configuration=configuration, device=device, dtype=dtype)

@@ -43,8 +43,16 @@ class MemberFusion(nn.Module):
             dropout_rate (float): The dropout of the cross attention weights.
             device (torch.device): The device of the parameters.
             dtype (torch.dtype): The precision of the parameters.
+
+        Raises:
+            ValueError: If the fusion type is not one of FUSION_TYPES.
         """
         super(MemberFusion, self).__init__()
+
+        # A misspelled fusion reaching the model without the configuration checks stops here instead of being built as
+        # the difference fusion
+        if fusion_type not in FUSION_TYPES:
+            raise ValueError(f"'Fusion.type' must be one of {FUSION_TYPES}, got {fusion_type!r}.")
         self.fusion_type = fusion_type
         self.output_features = member_features * (2 if fusion_type == "concatenation" else 3)
 

@@ -1,11 +1,34 @@
 """
 Writes the 'config.pbtxt' Triton model configuration of an exported model of any task (platform, inputs, outputs,
-batching, TensorRT acceleration) from its export specification, and names its outputs as Triton serves them. Called by
+batching, TensorRT acceleration) from its export specification, and names its outputs as Triton serves them, refusing
+any export format or TensorRT precision other than those of EXPORT_FORMATS and TENSORRT_PRECISIONS. Called by
 deployment/export_model.py and by the frame selection ensembles of deployment/frame_selection_deployment.py.
 """
 
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+# Export formats served by Triton with the platform of the backend reading each, and the TensorRT precisions of an ONNX
+# model, None running it with ONNX Runtime CUDA only; any other value is refused before a model is exported
+EXPORT_PLATFORMS = {"torchscript": "pytorch_libtorch", "onnx": "onnxruntime_onnx"}
+EXPORT_FORMATS = list(EXPORT_PLATFORMS)
+TENSORRT_PRECISIONS = ["FP32", "FP16", None]
+
+
+def check_export_format(export_format: Any) -> None:
+    """
+    Refuses an export format the Triton configuration does not know, so that a misspelled format ('TorchScript',
+    'tensorrt', 'trt') stops the export with its reason instead of being served as an ONNX model without its TensorRT
+    setting, every other function of the deployment telling the formats apart by their exact name.
+
+    Args:
+        export_format (Any): The export format, one of EXPORT_FORMATS.
+
+    Raises:
+        ValueError: If the format is not one of EXPORT_FORMATS.
+    """
+    if export_format not in EXPORT_FORMATS:
+        raise ValueError(f"Expected an export format among {EXPORT_FORMATS}, got {export_format!r}.")
 
 
 def format_dimensions(dimensions: List[int]) -> str:
@@ -33,7 +56,11 @@ def get_served_output_names(export_format: str, specification: Dict[str, Any]) -
 
     Returns:
         List[str]: The served name of every output, in order.
+
+    Raises:
+        ValueError: If the format is not one of EXPORT_FORMATS.
     """
+    check_export_format(export_format=export_format)
     if export_format == "torchscript":
         return [f"{output['name']}__{index}" for index, output in enumerate(specification["outputs"])]
     return [output["name"] for output in specification["outputs"]]
@@ -56,10 +83,19 @@ def write_triton_configuration(model_directory: Path, model_name: str, model_ver
             get_export_specification).
         maximum_batch_size (int): The largest batch size Triton may send to the model.
         tensorrt_precision (Optional[str]): 'FP16' or 'FP32' to accelerate the ONNX model with TensorRT, or None.
+
+    Raises:
+        ValueError: If the format is not one of EXPORT_FORMATS or the precision not one of TENSORRT_PRECISIONS, no
+            configuration being written.
     """
+    # A misspelled format or precision is refused instead of giving an ONNX model served without TensorRT
+    check_export_format(export_format=export_format)
+    if tensorrt_precision not in TENSORRT_PRECISIONS:
+        raise ValueError(f"Expected a TensorRT precision among {TENSORRT_PRECISIONS}, got {tensorrt_precision!r}.")
+
     # Backend of the format, the TorchScript outputs following the '<name>__<index>' naming convention of the Triton
     # PyTorch backend
-    platform = "pytorch_libtorch" if export_format == "torchscript" else "onnxruntime_onnx"
+    platform = EXPORT_PLATFORMS[export_format]
     output_names = get_served_output_names(export_format=export_format, specification=specification)
 
     # One line per input, in the order of the forward arguments of the model, whose names the inputs carry

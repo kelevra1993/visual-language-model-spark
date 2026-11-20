@@ -50,7 +50,7 @@ The check of a task refuses a value it cannot use. Every key not listed accepts 
 - `ClassificationHead.global_pooling`: `average`, `max` or `flatten`.
 - `ClassificationHead.output_mode`: `multi_label` for CLS only.
 - `TemporalModel.type`: `mean_pooling`, `max_pooling`, `attention_pooling`, `gru`, `lstm`, `transformer` or `temporal_convolution` for M2O and CMP; the last four only for M2M and SEL, which need one output per frame.
-- `TemporalModel.causal`: `True` for M2M and SEL only.
+- `TemporalModel.causal`: `True` for M2M and SEL only. In these tasks a causal module (`causal: True`, or a GRU or LSTM that is not bidirectional) refuses `Backbone.normalization.feature_map_normalization: "sequence"`, whose statistics come from the whole sequence.
 
 **Task rules**
 - DET: every level of `DetectionLevels` holds exactly `anchors`, `region_proposal` and `detector`. INS adds `mask_head`, whose `roi_align_pool_size` must not exceed `MaskHead.mask_resolution`, and `Data.instance_index_maps` (`True` or `False`): one uint8 map per image numbering its objects instead of one mask per object, expanded into the masks on the GPU; it needs run length encodings whose masks never overlap and at most 255 objects per image, an image breaking this stopping the loading (`True` in the synthetic configuration, `False` for COCO). The finer inputs of the mask heads, all off by default: `MaskHead.fusion_convolutions` and `MaskHead.image_branch_convolutions` are `[layers, channels]` of positive integers, or `[0, 0]` when unused; `MaskHead.skip_blocks_at_pool_size` and `skip_blocks_at_mask_resolution` list distinct backbone blocks from 0 (the normalized input image) to the last block, read before their pooling, block b at stride 2 ** (b - 1): every skip must be finer than the finest detection level (block 4 at most with levels 4 to 7), every skip at the mask resolution finer than every skip at the pool size, and no block listed in both; the image branch must be `[0, 0]` when `MaskHead.pretrained.experiment_folder` is set, the branch not being transferred with the mask heads. `Neck.type` is `none`, `feature_pyramid` or `path_aggregation`, `Neck.output_channels` a positive integer, and with a neck every level must be a whole multiple of the next coarser one (checked when the model is built). `Detector.box_loss` is `smooth_l1` or `complete_iou` (`BOX_LOSSES` of `vision_training/losses/detection_losses.py`), the region proposal network always using the smooth L1. `Detector.nms_criterion` is `iou` or `distance_iou` (`NMS_CRITERIA` of `vision_training/models/detection/postprocessing.py`) and `Detector.nms_distance_exponent` a finite positive number; neither enters the run name, the final NMS running in evaluation mode only. `RegionProposal.proposal_selection` is `joint` or `per_level` (`PROPOSAL_SELECTIONS` of `vision_training/models/detection/region_proposer.py`); `per_level` makes `pre_nms_proposals` a count per level and adds the `RPL` token.
@@ -245,18 +245,20 @@ The suffix starts a run of its own among runs of the same settings, and resuming
 
 **Example of every task**, the run name of its example configuration for DET, INS and KPT, and of its synthetic configuration for the other tasks
 
-| Task | Run name |
-|---|---|
-| DET | `DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567-NFPN64BN_A9.32-512.598295_RBN-R2x64-RPL_DSE-DRES-DBN-D7.2x64.256.128_BIN` |
-| INS | `INS_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512.598295_RBN-R2x64_DSE-DRES-DBN-D7.2x64.256.128_MRES-MBN-MUTC-M14.4x64-MR28_BIN` |
-| CLS | `CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC35` |
-| M2O | `M2O_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4` |
-| M2M | `M2M_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128_HAVG.64_MC71` |
-| CMP | `CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2` |
-| SEG | `SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC35` |
-| SEL | `SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1` |
-| SSL | `SSL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_PAVG.512.128-PBN_SIMCLR-T0.2` |
-| KPT | `KPT_IN-KAR-512_SE-RES-BN-B1x64.2x64.2x64_HRSE-HRRES-HRBN-HR32.1.4.3x4_K17-HH_MC1` |
+Each name is the one `build_run_name()` gives the configuration of its row (in `vision_training/configurations/`), the class count of a synthetic file being that of the label mapping `create_synthetic_dataset.py` writes.
+
+| Task | Configuration | Run name |
+|---|---|---|
+| DET | `object_detection/configuration_example.yaml` | `DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567-NFPN64BN_A9.32-512.598295_RBN-R2x64-RPL_DSE-DRES-DBN-D7.2x64.256.128_BIN` |
+| INS | `instance_segmentation/configuration_example.yaml` | `INS_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512.598295_RBN-R2x64_DSE-DRES-DBN-D7.2x64.256.128_MRES-MBN-MUTC-M14.4x64-MR28_BIN` |
+| CLS | `classification/configuration_synthetic_shapes.yaml` | `CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC35` |
+| M2O | `sequence_classification/configuration_synthetic_sequences.yaml` | `M2O_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4` |
+| M2M | `sequence_labelling/configuration_synthetic_sequences.yaml` | `M2M_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128_HAVG.64_MC71` |
+| CMP | `sequence_comparison/configuration_synthetic_pairs.yaml` | `CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2` |
+| SEG | `semantic_segmentation/configuration_synthetic_shapes.yaml` | `SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC35` |
+| SEL | `frame_selection/configuration_synthetic_sequences.yaml` | `SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1` |
+| SSL | `self_supervised/configuration_synthetic_shapes.yaml` | `SSL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_PAVG.512.128-PBN_SIMCLR-T0.2` |
+| KPT | `keypoint_detection/configuration_example.yaml` | `KPT_IN-KAR-512_SE-RES-BN-B1x64.2x64.2x64_HRSE-HRRES-HRBN-HR32.1.4.3x4_K17-HH_MC1` |
 
 ## MLflow Tracking
 With `ExperimentConfiguration.tracking.activated: True`, every run is recorded in `<experiment_folder>/mlflow.db`, its files in `<experiment_folder>/mlartifacts/`, next to TensorBoard and `Results.txt`.

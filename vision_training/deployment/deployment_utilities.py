@@ -1,11 +1,11 @@
 """
 Inference helpers of the deployment stage: preprocessing the images of the inference folder into the requests of the
-model of any task (the client restoring a predicted segmentation to its original image with
-data/preprocessing.py:restore_prediction_to_original_image, and grouping the keypoint candidates into objects with
-models/keypoints/keypoint_grouping.py:group_keypoint_candidates), loading the local inference model of a run (with the
-decoding settings of a frame selector, decoded after it like in the Triton ensembles), sending requests to Triton over
-gRPC (optionally through shared memory), and measuring the throughput of the local and served models. Used by
-deployment/run_inference.py.
+model of any task, a semantic segmentation run trained on tiles excepted (the client restoring a predicted segmentation
+to its original image with data/preprocessing.py:restore_prediction_to_original_image, and grouping the keypoint
+candidates into objects with models/keypoints/keypoint_grouping.py:group_keypoint_candidates), loading the local
+inference model of a run (with the decoding settings of a frame selector, decoded after it like in the Triton
+ensembles), sending requests to Triton over gRPC (optionally through shared memory), and measuring the throughput of
+the local and served models. Used by deployment/run_inference.py.
 """
 
 import os
@@ -34,16 +34,19 @@ from vision_training.configuration_processing.configuration_loader import load_e
 
 def load_inference_inputs(image_folder: Path, experiment_folder: Path) -> List[Dict[str, np.ndarray]]:
     """
-    Reads and preprocesses the images of the inference folder exactly like the data loaders (resize and centred
-    padding to the square network input), so that every deployed model receives the same kind of input as in
-    training, and turns them into the requests sent to the models of the run, keyed by input name: one image, or for
-    the sequence tasks the whole folder as one sequence, in the order of the image names. For the comparison, the
-    first half of the images is the before member and the second half the after member.
+    Reads and preprocesses the images of the inference folder like the data loaders of a run trained on whole images
+    (preprocess_image: resize and centred padding to the square network input), so that the throughput of
+    run_inference.py is measured on the input the deployed model receives, and turns them into the requests sent to
+    the models of the run, keyed by input name: one image, or for the sequence tasks the whole folder as one sequence,
+    in the order of the image names. For the comparison, the first half of the images is the before member and the
+    second half the after member. A semantic segmentation run trained on tiles (Data.tiling) is refused: its loaders
+    scale the image and cut tiles of the network size, a photo needing many requests of one tile, while this function
+    would squeeze the whole image into a single tile and overstate the Images Per Second.
 
     Args:
         image_folder (Path): The folder holding the images.
         experiment_folder (Path): The trained experiment, whose configuration gives the task, the input size, the
-            resizing mode and the maximum sequence length.
+            resizing mode, the tiling and the maximum sequence length.
 
     Returns:
         List[Dict[str, np.ndarray]]: One request per image of the folder, the float32 BGR batch in [0, 255] of every
@@ -52,12 +55,20 @@ def load_inference_inputs(image_folder: Path, experiment_folder: Path) -> List[D
             'before_images' and 'after_images' members for the comparison.
 
     Raises:
-        ValueError: If a sequence or a member is longer than the maximum sequence length of the training, or if the
-            folder holds less than two images for the comparison.
+        ValueError: If the run is a semantic segmentation trained on tiles, if a sequence or a member is longer than
+            the maximum sequence length of the training, or if the folder holds less than two images for the
+            comparison.
     """
     experiment_configuration, model_configuration = load_experiment_configuration(
         configuration_path=experiment_folder / "training_configuration.yaml")
     task = experiment_configuration["task"]
+
+    # A run trained on tiles is refused, its requests being tiles of the scaled image that no letterbox reproduces
+    if task == "semantic_segmentation" and model_configuration["Data"]["tiling"]["activated"]:
+        raise ValueError(f"The run {experiment_folder.name} was trained on tiles (Data.tiling.activated): its model "
+                         f"takes one tile of the image scaled by Data.tiling.scale, a photo needing many "
+                         f"(segment_image_by_tiles), and load_inference_inputs only letterboxes whole images. Time a "
+                         f"run trained without tiling.")
     image_size = model_configuration["Data"]["image_settings"]["size"]
     keep_ratio = model_configuration["Data"]["image_settings"]["keep_ratio"]
 

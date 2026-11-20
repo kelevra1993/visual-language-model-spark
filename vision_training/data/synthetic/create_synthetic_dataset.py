@@ -119,8 +119,10 @@ KEYPOINT_CATEGORIES = {**SHAPE_CATEGORIES, "stick_figure": len(SHAPE_CATEGORIES)
 # Keypoints of every category, in the order the drawing functions return them. The vertices of the regular polygons
 # and the tips of the star go clockwise from the top one, the vertices of each side numbered from the top. The left and
 # right of the shapes are those of the image, those of the stick figure its own: it faces the viewer, its left limbs on
-# the right of the image as in COCO. A horizontal flip swaps the keypoints whose names differ by left and right. The
-# circle, the annulus and the ellipse have no keypoints, distractors left out of the keypoint label mapping
+# the right of the image as in COCO. A flip or a rotation of the augmentation never renames a keypoint
+# (augmentations.py), so these names only hold on the upright shapes drawn here, and
+# keypoint_detection/configuration_synthetic_shapes.yaml keeps both flips off. The circle, the annulus and the ellipse
+# have no keypoints, distractors left out of the keypoint label mapping
 KEYPOINT_NAMES = {"square": ["top_left", "top_right", "bottom_right", "bottom_left"],
                   "circle": [],
                   "triangle": ["top", "bottom_left", "bottom_right"],
@@ -383,9 +385,10 @@ TASK_CATEGORIES = {"object_detection": SHAPE_CATEGORIES, "instance_segmentation"
 # generate_counted_shapes_image), so that the backbone they train can initialise the sequence labelling model
 COUNTED_SHAPES_TASKS = ["self_supervised", "multi_label_classification"]
 
-# Tasks whose model predicts a background class at index 0, so that the category identifiers numbered from 1 are their
-# class indices, the keypoint detection keeping the class indices of the detector that will give its boxes; the other
-# tasks predict their categories from class index 0
+# Tasks whose model predicts a background class at index 0 and whose images hold several objects: the category
+# identifiers numbered from 1 are the class indices of the detector and the segmenters, while the bottom-up keypoint
+# detector numbers its categories with keypoints from 1 again, the distractors without keypoints left out
+# (build_keypoint_label_mapping); the other tasks predict their categories from class index 0
 TASKS_WITH_BACKGROUND_CLASS = ["object_detection", "instance_segmentation", "semantic_segmentation",
                                "keypoint_detection"]
 SEQUENCE_TASKS = ["sequence_classification", "sequence_labelling", "sequence_comparison", "frame_selection"]

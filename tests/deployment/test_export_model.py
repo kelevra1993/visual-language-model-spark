@@ -6,7 +6,8 @@ folder of scripts/evaluation/evaluate_checkpoint.py (its 'EMA' subfolder for the
 when the Evaluation folder of the training holds them too, thresholds given by the export button of the page are
 accepted only from an evaluation of the exported checkpoint and weights in the run folder, and their temperature is
 read after checking them against the classes of the exported model. An export failing its check against the eager
-model leaves the served models of the repository unchanged, a checked one replacing them.
+model leaves the served models of the repository unchanged, a checked one replacing them. A misspelled format or
+TensorRT precision stops export_experiment before anything is read or written.
 """
 
 import json
@@ -20,7 +21,8 @@ from typing import Any, Dict, List
 from tests.deployment import test_input_contract
 from vision_training.deployment import export_model
 from vision_training.deployment.export_model import (STAGING_FOLDER_PREFIX, check_saved_thresholds_location,
-                                                     find_saved_thresholds_path, read_saved_temperature)
+                                                     export_experiment, find_saved_thresholds_path,
+                                                     read_saved_temperature)
 from vision_training.evaluation.classification.temperature_explorer import SAVED_THRESHOLDS_FILE_NAME
 from vision_training.trainers.checkpointing import get_checkpoint_file
 
@@ -231,6 +233,36 @@ def test_given_saved_thresholds_must_be_those_of_the_exported_checkpoint(tmp_pat
     else:
         with pytest.raises(expected_exception=ValueError, match="for the exported checkpoint"):
             check_saved_thresholds_location(**location_settings)
+
+
+@pytest.mark.parametrize(argnames=("export_settings", "expected_message"), argvalues=[
+    ({"formats": ["tensorrt"]}, "Expected distinct export formats"),
+    ({"formats": ["TorchScript", "onnx"]}, "Expected distinct export formats"),
+    ({"formats": []}, "Expected distinct export formats"),
+    ({"formats": ["onnx", "onnx"]}, "Expected distinct export formats"),
+    ({"tensorrt_precision": "fp16"}, "Expected a TensorRT precision"),
+    ({"tensorrt_precision": "INT8"}, "Expected a TensorRT precision")])
+def test_unknown_export_settings_stop_the_export_before_anything_is_read(tmp_path: Path,
+                                                                        export_settings: Dict[str, Any],
+                                                                        expected_message: str) -> None:
+    """
+    Verifies that export_experiment refuses a misspelled format, which would otherwise be exported as an ONNX model
+    served without its TensorRT setting, and a TensorRT precision Triton does not know, before it reads the run
+    (whose folder does not even exist here) or creates the model repository.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        export_settings (Dict[str, Any]): The settings replacing the valid ones of the export.
+        expected_message (str): The pattern of the expected error.
+    """
+    repository = tmp_path / "served_models"
+    with pytest.raises(expected_exception=ValueError, match=expected_message):
+        export_experiment(**{"experiment_folder": tmp_path / RUN_NAME, "iteration": EXPORTED_ITERATION,
+                             "use_averaged_weights": False, "formats": ["torchscript", "onnx"],
+                             "repository": repository, "model_version": 1, "maximum_batch_size": 4,
+                             "tensorrt_precision": "FP16", "use_saved_temperature": False,
+                             "saved_thresholds_path": None, **export_settings})
+    assert not repository.exists()
 
 
 @pytest.mark.skipif(condition=not torch.cuda.is_available(), reason="The export runs the model on the GPU.")

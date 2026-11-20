@@ -17,7 +17,7 @@ from vision_training.models.classification.classification_head import (Classific
                                                                        print_classification_head_summary)
 from vision_training.models.components.convolution_block import BATCH_NORMALIZATION_MOMENTUM
 from vision_training.models.sequence.frame_encoder import encode_frames
-from vision_training.models.sequence.member_fusion import MemberFusion
+from vision_training.models.sequence.member_fusion import SEQUENCE_NORMALIZATION_SCOPES, MemberFusion
 from vision_training.models.sequence.temporal_modules import build_temporal_module, print_sequence_module_summary
 from vision_training.models.task_model import TaskModel
 
@@ -52,6 +52,9 @@ class SequenceComparator(TaskModel):
                 settings, Backbone, TemporalModel, Fusion and ClassificationHead sections).
             device (torch.device): The device of the parameters.
             dtype (torch.dtype): The precision of the parameters.
+
+        Raises:
+            ValueError: If 'Fusion.sequence_normalization_scope' is not one of SEQUENCE_NORMALIZATION_SCOPES.
         """
         super(SequenceComparator, self).__init__()
         self.device = device
@@ -64,10 +67,14 @@ class SequenceComparator(TaskModel):
         self.number_classes = len(set(configuration["Data"]["label_dictionary"].values()))
         self.maximum_sequence_length = configuration["Data"]["sequence_settings"]["maximum_sequence_length"]
 
-        # Frames sharing the statistics of the sequence normalization of the backbone: each member, or each pair
+        # Frames sharing the statistics of the sequence normalization of the backbone: each member, or each pair, a
+        # misspelled scope stopping here instead of normalising every member alone
         self.sequence_normalization = (configuration["Backbone"]["normalization"]["feature_map_normalization"] ==
                                        "sequence")
         self.normalization_scope = self.fusion_configuration["sequence_normalization_scope"]
+        if self.normalization_scope not in SEQUENCE_NORMALIZATION_SCOPES:
+            raise ValueError(f"'Fusion.sequence_normalization_scope' must be one of {SEQUENCE_NORMALIZATION_SCOPES}, "
+                             f"got {self.normalization_scope!r}.")
 
         # Shared feature extractor applied to every frame of both members, and the pooling of its final feature map
         backbone_configuration = configuration["Backbone"]

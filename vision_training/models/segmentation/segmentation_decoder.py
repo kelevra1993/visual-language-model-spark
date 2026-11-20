@@ -10,6 +10,7 @@ import torch
 from torch import nn
 from typing import Any, Dict, List, Tuple
 
+from vision_training.configuration_processing.configuration_values import VALID_UPSAMPLINGS
 from vision_training.models.components.convolution_block import BATCH_NORMALIZATION_MOMENTUM, ConvolutionBlock
 
 
@@ -55,9 +56,18 @@ class SegmentationDecoder(nn.Module):
             last_max_pooling (bool): Whether the last backbone block ends with a max pooling.
             device (torch.device): The device of the parameters.
             dtype (torch.dtype): The precision of the parameters.
+
+        Raises:
+            ValueError: If 'upsampling' is not one of VALID_UPSAMPLINGS.
         """
         super(SegmentationDecoder, self).__init__()
+
+        # A misspelled upsampling reaching the decoder without the configuration checks stops here instead of being
+        # built as the bilinear one
         self.upsampling = decoder_configuration["upsampling"]
+        if self.upsampling not in VALID_UPSAMPLINGS:
+            raise ValueError(f"'SegmentationDecoder.upsampling' must be one of {VALID_UPSAMPLINGS}, got "
+                             f"{self.upsampling!r}.")
         self.feature_map_normalization = decoder_configuration["feature_map_normalization"]
         self.skip_block_numbers = compute_skip_block_numbers(number_blocks=len(block_channels),
                                                              last_max_pooling=last_max_pooling)
