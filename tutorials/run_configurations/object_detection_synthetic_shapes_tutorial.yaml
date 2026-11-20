@@ -313,7 +313,8 @@ RegionProposal:
   foreground_iou_threshold:
     # Minimum IoU of a positive foreground anchor.
     min: 0.5
-    # Maximum matching IoU (capped at 1.0).
+    # Not read by the anchor assignment (every anchor reaching min is foreground), only checked to lie within
+    # [min, 1.0]: keep 1.0.
     max: 1.0
   background_iou_threshold:
     # Minimum IoU of a strict background anchor: above 0.0 the anchors overlapping no object are ignored, only the

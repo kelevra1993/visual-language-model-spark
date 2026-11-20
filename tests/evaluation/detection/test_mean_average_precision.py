@@ -1,7 +1,7 @@
 """
 Tests of vision_training/evaluation/detection/mean_average_precision.py on a worked example and edge cases: the
 average precision of the worked example, the per-class average precisions and ground truths, wrong-class detections,
-the COCO-style mean over overlap thresholds, the score threshold of every class, the mask average precision of the
+the mean over the COCO overlap thresholds, the score threshold of every class, the mask average precision of the
 instance segmentation, the average precision of the small, medium and large objects, the mean average recall of all
 the objects and of every size, and the vectorised 101-point average precision against its level by level definition.
 """

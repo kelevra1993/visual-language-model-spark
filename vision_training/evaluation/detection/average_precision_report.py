@@ -62,7 +62,8 @@ def build_mean_average_precision_table(results: Dict[str, Dict[Any, Any]], title
     """
     Builds the table of the mean average precisions of an evaluated checkpoint, shown whatever the per-class report:
     one row per average precision method, with its mAP at an intersection over union of 0.5 (PASCAL VOC), 0.75, 0.95
-    and averaged over 0.5 to 0.95 (COCO), written as percentages.
+    and averaged over 0.5 to 0.95 (the thresholds of COCO, with the PASCAL VOC matching of mean_average_precision.py),
+    written as percentages.
 
     Args:
         results (Dict[str, Dict[Any, Any]]): The results of evaluate_detections, keyed by method.

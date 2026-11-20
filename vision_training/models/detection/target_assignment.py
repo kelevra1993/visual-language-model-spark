@@ -133,7 +133,8 @@ def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tenso
             [Num_GT, 4] ground truth boxes of that image in [x_min, y_min, x_max, y_max] format.
         batched_anchors (torch.Tensor): A tensor of shape [batch_size, number_of_anchors, 4].
         background_iou_threshold (Dict[str, float]): Dictionary defining 'min' and 'max' IoU thresholds for background.
-        foreground_iou_threshold (Dict[str, float]): Dictionary defining 'min' and 'max' IoU thresholds for foreground.
+        foreground_iou_threshold (Dict[str, float]): Dictionary of the foreground IoU range, of which only 'min' is
+            read: every anchor reaching it is foreground, 'max' being only checked by detection_checks.py.
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: A tuple containing:

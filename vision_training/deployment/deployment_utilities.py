@@ -1,11 +1,12 @@
 """
 Inference helpers of the deployment stage: preprocessing the images of the inference folder into the requests of the
-model of any task, a semantic segmentation run trained on tiles excepted (the client restoring a predicted segmentation
-to its original image with data/preprocessing.py:restore_prediction_to_original_image, and grouping the keypoint
-candidates into objects with models/keypoints/keypoint_grouping.py:group_keypoint_candidates), loading the local
-inference model of a run (with the decoding settings of a frame selector, decoded after it like in the Triton
-ensembles), sending requests to Triton over gRPC (optionally through shared memory), and measuring the throughput of
-the local and served models. Used by deployment/run_inference.py.
+model of any task, a semantic segmentation run trained on tiles excepted (a client of the exported models restoring a
+predicted segmentation to its original image with data/preprocessing.py:restore_prediction_to_original_image, and
+grouping the keypoint candidates into objects with models/keypoints/keypoint_grouping.py:group_keypoint_candidates,
+neither being called here, the throughput measures reading no prediction), loading the local inference model of a
+run (with the decoding settings of a frame selector, decoded after it like in the Triton ensembles), sending requests
+to Triton over gRPC (optionally through shared memory), and measuring the throughput of the local and served models.
+Used by deployment/run_inference.py.
 """
 
 import os

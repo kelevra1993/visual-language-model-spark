@@ -3,9 +3,10 @@ Mean average precision of the object detection, instance segmentation and keypoi
 detections to the ground truths by their boxes, their masks or their object keypoint similarity, precision-recall
 curves and average precision (area, 11 or 101 points) over the overlap thresholds, for all the objects and for the
 small, medium and large ones (object_sizes.py), the recall of all the detections at the same thresholds (mean average
-recall), and the score threshold of every class reaching a target precision at an overlap of 0.5. Used by the
-detection, instance segmentation and keypoint trainers to evaluate a checkpoint on the test split, whose report is
-built by average_precision_report.py.
+recall), and the score threshold of every class reaching a target precision at an overlap of 0.5. The thresholds 0.5 to
+0.95 are those of COCO, but the matching is the PASCAL VOC rule (match_detections_to_ground_truth), kept on purpose, so
+the mAP@[0.5:0.95] and the 101-point values are not those of pycocotools. Used by the detection, instance segmentation
+and keypoint trainers to evaluate a checkpoint on the test split, whose report is built by average_precision_report.py.
 """
 
 import torch
@@ -19,7 +20,8 @@ from vision_training.models.detection.box_operations import get_intersection_ove
 # Methods computing the average precision from a precision-recall curve
 AVERAGE_PRECISION_METHODS = ["area", "11_point", "101_point"]
 
-# Intersection over union thresholds of the COCO-style mAP@[0.5:0.95], from 0.50 to 0.95 in steps of 0.05
+# Intersection over union thresholds of the mAP@[0.5:0.95], those of COCO from 0.50 to 0.95 in steps of 0.05, at which
+# the detections are matched with the PASCAL VOC rule (match_detections_to_ground_truth)
 INTERSECTION_OVER_UNION_THRESHOLDS = [round(0.5 + 0.05 * index, 2) for index in range(10)]
 
 # Overlaps comparing a detection with a ground truth: their boxes, their masks (instance segmentation), or the object
@@ -78,7 +80,9 @@ def match_detections_to_ground_truth(detection_image_indices: torch.Tensor, best
     Marks every detection of a class as a true or false positive, going through the detections from the most to the
     least confident. A detection is a true positive when its best ground truth overlaps it by at least the threshold
     and was not already taken by a more confident detection, otherwise it is a false positive (PASCAL VOC rule:
-    a detection whose best ground truth is already matched is a false positive, even if another one overlaps it).
+    a detection whose best ground truth is already matched is a false positive, even if another one overlaps it). The
+    COCO evaluation (pycocotools) instead gives such a detection the best ground truth not taken yet that still reaches
+    the threshold; this VOC rule is kept on purpose at every threshold, the COCO thresholds of mAP@[0.5:0.95] included.
 
     Args:
         detection_image_indices (torch.Tensor): The [D] image index of every detection, sorted by decreasing score.
@@ -129,7 +133,8 @@ def compute_average_precision(precisions: torch.Tensor, recalls: torch.Tensor, m
     """
     Summarises the precision-recall curve of a class into its average precision, with one of the three usual
     definitions: the area under the curve ('area', PASCAL VOC 2010 and later), or the mean of the interpolated
-    precision at 11 ('11_point', PASCAL VOC 2007) or 101 ('101_point', COCO) equally spaced recall levels.
+    precision at 11 ('11_point', PASCAL VOC 2007) or 101 ('101_point', the interpolation of COCO) equally spaced
+    recall levels, the curve coming from the PASCAL VOC matching whatever the method.
 
     Args:
         precisions (torch.Tensor): The [D] precisions, from compute_precision_recall.
@@ -292,10 +297,11 @@ def select_object_size_detections(gathered: Dict[str, Any], true_positive_flags:
                                   intersection_over_union_threshold: float,
                                   object_size: str) -> Tuple[torch.Tensor, int]:
     """
-    Keeps the detections of a class that count for the average precision of one object size, with the COCO rule: the
-    ground truths of the other sizes are ignored, and so are the detections matched to them (their best ground truth
-    overlapping them by at least the threshold) and the unmatched detections whose own area is of another size. A
-    detection whose best ground truth of the size was already taken stays a false positive, as without sizes.
+    Keeps the detections of a class that count for the average precision of one object size, with the area rule of
+    COCO on the PASCAL VOC matching: the ground truths of the other sizes are ignored, and so are the detections
+    matched to them (their best ground truth overlapping them by at least the threshold) and the unmatched detections
+    whose own area is of another size. A detection whose best ground truth of the size was already taken stays a false
+    positive, as without sizes.
 
     Args:
         gathered (Dict[str, Any]): The gathered detections of the class, from gather_class_detections.
@@ -401,8 +407,9 @@ def summarise_thresholds(threshold_results: Dict[float, Dict[str, Any]]) -> Dict
     """
     Summarises the average precisions of one method and the recalls of all the detections at the ten intersection
     over union thresholds, for all the objects or for the objects of one size: the mAP and the mAR at 0.5, at 0.75, at
-    0.95 and their COCO-style mean over the ten thresholds, and the same four values for every class with ground truth
-    (the same classes have ground truth at every threshold). The recalls do not depend on the method.
+    0.95 and their mean over the ten thresholds of COCO (with the PASCAL VOC matching), and the same four values for
+    every class with ground truth (the same classes have ground truth at every threshold). The recalls do not depend
+    on the method.
 
     Args:
         threshold_results (Dict[float, Dict[str, Any]]): The results of compute_mean_average_precision at every
@@ -439,9 +446,10 @@ def evaluate_detections(detections: List[Dict[str, torch.Tensor]], ground_truths
     """
     Evaluates the detections of a whole test split, as reported by the Trainer at every evaluated checkpoint: with
     every average precision method, the mAP at an intersection over union of 0.5 (PASCAL VOC), at 0.75, at 0.95, and
-    averaged over the thresholds 0.5 to 0.95 (COCO), plus the average precision of every class at the same thresholds
-    and the number of ground truth boxes of every class, for the per-class report, and the same values for the small,
-    medium and large objects (COCO sizes, see select_object_size_detections), each with the recall of all the
+    averaged over the thresholds 0.5 to 0.95 (those of COCO, every threshold matched with the PASCAL VOC rule of
+    match_detections_to_ground_truth), plus the average precision of every class at the same thresholds and the
+    number of ground truth boxes of every class, for the per-class report, and the same values for the small, medium
+    and large objects (COCO sizes, see select_object_size_detections), each with the recall of all the
     detections at the same thresholds, the mean average recall (the same for every method). The detections are
     compared with the ground truths by their boxes, by their masks for the mask AP of the instance segmentation, or by
     the object keypoint similarity of their keypoints for the keypoint detection, in place of the intersection over
