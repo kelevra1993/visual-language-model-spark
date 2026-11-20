@@ -106,8 +106,7 @@ class SegmentationTrainer(BaseTrainer):
                 built) and test loaders.
         """
         loaders = get_segmentation_dataloaders(experiment_configuration=self.experiment_configuration,
-                                               model_configuration=self.model_configuration,
-                                               batch_size=self.batch_size,
+                                               model_configuration=self.model_configuration, batch_size=self.batch_size,
                                                build_validation_loader=self.builds_validation_loader)
         training_dataset = loaders[0].dataset
         self.class_names = [training_dataset.class_names[class_index]
@@ -546,9 +545,8 @@ class SegmentationTrainer(BaseTrainer):
         class_rows = build_segmentation_class_rows(class_names=self.class_names, metrics=metrics,
                                                    class_curves=class_curves)
         files = {"Class Metrics": write_class_metrics_file(class_rows=class_rows, evaluation_folder=evaluation_folder),
-                 "Confusion Matrix Table": save_confusion_matrix_table(confusion_matrix=confusion_matrix,
-                                                                       class_names=self.class_names,
-                                                                       output_folder=evaluation_folder)}
+                 "Confusion Matrix Table": save_confusion_matrix_table(
+                     confusion_matrix=confusion_matrix, class_names=self.class_names, output_folder=evaluation_folder)}
 
         # Confusion matrix image of the per-class report, saved and logged to TensorBoard, its mean IoU, pixel accuracy
         # and shares written as percentages

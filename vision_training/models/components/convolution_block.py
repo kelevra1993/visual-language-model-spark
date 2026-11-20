@@ -371,8 +371,7 @@ class ConvolutionBlock(nn.Module):
         # Normalize and activate the output of the pre-activation layers, which ends with a convolution or a sum
         if self.pre_activation:
             if self.output_normalization is not None:
-                current_tensor = self.apply_layer_module(module=self.output_normalization,
-                                                         input_tensor=current_tensor,
+                current_tensor = self.apply_layer_module(module=self.output_normalization, input_tensor=current_tensor,
                                                          sequence_grouping=sequence_grouping)
             current_tensor = self.output_activation(current_tensor)
 

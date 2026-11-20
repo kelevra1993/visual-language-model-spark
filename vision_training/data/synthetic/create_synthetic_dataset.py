@@ -1868,6 +1868,9 @@ def place_shape(image: np.ndarray, shape_descriptor: Dict[str, Any], placed_boxe
             top = int(round(shape_centre[1] - (shape_box[1] + shape_box[3]) / 2))
             if not (-margin_x <= left <= largest_left and -margin_y <= top <= largest_top):
                 continue
+
+        # Box of the shape at that position, clipped to the image, rejected when empty, overlapping a placed box too
+        # much or the neighbour box too little
         box = [left + shape_box[0], top + shape_box[1], left + shape_box[2], top + shape_box[3]]
         clipped_box = [max(0, box[0]), max(0, box[1]), min(image_width, box[2]), min(image_height, box[3])]
         if clipped_box[2] <= clipped_box[0] or clipped_box[3] <= clipped_box[1]:
@@ -3087,26 +3090,23 @@ def generate_sequence_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
             sequence_labels = {"category_id": category_identifier}
         elif chunk["task"] == "sequence_classification":
             # A shape crossing the frames, the sequence labelled with its direction
-            frames, category_identifier = generate_moving_shape_sequence(image_size=chunk["image_size"],
-                                                                         number_frames=number_frames,
-                                                                         random_generator=random_generator)
+            frames, category_identifier = generate_moving_shape_sequence(
+                image_size=chunk["image_size"], number_frames=number_frames, random_generator=random_generator)
             sequence_frames = {"frames": save_frames(data_folder=chunk["data_folder"], frame_folder=sequence_name,
                                                      frames=frames)}
             sequence_labels = {"category_id": category_identifier}
         elif chunk["task"] == "frame_selection":
             # Shapes of several sizes, the largest copy of every wanted shape labelled as the frame to select
-            frames, frame_category_ids = generate_selection_sequence(image_size=chunk["image_size"],
-                                                                     number_frames=number_frames,
-                                                                     random_generator=random_generator)
+            frames, frame_category_ids = generate_selection_sequence(
+                image_size=chunk["image_size"], number_frames=number_frames, random_generator=random_generator)
             sequence_frames = {"frames": save_frames(data_folder=chunk["data_folder"], frame_folder=sequence_name,
                                                      frames=frames)}
             sequence_labels = {"frame_category_ids": frame_category_ids}
         else:
             # Shapes appearing and disappearing, every frame labelled
-            frames, frame_category_ids = generate_shape_change_sequence(image_size=chunk["image_size"],
-                                                                        number_frames=number_frames,
-                                                                        maximum_objects=chunk["maximum_objects"],
-                                                                        random_generator=random_generator)
+            frames, frame_category_ids = generate_shape_change_sequence(
+                image_size=chunk["image_size"], number_frames=number_frames, maximum_objects=chunk["maximum_objects"],
+                random_generator=random_generator)
             sequence_frames = {"frames": save_frames(data_folder=chunk["data_folder"], frame_folder=sequence_name,
                                                      frames=frames)}
             sequence_labels = {"frame_category_ids": frame_category_ids}
@@ -3219,6 +3219,9 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
         masks_folder = os.path.join(split_folder, "masks") if task == "semantic_segmentation" else None
         if masks_folder is not None:
             os.makedirs(name=masks_folder, exist_ok=True)
+
+        # Every chunk carries the settings of the task that generate_image_chunk reads, then the worker processes
+        # generate the chunks
         chunks = [{"data_folder": data_folder, "masks_folder": masks_folder, "split_name": split_name,
                    "first_index": first_index, "number_images": min(IMAGES_PER_TASK, number_samples - first_index),
                    "image_size": image_size,

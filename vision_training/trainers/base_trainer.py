@@ -1484,9 +1484,8 @@ class BaseTrainer(ABC):
             "changed_settings"])) or (self.data_record_changes is not None and bool(self.data_record_changes[
                 "changed_splits"])))
         input_samples_folder = self.experiment_folder / INPUT_SAMPLES_FOLDER_NAME
-        writes_samples, archived_folder = prepare_input_samples_folder(run_folder=self.experiment_folder,
-                                                                       resumed_iteration=resumed_iteration,
-                                                                       launch_changed=launch_changed)
+        writes_samples, archived_folder = prepare_input_samples_folder(
+            run_folder=self.experiment_folder, resumed_iteration=resumed_iteration, launch_changed=launch_changed)
         if not writes_samples:
             print_color(color="blue", output=f"- Input Samples           : "
                                              f"{format_path_link(path=input_samples_folder)} (kept, configuration "
@@ -1506,6 +1505,8 @@ class BaseTrainer(ABC):
                     print_color(color="blue", output=f"- Input Samples           : No {split_name} Images, "
                                                      f"'validation_iteration_ratio' Is 0 (No Validation Loader)")
                     continue
+
+                # A split failing to draw prints its traceback and is recorded with its error, the training going on
                 try:
                     split_records[split_name], split_sample_records = self.draw_input_split(
                         split_name=split_name, dataloader=dataloader, split_folder=input_samples_folder / split_name)
@@ -1894,6 +1895,8 @@ class BaseTrainer(ABC):
         """
         row = {"label": inference_format["name"], "precision": inference_format["precision"], "batch_size": batch_size,
                "measurement": None, "status": MEASURED_STATUS, "frames_per_batch": None}
+
+        # Batch tiled to the batch size and prepared, and inference inputs built once, before the timed passes
         try:
             tiled_batch = self.tile_benchmark_batch(stored_batch=stored_batch, batch_size=batch_size)
             row["frames_per_batch"] = self.count_benchmark_frames(batch=tiled_batch)
@@ -1951,6 +1954,8 @@ class BaseTrainer(ABC):
         for label, batch_size in measured_batches:
             row = {"label": label, "precision": "BF16", "batch_size": batch_size, "measurement": None,
                    "status": OUT_OF_MEMORY_STATUS, "frames_per_batch": None}
+
+            # A batch size above the largest one found keeps its out of memory row, the others are timed
             if batch_size <= largest_batch_size:
                 batch = self.tile_benchmark_batch(stored_batch=stored_batch, batch_size=batch_size)
                 row["frames_per_batch"] = self.count_benchmark_frames(batch=batch)
@@ -2362,8 +2367,7 @@ class BaseTrainer(ABC):
                 consecutive_errors = 0
 
             except KeyboardInterrupt:
-                print_color(color="red",
-                            output=f"Training Interrupted by User at iteration {training_iteration}.",
+                print_color(color="red", output=f"Training Interrupted by User at iteration {training_iteration}.",
                             add_separators=True)
                 stopped_status = KILLED_STATUS
                 break

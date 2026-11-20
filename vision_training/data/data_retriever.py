@@ -43,12 +43,8 @@ def retrieve_dataset(dataset_name: Literal["open-images-v7", "coco-2017"], datas
     # Dynamically allocate 80% of CPU cores for multithreaded downloading to keep the system responsive
     number_of_workers = int(0.8 * multiprocessing.cpu_count())
 
-    dataset = foz.load_zoo_dataset(name_or_url=dataset_name,
-                                   splits=splits,
-                                   label_types=label_types,
-                                   max_samples=maximum_samples,
-                                   num_workers=number_of_workers,
-                                   persistent=True)
+    dataset = foz.load_zoo_dataset(name_or_url=dataset_name, splits=splits, label_types=label_types,
+                                   max_samples=maximum_samples, num_workers=number_of_workers, persistent=True)
 
     return dataset
 
@@ -65,6 +61,4 @@ if __name__ == "__main__":
       
     """
     base_folder = str(Path(__file__).absolute().parents[2] / "datasets")
-    retrieve_dataset(dataset_name="coco-2017",
-                     dataset_directory=base_folder,
-                     maximum_samples=1000)
+    retrieve_dataset(dataset_name="coco-2017", dataset_directory=base_folder, maximum_samples=1000)

@@ -130,11 +130,10 @@ class ClassificationTrainer(BaseTrainer):
             Tuple[Iterable, Optional[Iterable], Iterable]: The training, validation (None when it is not
                 built) and test loaders.
         """
-        loaders = get_classification_dataloaders(experiment_configuration=self.experiment_configuration,
-                                                 model_configuration=self.model_configuration,
-                                                 batch_size=self.batch_size,
-                                                 drop_last_training_batch=self.drops_last_training_batch(),
-                                                 build_validation_loader=self.builds_validation_loader)
+        loaders = get_classification_dataloaders(
+            experiment_configuration=self.experiment_configuration, model_configuration=self.model_configuration,
+            batch_size=self.batch_size, drop_last_training_batch=self.drops_last_training_batch(),
+            build_validation_loader=self.builds_validation_loader)
         training_dataset = loaders[0].dataset
         self.class_names = [training_dataset.class_names[class_index]
                             for class_index in range(training_dataset.number_classes)]
@@ -458,10 +457,9 @@ class ClassificationTrainer(BaseTrainer):
             prediction_text = f"{self.get_label_caption(label=label)} -> {predicted_classes_text}"
 
         # Input of the sample captioned with its prediction, in green when right and in red when wrong
-        return add_caption_bar(image=self.build_input_image(batch=batch, sample_index=sample_index),
-                               caption=prediction_text,
-                               caption_colour=CORRECT_PREDICTION_COLOUR if correct_prediction else
-                               WRONG_PREDICTION_COLOUR)
+        return add_caption_bar(
+            image=self.build_input_image(batch=batch, sample_index=sample_index), caption=prediction_text,
+            caption_colour=CORRECT_PREDICTION_COLOUR if correct_prediction else WRONG_PREDICTION_COLOUR)
 
     def describe_evaluated_samples(self, accumulator: Dict[str, Any]) -> str:
         """
@@ -645,15 +643,13 @@ class ClassificationTrainer(BaseTrainer):
             headline_metrics = {"Accuracy": metrics["accuracy"], "Balanced Accuracy": metrics["balanced_accuracy"],
                                 "Macro F1": metrics["macro_f1"],
                                 f"Top-{self.top_k} Accuracy": compute_top_k_accuracy(probabilities=probabilities,
-                                                                                     labels=labels,
-                                                                                     top_k=self.top_k)}
+                                                                                     labels=labels, top_k=self.top_k)}
             # One-hot positives for the class thresholds, set as booleans without the int64 one-hot table, and the
             # confusion matrix saved as a table (its non-zero cells in 'confusion_cells.csv' when sparse)
             positive_masks = build_positive_masks(labels=labels, output_mode=self.output_mode,
                                                   number_classes=number_classes)
-            files["Confusion Matrix Table"] = save_confusion_matrix_table(confusion_matrix=confusion_matrix,
-                                                                          class_names=self.class_names,
-                                                                          output_folder=evaluation_folder)
+            files["Confusion Matrix Table"] = save_confusion_matrix_table(
+                confusion_matrix=confusion_matrix, class_names=self.class_names, output_folder=evaluation_folder)
             support_column = self.CLASS_SUPPORT_COLUMN
         else:
             # Several classes per sample: the metrics of the class decisions at the multi-label threshold

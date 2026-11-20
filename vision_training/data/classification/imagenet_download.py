@@ -296,9 +296,8 @@ def download_imagenet_22k_shards(dataset_path: Path, minimum_free_gigabytes: flo
     records_folder.mkdir(parents=True, exist_ok=True)
 
     # Shards of the pinned revision without records
-    shard_file_names = sorted(file_name for file_name in HfApi().list_repo_files(repo_id=IMAGENET_22K_REPOSITORY,
-                                                                                 repo_type="dataset",
-                                                                                 revision=IMAGENET_22K_REVISION)
+    shard_file_names = sorted(file_name for file_name in HfApi().list_repo_files(
+                                  repo_id=IMAGENET_22K_REPOSITORY, repo_type="dataset", revision=IMAGENET_22K_REVISION)
                               if file_name.startswith(SHARD_PREFIXES) and file_name.endswith(".tar"))
     task_arguments = [{"shard_file_name": file_name, "downloads_folder": dataset_path / "shard_downloads",
                        "images_folder": dataset_path / "images",

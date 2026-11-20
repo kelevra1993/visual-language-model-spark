@@ -212,12 +212,9 @@ class RegionProposal(nn.Module):
         self.feature_map_normalization = feature_map_normalization
 
         # Get particular anchors for this region proposal
-        self.region_proposal_anchor_object = Anchors(scales=self.scales,
-                                                     aspect_ratios=self.aspect_ratios,
-                                                     input_image_size=input_image_size,
-                                                     feature_map_size=feature_map_size,
-                                                     dtype=self.dtype,
-                                                     device=self.device)
+        self.region_proposal_anchor_object = Anchors(
+            scales=self.scales, aspect_ratios=self.aspect_ratios, input_image_size=input_image_size,
+            feature_map_size=feature_map_size, dtype=self.dtype, device=self.device)
 
         self.number_anchors_per_location = self.region_proposal_anchor_object.number_anchors_per_location
 

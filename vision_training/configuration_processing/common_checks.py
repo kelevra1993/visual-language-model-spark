@@ -43,8 +43,8 @@ VALID_LEARNING_RATE_SCHEDULES = ["constant", "cosine"]
 # settings 'independent_frames' and 'shuffle_frames'
 SEQUENCE_TASKS = ["sequence_classification", "sequence_labelling", "sequence_comparison", "frame_selection"]
 
-# Batch normalization momentums removed from the configuration files, every component using BATCH_NORMALIZATION_MOMENTUM,
-# by the path of the setting with the name of its component in the messages
+# Batch normalization momentums removed from the configuration files, every component using
+# BATCH_NORMALIZATION_MOMENTUM, by the path of the setting with the name of its component in the messages
 FIXED_MOMENTUM_COMPONENTS = {"Backbone.normalization.batch_normalization_momentum": "backbone",
                              "ClassificationHead.batch_normalization_momentum": "classification head",
                              "RegionProposal.normalization.batch_normalization_momentum": "region proposal heads",

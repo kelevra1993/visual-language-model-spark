@@ -578,9 +578,8 @@ class DetectionTrainer(CocoSplitTrainer):
         # Confusion matrix with its background row and column, the image only with the per-class report
         confusion_matrix = accumulator["confusion_matrix"]
         class_names = [self.class_names[class_index] for class_index in range(len(self.class_names))]
-        files["Confusion Matrix Table"] = save_confusion_matrix_table(confusion_matrix=confusion_matrix,
-                                                                      class_names=class_names,
-                                                                      output_folder=evaluation_folder)
+        files["Confusion Matrix Table"] = save_confusion_matrix_table(
+            confusion_matrix=confusion_matrix, class_names=class_names, output_folder=evaluation_folder)
         if self.per_class_report:
             files["Confusion Matrix Image"], images["Confusion Matrix"] = save_confusion_matrix_image(
                 confusion_matrix=confusion_matrix, class_names=class_names, output_folder=evaluation_folder,

@@ -309,10 +309,9 @@ class KeypointTrainer(CocoSplitTrainer):
             detections=image_evaluation["detections"], ground_truths=image_evaluation["ground_truths"],
             number_classes=len(self.class_names), class_names=self.class_names, overlap_type="keypoints",
             title_prefix="OKS", name_prefix="OKS ", column_prefix="oks_")
-        accuracy_summary = summarise_keypoint_accuracy(objects=image_evaluation["objects"],
-                                                       sigma_table=self.sigma_table,
-                                                       keypoint_categories=self.keypoint_categories,
-                                                       class_names=self.class_names)
+        accuracy_summary = summarise_keypoint_accuracy(
+            objects=image_evaluation["objects"], sigma_table=self.sigma_table,
+            keypoint_categories=self.keypoint_categories, class_names=self.class_names)
 
         # Average precisions and keypoint accuracy of every class in one row per class, then the keypoint rows, saved
         # whatever the per-class report

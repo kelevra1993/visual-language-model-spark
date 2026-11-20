@@ -142,9 +142,8 @@ class SequenceLabellingTrainer(SequenceClassificationTrainer):
                 continue
 
             # Frame grid of the sequence, built once, every real frame captioned with its true and predicted classes
-            frame_captions = self.build_frame_prediction_captions(frame_labels=frame_labels,
-                                                                  predicted_labels=predicted_labels,
-                                                                  number_real_frames=number_real_frames)
+            frame_captions = self.build_frame_prediction_captions(
+                frame_labels=frame_labels, predicted_labels=predicted_labels, number_real_frames=number_real_frames)
             frame_grid = None
             sequence_identifier = int(batch[SAMPLE_IDENTIFIERS_KEY][sample_index])
             sequence_name = test_dataset.get_sample_name(sample_identifier=sequence_identifier)
@@ -217,9 +216,8 @@ class SequenceLabellingTrainer(SequenceClassificationTrainer):
                                     for frame_index in labelled_frames)
 
         # Frame grid with the classes of every frame, under the caption of the sequence
-        frame_captions = self.build_frame_prediction_captions(frame_labels=frame_labels,
-                                                              predicted_labels=predicted_labels,
-                                                              number_real_frames=number_real_frames)
+        frame_captions = self.build_frame_prediction_captions(
+            frame_labels=frame_labels, predicted_labels=predicted_labels, number_real_frames=number_real_frames)
         frame_grid = convert_image_to_array(image=build_frame_grid(
             frames=batch["images"][sample_index], sequence_mask=sequence_mask, frame_captions=frame_captions,
             number_columns=FRAME_GRID_COLUMNS))

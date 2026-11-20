@@ -390,9 +390,8 @@ def compute_temperature_thresholds(class_logits_record: Dict[str, Any], logit_te
         Dict[str, Any]: The thresholds of every class at the temperature.
     """
     class_logits = class_logits_record["class_logits"]
-    probabilities = compute_temperature_probabilities(class_logits=class_logits,
-                                                      output_mode=class_logits_record["output_mode"],
-                                                      logit_temperature=logit_temperature)
+    probabilities = compute_temperature_probabilities(
+        class_logits=class_logits, output_mode=class_logits_record["output_mode"], logit_temperature=logit_temperature)
     positive_masks = build_positive_masks(labels=class_logits_record["labels"],
                                           output_mode=class_logits_record["output_mode"],
                                           number_classes=class_logits.shape[1])
@@ -447,9 +446,8 @@ def compute_score_ranges(class_logits_record: Dict[str, Any], shown_class_indice
             page, one count per range (len(cut_points) + 1), adding up to the images of the class.
     """
     class_logits = class_logits_record["class_logits"]
-    probabilities = compute_temperature_probabilities(class_logits=class_logits,
-                                                      output_mode=class_logits_record["output_mode"],
-                                                      logit_temperature=logit_temperature)
+    probabilities = compute_temperature_probabilities(
+        class_logits=class_logits, output_mode=class_logits_record["output_mode"], logit_temperature=logit_temperature)
     positive_masks = build_positive_masks(labels=class_logits_record["labels"],
                                           output_mode=class_logits_record["output_mode"],
                                           number_classes=class_logits.shape[1])
