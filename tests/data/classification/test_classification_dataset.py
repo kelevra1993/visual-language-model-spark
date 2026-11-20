@@ -76,25 +76,31 @@ def test_multi_class_manifest_loading(tmp_path: Path) -> None:
 def test_multi_label_manifest_loading(tmp_path: Path) -> None:
     """
     Verifies that the dataset reads a multi-label manifest: every sample gets the multi-hot vector of its mapped
-    categories, a sample without any mapped category being kept as a negative of every class, without any class among
-    the classes of the samples.
+    categories, its unmapped ones being ignored, two categories merged into one class giving that class once, in the
+    class counts too, a sample whose categories are all unmapped being left out and counted for the report of the
+    loaders, and a sample listing no category being kept as a negative of every class.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
     """
-    categories = [{"id": 1, "name": "red"}, {"id": 2, "name": "round"}, {"id": 3, "name": "large"}]
-    samples = [{"id": 1, "file_name": "a.png", "category_ids": [1, 2]}, {"id": 2, "file_name": "b.png",
-                                                                         "category_ids": [3]}]
+    categories = [{"id": 1, "name": "red"}, {"id": 2, "name": "round"}, {"id": 3, "name": "large"},
+                  {"id": 4, "name": "circular"}]
+    samples = [{"id": 1, "file_name": "a.png", "category_ids": [1, 2]},
+               {"id": 2, "file_name": "b.png", "category_ids": [3]},
+               {"id": 3, "file_name": "c.png", "category_ids": [2, 4, 3]},
+               {"id": 4, "file_name": "d.png", "category_ids": []}]
     write_split(split_folder=tmp_path, categories=categories, samples=samples)
 
+    # Round and circular are merged into class 1, large is not mapped
     dataset = ClassificationDataset(data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"),
-                                    image_size=32, keep_ratio=False, label_dictionary={1: 0, 2: 1},
+                                    image_size=32, keep_ratio=False, label_dictionary={1: 0, 2: 1, 4: 1},
                                     output_mode="multi_label", shuffle=False)
-    assert len(dataset) == 2
+    assert len(dataset) == 3 and dataset.number_unlabelled_samples == 1
     assert dataset[0]["labels"].tolist() == [1.0, 1.0] and dataset[0]["labels"].dtype == torch.float32
-    assert dataset[1]["labels"].tolist() == [0.0, 0.0]
-    assert dataset.get_class_counts() == [1, 1]
-    assert dataset.get_sample_class_indices() == {1: [0, 1], 2: []}
+    assert dataset[1]["labels"].tolist() == [0.0, 1.0]
+    assert dataset[2]["labels"].tolist() == [0.0, 0.0]
+    assert dataset.get_class_counts() == [1, 2]
+    assert dataset.get_sample_class_indices() == {1: [0, 1], 3: [1], 4: []}
 
 
 def test_unlabelled_samples_are_kept_for_the_self_supervised_task(tmp_path: Path) -> None:
