@@ -200,3 +200,16 @@ def test_sequence_normalization_scope_of_the_pairs(normalization_scope: str, mem
         mask_free_probabilities = model(before_images=before_images[:, :3],
                                         after_images=after_images[:, :2])["class_probabilities"]
     assert torch.allclose(input=mask_free_probabilities, other=masked_probabilities, atol=1e-9)
+
+
+def test_unknown_sequence_normalization_scope_is_refused() -> None:
+    """
+    Verifies that a misspelled scope of the sequence normalization reaching the comparison model without the
+    configuration checks stops with the list of the valid scopes, instead of normalising every member alone.
+    """
+    configuration, device, dtype = get_sequence_comparison_model_configuration(temporal_type="mean_pooling",
+                                                                               fusion_type="difference")
+    configuration["Fusion"]["sequence_normalization_scope"] = "pairs"
+    with pytest.raises(expected_exception=ValueError,
+                       match="'Fusion.sequence_normalization_scope' must be one of .* got 'pairs'"):
+        SequenceComparator(configuration=configuration, device=device, dtype=dtype)
