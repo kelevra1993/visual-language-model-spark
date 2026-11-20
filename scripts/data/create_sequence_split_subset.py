@@ -58,8 +58,8 @@ def create_sequence_split_subset(source_split_folder: Path, output_split_folder:
 
 if __name__ == "__main__":
     # Split drawn from and folder of the subset, next to it
-    source_split_folder = Path("/home/robert_kelevra/Data/sequence_data/synthetic_changing_shapes/test")
-    output_split_folder = Path("/home/robert_kelevra/Data/sequence_data/synthetic_changing_shapes/test_10000")
+    source_split_folder = Path.home() / "Data" / "sequence_data" / "synthetic_changing_shapes" / "test"
+    output_split_folder = Path.home() / "Data" / "sequence_data" / "synthetic_changing_shapes" / "test_10000"
     # Size of the subset and seed of the draw, the same seed giving the same sequences
     number_sequences = 10000
     seed = 0

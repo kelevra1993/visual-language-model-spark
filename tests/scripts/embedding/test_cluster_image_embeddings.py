@@ -448,15 +448,15 @@ def test_kept_images_table_writes_its_shares_as_percentages() -> None:
     that the whole table fits in the width of the console next to the longest layer names (fully_connected_1).
     """
     category_summaries = [
-        {"layer": "fully_connected_1", "category": "empty_bin", "initial_images": 11772, "image_clusters": 54,
+        {"layer": "fully_connected_1", "category": "circle", "initial_images": 11772, "image_clusters": 54,
          "isolated_images": 1083, "kept_representatives": 271, "kept_isolated_images": 1083, "kept_images": 1354},
-        {"layer": "fully_connected_1", "category": "not_empty", "initial_images": 31805, "image_clusters": 254,
+        {"layer": "fully_connected_1", "category": "square", "initial_images": 31805, "image_clusters": 254,
          "isolated_images": 2894, "kept_representatives": 1282, "kept_isolated_images": 2894, "kept_images": 4176}]
     table = build_kept_images_table(source={"name": "videos-dataset-train", "roles": ["train"]},
                                     clustering_name="hdbscan_pca200", category_summaries=category_summaries)
     assert table["rows"] == [
-        ["fully_connected_1", "empty_bin", "11,772", "54", "1,083", "9.20 %", "271", "1,083", "1,354", "11.50 %"],
-        ["fully_connected_1", "not_empty", "31,805", "254", "2,894", "9.10 %", "1,282", "2,894", "4,176", "13.13 %"],
+        ["fully_connected_1", "circle", "11,772", "54", "1,083", "9.20 %", "271", "1,083", "1,354", "11.50 %"],
+        ["fully_connected_1", "square", "31,805", "254", "2,894", "9.10 %", "1,282", "2,894", "4,176", "13.13 %"],
         ["fully_connected_1", TOTAL_CATEGORY, "43,577", "308", "3,977", "9.13 %", "1,553", "3,977", "5,530", "12.69 %"]]
 
     # Every share and layer name whole in the rendered table, within the width of the console
@@ -471,7 +471,7 @@ def test_representatives_and_baselines_are_kept() -> None:
     distance to its centre and the isolated images by their names, the representatives closest to the centres with
     all, none or some isolated images, the images kept at random, the budget spread evenly over the groups, the images
     evenly spaced in the name order of every group, and the groups given by a pattern with or without capturing group
-    or with alternatives, including the documented ficha pattern.
+    or with alternatives, including the documented camera and day pattern.
     """
     # Two clusters and three isolated images, whose names are ordered with their digit runs compared as numbers
     labels = np.array([0, 0, 0, 1, 1, ISOLATED_CLUSTER, ISOLATED_CLUSTER, ISOLATED_CLUSTER])
@@ -526,12 +526,12 @@ def test_representatives_and_baselines_are_kept() -> None:
     assert kept_positions.tolist() == sorted(kept_positions.tolist())
     assert kept_groups == [frame_groups[position] for position in kept_positions]
 
-    # The groups of a pattern with and without capturing group, the ficha example, and no pattern
+    # The groups of a pattern with and without capturing group, the documented camera and day example, and no pattern
     assert find_image_groups(file_names=["video_1_frame_3.png", "video_12_frame_1.png", "other.png"],
                              group_pattern=r"^(video_\d+)_") == ["video_1", "video_12", NO_GROUP]
     assert find_image_groups(file_names=["camera_2/video_7_frame_1.png"], group_pattern=r"video_\d+") == ["video_7"]
-    assert find_image_groups(file_names=["video_t0053_2026-09-25_05-51-30_0037018ms.jpg"],
-                             group_pattern=r"^(video_t\d+_[\d-]+_[\d-]+)_") == ["video_t0053_2026-09-25_05-51-30"]
+    assert find_image_groups(file_names=["camera_3_2026-09-25_frame_0040.jpg"],
+                             group_pattern=r"^(camera_\d+_\d{4}-\d{2}-\d{2})_") == ["camera_3_2026-09-25"]
     assert find_image_groups(file_names=["camera_1/frame.png"], group_pattern=r"^([^/]+)/") == ["camera_1"]
     assert find_image_groups(file_names=["video_3_frame_1.png", "camera_2/frame_1.png", "other.png"],
                              group_pattern=r"^(video_\d+)_|^(camera_\d+)/") == ["video_3", "camera_2", NO_GROUP]

@@ -127,7 +127,7 @@ uv run python -m scripts.models.instance_segmentation.draw_mask_head_designs --c
 Any instance segmentation configuration can be given, the counts following its settings. The figure of the [instance segmentation plan](../architecture_benchmarking/instance_segmentation_experiment_plan.md), `documentation/architecture_benchmarking/figures/instance_segmentation/mask_head_designs.png`, was drawn from the launch file of the benchmark, a configuration not tracked by git. Every design of its `DESIGNS` (the reference `[3, 32]`, stage 3 `[4, 64]`, and on it the image branch of design A, the U-Net skips of design B and the fusion convolution alone of the control) is built from the configuration file with its settings, as the training builds it; the figure reads its layers, channels, strides and residual shortcuts from the built mask heads, and its multiply-accumulates per box are counted on those layers by forward hooks on one box, printed with the parameters of the mask heads and the fine inputs.
 
 ## Clustering Image Embeddings
-`scripts/embedding/cluster_image_embeddings.py` embeds images with a trained run and clusters them, to choose diverse images from a dataset of near-identical video frames.
+`scripts/embedding/cluster_image_embeddings.py` embeds images with a trained run and clusters them, to choose diverse images from a dataset of near-identical video frames. Its main block embeds the 1,417 frames of the test split of the synthetic moving shapes (`~/Data/sequence_data/synthetic_moving_shapes/test`, one group per sequence) with block 6 and the hidden layer of the 35-class README classifier at iteration 2000, and clusters them with DBSCAN.
 
 | Setting | Meaning |
 |---|---|
@@ -141,7 +141,7 @@ Any instance segmentation configuration can be given, the counts following its s
 | `clustering_algorithm`, `clustering_parameters` | `"hdbscan"` (`min_cluster_size`, `min_samples`, `cluster_selection_method` `"eom"` or `"leaf"`), `"dbscan"` (`eps`, `min_samples`) or `"kmeans"` (`number_clusters`, `number_initializations`) |
 | `number_representatives_per_cluster`, `isolated_image_selection` | the images kept per cluster, and the isolated images kept (`"all"`, `"none"` or a number drawn at random) |
 | `group_pattern` | the regular expression giving the group of every image ([Group Pattern](#group-pattern)), or `None` |
-| `seed`, `mosaic_grid_size`, `output_root` | the draws, the images per mosaic row, and the output root, `<experiments>/embeddings` by default |
+| `seed`, `mosaic_grid_size`, `output_root` | the draws, the images per mosaic row, and the output root, `~/Data/embeddings` by default |
 
 An asked layer outside the run stops the script before any inference, with the valid range. The images are read with the preprocessing of the run.
 
@@ -172,8 +172,8 @@ Every folder of kept images lists them in `kept_images.csv`. The kept images of 
 
 | Pattern | File name | Group |
 |---|---|---|
-| `r"^(video_t\d+_[\d-]+_[\d-]+)_"` | `video_t0053_2026-09-25_05-51-30_0037018ms.jpg` | `video_t0053_2026-09-25_05-51-30` |
-| `r"^([^/]+)/"`, the subfolder | `camera_1/frame_0012.png` | `camera_1` |
+| `r"^(camera_\d+_\d{4}-\d{2}-\d{2})_"` | `camera_3_2026-09-25_frame_0040.jpg` | `camera_3_2026-09-25` |
+| `r"^([^/]+)/"`, the subfolder (the default, the sequence of a frame) | `test_000012/000003.png` | `test_000012` |
 | `r"^(video_\d+)_\|^(camera_\d+)/"` | `video_3_frame_1.png`, `camera_2/frame_1.png` | `video_3`, `camera_2` |
 | `r"video_\d+"` | `camera_2/video_7_frame_1.png` | `video_7` |
 
