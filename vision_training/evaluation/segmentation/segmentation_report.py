@@ -34,8 +34,9 @@ def build_segmentation_class_rows(class_names: List[str], metrics: Dict[str, Any
     file, tables and scalars: its number of true pixels in the test split, its IoU, Dice, boundary IoU, boundary F1,
     precision and recall with the bounds of its Korn-Graubard interval over the test images, and with the per-class
     report the ROC AUC and average precision of its pixels. A class without true pixels has no metric (None, an empty
-    cell of the file and "—" in the table), being left out of the means, a class without true edge has no boundary
-    metric, and a class covering every labelled pixel has no ROC AUC.
+    cell of the file and "—" in the table); when it is predicted, it still counts with 0 in the mean IoU and the mean
+    Dice (compute_segmentation_metrics), only the boundary means leaving it out. A class without true edge has no
+    boundary metric, and a class covering every labelled pixel has no ROC AUC.
 
     Args:
         class_names (List[str]): The name of every class, in class index order, the background first.
