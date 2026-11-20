@@ -196,6 +196,19 @@ scenes:
       - "A valid file prints the run folder it would train in, an invalid one every problem, and the command exits with {{foundations.configuration_check.exit_code:words}} when a file is invalid, so that a pipeline stops before the training."
       - "With check paths, the data folders, the label mapping file and the pre-trained runs a new training reads must exist too."
 
+  # The copy writes ExperimentConfiguration.batch_size without its underscore (MISSPELLED_KEY of
+  # configuration_consoles.py); the check refuses unknown keys alone, before the other checks
+  - kind: terminal
+    title: "A misspelled key"
+    code_reference: "vision_training/configuration_processing/configuration_keys.py · check_unknown_keys"
+    lines:
+      - {role: command, text: "uv run python -m vision_training.check_configuration --configuration_path {{foundations.configuration_check.misspelled_file_name}}"}
+      - {role: output, text: "{{foundations.configuration_check.misspelled_invalid_line}}"}
+      - {role: output, text: "{{foundations.configuration_check.misspelled_problem_line}}"}
+    narration:
+      - "A misspelled key, like the batch size of this copy written without its underscore, is read by no code, so its value would be silently ignored."
+      - "The check refuses every key the code of the task does not read, alone and before the other checks, with its path and the closest known key."
+
   # The old copy holds a removed setting (OLD_REMOVED_SETTING of configuration_consoles.py) with the value the code now
   # always uses; the conversion searches a launch folder holding it alone, the folders of the main block being those
   # of the machine

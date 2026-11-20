@@ -1,7 +1,8 @@
 """
 Consoles of the configuration tools for the first foundations chapter, right after the scene of the configuration
 file: the check of configuration files without training (python -m vision_training.check_configuration), run for real
-on the synthetic classification configuration and on a copy holding two mistakes, and the conversion of the files
+on the synthetic classification configuration and on a copy holding two mistakes, then on a copy holding a
+misspelled key, which the check refuses alone, and the conversion of the files
 written before a setting was removed (scripts/configuration_processing/convert_fixed_settings.py), whose file is first
 refused by the same check and then listed by convert_fixed_settings with write_files False. The copies are written into
 temporary folders from the synthetic configuration as it is in the repository, so that the consoles follow its keys
@@ -37,6 +38,12 @@ LABEL_MAPPING_KEY_PATH = "Data.label_mapping.mapping_file_path"
 MISTAKEN_CONFIGURATION_NAME = "configuration_with_mistakes.yaml"
 OLD_CONFIGURATION_NAME = "old_configuration.yaml"
 
+# Copy holding a misspelled key, the batch size written without its underscore, which no code reads, so that the
+# check refuses it alone with the closest known key (check_unknown_keys of configuration_keys.py)
+MISSPELLED_CONFIGURATION_NAME = "configuration_with_a_misspelled_key.yaml"
+MISSPELLED_KEY_PATH = "ExperimentConfiguration.batch_size"
+MISSPELLED_KEY = "batchsize"
+
 # Mistakes of the copy checked next to the synthetic configuration, those of the rejected configuration of the README
 # (README/configuration_rejected.png): a negative learning rate, the opposite of the one of the file, and an image size
 # that the poolings of the backbone cannot halve down to its last block
@@ -50,11 +57,11 @@ OLD_REMOVED_SETTING = "Optimization.mixed_precision"
 
 
 def write_configuration_copy(source_text: str, destination_path: Path, replaced_values: Dict[str, str],
-                             added_setting: Tuple[str, str] | None) -> None:
+                             added_setting: Tuple[str, str] | None, renamed_keys: Dict[str, str]) -> None:
     """
     Writes a copy of a configuration file edited as text, its comments kept, for the consoles of the configuration
-    tools: the value of some keys replaced, and optionally a setting added right under the line of its section, as a
-    file written before the setting was removed would hold it.
+    tools: the value of some keys replaced, some keys renamed as a misspelled file would hold them, and optionally a
+    setting added right under the line of its section, as a file written before the setting was removed would hold it.
 
     Args:
         source_text (str): The text of the configuration copied.
@@ -62,9 +69,11 @@ def write_configuration_copy(source_text: str, destination_path: Path, replaced_
         replaced_values (Dict[str, str]): The YAML text of the new value of every replaced key, by its key path.
         added_setting (Tuple[str, str] | None): The key path and YAML text of the value of the setting added, None for
             none.
+        renamed_keys (Dict[str, str]): The new name of every renamed key, by its key path, its value kept.
 
     Raises:
-        KeyError: If a replaced key, or the section of the added setting, is not found exactly once in the file.
+        KeyError: If a replaced or renamed key, or the section of the added setting, is not found exactly once in
+            the file.
     """
     lines = source_text.split("\n")
     key_paths = find_key_paths(lines=lines)
@@ -77,6 +86,15 @@ def write_configuration_copy(source_text: str, destination_path: Path, replaced_
                            f"it {len(line_indices)} times.")
         key_match = KEY_LINE_PATTERN.match(lines[line_indices[0]])
         lines[line_indices[0]] = f"{key_match.group(1)}{key_match.group(2)}: {value_text}"
+
+    # Name of every renamed key, the indentation and value of its line kept
+    for key_path, new_key in renamed_keys.items():
+        line_indices = [line_index for line_index, line_key_path in enumerate(key_paths) if line_key_path == key_path]
+        if len(line_indices) != 1:
+            raise KeyError(f"Expected the key {key_path} once in the configuration copied to {destination_path}, found "
+                           f"it {len(line_indices)} times.")
+        key_match = KEY_LINE_PATTERN.match(lines[line_indices[0]])
+        lines[line_indices[0]] = f"{key_match.group(1)}{new_key}{lines[line_indices[0]][key_match.end(2):]}"
 
     # Setting added as the first line of its section, one indentation level below the section
     if added_setting is not None:
@@ -175,7 +193,8 @@ def make_configuration_consoles(run_folder: Path, configuration_path: Path) -> D
     """
     Runs the configuration tools of the first foundations chapter on copies of the synthetic classification
     configuration and gives their consoles as facts: the check of the configuration and of a copy holding the mistakes
-    of MISTAKEN_KEY_PATHS, then the check refusing a copy holding the removed setting OLD_REMOVED_SETTING and the
+    of MISTAKEN_KEY_PATHS, the check refusing a copy whose MISSPELLED_KEY_PATH is written MISSPELLED_KEY, then the
+    check refusing a copy holding the removed setting OLD_REMOVED_SETTING and the
     listing of convert_fixed_settings with write_files False, searching a launch folder holding that copy alone.
 
     Args:
@@ -186,12 +205,13 @@ def make_configuration_consoles(run_folder: Path, configuration_path: Path) -> D
 
     Returns:
         Dict[str, Any]: The facts configuration_check.* (the green line of the configuration, the red header and
-            problems of the copy, the exit code) and configuration_conversion.* (the refusal of the old copy and the
-            listing line).
+            problems of the copy, the exit code, the red header and problem of the misspelled copy) and
+            configuration_conversion.* (the refusal of the old copy and the listing line).
 
     Raises:
-        ValueError: If the configuration is invalid, the copy is not refused for its two mistakes, or the old copy is
-            not refused for its removed setting alone and listed by the conversion.
+        ValueError: If the configuration is invalid, the copy is not refused for its two mistakes, the misspelled copy
+            not for its misspelled key alone, or the old copy not for its removed setting alone and listed by the
+            conversion.
     """
     configuration_text = configuration_path.read_text(encoding="utf-8")
     configuration = load_configuration(configuration_path=configuration_path)
@@ -218,13 +238,17 @@ def make_configuration_consoles(run_folder: Path, configuration_path: Path) -> D
         old_path = launch_folder / OLD_CONFIGURATION_NAME
         learning_rate = float(configuration["ExperimentConfiguration"]["learning_rate"])
         write_configuration_copy(source_text=configuration_text, destination_path=checked_path,
-                                 replaced_values=label_mapping_value, added_setting=None)
+                                 replaced_values=label_mapping_value, added_setting=None, renamed_keys={})
         write_configuration_copy(source_text=configuration_text, destination_path=mistaken_path, replaced_values={
             **label_mapping_value, MISTAKEN_KEY_PATHS["learning_rate"]: repr(-learning_rate),
-            MISTAKEN_KEY_PATHS["image_size"]: str(MISTAKEN_IMAGE_SIZE)}, added_setting=None)
+            MISTAKEN_KEY_PATHS["image_size"]: str(MISTAKEN_IMAGE_SIZE)}, added_setting=None, renamed_keys={})
+        misspelled_path = check_folder / MISSPELLED_CONFIGURATION_NAME
+        write_configuration_copy(source_text=configuration_text, destination_path=misspelled_path,
+                                 replaced_values=label_mapping_value, added_setting=None,
+                                 renamed_keys={MISSPELLED_KEY_PATH: MISSPELLED_KEY})
         write_configuration_copy(source_text=configuration_text, destination_path=old_path,
                                  replaced_values=label_mapping_value,
-                                 added_setting=(OLD_REMOVED_SETTING, old_setting_value))
+                                 added_setting=(OLD_REMOVED_SETTING, old_setting_value), renamed_keys={})
 
         # Check of the configuration and of the copy with its mistakes, in one command as a pipeline gives them
         check_lines, check_exit_code = run_configuration_check(configuration_paths=[checked_path, mistaken_path],
@@ -235,6 +259,16 @@ def make_configuration_consoles(run_folder: Path, configuration_path: Path) -> D
                 len(mistaken_block["problems"]) != len(MISTAKEN_KEY_PATHS):
             raise ValueError(f"Expected {configuration_path.name} valid and {len(MISTAKEN_KEY_PATHS)} problems for "
                              f"{MISTAKEN_CONFIGURATION_NAME}, got: {check_lines}")
+
+        # Refusal of the misspelled copy, alone and before the other checks, with the closest known key
+        misspelled_check_lines, _ = run_configuration_check(configuration_paths=[misspelled_path],
+                                                            removed_prefix=f"{check_folder}/")
+        misspelled_block = split_check_console(console_lines=misspelled_check_lines, file_name=misspelled_path.name)
+        misspelled_key_path = f"{MISSPELLED_KEY_PATH.rpartition('.')[0]}.{MISSPELLED_KEY}"
+        if misspelled_block["valid"] or len(misspelled_block["problems"]) != 1 or \
+                f"'{misspelled_key_path}' is not a configuration key" not in misspelled_block["problems"][0]:
+            raise ValueError(f"Expected {MISSPELLED_CONFIGURATION_NAME} refused for {misspelled_key_path} alone, got: "
+                             f"{misspelled_check_lines}")
 
         # Refusal of the old copy, then the listing of the conversion searching its launch folder alone
         old_check_lines, _ = run_configuration_check(configuration_paths=[old_path],
@@ -258,6 +292,9 @@ def make_configuration_consoles(run_folder: Path, configuration_path: Path) -> D
             "configuration_check.problem_lines": mistaken_block["problems"],
             "configuration_check.problem_count": len(mistaken_block["problems"]),
             "configuration_check.exit_code": check_exit_code,
+            "configuration_check.misspelled_file_name": MISSPELLED_CONFIGURATION_NAME,
+            "configuration_check.misspelled_invalid_line": misspelled_block["header"],
+            "configuration_check.misspelled_problem_line": misspelled_block["problems"][0],
             "configuration_conversion.old_file_name": OLD_CONFIGURATION_NAME,
             "configuration_conversion.invalid_line": old_block["header"],
             "configuration_conversion.problem_line": old_block["problems"][0],
