@@ -1,6 +1,8 @@
 # Foundations, chapter 1: what the repository is, where its parts live, how a run is installed (with uv, or in the
-# trainer image of the Dockerfile), configured, named and launched, and what it prints and writes. Coordinates of the html scenes are in pixels of the content area (1760 x 740,
-# origin at its top left corner); the figures named figures:foundations/... are made by tutorials/figures/foundations.
+# trainer image of the Dockerfile) with the ImageNet-22k download of the pre-trained backbones, configured, checked
+# without training, converted after a removed setting, named and launched, and what it prints and writes. Coordinates
+# of the html scenes are in pixels of the content area (1760 x 740, origin at its top left corner); the figures named
+# figures:foundations/... are made by tutorials/figures/foundations.
 series: foundations
 series_title: "Foundations"
 chapter: 1
@@ -14,6 +16,9 @@ references:
   - "vision_training/configuration_processing/configuration_loader.py · load_experiment_configuration"
   - "vision_training/configuration_processing/run_name.py"
   - "vision_training/data/synthetic/create_synthetic_dataset.py"
+  - "vision_training/data/classification/imagenet_download.py"
+  - "vision_training/check_configuration.py · main"
+  - "scripts/configuration_processing/convert_fixed_settings.py"
   - "scripts/evaluation/evaluate_checkpoint.py"
   - "documentation/task workflows/classification_workflow.md"
 scenes:
@@ -114,6 +119,21 @@ scenes:
       - "Say you want to try a task before any data is at hand: the synthetic data set script draws a shapes data set for it, with nothing to download; like almost every script but the training, it is set in its main block."
       - "The training takes a single argument, the path of its configuration file, and that file alone defines the run."
 
+  # The download prints nothing before it reaches the gated data set of Hugging Face, so the scene shows its commands
+  # alone; the settings quoted are those of its main block (code_values.py)
+  - kind: terminal
+    title: "ImageNet-22k for the pre-trained backbones"
+    code_reference: "vision_training/data/classification/imagenet_download.py · download_imagenet_22k"
+    lines:
+      - {role: comment, text: "# Once: accept the terms of {{constant:vision_training/data/classification/imagenet_download.py#IMAGENET_22K_REPOSITORY}} on Hugging Face, then log in"}
+      - {role: command, text: "uv run hf auth login"}
+      - {role: comment, text: "# Settings in its main block: dataset folder, free space margin, held-out images, workers"}
+      - {role: command, text: "uv run python -m vision_training.data.classification.imagenet_download"}
+    narration:
+      - "The example configurations of classification and of the self-supervised task train on ImageNet-22k, which the ImageNet download script fetches from a gated Hugging Face data set at a pinned revision."
+      - "Accept its terms once and log in; the script checks the access before its first shard, starts no shard below {{foundations.scripts.imagenet_minimum_free_gigabytes}} gigabytes free, and resumes shard by shard when launched again."
+      - "Its held-out images, {{foundations.scripts.imagenet_held_out_images_per_class:words}} per class of at least {{foundations.scripts.imagenet_minimum_held_out_class_size}} images, are both the validation and the test split, so a setting chosen on the validation curves is chosen on the test images."
+
   # The header of the Dockerfile lists its stages and its build and run commands, so that the excerpt follows the file
   - kind: code
     title: "The trainer image"
@@ -158,6 +178,41 @@ scenes:
       - "Detection and instance segmentation also have a Neck section between the backbone and their heads, whose type picks a feature pyramid, a path aggregation, or no neck."
       - "There are no defaults, the file of a task holding every key the task reads: if, for instance, you forget three keys, the checks at launch gather every missing or inconsistent value before stopping, so one launch lists all three."
       - "The training is counted in iterations, not epochs: checkpoints, evaluations and summaries are all set in iterations."
+
+  # Consoles of configuration_consoles.py, which runs the check on copies of the synthetic configuration written at
+  # build time; the copy is given with a space after --configuration_path, so that the reference check, which looks up
+  # every --configuration_path= file in the repository, checks the repository file alone
+  - kind: terminal
+    title: "Checking without training"
+    code_reference: "vision_training/check_configuration.py · check_configuration_file"
+    lines:
+      - {role: command, text: "uv run python -m vision_training.check_configuration --configuration_path=\"vision_training/configurations/classification/configuration_synthetic_shapes.yaml\" --configuration_path {{foundations.configuration_check.mistaken_file_name}}"}
+      - {role: output, text: "{{foundations.configuration_check.valid_line}}"}
+      - {role: output, text: "{{foundations.configuration_check.invalid_line}}"}
+      - {role: output, text: "{{foundations.configuration_check.problem_lines[0]}}"}
+      - {role: output, text: "{{foundations.configuration_check.problem_lines[1]}}"}
+    narration:
+      - "The same checks run without training: the check configuration module loads every file it is given as a training does, here the synthetic configuration and a copy holding {{foundations.configuration_check.problem_count:words}} mistakes."
+      - "A valid file prints the run folder it would train in, an invalid one every problem, and the command exits with {{foundations.configuration_check.exit_code:words}} when a file is invalid, so that a pipeline stops before the training."
+      - "With check paths, the data folders, the label mapping file and the pre-trained runs a new training reads must exist too."
+
+  # The old copy holds a removed setting (OLD_REMOVED_SETTING of configuration_consoles.py) with the value the code now
+  # always uses; the conversion searches a launch folder holding it alone, the folders of the main block being those
+  # of the machine
+  - kind: terminal
+    title: "Converting older configurations"
+    code_reference: "scripts/configuration_processing/convert_fixed_settings.py · convert_fixed_settings"
+    lines:
+      - {role: command, text: "uv run python -m vision_training.check_configuration --configuration_path {{foundations.configuration_conversion.old_file_name}}"}
+      - {role: output, text: "{{foundations.configuration_conversion.invalid_line}}"}
+      - {role: output, text: "{{foundations.configuration_conversion.problem_line}}"}
+      - {role: comment, text: "# Main block: the run and launch folders searched; write_files = False only lists"}
+      - {role: command, text: "uv run python -m scripts.configuration_processing.convert_fixed_settings"}
+      - {role: output, text: "{{foundations.configuration_conversion.listing_line}}"}
+    narration:
+      - "A configuration written before a setting was removed is refused before any other check, the message naming the behaviour the code now fixes in its place."
+      - "The convert fixed settings script removes such settings from the saved run configurations and launch files of the folders of its main block, adds the settings a task now requires, and backs up every file it converts."
+      - "With write files set to False, it only lists the files to convert, here that old configuration."
 
   - kind: html
     page: diagram
@@ -263,7 +318,7 @@ scenes:
       - {text: "{{foundations.repository.task_count}} tasks: one backbone, one loop, one configuration format, one report"}
       - {text: "uv sync, then every script as a module from the repository root"}
       - {text: "The Dockerfile builds the trainer image for the cloud and the Spark"}
-      - {text: "One YAML file per run: every key required, all checked at launch"}
+      - {text: "One YAML file per run, checked at launch or by check_configuration"}
       - {text: "Iterations, not epochs"}
       - {text: "The run name encodes the model; run_name_suffix starts a new run"}
       - {text: "Everything a run writes stays in its run folder"}

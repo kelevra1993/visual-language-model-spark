@@ -4,9 +4,10 @@ tutorials.figures.make_figures --series foundations) at every build, from the re
 tutorials/tutorial_sources.yaml and the code of the repository: the listings of the classification run, its training
 curves, the learning rate schedule of a configuration, the image size figures, the augmentation examples, the
 benchmark charts, the feature maps and squeeze-and-excitation gates of the trained backbone, the launch console of a
-deeper backbone started from it, and the values of the code that no placeholder of a storyboard can read
-(code_values.py). The classification run may also be read from the committed run snapshots (tutorials/run_snapshots,
-its files listed in snapshot_files.yaml of this folder), which hold no checkpoint: the feature maps then come from the
+deeper backbone started from it, the consoles of the configuration check and conversion tools, the evaluation curves of
+the detection run, and the values of the code that no placeholder of a storyboard can read (code_values.py). The
+classification and detection runs may also be read from the committed run snapshots (tutorials/run_snapshots, their
+files listed in snapshot_files.yaml of this folder), which hold no checkpoint: the feature maps then come from the
 committed outputs of the model family. Every figure family is a module of this folder, which writes its figures into a
 subfolder of the output folder (model/, benchmark/, ...) or at its top and gives its facts, gathered here into the
 facts.json the storyboards quote as {{foundations.<name>}}.
@@ -23,6 +24,8 @@ from tutorials.figures.foundations.backbone_activations import make_backbone_fig
 from tutorials.figures.foundations.backbone_transfer import make_backbone_transfer_listing
 from tutorials.figures.foundations.benchmark import make_benchmark_figures
 from tutorials.figures.foundations.code_values import describe_code_values
+from tutorials.figures.foundations.configuration_consoles import make_configuration_consoles
+from tutorials.figures.foundations.evaluation_curves import make_evaluation_curves_figure
 from tutorials.figures.foundations.learning_rate_schedule import make_learning_rate_schedule_figure
 from tutorials.figures.foundations.listings import make_listings
 from tutorials.figures.foundations.training_curves import make_training_curves_figure
@@ -43,6 +46,8 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
         Dict[str, Any]: The facts of every figure family, keyed by their dotted names.
     """
     classification_run_folder = find_run_folder(experiments_folder=experiments_folder, run_key="classification")
+    # Detection run, whose trained and averaged weights give the evaluation curves of the last chapter
+    detection_run_folder = find_run_folder(experiments_folder=experiments_folder, run_key="object_detection")
     # Run label of the training curves header, the same for a build from the real runs or from the run snapshots
     run_label = describe_run_label(experiments_folder=experiments_folder, run_folder=classification_run_folder)
     return merge_facts(fact_groups=[
@@ -58,5 +63,8 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
             file_key="benchmark_results"), plan_path=find_repository_file(file_key="benchmark_plan")),
         make_backbone_figures(output_folder=output_folder, run_folder=classification_run_folder, force=force),
         make_backbone_transfer_listing(output_folder=output_folder, run_folder=classification_run_folder),
+        make_configuration_consoles(run_folder=classification_run_folder, configuration_path=find_repository_file(
+            file_key="data_pipeline_configuration")),
+        make_evaluation_curves_figure(output_folder=output_folder, run_folder=detection_run_folder),
         describe_code_values(repository_folder=find_repository_root(), configuration_path=find_repository_file(
             file_key="data_pipeline_configuration"))])
