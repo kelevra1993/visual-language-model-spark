@@ -328,7 +328,8 @@ if __name__ == "__main__":
     # Folder of the benchmark, outside the repository, holding the model repositories of
     # scripts/deployment/benchmark_serving_formats.py and receiving test_metrics.csv
     benchmark_folder = Path.home() / "Data" / "serving_benchmark"
-    # Benchmarked runs, as in the main block of benchmark_serving_formats.py: the served checkpoint and its test split
+    # Benchmarked runs, as in the main block of benchmark_serving_formats.py: the served checkpoint and its test split,
+    # drawn again after the benchmark of 2026-11-17, so that a new evaluation scores other images than test_metrics.csv
     tutorial_runs_folder = Path.home() / "Data" / "tutorial_runs"
     data_folder = Path.home() / "Data"
     models = [

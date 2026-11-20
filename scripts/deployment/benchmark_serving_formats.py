@@ -1265,9 +1265,11 @@ def run_serving_benchmark(models: List[Dict[str, Any]], benchmark_folder: Path,
 if __name__ == "__main__":
     # Folder of every output of the benchmark, outside the repository (whose files not committed are cleaned)
     benchmark_folder = Path.home() / "Data" / "serving_benchmark"
-    # Trained runs, from their copies outside the repository: the README classifier, the reference of the detection
-    # benchmark (run_9) and the sequence labelling tutorial run, with the served checkpoint, the test split giving the
-    # sample sent to the models and the number of frames of that sample (None for images)
+    # Trained runs, from their copies outside the repository: the 9-class README classifier, the reference of the
+    # detection benchmark (run_9) and the sequence labelling tutorial run, with the served checkpoint, the test split
+    # giving the sample sent to the models and the number of frames of that sample (None for images). The three test
+    # splits were drawn again after the benchmark of 2026-11-17 (classification with 35 categories, of which the loaders
+    # keep the 9 of the run), so a new run measures the same shapes on other images
     tutorial_runs_folder = Path.home() / "Data" / "tutorial_runs"
     data_folder = Path.home() / "Data"
     models = [
