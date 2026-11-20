@@ -63,7 +63,8 @@ def test_relative_configuration_path_is_made_absolute(monkeypatch: pytest.Monkey
     assert parse_configuration_path() == REPOSITORY_FOLDER / CONFIGURATION_RELATIVE_PATH
 
 
-@pytest.mark.parametrize("arguments", [["--configuration_path=missing_folder/missing_configuration.yaml"]])
+@pytest.mark.parametrize(argnames="arguments",
+                         argvalues=[["--configuration_path=missing_folder/missing_configuration.yaml"]])
 def test_missing_file_or_argument_stops_the_launch(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture,
                                                    arguments: List[str]) -> None:
     """

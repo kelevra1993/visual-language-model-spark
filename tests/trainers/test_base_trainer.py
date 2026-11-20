@@ -107,8 +107,7 @@ def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_
                         number_sample_images: int, configuration_text: str = "dummy: true\n",
                         moving_average_activated: bool = False, number_training_samples: int = 8,
                         allow_data_change_on_resume: bool = False, run_name: Optional[str] = None,
-                        label_dictionary: Optional[Dict[Any, int]] = None,
-                        training_dataset: Optional[Dataset] = None,
+                        label_dictionary: Optional[Dict[Any, int]] = None, training_dataset: Optional[Dataset] = None,
                         evaluated_run_folder: Optional[Path] = None,
                         validation_iteration_ratio: int = 2) -> DummyTrainer:
     """
@@ -140,6 +139,7 @@ def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_
     Returns:
         DummyTrainer: The trainer, resumed from the last checkpoint of its run folder when there is one.
     """
+    # The launched configuration file and the dummy settings, changed as the test asks
     configuration_path = temporary_directory / "configuration.yaml"
     configuration_path.write_text(data=configuration_text)
     experiment_configuration, model_configuration = build_dummy_configurations(
@@ -156,6 +156,8 @@ def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_
         model_configuration["Data"]["label_dictionary"] = label_dictionary
     model_configuration["Optimization"]["exponential_moving_average"] = {"activated": moving_average_activated,
                                                                          "decay": 0.5}
+
+    # The three splits, the test split repeating its first two samples in its last batch
     if training_dataset is None:
         training_dataset = DummyDataset(sample_identifiers=list(range(number_training_samples)), seed=0)
     datasets = {"train": training_dataset,
@@ -418,8 +420,8 @@ def test_moving_average_is_saved_evaluated_and_resumed(tmp_path: Path, capsys: p
     resumed_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=2, view_input_images=False,
                                           number_sample_images=0, moving_average_activated=True)
     assert resumed_trainer.exponential_moving_average.number_updates == 5
-    for parameter_name, parameter_value in resumed_trainer.exponential_moving_average.averaged_model.state_dict(
-            ).items():
+    for parameter_name, parameter_value in (
+            resumed_trainer.exponential_moving_average.averaged_model.state_dict().items()):
         assert torch.equal(input=parameter_value.cpu(), other=average_state["model_state"][parameter_name])
 
     # No training step may fail silently
@@ -428,8 +430,7 @@ def test_moving_average_is_saved_evaluated_and_resumed(tmp_path: Path, capsys: p
     assert "Critical Error" not in console_output
 
 
-def test_resumed_run_keeps_its_classes_when_the_mapping_changes(tmp_path: Path,
-                                                                capsys: pytest.CaptureFixture) -> None:
+def test_resumed_run_keeps_its_classes_when_the_mapping_changes(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
     Verifies that the label dictionary of a run is saved in its folder ('label_dictionary.json') and in its
     checkpoints, that a run resumed after its mapping file swapped the two classes keeps the classes it was trained
@@ -531,8 +532,7 @@ def test_failed_evaluation_keeps_its_checkpoint_and_the_training_going(tmp_path:
     assert all(parameter_state["step"] == 4 for parameter_state in checkpoint["optimizer_state"]["state"].values())
 
 
-def test_vanished_data_ends_the_training_with_a_final_checkpoint(tmp_path: Path,
-                                                                capsys: pytest.CaptureFixture) -> None:
+def test_vanished_data_ends_the_training_with_a_final_checkpoint(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
     Verifies that a training whose data disappears (every sample read failing after the third batch) stops after its
     consecutive errors instead of leaving the process, printing the traceback of the last error, and saves a final
@@ -577,12 +577,10 @@ def test_split_without_batch_is_refused(tmp_path: Path) -> None:
         trainer.check_loaders_give_batches()
     with pytest.raises(expected_exception=RuntimeError,
                        match="The Validation loader gives no batch: 2 passes over its split ended without any."):
-        trainer.get_next_batch(dataloader_iterator=iter(empty_loader), dataloader=empty_loader,
-                               split_name="Validation")
+        trainer.get_next_batch(dataloader_iterator=iter(empty_loader), dataloader=empty_loader, split_name="Validation")
 
 
-def test_training_without_validation_builds_no_validation_loader(tmp_path: Path,
-                                                                 capsys: pytest.CaptureFixture) -> None:
+def test_training_without_validation_builds_no_validation_loader(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
     Verifies a training without validation ('validation_iteration_ratio' 0) on the dummy task: its validation loader is
     not built (None, announced at the start, and left out of the loaders whose workers are stopped), the state of the

@@ -161,7 +161,7 @@ def test_higher_resolution_heatmaps_are_averaged_at_half_the_resolution() -> Non
     assert torch.allclose(input=candidates["candidate_tags"], other=torch.tensor(data=0.3))
 
 
-@pytest.mark.parametrize("higher_resolution, hidden_width", [(True, 16)])
+@pytest.mark.parametrize(argnames="higher_resolution, hidden_width", argvalues=[(True, 16)])
 def test_detector_gives_candidates_without_ground_truth(higher_resolution: bool, hidden_width: int) -> None:
     """
     Verifies the inference outputs of the keypoint detector of the fixture (7 channels: the 3 of the triangle, then the
@@ -212,7 +212,7 @@ def test_detector_gives_candidates_without_ground_truth(higher_resolution: bool,
     assert bool(((outputs["candidate_positions"] > 0.0) & (outputs["candidate_positions"] < IMAGE_SIZE)).all())
 
 
-@pytest.mark.parametrize("higher_resolution, hidden_width", [(True, 16)])
+@pytest.mark.parametrize(argnames="higher_resolution, hidden_width", argvalues=[(True, 16)])
 def test_losses_train_every_heatmap_and_the_tags_of_the_keypoints(higher_resolution: bool, hidden_width: int) -> None:
     """
     Verifies that with the ground truth of an image of two rectangles and a triangle next to an image without object,
@@ -283,7 +283,7 @@ def test_losses_train_every_heatmap_and_the_tags_of_the_keypoints(higher_resolut
     assert set(tag_gradient_cells[:, 1].tolist()) == set(trained_cells.tolist())
 
 
-@pytest.mark.parametrize("higher_resolution", [True])
+@pytest.mark.parametrize(argnames="higher_resolution", argvalues=[True])
 def test_heatmap_loss_leaves_out_the_ignored_regions(higher_resolution: bool) -> None:
     """
     Verifies that with ignored regions, the quarter of the first image holding the second rectangle and a corner of the
@@ -296,8 +296,7 @@ def test_heatmap_loss_leaves_out_the_ignored_regions(higher_resolution: bool) ->
         higher_resolution (bool): Whether the detector has the higher resolution branch.
     """
     torch.manual_seed(seed=0)
-    configuration, device, dtype = get_keypoint_model_configuration(higher_resolution=higher_resolution,
-                                                                    hidden_width=0)
+    configuration, device, dtype = get_keypoint_model_configuration(higher_resolution=higher_resolution, hidden_width=0)
     model = KeypointDetector(configuration=configuration, device=device, dtype=dtype).train()
     ignored_regions = torch.zeros(size=(2, IMAGE_SIZE, IMAGE_SIZE), dtype=torch.uint8)
     ignored_regions[0, 32:, 32:] = 1

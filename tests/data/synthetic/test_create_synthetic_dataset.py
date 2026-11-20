@@ -116,6 +116,8 @@ def draw_task_sample(task: str, image_size: int, maximum_objects: int, random_ge
     Raises:
         ValueError: If the task has no drawing function here.
     """
+    # Single images of the image chunks: the objects of the detection tasks, the visible shapes of the class maps and
+    # the counted shapes
     if task in ["object_detection", "keypoint_detection"]:
         return generate_image(image_size=image_size, maximum_objects=maximum_objects, random_generator=random_generator,
                               keypoints=task == "keypoint_detection", object_pixel_counts=[])
@@ -125,6 +127,8 @@ def draw_task_sample(task: str, image_size: int, maximum_objects: int, random_ge
     if task == "self_supervised":
         return generate_counted_shapes_image(image_size=image_size, maximum_objects=maximum_objects,
                                              random_generator=random_generator)
+
+    # Sequences and pairs of the sequence chunks
     if task == "sequence_classification":
         return generate_moving_shape_sequence(image_size=image_size, number_frames=SAMPLE_FRAMES,
                                               random_generator=random_generator)
@@ -542,8 +546,7 @@ def test_low_contrast_shape_without_a_free_low_contrast_colour_gets_a_contrastin
     random_generator = np.random.default_rng(seed=0)
     for _ in range(3):
         shape_descriptor = draw_shape_descriptor(minimum_size=OBJECT_MINIMUM_SIZE, maximum_size=32,
-                                                 background_colour=background_colour,
-                                                 random_generator=random_generator,
+                                                 background_colour=background_colour, random_generator=random_generator,
                                                  low_contrast_range=LOW_CONTRAST_DIFFERENCE_RANGE,
                                                  shape_colours=shape_colours)
         colour = shape_descriptor["colour"].astype(np.int64)
@@ -613,8 +616,8 @@ def test_every_task_draws_the_shared_ingredients(monkeypatch: pytest.MonkeyPatch
 
 
 @pytest.mark.parametrize(argnames=("keypoints", "maximum_objects", "minimum_size", "minimum_objects"), argvalues=[
-    (False, 12, OBJECT_MINIMUM_SIZE, MINIMUM_OBJECTS_PER_IMAGE), (True, 5, KEYPOINT_OBJECT_MINIMUM_SIZE,
-                                                                  KEYPOINT_MINIMUM_OBJECTS)])
+    (False, 12, OBJECT_MINIMUM_SIZE, MINIMUM_OBJECTS_PER_IMAGE),
+    (True, 5, KEYPOINT_OBJECT_MINIMUM_SIZE, KEYPOINT_MINIMUM_OBJECTS)])
 def test_image_shapes_draw_log_uniform_sizes_from_the_largest(monkeypatch: pytest.MonkeyPatch, keypoints: bool,
                                                                maximum_objects: int, minimum_size: int,
                                                                minimum_objects: int) -> None:
@@ -715,9 +718,9 @@ def test_created_dataset_is_valid_coco_and_loads(tmp_path: Path) -> None:
 
     # Every COCO [x, y, width, height] box lies inside its image and has a positive size
     for annotation in labels["annotations"]:
-        x, y, width, height = annotation["bbox"]
-        assert width > 0 and height > 0 and x >= 0 and y >= 0
-        assert x + width <= IMAGE_SIZE and y + height <= IMAGE_SIZE
+        left, top, width, height = annotation["bbox"]
+        assert width > 0 and height > 0 and left >= 0 and top >= 0
+        assert left + width <= IMAGE_SIZE and top + height <= IMAGE_SIZE
 
     # The multi-class label mapping keeps every raw category identifier as its own model class
     label_mapping = json.loads((tmp_path / "label_mapping.json").read_text())
@@ -725,9 +728,10 @@ def test_created_dataset_is_valid_coco_and_loads(tmp_path: Path) -> None:
                         label_mapping.items()}
     label_dictionary["background"] = 0
 
+    # The detection dataset loads every image with its boxes, the category identifiers as labels
     dataset = CocoDetectionDataset(data_directory=str(tmp_path / "train" / "data"),
-                            labels_file=str(tmp_path / "train" / "labels.json"), image_size=IMAGE_SIZE,
-                            keep_ratio=True, label_mode="multi_class", label_dictionary=label_dictionary)
+                                   labels_file=str(tmp_path / "train" / "labels.json"), image_size=IMAGE_SIZE,
+                                   keep_ratio=True, label_mode="multi_class", label_dictionary=label_dictionary)
     loaded_labels = set()
     for index in range(len(dataset)):
         sample = dataset[index]
@@ -1003,24 +1007,23 @@ def test_created_instance_segmentation_dataset_encodes_small_and_large_visible_p
 
     # Objects per image, and the keys, compressed encoding and box of every visible part
     labels = json.loads((tmp_path / "train" / "labels.json").read_text())
-    objects_per_image = np.bincount([annotation["image_id"] for annotation in labels["annotations"]],
-                                    minlength=13)[1:]
+    objects_per_image = np.bincount([annotation["image_id"] for annotation in labels["annotations"]], minlength=13)[1:]
     assert objects_per_image.max() <= 12 and objects_per_image.mean() >= MINIMUM_OBJECTS_PER_IMAGE
     image_masks = {image["id"]: [] for image in labels["images"]}
     for annotation in labels["annotations"]:
         assert isinstance(annotation["segmentation"]["counts"], str)
         mask = decode_run_length_encoding(segmentation=annotation["segmentation"])
-        x, y, width, height = annotation["bbox"]
+        left, top, width, height = annotation["bbox"]
         assert sorted(annotation) == ["bbox", "category_id", "id", "image_id", "segmentation"]
         assert int(mask.sum()) > 0
-        assert get_mask_bounding_box(mask=mask) == [x, y, x + width, y + height]
+        assert get_mask_bounding_box(mask=mask) == [left, top, left + width, top + height]
         image_masks[annotation["image_id"]].append(mask)
 
     # Small and large visible parts, some reaching the image border, never overlapping within an image
     long_sides = [max(annotation["bbox"][2:]) for annotation in labels["annotations"]]
     assert min(long_sides) < 32 and max(long_sides) > IMAGE_SIZE // 3
-    assert any(x == 0 or y == 0 or x + width == IMAGE_SIZE or y + height == IMAGE_SIZE
-               for x, y, width, height in (annotation["bbox"] for annotation in labels["annotations"]))
+    assert any(left == 0 or top == 0 or left + width == IMAGE_SIZE or top + height == IMAGE_SIZE
+               for left, top, width, height in (annotation["bbox"] for annotation in labels["annotations"]))
     for image in labels["images"]:
         assert int(np.stack(arrays=image_masks[image["id"]]).sum(axis=0).max()) == 1
 
@@ -1072,11 +1075,12 @@ def count_overlapping_label_pairs(labels: Dict[str, Any], minimum_intersection_o
     Returns:
         int: The number of pairs of boxes of an image whose IoU exceeds the minimum.
     """
+    # Category and corner box of every object, gathered by image
     image_objects: Dict[int, List[Tuple[int, List[float]]]] = {}
     for annotation in labels["annotations"]:
-        x, y, width, height = annotation["bbox"]
+        left, top, width, height = annotation["bbox"]
         image_objects.setdefault(annotation["image_id"], []).append((annotation["category_id"],
-                                                                     [x, y, x + width, y + height]))
+                                                                     [left, top, left + width, top + height]))
 
     # Pairs of every image overlapping by more than the minimum, of one class when asked
     overlapping_pairs = 0
@@ -1489,8 +1493,7 @@ def test_counted_shapes_images_show_every_listed_shape(monkeypatch: pytest.Monke
         assert drawn_image is image and LABELLING_MINIMUM_OBJECTS <= len(shape_names) <= 7
         assert [shape_descriptor["shape_name"] for shape_descriptor in shape_descriptors] == shape_names
         check_frame_shows_its_shapes(frame=image, instance_map=instance_map,
-                                     background=background_recorder.results[-1][0],
-                                     shape_descriptors=shape_descriptors)
+                                     background=background_recorder.results[-1][0], shape_descriptors=shape_descriptors)
 
 
 def test_created_multi_label_classification_dataset_lists_the_classes_of_its_shapes(tmp_path: Path) -> None:
@@ -1671,8 +1674,7 @@ def test_created_frame_selection_dataset_holds_every_wanted_shape_once(tmp_path:
 
 
 @pytest.mark.parametrize(argnames="image_size", argvalues=[64, 256])
-def test_selected_frames_show_the_largest_copy_of_their_shape(monkeypatch: pytest.MonkeyPatch,
-                                                              image_size: int) -> None:
+def test_selected_frames_show_the_largest_copy_of_their_shape(monkeypatch: pytest.MonkeyPatch, image_size: int) -> None:
     """
     Verifies the sequences of generate_selection_sequence: every frame shows one shape in the colour of the sequence
     over its background, keeping SHAPE_MINIMUM_VISIBLE_FRACTION of its pixels inside the frame; the frame selected for a

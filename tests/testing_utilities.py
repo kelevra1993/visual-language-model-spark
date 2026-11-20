@@ -17,18 +17,16 @@ from tests.fixtures.configuration_fixtures import get_detection_model_configurat
 
 
 def check_nn_module_method(module: nn.Module, simple_input_dictionary: Dict[str, torch.Tensor],
-                           output_tensor_names: List[str],
-                           reference_folder: Union[str, Path], batch_size: int,
-                           batched_input_dictionary: Optional[Dict[str, torch.Tensor]] = None,
-                           use_kwargs: bool = True,
+                           output_tensor_names: List[str], reference_folder: Union[str, Path], batch_size: int,
+                           batched_input_dictionary: Optional[Dict[str, torch.Tensor]] = None, use_kwargs: bool = True,
                            save_output: bool = False) -> None:
     """
     Performs a deterministic regression test on a PyTorch module's forward pass to validate structural consistency
     within the testing pipeline.
 
     This utility ensures architectural consistency by comparing a module's output
-    against saved reference tensors. It eliminates non-determinism by setting the module to evaluation mode, 
-    converting to double precision, and overwriting parameters deterministically. The function validates 
+    against saved reference tensors. It eliminates non-determinism by setting the module to evaluation mode,
+    converting to double precision, and overwriting parameters deterministically. The function validates
     both a single-instance pass and a batched pass using broadcasting to ensure the module
     correctly handles batch dimensions.
 
@@ -83,9 +81,7 @@ def check_nn_module_method(module: nn.Module, simple_input_dictionary: Dict[str,
 
     # Iterate over the produced outputs and their corresponding reference files to validate correctness
     for output_tensor, batched_output_tensor, output_filename, batched_output_filename, output_tensor_name in zip(
-            simple_output, batched_output,
-            output_file_names, batched_output_file_names,
-            output_tensor_names):
+            simple_output, batched_output, output_file_names, batched_output_file_names, output_tensor_names):
 
         if save_output:
             # Create directories if they do not exist to ensure saving succeeds
@@ -118,9 +114,9 @@ def check_nn_module_method(module: nn.Module, simple_input_dictionary: Dict[str,
 def create_deterministic_tensor(shape: Tuple[int, ...], dtype: torch.dtype = torch.float64) -> torch.Tensor:
     """
     Creates a deterministic tensor with a specific shape and data type using a linear space.
-    
+
     This function ensures that the input tensors used for testing are identical across
-    different runs and environments by populating them with linearly spaced values 
+    different runs and environments by populating them with linearly spaced values
     between -total_elements and total_elements, rather than using random initialization.
 
     Args:

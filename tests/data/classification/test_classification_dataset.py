@@ -315,11 +315,13 @@ def test_class_folder_manifests(tmp_path: Path) -> None:
                             img=np.zeros(shape=(16, 16, 3), dtype=np.uint8))
             (class_folder / "notes.txt").write_text(data="not an image")
 
+    # Convert both splits, the files that are not images being left out of the manifests
     output_folder = tmp_path / "manifests"
     create_class_folder_manifests(split_folders={"train": str(tmp_path / "training_data"),
                                                  "validation": str(tmp_path / "validation_data")},
                                   output_folder=str(output_folder), excluded_file_names=None)
 
+    # Both splits share the categories of every class folder in alphabetical order, mapped to the classes 0 and 1
     train_labels = json.loads((output_folder / "train" / "labels.json").read_text())
     validation_labels = json.loads((output_folder / "validation" / "labels.json").read_text())
     assert train_labels["categories"] == validation_labels["categories"] == [{"id": 1, "name": "circles"},

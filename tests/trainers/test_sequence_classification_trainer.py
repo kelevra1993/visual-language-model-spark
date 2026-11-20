@@ -75,11 +75,9 @@ def build_trainer(configuration_path: Path) -> SequenceClassificationTrainer:
         SequenceClassificationTrainer: The trainer, resumed from the last checkpoint of its run folder when there is
             one.
     """
-    experiment_configuration, model_configuration = load_experiment_configuration(
-        configuration_path=configuration_path)
+    experiment_configuration, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
     return SequenceClassificationTrainer(experiment_configuration=experiment_configuration,
-                                         model_configuration=model_configuration,
-                                         configuration_path=configuration_path)
+                                         model_configuration=model_configuration, configuration_path=configuration_path)
 
 
 def test_sequence_classification_training_saves_evaluates_and_resumes(tmp_path: Path,
@@ -110,6 +108,7 @@ def test_sequence_classification_training_saves_evaluates_and_resumes(tmp_path: 
         trainer.run_training_loop()
     results = report_mock.call_args.kwargs["results"]
 
+    # The three checkpoints, and the test evaluation of iteration 4 in Results.txt with its metrics and error files
     weights_directory = trainer.weights_directory
     assert sorted(path.name for path in weights_directory.glob("Iteration_*")) == ["Iteration_2", "Iteration_4",
                                                                                  "Iteration_5"]
@@ -125,8 +124,7 @@ def test_sequence_classification_training_saves_evaluates_and_resumes(tmp_path: 
     rows = check_predictions_file(evaluation_folder=evaluation_folder, reported_accuracy=results["metrics"]["Accuracy"],
                                   expected_rows=6, class_names=trainer.class_names,
                                   identification_columns=["sequence", "first_frame", "last_frame"])
-    check_error_images(evaluation_folder=evaluation_folder, rows=rows, notes=results["notes"],
-                       maximum_per_class_pair=2)
+    check_error_images(evaluation_folder=evaluation_folder, rows=rows, notes=results["notes"], maximum_per_class_pair=2)
 
     # Every test sequence is a sample image (8 asked for 6 sequences), named after its sequence and captioned in the
     # colour of its prediction

@@ -52,8 +52,7 @@ def test_tiled_segmentation_equals_the_whole_image_prediction() -> None:
         image=image, predict_tile_probabilities=functools.partial(predict_pixel_probabilities, batch_sizes=batch_sizes),
         tile_size=32, overlap=8, tiles_per_batch=4)
     assert batch_sizes == [4, 2]
-    assert torch.allclose(input=probabilities, other=predict_pixel_probabilities(tiles=image[None],
-                                                                                 batch_sizes=[])[0])
+    assert torch.allclose(input=probabilities, other=predict_pixel_probabilities(tiles=image[None], batch_sizes=[])[0])
 
     small_image = image[:, :20, :24]
     small_probabilities = segment_image_by_tiles(

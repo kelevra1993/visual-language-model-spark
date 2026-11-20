@@ -35,8 +35,7 @@ def create_test_images(number_images: int) -> torch.Tensor:
     return torch.rand(size=(number_images, 3, 64, 64), generator=generator) * 255.0
 
 
-@pytest.mark.parametrize(argnames=("global_pooling", "representation_size"),
-                         argvalues=[("flatten", 32 * 8 * 8)])
+@pytest.mark.parametrize(argnames=("global_pooling", "representation_size"), argvalues=[("flatten", 32 * 8 * 8)])
 def test_model_gives_representations_and_embeddings(global_pooling: str, representation_size: int) -> None:
     """
     Verifies the outputs of the model without second views, as in the evaluation: the representation of every image

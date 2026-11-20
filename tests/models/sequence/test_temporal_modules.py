@@ -86,8 +86,7 @@ def test_output_shapes_and_padding_frames_are_ignored(temporal_type: str, keep_t
         keep_time_axis (bool): Whether the module returns one vector per frame.
         bidirectional (bool): Whether the recurrent modules read the sequence in both directions.
     """
-    module = build_test_module(temporal_type=temporal_type, keep_time_axis=keep_time_axis,
-                               bidirectional=bidirectional)
+    module = build_test_module(temporal_type=temporal_type, keep_time_axis=keep_time_axis, bidirectional=bidirectional)
     frame_features, sequence_mask = get_test_inputs()
 
     with torch.no_grad():

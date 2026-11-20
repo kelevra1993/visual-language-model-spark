@@ -33,10 +33,9 @@ def compute_labelling_log_probability(probabilities: np.ndarray, selected_frames
     """
     wanted_class_indices = [class_index for class_index in range(probabilities.shape[1])
                             if class_index != unselected_class_index]
-    frame_labels = convert_selection_to_frame_labels(selected_frames=selected_frames,
-                                                     wanted_class_indices=wanted_class_indices,
-                                                     number_frames=probabilities.shape[0],
-                                                     unselected_class_index=unselected_class_index)
+    frame_labels = convert_selection_to_frame_labels(
+        selected_frames=selected_frames, wanted_class_indices=wanted_class_indices,
+        number_frames=probabilities.shape[0], unselected_class_index=unselected_class_index)
     return float(np.log(probabilities[np.arange(probabilities.shape[0]), frame_labels]).sum())
 
 

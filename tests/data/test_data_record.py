@@ -96,6 +96,7 @@ def test_class_records_count_every_split(tmp_path: Path) -> None:
     Args:
         tmp_path (Path): The pytest temporary directory.
     """
+    # A training split of two categories merged into one class, a validation split naming a third one, an empty test
     split_labels = {
         "train": {"categories": [{"id": 1, "name": "car"}, {"id": 2, "name": "truck"}],
                   "images": [{"id": 1, "file_name": "1.png"}, {"id": 2, "file_name": "2.png"}],
@@ -108,6 +109,7 @@ def test_class_records_count_every_split(tmp_path: Path) -> None:
         (tmp_path / split_name).mkdir()
         (tmp_path / split_name / "labels.json").write_text(data=json.dumps(obj=labels))
 
+    # One record per class in class index order, with its images and objects counted in every split
     class_records = build_class_records(
         class_names=["background", "car+truck", "person"], label_dictionary={"background": 0, 1: 1, 2: 1, 3: 2},
         label_mode="multi_class", unmapped_class_index=None,

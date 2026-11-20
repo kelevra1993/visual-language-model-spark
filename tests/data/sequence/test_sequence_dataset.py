@@ -129,6 +129,7 @@ def test_collate_pads_the_batches_to_their_longest_sequence(tmp_path: Path, labe
         tmp_path (Path): The pytest temporary directory.
         label_type (str): "sequence" (one class per sequence) or "frame" (one class per frame).
     """
+    # Three sequences of 2, 3 and 5 frames, collated into one batch
     write_sequence_split(split_folder=tmp_path, sequences=[
         {"id": 1, "name": "two", "number_frames": 2, "category_id": 1, "frame_category_ids": [1, 2]},
         {"id": 2, "name": "three", "number_frames": 3, "category_id": 2, "frame_category_ids": [2, 1, 2]},
@@ -140,6 +141,7 @@ def test_collate_pads_the_batches_to_their_longest_sequence(tmp_path: Path, labe
     batch = next(iter(DataLoader(dataset=dataset, batch_size=3, shuffle=False,
                                  collate_fn=partial(collate_padded_sequences, members_per_sample=1))))
 
+    # The shorter sequences end with black frames outside the sequence mask, their frame labels with the ignored label
     assert batch["images"].shape == (3, 5, 3, 16, 16)
     assert batch["sequence_mask"].tolist() == [[True] * 2 + [False] * 3, [True] * 3 + [False] * 2, [True] * 5]
     assert batch["images"][0, :, 0, 8, 8].tolist() == [1, 2, 0, 0, 0]
@@ -188,8 +190,7 @@ def test_selection_sequences_are_whole_with_unselected_frames(tmp_path: Path) ->
                               image_size=16, keep_ratio=False, label_dictionary={1: 0, 3: 1},
                               sequence_settings={"maximum_sequence_length": 6}, label_type="selection",
                               split_name="Training",
-                              selection_settings={"unselected_category": "still", "frames_per_class": 1},
-                              shuffle=False)
+                              selection_settings={"unselected_category": "still", "frames_per_class": 1}, shuffle=False)
 
     assert dataset.unselected_class_index == 1 and len(dataset) == 2
     assert dataset[0]["labels"].tolist() == [1, 0, 1, 1, 1]

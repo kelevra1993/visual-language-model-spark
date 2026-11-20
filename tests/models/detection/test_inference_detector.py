@@ -294,8 +294,7 @@ def test_postprocess_detections_match_the_nms_on_every_pair(nms_criterion: str, 
                         "maximum_detections": 100, "input_image_size": 128}
 
             # Eager path on the candidates, then the reference on every pair
-            detections = postprocess_detections(**settings, nms_criterion=nms_criterion,
-                                                suppress_candidates_only=True)
+            detections = postprocess_detections(**settings, nms_criterion=nms_criterion, suppress_candidates_only=True)
             reference_detections = postprocess_detections(**settings, nms_criterion=nms_criterion,
                                                           suppress_candidates_only=False)
 

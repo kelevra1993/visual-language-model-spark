@@ -19,8 +19,7 @@ from vision_training.data.preprocessing import (compute_letterbox_region, prepro
                                                 restore_prediction_to_original_image)
 
 
-def test_images_of_more_than_8_bits_are_read_as_before_with_one_warning(tmp_path: Path,
-                                                                        capsys: pytest.CaptureFixture,
+def test_images_of_more_than_8_bits_are_read_as_before_with_one_warning(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                                         monkeypatch: pytest.MonkeyPatch) -> None:
     """
     Verifies that read_image gives the 8 bit pixels cv2.imread gave for a 16 bit PNG, the values divided by 256, and

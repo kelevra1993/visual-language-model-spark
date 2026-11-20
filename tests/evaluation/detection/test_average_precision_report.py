@@ -68,6 +68,8 @@ def test_class_average_precision_rows_and_table() -> None:
                       for bound, value in [("", 0.0), ("_lower", 0.0), ("_upper", pytest.approx(expected=0.975))]}
     absent_recalls = {f"recall_{threshold}{bound}": None for threshold in ["50", "75"]
                       for bound in ["", "_lower", "_upper"]}
+
+    # The square found, the circle missed and the star without ground truth, in class index order
     expected_rows: List[Dict[str, Any]] = [
         {"class_index": 1, "class": "square", "ground_truths": 1, "average_precision_50": 1.0,
          "average_precision_75": 1.0, "average_precision_95": 1.0, "average_precision_50_95": 1.0,
@@ -83,6 +85,7 @@ def test_class_average_precision_rows_and_table() -> None:
          "average_precision_50_95_small": None, **empty_size_columns, **absent_recalls}]
     assert class_rows == expected_rows
 
+    # The table sorted by AP@0.5 puts the star, without average precision, last
     table = build_class_average_precision_table(class_rows=class_rows)
     assert table["columns"] == ["Class", "Ground\nTruths", "AP@0.5", "AP@0.75", "AP@0.95", "AP@[0.5:0.95]"]
     assert table["sort_column"] == "AP@0.5" and table["per_class"] is True

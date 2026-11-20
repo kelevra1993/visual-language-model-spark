@@ -390,8 +390,7 @@ def test_run_evaluated_before_the_summary_starts_it_from_tensorboard(tmp_path: P
         if column_name == "ema_number_updates":
             continue
         assert float(summary_rows[0][column_name]) == pytest.approx(expected=float(exact_value), abs=1e-6)
-        assert float(summary_rows[0][column_name]) == float(torch.tensor(data=float(exact_value),
-                                                                         dtype=torch.float32))
+        assert float(summary_rows[0][column_name]) == float(torch.tensor(data=float(exact_value), dtype=torch.float32))
 
     # TensorBoard holds no number of updates, which only the evaluations written by the trainer give
     assert (exact_first_row["ema_number_updates"], summary_rows[0]["ema_number_updates"]) == ("4", "")

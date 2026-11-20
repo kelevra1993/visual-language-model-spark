@@ -66,8 +66,7 @@ def get_worked_example() -> tuple:
     return detections, ground_truths
 
 
-@pytest.mark.parametrize(argnames=("method", "expected_average_precision"),
-                         argvalues=[("area", 0.68)])
+@pytest.mark.parametrize(argnames=("method", "expected_average_precision"), argvalues=[("area", 0.68)])
 def test_worked_example_average_precision(method: str, expected_average_precision: float) -> None:
     """
     Verifies the average precision of the worked example with the area method, computed by hand from its precision
@@ -83,10 +82,8 @@ def test_worked_example_average_precision(method: str, expected_average_precisio
     assert results[method]["class_AP@0.5"][1] == pytest.approx(expected=expected_average_precision)
 
 
-@pytest.mark.parametrize(argnames=("target_precision", "expected_threshold"),
-                         argvalues=[(0.99, (0.95, 0.2))])
-def test_class_score_thresholds_of_the_worked_example(target_precision: float,
-                                                      expected_threshold: tuple) -> None:
+@pytest.mark.parametrize(argnames=("target_precision", "expected_threshold"), argvalues=[(0.99, (0.95, 0.2))])
+def test_class_score_thresholds_of_the_worked_example(target_precision: float, expected_threshold: tuple) -> None:
     """
     Verifies the score threshold of the worked example, whose detections are by decreasing score a true positive, a
     false positive and three true positives among 5 objects: only its first detection reaches a precision of 0.99

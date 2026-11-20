@@ -57,7 +57,7 @@ def test_created_keypoint_dataset_is_valid_coco_and_loads(tmp_path: Path) -> Non
     for annotation in labels["annotations"]:
         keypoint_values = annotation["keypoints"]
         assert len(keypoint_values) == 3 * keypoint_counts[annotation["category_id"]]
-        x, y, width, height = annotation["bbox"]
+        left, top, width, height = annotation["bbox"]
         visibilities = keypoint_values[2::3]
         assert set(visibilities) <= {0, 1, 2} and annotation["num_keypoints"] == sum(1 for visibility in visibilities
                                                                                       if visibility > 0)
@@ -66,8 +66,8 @@ def test_created_keypoint_dataset_is_valid_coco_and_loads(tmp_path: Path) -> Non
                 assert keypoint_x == keypoint_y == 0
                 continue
             assert 0 <= keypoint_x <= IMAGE_SIZE and 0 <= keypoint_y <= IMAGE_SIZE
-            assert x - BOX_TOLERANCE <= keypoint_x <= x + width + BOX_TOLERANCE
-            assert y - BOX_TOLERANCE <= keypoint_y <= y + height + BOX_TOLERANCE
+            assert left - BOX_TOLERANCE <= keypoint_x <= left + width + BOX_TOLERANCE
+            assert top - BOX_TOLERANCE <= keypoint_y <= top + height + BOX_TOLERANCE
 
     # The categories with keypoints get the classes 1 to N in their order, the distractors without keypoints none
     label_mapping = json.loads((tmp_path / "label_mapping.json").read_text())

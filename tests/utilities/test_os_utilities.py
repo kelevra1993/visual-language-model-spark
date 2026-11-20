@@ -18,9 +18,8 @@ from vision_training.utilities.os_utilities import (enable_expandable_cuda_segme
 
 @pytest.mark.parametrize(argnames="settings_given, expected_settings",
                          argvalues=[("max_split_size_mb:128", "max_split_size_mb:128,expandable_segments:True")])
-def test_expandable_segments_are_added_to_the_allocator_settings(monkeypatch: pytest.MonkeyPatch,
-                                                                 settings_given: str | None,
-                                                                 expected_settings: str) -> None:
+def test_expandable_segments_are_added_to_the_allocator_settings(
+        monkeypatch: pytest.MonkeyPatch, settings_given: str | None, expected_settings: str) -> None:
     """
     Verifies that the training launch adds the expandable segments of the CUDA allocator to other allocator settings
     given by hand.

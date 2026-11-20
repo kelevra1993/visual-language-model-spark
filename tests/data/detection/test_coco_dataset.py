@@ -329,7 +329,6 @@ def test_ignored_regions_are_the_objects_without_labelled_keypoint(tmp_path: Pat
                              load_ignored_regions=True)
 
 
-
 def test_instance_index_maps_give_the_objects_of_the_instance_masks(tmp_path: Path) -> None:
     """
     Verifies that the samples with instance index maps keep the objects, labels and boxes of the samples with one mask

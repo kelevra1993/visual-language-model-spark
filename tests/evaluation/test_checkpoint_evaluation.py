@@ -20,8 +20,7 @@ from vision_training.trainers.checkpointing import get_checkpoint_file, get_chec
 from tests.trainers.test_base_trainer import build_dummy_trainer
 
 
-@pytest.mark.parametrize(argnames="per_class_report, moving_average_activated",
-                         argvalues=[(True, True)])
+@pytest.mark.parametrize(argnames="per_class_report, moving_average_activated", argvalues=[(True, True)])
 def test_every_checkpoint_is_evaluated_and_summarised(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                       per_class_report: bool, moving_average_activated: bool) -> None:
     """
@@ -103,9 +102,8 @@ def test_standalone_evaluation_writes_only_its_checkpoint_evaluation_folder(tmp_
     run_files_before = list_run_files(run_folder=run_folder)
 
     # Standalone evaluation of the last two checkpoints of the run
-    evaluation_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=5,
-                                             view_input_images=False, number_sample_images=0,
-                                             evaluated_run_folder=run_folder)
+    evaluation_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=5, view_input_images=False,
+                                             number_sample_images=0, evaluated_run_folder=run_folder)
     summary_path = evaluate_checkpoints(trainer=evaluation_trainer, experiment_folder=run_folder, iterations=[4, 5])
 
     # Iteration folders and summary directly in the Checkpoint_Evaluation folder, with the results and test curves,

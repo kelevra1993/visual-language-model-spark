@@ -32,17 +32,15 @@ def test_confusion_matrix_counts_every_detection_and_object_once() -> None:
     these outcomes.
     """
     confusion_matrix = torch.zeros(size=(4, 4), dtype=torch.int64)
-    add_to_confusion_matrix(confusion_matrix=confusion_matrix,
-                            matched_ground_truth_indices=torch.tensor(data=[0, 1, -1]),
-                            detection_labels=torch.tensor(data=[1, 3, 2]),
-                            ground_truth_labels=torch.tensor(data=[1, 2, 3]))
+    add_to_confusion_matrix(
+        confusion_matrix=confusion_matrix, matched_ground_truth_indices=torch.tensor(data=[0, 1, -1]),
+        detection_labels=torch.tensor(data=[1, 3, 2]), ground_truth_labels=torch.tensor(data=[1, 2, 3]))
     assert confusion_matrix.tolist() == [[0, 0, 1, 0], [0, 1, 0, 0], [0, 0, 0, 1], [1, 0, 0, 0]]
     assert summarise_confusion_matrix(confusion_matrix=confusion_matrix) == {"right": 1, "wrong_class": 1,
                                                                              "false_positives": 1, "missed": 1}
 
     # An image without detection adds its objects to the background column
-    add_to_confusion_matrix(confusion_matrix=confusion_matrix,
-                            matched_ground_truth_indices=torch.zeros(size=(0,), dtype=torch.int64),
-                            detection_labels=torch.zeros(size=(0,), dtype=torch.int64),
-                            ground_truth_labels=torch.tensor(data=[2, 2]))
+    add_to_confusion_matrix(
+        confusion_matrix=confusion_matrix, matched_ground_truth_indices=torch.zeros(size=(0,), dtype=torch.int64),
+        detection_labels=torch.zeros(size=(0,), dtype=torch.int64), ground_truth_labels=torch.tensor(data=[2, 2]))
     assert int(confusion_matrix[2, 0]) == 2 and int(confusion_matrix.sum()) == 6

@@ -90,8 +90,7 @@ def build_trainer(configuration_path: Path) -> DetectionTrainer:
     Returns:
         DetectionTrainer: The trainer, resumed from the last checkpoint of its run folder when there is one.
     """
-    experiment_configuration, model_configuration = load_experiment_configuration(
-        configuration_path=configuration_path)
+    experiment_configuration, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
     return DetectionTrainer(experiment_configuration=experiment_configuration, model_configuration=model_configuration,
                    configuration_path=configuration_path)
 

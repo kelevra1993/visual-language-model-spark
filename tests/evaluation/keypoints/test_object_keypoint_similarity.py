@@ -189,10 +189,9 @@ def test_object_keypoint_similarity_matches_a_hand_computed_case() -> None:
     2 pixels away gives exp(-4 / (2 · 100 · 0.1²)) = exp(-2), and the unlabelled keypoint, however far, is left out of
     the mean.
     """
-    similarity = compute_object_keypoint_similarity(squared_distances=torch.tensor(data=[[0.0, 4.0, 1.0e6]]),
-                                                    visibilities=torch.tensor(data=[[2, 1, 0]]),
-                                                    areas=torch.tensor(data=[100.0]),
-                                                    sigmas=torch.full(size=(1, 3), fill_value=0.05))
+    similarity = compute_object_keypoint_similarity(
+        squared_distances=torch.tensor(data=[[0.0, 4.0, 1.0e6]]), visibilities=torch.tensor(data=[[2, 1, 0]]),
+        areas=torch.tensor(data=[100.0]), sigmas=torch.full(size=(1, 3), fill_value=0.05))
     assert similarity.dtype == torch.float64 and similarity.shape == (1,)
     assert similarity.item() == pytest.approx((1.0 + math.exp(-2.0)) / 2.0)
 
@@ -261,8 +260,7 @@ def test_evaluate_image_keypoints_compares_the_predicted_and_ground_truth_object
                          visibilities=[[2, 2, 1, 0], [2, 0, 2, 0], [2, 2, 2, 2]], predicted_labels=[1, 2, 1, 1],
                          predicted_keypoints=predicted_keypoints, predicted_scores=[0.7, 0.6, 0.9, 0.3]),
               make_image(labels=[2], bounding_boxes=[[0.0, 0.0, 20.0, 20.0]], keypoints=[rectangle],
-                         visibilities=[[2, 2, 2, 2]], predicted_labels=[], predicted_keypoints=[],
-                         predicted_scores=[]),
+                         visibilities=[[2, 2, 2, 2]], predicted_labels=[], predicted_keypoints=[], predicted_scores=[]),
               make_image(labels=[], bounding_boxes=[], keypoints=[], visibilities=[], predicted_labels=[2],
                          predicted_keypoints=[rectangle], predicted_scores=[0.5])]
     sigma_table = build_keypoint_sigma_table(keypoint_categories=KEYPOINT_CATEGORIES, default_sigma=DEFAULT_SIGMA,

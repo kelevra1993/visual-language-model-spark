@@ -74,8 +74,7 @@ def test_losses_stay_in_float32_under_mixed_precision() -> None:
         info_nce_outputs = compute_info_nce_loss(first_embeddings=first_embeddings,
                                                  second_embeddings=second_embeddings, temperature=0.1)
         barlow_twins_outputs = compute_barlow_twins_loss(first_embeddings=first_embeddings,
-                                                         second_embeddings=second_embeddings,
-                                                         off_diagonal_weight=0.005)
+                                                         second_embeddings=second_embeddings, off_diagonal_weight=0.005)
     assert all(value.dtype == torch.float32 for value in [*info_nce_outputs.values(), *barlow_twins_outputs.values()])
 
     # The loss of both methods trains the embeddings

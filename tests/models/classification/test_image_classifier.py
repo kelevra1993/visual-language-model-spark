@@ -138,8 +138,7 @@ def test_decorrelation_loss_of_the_hidden_features() -> None:
                for parameter in model.backbone.parameters())
 
 
-@pytest.mark.parametrize(argnames=("global_pooling", "expected_vector"),
-                         argvalues=[("max", [4.0, 8.0])])
+@pytest.mark.parametrize(argnames=("global_pooling", "expected_vector"), argvalues=[("max", [4.0, 8.0])])
 def test_global_pooling_and_head_shapes(global_pooling: str, expected_vector: List[float]) -> None:
     """
     Verifies that the global pooling reduces a feature map to one vector per image with its maximum, and that the

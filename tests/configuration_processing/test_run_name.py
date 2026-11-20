@@ -587,8 +587,7 @@ def test_optimization_run_name_tokens() -> None:
         "_MC4", "_MC4_ADAMW-WD1e-4")
 
 
-@pytest.mark.parametrize(argnames=("run_name_suffix", "expected_ending"),
-                         argvalues=[("v1", "_MC4_ADAMW-WD1e-4_v1")])
+@pytest.mark.parametrize(argnames=("run_name_suffix", "expected_ending"), argvalues=[("v1", "_MC4_ADAMW-WD1e-4_v1")])
 def test_run_name_suffix_ends_the_run_name(run_name_suffix: str | None, expected_ending: str) -> None:
     """
     Verifies that the run name suffix is the last section of the run name, after the optimizer section, so that a run
