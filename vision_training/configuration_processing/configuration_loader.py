@@ -133,9 +133,9 @@ def prepare_experiment_configuration(configuration_path: str | Path) -> Tuple[Di
     experiment_configuration["standalone_evaluation_folder"] = None
 
     # Convert numerics
-    int_keys = ["information_dump", "weight_saving_iterations", "intermediate_weight_saving_iterations",
-                "number_iterations"]
-    for key in int_keys:
+    integer_keys = ["information_dump", "weight_saving_iterations", "intermediate_weight_saving_iterations",
+                    "number_iterations"]
+    for key in integer_keys:
         if key in experiment_configuration:
             experiment_configuration[key] = int(float(experiment_configuration[key]))
 

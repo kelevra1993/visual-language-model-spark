@@ -484,11 +484,11 @@ def build_viewer_window(window: ViewerWindow, hint: str = NAVIGATION_HINT) -> np
     # Draw each object's bounding box rectangle and its class caption, for the tasks with boxes
     if window.bounding_boxes is not None:
         for box, label in zip(window.bounding_boxes.detach().cpu().numpy(), window.labels.detach().cpu().numpy()):
-            box_x1, box_y1, box_x2, box_y2 = map(int, box)
+            box_left, box_top, box_right, box_bottom = map(int, box)
             caption = window.label_names.get(int(label), str(int(label))) if window.label_names else str(int(label))
-            cv2.rectangle(img=image_numpy, pt1=(box_x1, box_y1), pt2=(box_x2, box_y2), color=(0, 255, 0),
+            cv2.rectangle(img=image_numpy, pt1=(box_left, box_top), pt2=(box_right, box_bottom), color=(0, 255, 0),
                           thickness=2)
-            cv2.putText(img=image_numpy, text=caption, org=(box_x1, max(box_y1 - 10, 0)),
+            cv2.putText(img=image_numpy, text=caption, org=(box_left, max(box_top - 10, 0)),
                         fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.5, color=(0, 255, 0), thickness=2)
 
     # Resize the image so that its longest side is the display size, with sharp pixels when it is enlarged

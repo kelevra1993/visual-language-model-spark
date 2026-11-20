@@ -1685,7 +1685,7 @@ class BaseTrainer(ABC):
             return None
         checkpoint = load_checkpoint(weights_directory=self.weights_directory, iteration=checkpoint_iteration,
                                      device=self.device)
-        self.model.load_state_dict(checkpoint["model_state"])
+        self.model.load_state_dict(state_dict=checkpoint["model_state"])
         return checkpoint_iteration
 
     def run_evaluation_prediction(self, prepared_batch: Dict[str, Any],
@@ -3001,8 +3001,8 @@ class BaseTrainer(ABC):
         """
         checkpoint = load_checkpoint(weights_directory=self.weights_directory, iteration=iteration, device=self.device)
 
-        self.model.load_state_dict(checkpoint["model_state"])
-        self.optimizer.load_state_dict(checkpoint["optimizer_state"])
+        self.model.load_state_dict(state_dict=checkpoint["model_state"])
+        self.optimizer.load_state_dict(state_dict=checkpoint["optimizer_state"])
         self.load_exponential_moving_average(checkpoint=checkpoint, iteration=iteration)
 
     def load_exponential_moving_average(self, checkpoint: Dict[str, Any], iteration: int) -> None:
