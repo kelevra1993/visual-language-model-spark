@@ -2399,8 +2399,9 @@ def build_keypoint_labels(image_records: List[Dict[str, Any]], image_size: int, 
     # The annotations follow the objects of the records in order, each one getting the keypoints of its object
     object_keypoints = [keypoints for record in image_records for _, _, keypoints in record["objects"]]
     for annotation, keypoints in zip(labels["annotations"], object_keypoints, strict=True):
-        annotation["keypoints"] = [value for x, y, visibility in keypoints
-                                   for value in (round(float(x), 2), round(float(y), 2), int(visibility))]
+        annotation["keypoints"] = [value for keypoint_x, keypoint_y, visibility in keypoints
+                                   for value in (round(float(keypoint_x), 2), round(float(keypoint_y), 2),
+                                                 int(visibility))]
         annotation["num_keypoints"] = int((keypoints[:, 2] > 0).sum())
 
     # Every category lists the names of its keypoints and its skeleton

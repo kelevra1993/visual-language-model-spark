@@ -195,6 +195,7 @@ def format_scientific(value: float) -> str:
     mantissa, exponent = f"{value:e}".split("e")
     return f"{mantissa.rstrip('0').rstrip('.')}e{int(exponent)}"
 
+
 def build_optimizer_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Builds the optimizer section of the run name, shared by every task, left out with plain Adam without weight decay:

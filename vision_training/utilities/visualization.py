@@ -1173,8 +1173,9 @@ def draw_keypoint_objects(image: np.ndarray, keypoints: np.ndarray, visibilities
                            else visibilities[object_index, :number_keypoints] > 0)
         if not drawn_keypoints.any():
             continue
-        drawn_points = [(int(round(x - 0.5)), int(round(y - 0.5))) if drawn else (0, 0)
-                        for (x, y), drawn in zip(object_keypoints.tolist(), drawn_keypoints.tolist(), strict=True)]
+        drawn_points = [(int(round(keypoint_x - 0.5)), int(round(keypoint_y - 0.5))) if drawn else (0, 0)
+                        for (keypoint_x, keypoint_y), drawn in zip(object_keypoints.tolist(), drawn_keypoints.tolist(),
+                                                                   strict=True)]
 
         # Skeleton lines between two drawn keypoints, in the colour of the class, under the keypoint discs
         for start_index, end_index in definition["skeleton"]:
