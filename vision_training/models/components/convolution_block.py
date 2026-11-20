@@ -70,11 +70,12 @@ class ConvolutionBlock(nn.Module):
     It is shared by the Backbone, the Region Proposal heads and the Detection heads, and can optionally
     integrate the following optional architecture modules:
         - Squeeze-and-Excitation channel recalibration after every convolution layer.
-        - Residual shortcuts added every two convolution layers, to the normalized and recalibrated output of the
-          layer closing the pair and before its activation, as in the original residual networks: the branch can
-          lower the values of the shortcut as well as raise them, and Squeeze-and-Excitation rescales the residual
-          branch only and never the shortcut, which would otherwise be halved at every pair by the gates of about
-          0.5 of an untrained network.
+        - Residual shortcuts added around every pair of convolution layers (from the second layer when the first one
+          changes the channel count, so that a block of two such layers gets none), to the normalized and
+          recalibrated output of the layer closing the pair and before its activation, as in the original residual
+          networks: the branch can lower the values of the shortcut as well as raise them, and Squeeze-and-Excitation
+          rescales the residual branch only and never the shortcut, which would otherwise be halved at every pair by
+          the gates of about 0.5 of an untrained network.
         - Pre-activation residual shortcuts ("Identity Mappings in Deep Residual Networks", He et al., 2016), with
           the residual shortcuts: every layer normalizes and activates its input before its convolution, the layer
           closing a pair adds the shortcut to its recalibrated convolution output with nothing after the addition, so
@@ -119,8 +120,9 @@ class ConvolutionBlock(nn.Module):
             dtype (torch.dtype): The desired data type of returned parameters.
             squeeze_and_excite (bool): Whether to recalibrate channels with Squeeze-and-Excitation after every layer,
                 before the residual shortcut is added.
-            residual (bool): Whether to add residual shortcuts every two convolution layers, before the activation of
-                the layer closing each pair.
+            residual (bool): Whether to add residual shortcuts around every pair of convolution layers (from the
+                second layer when the first one changes the channel count), before the activation of the layer
+                closing each pair.
             pre_activation (bool): Whether the residual shortcuts use the pre-activation placement (normalization and
                 activation before every convolution, nothing after the addition, the block output normalized and
                 activated). Requires the residual shortcuts and the activation.

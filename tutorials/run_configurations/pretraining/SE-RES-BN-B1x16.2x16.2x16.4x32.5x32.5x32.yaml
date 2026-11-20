@@ -277,8 +277,8 @@ Backbone:
     feature_map_normalization: "batch"
 
   modules:
-    # Residual Nets : Paper "Deep Residual Learning for Image Recognition" https://arxiv.org/abs/1512.03385
-    # Shortcuts are added every two convolution layers, starting from the second convolution block
+    # Residual shortcuts (https://arxiv.org/abs/1512.03385) around pairs of layers from block 2; a block
+    # changing the channel count pairs its layers from the second one, so with 2 layers it gets none.
     residual_nets: True
 
     # Residual Nets v2 : Paper "Identity Mappings in Deep Residual Networks" https://arxiv.org/abs/1603.05027
