@@ -1,9 +1,10 @@
 """
 Tests of DataAugmenter of vision_training/data/augmentations.py: geometric augmentations moving and removing boxes,
-geometric augmentations moving the segmentation masks with nearest interpolation, geometric augmentations moving the
-instance masks and recomputing their boxes, photometric augmentations keeping boxes, masks and pixel range, the motion
-blur streaking a dot along the drawn angle with reflected borders, the haze blending every image with its own grey
-airlight after the other photometric types, the black-out hiding whole cells of a set grid drawn one by one, last,
+geometric augmentations moving the segmentation masks with nearest interpolation, the crops and the zoom-out keeping
+the class and instance masks on the pixel centres of the image, geometric augmentations moving the instance masks and
+recomputing their boxes, photometric augmentations keeping boxes, masks and pixel range, the motion blur streaking a
+dot along the drawn angle with reflected borders, the haze blending every image with its own grey airlight after the
+other photometric types, the black-out hiding whole cells of a set grid drawn one by one, last,
 without making the host wait for the GPU, shared or per-frame draws of the sequence frames, the augmentation turned off
 or of zero probability leaving the batch unchanged, frame shuffling, the zoom-out, the translation by whole pixels, the
 removal of the fragments of objects left by the crop, the aspect crop keeping independent shares of the width and of the
@@ -36,6 +37,7 @@ from vision_training.data.augmentations import (DataAugmenter, AUGMENTATION_TYPE
                                                  SUPERVISED_AUGMENTATION_STRENGTHS, build_motion_blur_kernel,
                                                  build_plasma_map, get_sharpening_kernels, send_grid_to_device)
 from vision_training.data.detection.coco_masks import compute_mask_bounding_boxes
+from tests.testing_utilities import compute_weighted_centroid
 
 IMAGE_SIZE = 96
 
@@ -803,6 +805,43 @@ def test_zoom_out_shrinks_the_image_boxes_and_masks_onto_a_black_canvas() -> Non
         assert int(moved_masks.sum()) == int((mask == 1).sum())
 
 
+@pytest.mark.parametrize(argnames="augmentation_type", argvalues=["random_crop", "random_aspect_crop",
+                                                                  "random_zoom_out"])
+def test_resized_masks_stay_on_the_pixel_centres_of_the_image(augmentation_type: str) -> None:
+    """
+    Verifies that the crops and the zoom-out resize the class and instance masks on the pixel centres like the image:
+    over 20 draws the centroid of the mask of a rectangle stays within 0.15 pixel of the centroid of the resampled
+    rectangle on average and within half a pixel at every draw, where the plain nearest of torchvision moved it by
+    about half a pixel to the bottom right on average and up to 0.93 pixel.
+
+    Args:
+        augmentation_type (str): The geometric augmentation type resizing the mask.
+    """
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=[]))
+    box = [21.0, 33.0, 52.0, 70.0]
+    class_mask = torch.zeros(size=(IMAGE_SIZE, IMAGE_SIZE), dtype=torch.int64)
+    class_mask[33:70, 21:52] = 3
+    centroid_offsets = []
+
+    for seed in range(20):
+        random.seed(seed)
+        image, _, moved_class_mask, _, _ = getattr(augmenter, augmentation_type)(
+            image=create_rectangle_image(box=box), bounding_boxes=None, mask=class_mask)
+        centroid_offsets.append(compute_weighted_centroid(weights=moved_class_mask == 3) -
+                                compute_weighted_centroid(weights=image[0]))
+
+        # The binary instance mask of the same object takes exactly the pixels of the class mask
+        random.seed(seed)
+        _, _, moved_instance_masks, _, _ = getattr(augmenter, augmentation_type)(
+            image=create_rectangle_image(box=box), bounding_boxes=None,
+            mask=(class_mask == 3).to(dtype=torch.uint8).unsqueeze(dim=0))
+        assert torch.equal(input=moved_instance_masks[0].bool(), other=moved_class_mask == 3)
+
+    centroid_offsets = torch.stack(tensors=centroid_offsets)
+    assert bool((centroid_offsets.mean(dim=0).abs() < 0.15).all()), centroid_offsets.mean(dim=0)
+    assert bool((centroid_offsets.abs() < 0.5).all()), centroid_offsets.abs().max(dim=0).values
+
+
 def test_translation_shifts_the_image_boxes_and_masks_by_whole_pixels() -> None:
     """
     Verifies that the translation moves the rectangle, its box, its class mask and its instance mask by the same whole
@@ -931,7 +970,8 @@ def test_aspect_crop_keeps_independent_shares_of_the_width_and_the_height(monkey
 
     # Instance segmentation: the object with 6 of its 30 columns inside the crop keeps 8 stretched columns, a fifth of
     # the pixels it would have at the area scale of 4/3, and is removed, the other one being kept with the box of its
-    # stretched mask, whose nearest resampling takes the output column j from the column floor(0.75 x j) of the crop
+    # stretched mask, whose nearest resampling on the pixel centres takes the output column j from the column
+    # floor(0.75 x (j + 0.5)) of the crop, the columns 10 to 39 giving 13 to 52 (13.33 to 53.33 exactly)
     drawn_fractions = iter([MINIMUM_ASPECT_CROP_FRACTION, 1.0])
     boxes = torch.tensor(data=[[66.0, 10.0, 96.0, 40.0], [10.0, 10.0, 40.0, 40.0]])
     instance_masks = torch.zeros(size=(2, IMAGE_SIZE, IMAGE_SIZE), dtype=torch.uint8)
@@ -941,7 +981,7 @@ def test_aspect_crop_keeps_independent_shares_of_the_width_and_the_height(monkey
         images=torch.zeros(size=(1, 3, IMAGE_SIZE, IMAGE_SIZE)), bounding_boxes=[boxes],
         labels=[torch.tensor(data=[2, 1])], instance_masks=[instance_masks])
     assert kept_labels[0].tolist() == [1] and kept_masks[0].shape == (1, IMAGE_SIZE, IMAGE_SIZE)
-    assert kept_boxes[0].tolist() == [[14.0, 10.0, 54.0, 40.0]]
+    assert kept_boxes[0].tolist() == [[13.0, 10.0, 53.0, 40.0]]
 
 
 def test_reports_name_the_drawn_types_their_values_and_the_removed_objects(monkeypatch: pytest.MonkeyPatch) -> None:

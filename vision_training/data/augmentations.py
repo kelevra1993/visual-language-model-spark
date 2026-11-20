@@ -29,6 +29,7 @@ from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union
 from torch.nn import functional as torch_functional
 from torchvision import tv_tensors
+from torchvision.transforms.v2 import InterpolationMode
 from torchvision.transforms.v2 import functional as vision_functional
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
@@ -82,6 +83,10 @@ SECOND_VIEW_ONLY_TYPES = ["random_solarize", "random_black_out"]
 
 # Number of views drawn for every image of the self-supervised task
 NUMBER_VIEWS = 2
+
+# Resampling of the masks resized by the crops and the zoom-out: the nearest pixel of every output pixel centre, aligned
+# with the bilinear images, the plain nearest of torchvision shifting the masks by half a pixel to the bottom right
+MASK_INTERPOLATION = InterpolationMode.NEAREST_EXACT
 
 
 class AugmentationStrengths(TypedDict):
@@ -642,10 +647,11 @@ class DataAugmenter:
 
     It is shared by every network of the project: the object detector passes bounding boxes and labels, which are
     moved, clipped and filtered together with the geometric augmentations, the semantic segmenter passes the class
-    masks of its images, moved with nearest interpolation so that every pixel keeps a class, the instance segmenter
-    passes the binary mask of every object with its boxes, the boxes then becoming the tight boxes of the moved masks,
-    the keypoint detector passes the keypoints of every object with its boxes, moved without being renamed, and as its
-    masks the binary regions its heatmap loss leaves out, while a classifier simply omits them.
+    masks of its images, moved with the nearest interpolation on the pixel centres (MASK_INTERPOLATION) so that every
+    pixel keeps a class and stays on its image pixel, the instance segmenter passes the binary mask of every object
+    with its boxes, the boxes then becoming the tight boxes of the moved masks, the keypoint detector passes the
+    keypoints of every object with its boxes, moved without being renamed, and as its masks the binary regions its
+    heatmap loss leaves out, while a classifier simply omits them.
     Images are float BGR tensors in the [0, 255] range, either single images [B, C, H, W] or sequences
     [B, T, C, H, W] for the sequence networks, in which case every frame of a sequence receives exactly the same
     random augmentation so that the sequence stays coherent, unless the photometric types are drawn frame by frame
@@ -1171,7 +1177,7 @@ class DataAugmenter:
         x1/2 to x2 (draw_area_crop), the random resized crop of SimCLR, its content being stretched when it is resized
         back. Boxes are shifted and scaled accordingly; boxes leaving the crop, or keeping too small a share of their
         area inside it, are removed afterwards by 'clean_bounding_boxes'. The mask is cropped and resized with the
-        nearest interpolation.
+        nearest interpolation on the pixel centres, aligned with the image.
 
         Args:
             image (torch.Tensor): The image [C, H, W] or sequence [T, C, H, W].
@@ -1304,16 +1310,19 @@ class DataAugmenter:
                                                        width=crop_width, size=[image_height, image_width],
                                                        antialias=True)
 
-        # Crop the boxes and the mask exactly like the image, the mask with the nearest interpolation
+        # Crop the boxes exactly like the image
         cropped_boxes, cropped_mask = None, None
         if bounding_boxes is not None:
             cropped_boxes = vision_functional.resized_crop(
                 self.wrap_bounding_boxes(bounding_boxes=bounding_boxes, image=image), top=top, left=left,
                 height=crop_height, width=crop_width, size=[image_height, image_width]).as_subclass(torch.Tensor)
+
+        # Cut the mask, then resize it on the pixel centres like the image, the resized crop of torchvision taking the
+        # plain nearest for the masks whatever the interpolation asked
         if mask is not None:
-            cropped_mask = vision_functional.resized_crop(tv_tensors.Mask(mask), top=top, left=left,
-                                                          height=crop_height, width=crop_width,
-                                                          size=[image_height, image_width]).as_subclass(torch.Tensor)
+            cropped_mask = vision_functional.resize(
+                tv_tensors.Mask(mask[..., top:top + crop_height, left:left + crop_width]),
+                size=[image_height, image_width], interpolation=MASK_INTERPOLATION).as_subclass(torch.Tensor)
         return cropped_image, cropped_boxes, cropped_mask
 
     def random_zoom_out(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
@@ -1324,8 +1333,8 @@ class DataAugmenter:
         original size, the padding of the data loaders, which shows the objects smaller than in the dataset, the
         opposite of the crop: the finest detection levels then also train on the objects that are large in the
         dataset. Boxes are scaled and shifted with the image and never leave it. The mask is shrunk with the nearest
-        interpolation, the uncovered border being ignored in a class mask, like the padding of the loaders, and
-        background (0) in the binary instance masks.
+        interpolation on the pixel centres, aligned with the image, the uncovered border being ignored in a class mask,
+        like the padding of the loaders, and background (0) in the binary instance masks.
 
         Args:
             image (torch.Tensor): The image [C, H, W] or sequence [T, C, H, W].
@@ -1357,13 +1366,14 @@ class DataAugmenter:
             offsets = torch.tensor(data=[left, top] * 2, dtype=bounding_boxes.dtype, device=bounding_boxes.device)
             zoomed_boxes = bounding_boxes * scales + offsets
 
-        # Shrink the mask with the nearest interpolation onto its canvas, ignored around a class mask and background
-        # around binary instance masks
+        # Shrink the mask with the nearest interpolation on the pixel centres onto its canvas, ignored around a class
+        # mask and background around binary instance masks
         if mask is not None:
             mask_fill = IGNORED_LABEL_INDEX if mask.dtype == torch.int64 else 0
             zoomed_mask = torch.full_like(input=mask, fill_value=mask_fill)
             zoomed_mask[..., top:top + shrunk_height, left:left + shrunk_width] = vision_functional.resize(
-                tv_tensors.Mask(mask), size=[shrunk_height, shrunk_width]).as_subclass(torch.Tensor)
+                tv_tensors.Mask(mask), size=[shrunk_height, shrunk_width],
+                interpolation=MASK_INTERPOLATION).as_subclass(torch.Tensor)
         drawn_values = f"{zoom_fraction * 100:.0f} % of each side, at top {top} and left {left} pixels"
         return (zoomed_image, zoomed_boxes, zoomed_mask, (shrunk_height * shrunk_width) / (image_height * image_width),
                 drawn_values)

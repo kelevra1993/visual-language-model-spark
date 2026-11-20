@@ -3,7 +3,8 @@ Tests of vision_training/data/preprocessing.py: read_image reads the files of mo
 with one warning, restore_boxes_to_original_image inverts preprocess_boxes, bringing the detected boxes back to the
 original image coordinates, clipped to the image or kept whole for the pasting of the instance masks, a very elongated
 image keeps a short side of one pixel in the letterbox, preprocess_boxes moves polygons like boxes, and
-restore_prediction_to_original_image brings segmentation class maps and probabilities back to their original images.
+restore_prediction_to_original_image brings segmentation class maps and probabilities back to their original images,
+the class maps on the pixel centres of the probabilities.
 """
 
 from pathlib import Path
@@ -17,6 +18,7 @@ from vision_training.data import preprocessing
 from vision_training.data.preprocessing import (compute_letterbox_region, preprocess_boxes, preprocess_image,
                                                 read_image, restore_boxes_to_original_image,
                                                 restore_prediction_to_original_image)
+from tests.testing_utilities import compute_weighted_centroid
 
 
 def test_images_of_more_than_8_bits_are_read_as_before_with_one_warning(tmp_path: Path, capsys: pytest.CaptureFixture,
@@ -146,7 +148,7 @@ def test_class_map_is_restored_to_the_original_image(keep_ratio: bool) -> None:
     """
     original_class_map = np.random.default_rng(seed=0).integers(low=0, high=5, size=(16, 8)).astype(np.int64)
     network_class_map = preprocess_image(image=original_class_map.astype(np.uint8), image_size=32,
-                                         keep_ratio=keep_ratio, interpolation=cv2.INTER_NEAREST,
+                                         keep_ratio=keep_ratio, interpolation=cv2.INTER_NEAREST_EXACT,
                                          padding_value=255).astype(np.int64)
 
     restored_class_map = restore_prediction_to_original_image(prediction=torch.from_numpy(network_class_map),
@@ -154,6 +156,37 @@ def test_class_map_is_restored_to_the_original_image(keep_ratio: bool) -> None:
                                                               keep_ratio=keep_ratio)
     assert restored_class_map.dtype == torch.int64
     assert np.array_equal(restored_class_map.numpy(), original_class_map)
+
+
+def test_restored_class_maps_stay_on_the_pixel_centres_of_the_probabilities() -> None:
+    """
+    Verifies that a class map enlarged to its original image by a factor that is not a whole number stays aligned with
+    the bilinear restoration of its probabilities, and so with the image: over 20 rectangles, the centroid of the
+    restored class pixels stays within 0.1 original pixel of the centroid of the restored probability of the class on
+    average, where the plain nearest interpolation moved it by about half a pixel to the bottom right.
+    """
+    random_generator = np.random.default_rng(seed=0)
+    start_y, start_x, resized_height, resized_width = compute_letterbox_region(image_height=131, image_width=157,
+                                                                               image_size=64)
+    centroid_offsets = []
+    for _ in range(20):
+        # A rectangle of class 1 inside the image part of the network input
+        x_start, y_start = (int(value) for value in random_generator.integers(low=0, high=[resized_width - 12,
+                                                                                         resized_height - 12]))
+        width, height = (int(value) for value in random_generator.integers(low=3, high=12, size=2))
+        class_map = torch.zeros(size=(64, 64), dtype=torch.int64)
+        class_map[start_y + y_start:start_y + y_start + height, start_x + x_start:start_x + x_start + width] = 1
+
+        restored_class_map = restore_prediction_to_original_image(prediction=class_map, original_height=131,
+                                                                  original_width=157, keep_ratio=True)
+        restored_probabilities = restore_prediction_to_original_image(prediction=class_map.float(),
+                                                                      original_height=131, original_width=157,
+                                                                      keep_ratio=True)
+        centroid_offsets.append(compute_weighted_centroid(weights=restored_class_map == 1) -
+                                compute_weighted_centroid(weights=restored_probabilities))
+
+    mean_offset = torch.stack(tensors=centroid_offsets).mean(dim=0)
+    assert bool((mean_offset.abs() < 0.1).all()), mean_offset
 
 
 def test_probabilities_are_restored_without_the_padding() -> None:

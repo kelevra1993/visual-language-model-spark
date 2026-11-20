@@ -1,8 +1,9 @@
 """
 Tests of SegmentationDataset of vision_training/data/segmentation/segmentation_dataset.py: the categories of the mask
 files become class indices (binary or multi-class mapping, unmapped categories as background, unlabelled pixels
-ignored), the masks are resized with the nearest interpolation and padded like their images, the tiles of the training
-on tiles are cut from the scaled images, the original class masks are read back, and the class pixels are counted.
+ignored), the masks are resized with the nearest interpolation and padded like their images, staying on the pixel
+centres of their images, the tiles of the training on tiles are cut from the scaled images, the original class masks
+are read back, and the class pixels are counted.
 """
 
 import json
@@ -12,10 +13,11 @@ import pytest
 import torch
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.data.segmentation.segmentation_dataset import IGNORED_MASK_VALUE, SegmentationDataset
+from tests.testing_utilities import compute_weighted_centroid
 
 # Size of the square network input of the tests
 IMAGE_SIZE = 64
@@ -27,19 +29,22 @@ MULTI_CLASS_LABEL_DICTIONARY = {2: 1, 5: 2, "background": 0}
 NO_TILING = {"activated": False, "scale": 1.0, "overlap": 0}
 
 
-def write_split(split_folder: Path, mask: np.ndarray) -> None:
+def write_split(split_folder: Path, mask: np.ndarray, image: Optional[np.ndarray] = None) -> None:
     """
-    Writes a split of one sample in the layout read by the segmentation dataset: a grey image of the size of the mask
-    in 'data/', the mask in 'masks/' and the 'labels.json' manifest naming the categories 2, 5 and 7.
+    Writes a split of one sample in the layout read by the segmentation dataset: its image (by default a grey image of
+    the size of the mask) in 'data/', the mask in 'masks/' and the 'labels.json' manifest naming the categories 2, 5
+    and 7.
 
     Args:
         split_folder (Path): The folder of the split.
         mask (np.ndarray): The [H, W] uint8 category identifier of every pixel.
+        image (Optional[np.ndarray]): The [H, W, 3] uint8 BGR image, or None for a uniform grey image. Defaults to None.
     """
     (split_folder / "data").mkdir(parents=True)
     (split_folder / "masks").mkdir(parents=True)
-    cv2.imwrite(filename=str(split_folder / "data" / "image.png"),
-                img=np.full(shape=mask.shape + (3,), fill_value=200, dtype=np.uint8))
+    if image is None:
+        image = np.full(shape=mask.shape + (3,), fill_value=200, dtype=np.uint8)
+    cv2.imwrite(filename=str(split_folder / "data" / "image.png"), img=image)
     cv2.imwrite(filename=str(split_folder / "masks" / "image.png"), img=mask)
     manifest = {"categories": [{"id": 2, "name": "road"}, {"id": 5, "name": "car"}, {"id": 7, "name": "tree"}],
                 "samples": [{"id": 1, "file_name": "image.png", "mask_file_name": "image.png"}]}
@@ -191,6 +196,47 @@ def test_tiles_are_cut_from_the_scaled_images(tmp_path: Path) -> None:
     assert torch.all(half_resolution_sample["images"][:, 32:] == 0)
     assert torch.all(half_resolution_sample["masks"][:32, :16] == 0) and torch.all(
         half_resolution_sample["masks"][:32, 16:32] == 1)
+
+
+def test_resized_masks_stay_on_the_pixel_centres_of_their_images(tmp_path: Path) -> None:
+    """
+    Verifies that the masks resized to the network input with their aspect ratio kept, or scaled by a tiling scale,
+    stay on the pixels of their images: over 10 rectangles shrunk by factors that are not whole numbers, the centroid of
+    the class pixels of the mask stays within 0.15 pixel of the centroid of the resampled bright rectangle of the image
+    on average, where the plain nearest interpolation moved it by about half a pixel to the bottom right.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    random_generator = np.random.default_rng(seed=0)
+    centroid_offsets = {"letterbox": [], "tiles": []}
+    for rectangle_index in range(10):
+        # A white rectangle on a black 157 x 131 image, its pixels of category 2 (class 1) in the mask
+        x_start, y_start = (int(value) for value in random_generator.integers(low=0, high=[120, 95]))
+        width, height = (int(value) for value in random_generator.integers(low=15, high=36, size=2))
+        mask = np.zeros(shape=(131, 157), dtype=np.uint8)
+        mask[y_start:y_start + height, x_start:x_start + width] = 2
+        split_folder = tmp_path / f"rectangle_{rectangle_index}"
+        write_split(split_folder=split_folder, mask=mask, image=np.repeat(a=(mask > 0)[..., None], repeats=3,
+                                                                          axis=2).astype(np.uint8) * 255)
+
+        # The letterbox of the network input, and the whole test image scaled for the training on tiles
+        letterbox_dataset = build_dataset(split_folder=split_folder, label_mode="multi_class",
+                                          label_dictionary=MULTI_CLASS_LABEL_DICTIONARY, keep_ratio=True,
+                                          tiling_configuration=NO_TILING, tile_sampling="random")
+        tile_dataset = build_dataset(split_folder=split_folder, label_mode="multi_class",
+                                     label_dictionary=MULTI_CLASS_LABEL_DICTIONARY, keep_ratio=True,
+                                     tiling_configuration={"activated": True, "scale": 0.37, "overlap": 0},
+                                     tile_sampling="whole")
+        for dataset_name, dataset in [("letterbox", letterbox_dataset), ("tiles", tile_dataset)]:
+            sample = dataset[0]
+            centroid_offsets[dataset_name].append(compute_weighted_centroid(weights=sample["masks"] == 1) -
+                                                  compute_weighted_centroid(weights=sample["images"][0]))
+
+    # The class pixels follow the resampled rectangle on average, along both axes, in both resizings
+    mean_offsets = {dataset_name: torch.stack(tensors=offsets).mean(dim=0)
+                    for dataset_name, offsets in centroid_offsets.items()}
+    assert all(bool((mean_offset.abs() < 0.15).all()) for mean_offset in mean_offsets.values()), mean_offsets
 
 
 def test_original_class_mask_is_read_back(tmp_path: Path) -> None:

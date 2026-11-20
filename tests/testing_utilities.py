@@ -1,7 +1,8 @@
 """
 Shared helpers of the model tests: checking an nn.Module method against reference outputs, creating deterministic
 tensors and building the small seeded detector (or instance segmenter) used by the detector baseline, inference and
-instance segmentation tests.
+instance segmentation tests, and the weighted centroid with which the data tests check that the resized and augmented
+masks stay aligned with their images.
 """
 
 import copy
@@ -129,6 +130,25 @@ def create_deterministic_tensor(shape: Tuple[int, ...], dtype: torch.dtype = tor
     # Generate a linearly spaced 1D tensor and reshape it to the requested dimensions
     deterministic_tensor = torch.linspace(start=-total_elements, end=total_elements, steps=total_elements, dtype=dtype)
     return deterministic_tensor.reshape(shape=shape)
+
+
+def compute_weighted_centroid(weights: torch.Tensor) -> torch.Tensor:
+    """
+    Gives the centroid of a [H, W] map of pixel weights, for the tests checking that a mask resized or moved like its
+    image stays on the image pixels: the centroid of the mask pixels of an object is compared with that of the
+    brightness of the object in the resampled image, both in pixel index coordinates.
+
+    Args:
+        weights (torch.Tensor): The [H, W] non-negative weights, e.g. a binary mask or the brightness of an image.
+
+    Returns:
+        torch.Tensor: The float64 (x, y) centroid, in pixel indices.
+    """
+    float_weights = weights.to(dtype=torch.float64)
+    row_indices, column_indices = torch.meshgrid(torch.arange(end=weights.shape[0], dtype=torch.float64),
+                                                 torch.arange(end=weights.shape[1], dtype=torch.float64), indexing="ij")
+    return torch.stack(tensors=[(column_indices * float_weights).sum(), (row_indices * float_weights).sum()]) / \
+        float_weights.sum()
 
 
 def build_test_model(dtype: torch.dtype, instance_segmentation: bool = False,
