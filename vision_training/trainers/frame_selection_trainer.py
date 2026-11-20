@@ -50,7 +50,7 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
     Trainer of the frame selection task: the frame selector trained on whole sequences, one class per frame (a wanted
     class or the unselected class), with the per-frame loss and the selection loss. Every evaluated checkpoint chooses
     the frames of every wanted class of the test sequences with both decodings, scored side by side (selection
-    accuracy of every class, sequences fully right, unselected precision and recall), with the top-k accuracy and mean
+    accuracy of every class, sequences fully right, background and swapped picks), with the top-k accuracy and mean
     rank of the true frames before decoding and the per-frame metrics. The decoding of 'Selection.decoding' gives the
     confidence thresholds, the decoded confusion matrix and the sample and error images.
     """
@@ -440,9 +440,10 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
     def compute_evaluation_results(self, accumulator: Dict[str, Any], iteration: int) -> EvaluationResults:
         """
         Decodes the test sequences with both decodings and organises the metrics for the report: for every decoding
-        its selection accuracy, its share of fully right sequences and its unselected precision and recall; before
-        decoding the top-k selection accuracy and the mean rank of the true frames; the per-frame accuracy, balanced
-        accuracy and macro F1 of the most probable class of every frame; and the selection accuracy of every wanted
+        its selection accuracy, its share of fully right sequences and the shares of its picks that took an unselected
+        frame (background picks) or the true frame of another wanted class (swapped picks); before decoding the top-k
+        selection accuracy and the mean rank of the true frames; the per-frame accuracy, balanced accuracy and macro F1
+        of the most probable class of every frame; and the selection accuracy of every wanted
         class with the decoding of the run with its Korn-Graubard interval over the test sequences, in the per-class
         recall table and in class_metrics.csv. The confidence thresholds of the decoding of the run, the metrics of
         every wanted class, the decoded confusion matrix table and, when asked, the selections of every sequence are
@@ -478,14 +479,13 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
             # Selection metrics of the decoding, reported under its name
             selection_metrics[decoding] = compute_selection_metrics(
                 selected_frames=selections[decoding], frame_labels=frame_labels,
-                decoded_frame_labels=decoded_frame_labels[decoding], wanted_class_indices=self.wanted_class_indices,
-                unselected_class_index=self.unselected_class_index)
+                wanted_class_indices=self.wanted_class_indices, unselected_class_index=self.unselected_class_index)
             decoding_name = decoding.capitalize()
             headline_metrics.update({
                 f"{decoding_name} Selection Accuracy": selection_metrics[decoding]["selection_accuracy"],
                 f"{decoding_name} Fully Right Sequences": selection_metrics[decoding]["fully_right_sequences"],
-                f"{decoding_name} Unselected Precision": selection_metrics[decoding]["unselected_precision"],
-                f"{decoding_name} Unselected Recall": selection_metrics[decoding]["unselected_recall"]})
+                f"{decoding_name} Background Picks": selection_metrics[decoding]["background_picks"],
+                f"{decoding_name} Swapped Picks": selection_metrics[decoding]["swapped_picks"]})
 
         # Ranks of the true frames before decoding, then the metrics of the most probable class of every frame
         ranking_metrics = compute_ranking_metrics(probabilities=probabilities, frame_labels=frame_labels,

@@ -1,10 +1,10 @@
 """
 Metrics of the frame selection task (SEL), computed at every evaluation of the frame selection trainer on the test
 sequences: the selection accuracy of every wanted class (with its right and true frames in every sequence, for its
-Korn-Graubard interval in recall_intervals.py), the share of sequences with every selection right and the precision and
-recall of the unselected class for a decoding, the top-k accuracy and mean rank of the true frames
-before any decoding, and the confidence thresholds of the chosen frames saved in 'class_thresholds.json'. The chosen
-frames come from models/sequence/frame_selection_decoding.py.
+Korn-Graubard interval in recall_intervals.py), the share of sequences with every selection right and the shares of the
+picks of a decoding that took an unselected frame or the true frame of another wanted class, the top-k accuracy and
+mean rank of the true frames before any decoding, and the confidence thresholds of the chosen frames saved in
+'class_thresholds.json'. The chosen frames come from models/sequence/frame_selection_decoding.py.
 """
 
 import numpy as np
@@ -32,20 +32,18 @@ def compute_share(numerator: float, denominator: float) -> float:
 
 
 def compute_selection_metrics(selected_frames: List[np.ndarray], frame_labels: List[np.ndarray],
-                              decoded_frame_labels: List[np.ndarray], wanted_class_indices: List[int],
-                              unselected_class_index: int) -> Dict[str, Any]:
+                              wanted_class_indices: List[int], unselected_class_index: int) -> Dict[str, Any]:
     """
     Scores the frames chosen by one decoding on the test sequences: the selection accuracy of every wanted class (the
     share of its true frames chosen for it, its recall), the overall selection accuracy, the share of sequences whose
-    every selection is right, and the precision and recall of the unselected class (the frames left unchosen that
-    should be, among the unchosen frames and among the truly unselected frames). The right and true frames of every
-    wanted class in every sequence are returned too, for the Korn-Graubard interval over the sequences of its selection
-    accuracy.
+    every selection is right, and the kind of every wrong pick, the share of the picks that took an unselected frame
+    (background picks) and of those that took the true frame of another wanted class (swapped picks), the right picks
+    and both shares adding up to every pick. The right and true frames of every wanted class in every sequence are
+    returned too, for the Korn-Graubard interval over the sequences of its selection accuracy.
 
     Args:
         selected_frames (List[np.ndarray]): The [W, N] chosen frames of every sequence, NO_FRAME for no frame.
         frame_labels (List[np.ndarray]): The [T] true class of every frame of every sequence.
-        decoded_frame_labels (List[np.ndarray]): The [T] decoded class of every frame of every sequence.
         wanted_class_indices (List[int]): The class indices of the wanted classes, one per row of the selections.
         unselected_class_index (int): The class index of the unselected frames.
 
@@ -53,15 +51,16 @@ def compute_selection_metrics(selected_frames: List[np.ndarray], frame_labels: L
         Dict[str, Any]: The 'class_accuracies' (one per wanted class, None without true frame), 'class_true_frames'
             (the true frames of every wanted class), the [S, W] int64 'sequence_class_right_frames' and
             'sequence_class_true_frames' of every sequence and wanted class, 'selection_accuracy',
-            'fully_right_sequences', 'unselected_precision' and 'unselected_recall'.
+            'fully_right_sequences', 'background_picks' and 'swapped_picks'.
+
+    Raises:
+        ValueError: If a chosen frame is of a class that is neither a wanted class nor the unselected class.
     """
     sequence_class_right_frames = np.zeros(shape=(len(selected_frames), len(wanted_class_indices)), dtype=np.int64)
     sequence_class_true_frames = np.zeros(shape=(len(selected_frames), len(wanted_class_indices)), dtype=np.int64)
-    number_fully_right_sequences = 0
-    unselected_true_positives, unselected_predicted, unselected_true = 0, 0, 0
+    number_fully_right_sequences, number_picks, number_background_picks, number_swapped_picks = 0, 0, 0, 0
 
-    for sequence_index, (sequence_selection, sequence_labels, sequence_decoded_labels) in enumerate(
-            zip(selected_frames, frame_labels, decoded_frame_labels)):
+    for sequence_index, (sequence_selection, sequence_labels) in enumerate(zip(selected_frames, frame_labels)):
         # True frames of every wanted class chosen for it
         sequence_fully_right = True
         for wanted_index, class_index in enumerate(wanted_class_indices):
@@ -70,14 +69,20 @@ def compute_selection_metrics(selected_frames: List[np.ndarray], frame_labels: L
             sequence_class_right_frames[sequence_index, wanted_index] = len(true_frames & chosen_frames)
             sequence_class_true_frames[sequence_index, wanted_index] = len(true_frames)
             sequence_fully_right &= true_frames == chosen_frames
-        number_fully_right_sequences += int(sequence_fully_right)
 
-        # Frames left unchosen, against the truly unselected frames
-        true_unselected = sequence_labels == unselected_class_index
-        decoded_unselected = sequence_decoded_labels == unselected_class_index
-        unselected_true_positives += int((true_unselected & decoded_unselected).sum())
-        unselected_predicted += int(decoded_unselected.sum())
-        unselected_true += int(true_unselected.sum())
+            # Every wrong pick took either an unselected frame or the true frame of another wanted class
+            number_picks += len(chosen_frames)
+            for frame_index in chosen_frames - true_frames:
+                frame_class = int(sequence_labels[frame_index])
+                if frame_class == unselected_class_index:
+                    number_background_picks += 1
+                elif frame_class in wanted_class_indices:
+                    number_swapped_picks += 1
+                else:
+                    raise ValueError(f"Expected the chosen frame {frame_index} of sequence {sequence_index} to be of a "
+                                     f"wanted class {wanted_class_indices} or of the unselected class "
+                                     f"{unselected_class_index}, got class {frame_class}.")
+        number_fully_right_sequences += int(sequence_fully_right)
 
     # Right and true frames of every wanted class over all the sequences
     class_right_frames = sequence_class_right_frames.sum(axis=0)
@@ -91,9 +96,8 @@ def compute_selection_metrics(selected_frames: List[np.ndarray], frame_labels: L
                                                 denominator=class_true_frames.sum()),
             "fully_right_sequences": compute_share(numerator=number_fully_right_sequences,
                                                    denominator=len(selected_frames)),
-            "unselected_precision": compute_share(numerator=unselected_true_positives,
-                                                  denominator=unselected_predicted),
-            "unselected_recall": compute_share(numerator=unselected_true_positives, denominator=unselected_true)}
+            "background_picks": compute_share(numerator=number_background_picks, denominator=number_picks),
+            "swapped_picks": compute_share(numerator=number_swapped_picks, denominator=number_picks)}
 
 
 def compute_ranking_metrics(probabilities: List[np.ndarray], frame_labels: List[np.ndarray],

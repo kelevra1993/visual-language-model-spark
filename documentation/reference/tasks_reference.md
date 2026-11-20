@@ -379,7 +379,7 @@ For example, with classes A and B and three frames of probabilities (A, B, unsel
 **Evaluation**
 - `Hungarian Selection Accuracy` and `Greedy Selection Accuracy`: the share of the true frames chosen for their class, the one of `Selection.decoding` being the headline metric.
 - The 95 % confidence interval of the selection accuracy of every wanted class with `Selection.decoding` (its recall), a Korn-Graubard interval (exact at the effective sample size of the variance of 1000 bootstrap resamples of the test sequences, fixed seed, or over the sequences holding the class when they all have the same accuracy): `<decoding>_accuracy_lower` and `<decoding>_accuracy_upper` after `<decoding>_accuracy` in `class_metrics.csv`, and with `per_class_report` a `Per Class Recall` table after the per-class table, worst accuracy first.
-- `<Decoding> Fully Right Sequences`, `<Decoding> Unselected Precision` and `<Decoding> Unselected Recall`.
+- `<Decoding> Fully Right Sequences`, `<Decoding> Background Picks` and `<Decoding> Swapped Picks`: the shares of the picks that took a frame to leave unselected and a true frame of another wanted class, so that the right picks and these two make up every pick.
 - `Top-<k> Selection Accuracy` and `Mean True Frame Rank`: whether a wrong choice was a close one.
 - `Frame Accuracy`, `Frame Balanced Accuracy` and `Frame Macro F1`, before decoding.
 - `class_thresholds.json`: the probability from which the choices of every class reach `target_precision`; the deployed model flags the choices below it as low confidence.
