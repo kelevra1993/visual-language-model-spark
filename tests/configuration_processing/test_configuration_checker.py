@@ -3,12 +3,13 @@ Tests of the configuration checks of vision_training/configuration_processing/co
 load_experiment_configuration: the configurations shipped for every task are accepted, while inconsistent settings
 (detection, classification, sequence, comparison, segmentation, self-supervised, keypoint detection, normalization,
 pretrained transfers with the initialisation of their new classes, optimization) and missing keys are rejected with
-errors naming their path, the run name suffix being accepted null or made of letters, digits, '-' and '.' only, and the
-intermediate weight saving smaller than the evaluated weight saving. The augmentation types moving the image only are
-refused for the tasks with boxes, masks or keypoints, the jigsaw refuses an image size that is not a multiple of its
-grid size, and a setting removed from the repository is refused alone, before the other checks. The keypoint
-definitions injected by the loader from the training labels are checked too, and so is the label dictionary saved with
-a run, taken by the configuration of its folder.
+errors naming their path, the run name suffix being accepted null or made of letters, digits, '-' and '.' only, the
+intermediate weight saving smaller than the evaluated weight saving, and the iteration counts converted by the loader
+taken as integers when written in an integral scientific notation but refused when not integral (instead of being
+truncated). The augmentation types moving the image only are refused for the tasks with boxes, masks or keypoints, the
+jigsaw refuses an image size that is not a multiple of its grid size, and a setting removed from the repository is
+refused alone, before the other checks. The keypoint definitions injected by the loader from the training labels are
+checked too, and so is the label dictionary saved with a run, taken by the configuration of its folder.
 """
 
 import copy
@@ -424,6 +425,62 @@ def test_intermediate_weight_saving_iterations_is_checked(tmp_path: Path, capsys
         with pytest.raises(expected_exception=SystemExit):
             load_experiment_configuration(configuration_path=configuration_path)
         assert expected_message in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(argnames=("section_name", "key_name", "written_value", "expected_message"),
+                         argvalues=[("ExperimentConfiguration", "number_iterations", 1000.7,
+                                     "'ExperimentConfiguration.number_iterations' must be an integer >= 1, got "
+                                     "1000.7."),
+                                    ("Optimization", "warmup_iterations", "2.55e1",
+                                     "'Optimization.warmup_iterations' must be an integer >= 0, got 25.5."),
+                                    ("ExperimentConfiguration", "information_dump", True,
+                                     "'ExperimentConfiguration.information_dump' must be an integer >= 1, got True.")])
+def test_non_integer_count_is_refused(tmp_path: Path, capsys: pytest.CaptureFixture, section_name: str,
+                                      key_name: str, written_value: Any, expected_message: str) -> None:
+    """
+    Verifies that a count converted by the loader (the iteration counts of the experiment and of the schedule) that is
+    not an integral number is refused with its key and value, instead of being truncated (1000.7 trained 1000
+    iterations, the text 2.55e1 warmed up for 25) or turned into 1 (True).
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+        section_name (str): The section holding the count.
+        key_name (str): The key of the count in its section.
+        written_value (Any): The value written in the configuration.
+        expected_message (str): The refusal message naming the key and the value.
+    """
+    configuration = yaml.safe_load(stream=EXAMPLE_CONFIGURATION_PATH.read_text())
+    configuration[section_name][key_name] = written_value
+    configuration_path = tmp_path / "configuration.yaml"
+    configuration_path.write_text(yaml.safe_dump(configuration))
+
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+    assert expected_message in capsys.readouterr().out
+
+
+def test_integral_scientific_notation_counts_are_accepted(tmp_path: Path) -> None:
+    """
+    Verifies that the counts written in scientific notation, as the configurations write their iteration totals, are
+    loaded as the integers they denote: 1e10, which YAML reads as a text, and 4.0e3, which it reads as a float.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration = yaml.safe_load(stream=EXAMPLE_CONFIGURATION_PATH.read_text())
+    configuration["ExperimentConfiguration"]["number_iterations"] = "1e10"
+    configuration["Optimization"]["decay_iterations"] = 4.0e3
+    configuration_path = tmp_path / "configuration.yaml"
+    configuration_path.write_text(yaml.safe_dump(configuration))
+
+    # Both counts reach the trainer as integers of the same value
+    experiment_configuration, model_configuration = load_experiment_configuration(
+        configuration_path=configuration_path)
+    assert type(experiment_configuration["number_iterations"]) is int
+    assert experiment_configuration["number_iterations"] == 10 ** 10
+    assert type(model_configuration["Optimization"]["decay_iterations"]) is int
+    assert model_configuration["Optimization"]["decay_iterations"] == 4000
 
 
 @pytest.mark.parametrize(argnames=("evaluation_score_threshold", "inference_score_threshold", "expected_message"),

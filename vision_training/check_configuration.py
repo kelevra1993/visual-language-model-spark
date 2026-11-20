@@ -28,7 +28,8 @@ from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Errors of the loading itself, raised before the checks run and reported as the problem of their file, so that the
 # next files are still checked: a missing configuration or label mapping file, a YAML or JSON file that cannot be
-# parsed, a missing 'ExperimentConfiguration' section, or a folder, count or rate the loader cannot convert (e.g. null)
+# parsed, a missing 'ExperimentConfiguration' section, or a folder or rate the loader cannot convert (e.g. null), the
+# counts the loader cannot convert being refused by the checks
 LOADING_ERRORS = (FileNotFoundError, KeyError, TypeError, ValueError)
 
 # Folders the loaders read next to the 'labels.json' of every split: the images or frames of every task, and the class

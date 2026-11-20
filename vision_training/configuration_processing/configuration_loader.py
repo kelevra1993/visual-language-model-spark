@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from vision_training.configuration_processing.configuration_checker import check_configuration
-from vision_training.configuration_processing.configuration_values import ConfigurationError
+from vision_training.configuration_processing.configuration_values import ConfigurationError, convert_integral_count
 from vision_training.data.keypoints.keypoint_categories import read_keypoint_categories
 from vision_training.data.label_mapping import build_label_dictionary, read_run_label_dictionary
 from vision_training.utilities.os_utilities import format_path_link, print_color
@@ -94,13 +94,13 @@ def prepare_experiment_configuration(configuration_path: str | Path) -> Tuple[Di
 
     Raises:
         FileNotFoundError: If the file, or the mapping file of the 'multi_class' label mapping, does not exist.
-        ValueError: If the file or the mapping file cannot be parsed, if a number converted here (an iteration count,
-            the learning rate, an optimization setting) is a text that is not a number, or if the keypoint categories of
-            the training split are inconsistent.
+        ValueError: If the file or the mapping file cannot be parsed, if a rate converted here (the learning rate, the
+            weight decay or the minimum learning rate ratio) is a text that is not a number, or if the keypoint
+            categories of the training split are inconsistent.
         KeyError: If 'ExperimentConfiguration' is missing from the file.
-        TypeError: If a folder or a number converted here has a value the conversion refuses, e.g. null.
+        TypeError: If a folder or the learning rate has a value the conversion refuses, e.g. null.
         ConfigurationError: If the configuration is incomplete or inconsistent (see 'check_configuration'), listing
-            every problem.
+            every problem, a count that is not an integral number (e.g. 31.7, null or a text) among them.
     """
     configuration = load_configuration(configuration_path=configuration_path)
     if "ExperimentConfiguration" not in configuration:
@@ -131,26 +131,27 @@ def prepare_experiment_configuration(configuration_path: str | Path) -> Tuple[Di
     # it, '<run>/Checkpoint_Evaluation/Iteration_<n>/', and it saves no weights. None for a training
     experiment_configuration["standalone_evaluation_folder"] = None
 
-    # Convert numerics
+    # Convert the counts written in scientific notation (e.g. 1e10 or 4.0e3) to integers, a non-integer count (e.g.
+    # 31.7) being left for the configuration checker to refuse rather than truncated
     integer_keys = ["information_dump", "weight_saving_iterations", "intermediate_weight_saving_iterations",
                     "number_iterations"]
     for key in integer_keys:
         if key in experiment_configuration:
-            experiment_configuration[key] = int(float(experiment_configuration[key]))
+            experiment_configuration[key] = convert_integral_count(value=experiment_configuration[key])
 
     if "learning_rate" in experiment_configuration:
         experiment_configuration["learning_rate"] = float(experiment_configuration["learning_rate"])
 
     # Convert the optimization numbers that YAML reads as text when written without a dot (e.g. 1e-4 or 1e5), the
-    # values of other types being left for the configuration checker to report
+    # values of other types and the non-integer counts being left for the configuration checker to report
     if "Optimization" in model_configuration:
         optimization_configuration = model_configuration["Optimization"]
         for key in ["weight_decay", "minimum_learning_rate_ratio"]:
             if key in optimization_configuration and isinstance(optimization_configuration[key], str):
                 optimization_configuration[key] = float(optimization_configuration[key])
         for key in ["warmup_iterations", "decay_iterations"]:
-            if key in optimization_configuration and isinstance(optimization_configuration[key], (str, float)):
-                optimization_configuration[key] = int(float(optimization_configuration[key]))
+            if key in optimization_configuration:
+                optimization_configuration[key] = convert_integral_count(value=optimization_configuration[key])
 
     # Process label mapping dynamically to inject label_dictionary
     if "Data" in model_configuration and "label_mapping" in model_configuration["Data"]:
