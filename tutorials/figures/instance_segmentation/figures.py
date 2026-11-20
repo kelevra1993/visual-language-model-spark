@@ -11,8 +11,9 @@ the sample images along the run, the mask mAP of the trained and averaged weight
 geometry of the mask heads, the settings of the run the chapters name (neck, proposal selection, suppression
 criterion), the deployment score threshold of the run (read from its saved configuration, the shipped one free to move
 on) and the values the narration derives from them (describe_quoted_facts), every property the chapters narrate about
-the test image, the losses and the report being checked there. The facts are quoted by the storyboards as
-{{instance_segmentation.<name>}}.
+the test image, the losses and the report being checked there; and the mask mAP of the finer inputs of the mask heads
+against the heads of stage 3 and the control, read from the committed results of stage 3b of the instance segmentation
+benchmark (mask_input_benchmark.py). The facts are quoted by the storyboards as {{instance_segmentation.<name>}}.
 """
 
 import math
@@ -27,6 +28,7 @@ from tutorials.figures.instance_segmentation.evaluation_figures import (HOLLOW_P
                                                                         write_mask_report_listings)
 from tutorials.figures.instance_segmentation.mask_figures import (FOUND_MASK_OVERLAP, describe_mask_geometry,
                                                                   make_mask_figures)
+from tutorials.figures.instance_segmentation.mask_input_benchmark import describe_mask_input_benchmark
 from tutorials.figures.object_detection.detection_sources import (CHECKPOINT_ITERATION, EVALUATION_FOLDER_NAME,
                                                                   SAMPLE_IMAGE_NAME, SAMPLE_ITERATIONS,
                                                                   count_scalar_tags, find_test_folder, join_words,
@@ -347,6 +349,8 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
         write_mask_report_listings(results_path=run_folder / EVALUATION_FOLDER_NAME / "Results.txt",
                                    iteration=CHECKPOINT_ITERATION, output_folder=listings_folder),
         read_proposal_recall(evaluation_folder=evaluation_folder),
+        # Finer inputs of the mask heads, from the committed results of the instance segmentation benchmark
+        describe_mask_input_benchmark(),
         {"run.test_scalar_count": count_scalar_tags(log_folder=run_folder / "Tensorboard" / "Test"),
          "run.checkpoint_iteration": CHECKPOINT_ITERATION,
          "run.score_threshold": read_run_configuration(run_folder=run_folder)["Detector"]["inference"][

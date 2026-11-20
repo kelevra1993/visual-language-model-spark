@@ -51,29 +51,37 @@ ITERATION_TICK_STEP = 5000
 POINTS_TICK_STEP = 2
 
 
-def read_selection_curves(results_path: Path, launch_names: List[str]) -> Dict[str, Dict[int, float]]:
+def read_selection_curves(results_path: Path, launch_names: List[str],
+                          column_prefix: str) -> Dict[str, Dict[int, float]]:
     """
-    Reads the test mAP@[0.5:0.95] of the averaged weights of launches of the detection benchmark at every evaluation,
-    from the committed results of the benchmark, so that the curves of the training scene come from the numbers the
-    plan compares and can be drawn on a machine without the run folders.
+    Reads the test mAP@[0.5:0.95] of the averaged weights of launches of a benchmark at every evaluation, from the
+    committed results of the benchmark (the detection benchmark for the training scene of the proposal selections, the
+    instance segmentation benchmark for the scene of the finer inputs of the mask heads), so that the curves come from
+    the numbers the plan compares and can be drawn on a machine without the run folders.
 
     Args:
-        results_path (Path): The results of the benchmark, object_detection_results.csv.
+        results_path (Path): The results of the benchmark, object_detection_results.csv or
+            instance_segmentation_results.csv.
         launch_names (List[str]): The launches, named as in the results (run_9, run_21...).
+        column_prefix (str): The start of the columns of the metric, followed by the iteration: map_50_95_ for the
+            boxes of the detection benchmark, mask_map_50_95_ for the masks of the instance segmentation benchmark.
 
     Returns:
         Dict[str, Dict[int, float]]: The mAP at every evaluated iteration of every launch.
 
     Raises:
         KeyError: If a launch has no row of averaged weights in the results.
+        ValueError: If a launch has more than one row of averaged weights in the results.
     """
-    # Rows of the averaged weights of the launches, the iteration of every filled map_50_95_<iteration> column
+    # Rows of the averaged weights of the launches, the iteration of every filled <column_prefix><iteration> column
     curves = {}
     with results_path.open(encoding="utf-8", newline="") as results_file:
         for row in csv.DictReader(results_file):
             if row["launch"] in launch_names and row["evaluated_weights"] == "ema":
+                if row["launch"] in curves:
+                    raise ValueError(f"Two averaged weights rows for {row['launch']} in {results_path}.")
                 curves[row["launch"]] = {int(column.rsplit("_", 1)[1]): float(value) for column, value in row.items()
-                                         if column.startswith("map_50_95_") and column.rsplit("_", 1)[1].isdigit()
+                                         if column.startswith(column_prefix) and column.rsplit("_", 1)[1].isdigit()
                                          and value != ""}
     missing_launches = sorted(set(launch_names) - set(curves))
     if missing_launches:
@@ -246,7 +254,7 @@ def describe_training_comparison(results_path: Path) -> Dict[str, Any]:
         ValueError: If the launches of the selections were not evaluated at the same iterations up to the compared one.
     """
     launch_names = [launch_name for launches in SELECTION_LAUNCHES.values() for launch_name in launches.values()]
-    curves = read_selection_curves(results_path=results_path, launch_names=launch_names)
+    curves = read_selection_curves(results_path=results_path, launch_names=launch_names, column_prefix="map_50_95_")
     iterations = sorted(iteration for iteration in curves[launch_names[0]] if iteration <= COMPARED_ITERATION)
     if any(sorted(iteration for iteration in curves[launch_name] if iteration <= COMPARED_ITERATION) != iterations
            for launch_name in launch_names):

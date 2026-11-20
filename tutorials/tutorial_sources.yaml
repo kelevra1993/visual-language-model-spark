@@ -101,6 +101,9 @@ repository_files:
   benchmark_plan: documentation/architecture_benchmarking/experiment_plan.md
   # Results of the detection benchmark, whose stage 7 curves the proposal selection scenes draw
   object_detection_benchmark_results: documentation/architecture_benchmarking/object_detection_results.csv
+  # Results of the instance segmentation benchmark, whose stage 3b launches (finer inputs of the mask heads) and stage 2
+  # launches (doubled mask resolution) the second instance segmentation chapter compares
+  instance_segmentation_benchmark_results: documentation/architecture_benchmarking/instance_segmentation_results.csv
   # Results of the sequence labelling benchmark, whose pretrained launches the evaluation chapter compares with the run
   sequence_labelling_benchmark_results: documentation/architecture_benchmarking/sequence_labelling_results.csv
   # Configuration whose learning rate schedule (warm-up, then cosine decay) the optimization figure draws

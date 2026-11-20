@@ -1,9 +1,10 @@
 # Instance segmentation, chapter 2: the masks of the final detections, their pasting into the image, the mask IoU,
-# the mask and box tables of the report, the classes where masks and boxes part, the object sizes by mask and by box
-# area, the evaluation at the original resolution, the export with its input settings and its client side pasting,
-# and the pitfalls. The numbers come from the INS run of tutorial_sources.yaml
-# (tutorials/figures/instance_segmentation), the objects and detections of the test image named by their role in its
-# facts, which check what the narration says of them.
+# the mask and box tables of the report, the classes where masks and boxes part, the finer inputs of the mask heads on
+# the instance segmentation benchmark, the object sizes by mask and by box area, the evaluation at the original
+# resolution, the export with its input settings and its client side pasting, and the pitfalls. The numbers come from
+# the INS run of tutorial_sources.yaml (tutorials/figures/instance_segmentation), the objects and detections of the
+# test image named by their role in its facts, which check what the narration says of them, and from the committed
+# results of the instance segmentation benchmark (mask_input_benchmark.py).
 series: instance_segmentation
 series_title: "Instance Segmentation (INS)"
 chapter: 2
@@ -20,6 +21,7 @@ references:
   - "vision_training/data/preprocessing.py · restore_boxes_to_original_image"
   - "vision_training/deployment/input_contract.py · write_onnx_input_contract"
   - "documentation/architecture_benchmarking/instance_segmentation_experiment_plan.md"
+  - "documentation/architecture_benchmarking/instance_segmentation_results.csv"
 scenes:
   - kind: title_card
     heading: "Scoring and shipping masks"
@@ -140,17 +142,54 @@ scenes:
     title: "Where masks and boxes part"
     code_reference: "vision_training/trainers/instance_segmentation_trainer.py · InstanceSegmentationTrainer.compute_evaluation_results"
     image: "figures:instance_segmentation/evaluation/mask_box_average_precision.png"
-    # The intersections over union of the metric names, AP@0.75 and AP@0.95; the benchmark sentence sums up stages 2
-    # (mask resolution) and 3b (design A, the image branch, and design B, the backbone skips, a tie) of
-    # instance_segmentation_experiment_plan.md; the class claims are checked by check_class_claims of
-    # evaluation_figures.py
+    # The intersections over union of the metric names, AP@0.75 and AP@0.95; the class claims are checked by
+    # check_class_claims of evaluation_figures.py
     literal_numbers: ["0.75", "0.95"]
     narration:
       - "Per class at 0.75, the masks lose on every hollow shape, the {{instance_segmentation.classes.largest_loss.name_text}} most: {{instance_segmentation.classes.largest_loss.mask_ap_75:percent}} on its masks against {{instance_segmentation.classes.largest_loss.box_ap_75:percent}} on its boxes."
       - "The star loses too, {{instance_segmentation.classes.star.mask_ap_75:percent}} against {{instance_segmentation.classes.star.box_ap_75:percent}}."
       - "Think of thin walls and points: pooled from strides of {{instance_segmentation.geometry.strides_text}}, their features hold only a few cells, too coarse for their borders."
-      - "On the instance segmentation benchmark, doubling the mask resolution did not help, whereas the image branch and the backbone skips of the mask heads both drew far finer borders."
       - "Most filled shapes gain instead at 0.95, the {{instance_segmentation.classes.largest_gain_95.name_text}} most: {{instance_segmentation.classes.largest_gain_95.mask_ap_95:percent}} on its masks, against {{instance_segmentation.classes.largest_gain_95.box_ap_95:percent}} on its boxes."
+
+  # Stage 3b of documentation/architecture_benchmarking/instance_segmentation_experiment_plan.md (design A, the image
+  # branch, and design B, the backbone skips, against the heads of stage 3 and the control, the fusion convolution
+  # alone) and its stage 2 (the doubled mask resolution): the facts instance_segmentation.mask_inputs.* are read from
+  # the committed results of the benchmark by mask_input_benchmark.py, which checks the comparisons said here; the
+  # choice of design A and the caution on photographs are those of the plan
+  - kind: html
+    page: diagram
+    title: "Finer inputs of the mask heads"
+    code_reference: "vision_training/models/instance_segmentation/mask_head.py · MaskFineInputs"
+    # The intersections over union of the metric name, mAP@[0.5:0.95]
+    literal_numbers: ["0.5", "0.95"]
+    elements:
+      # Mask head settings of every arm, read from the results of its launches
+      - {type: box, box: [30, 20, 650, 120], text: "heads of the benchmark\nconvolutions {{instance_segmentation.mask_inputs.mask_convolutions}}, no finer input", font: diagram_small, outline: blue}
+      - {type: box, box: [30, 145, 650, 275], text: "design A · image branch\nimage_branch_convolutions: {{instance_segmentation.mask_inputs.image_branch_convolutions}}\nfusion_convolutions: {{instance_segmentation.mask_inputs.fusion_convolutions}}", font: diagram_small, outline: aqua, highlight: [1, 3]}
+      - {type: box, box: [30, 300, 650, 460], text: "design B · backbone skips\nskip_blocks_at_pool_size: {{instance_segmentation.mask_inputs.skip_blocks_at_pool_size}}\nskip_blocks_at_mask_resolution: {{instance_segmentation.mask_inputs.skip_blocks_at_mask_resolution}}\nfusion_convolutions: {{instance_segmentation.mask_inputs.fusion_convolutions}}", font: diagram_small, outline: yellow, highlight: [1]}
+      - {type: box, box: [30, 485, 650, 585], text: "control · fusion alone\nfusion_convolutions: {{instance_segmentation.mask_inputs.fusion_convolutions}}", font: diagram_small, outline: magenta, appear: 2, highlight: [2]}
+      - {type: text, position: [30, 625], text: "doubled resolution, masks of {{instance_segmentation.mask_inputs.doubled_resolution}}: {{instance_segmentation.mask_inputs.doubled_resolution_map:percent}}\nagainst {{instance_segmentation.mask_inputs.reference_resolution_map:percent}} at {{instance_segmentation.mask_inputs.reference_resolution}}", font: diagram_small, colour: dim, highlight: [0]}
+      # Test mask mAP of the averaged weights of every arm, mean of its launches
+      - {type: text, position: [760, 20], text: "test mask mAP@[0.5:0.95], averaged weights, mean of {{instance_segmentation.mask_inputs.launches_per_arm:words}} launches", font: diagram_bold}
+      - type: curve
+        box: [860, 85, 1400, 560]
+        series:
+          - {name: "heads {{instance_segmentation.mask_inputs.mask_convolutions}} {{instance_segmentation.mask_inputs.heads_map:percent}}", colour: blue, points: "{{instance_segmentation.mask_inputs.heads_points}}"}
+          - {name: "design A {{instance_segmentation.mask_inputs.image_branch_map:percent}}", colour: aqua, points: "{{instance_segmentation.mask_inputs.image_branch_points}}", highlight: [1, 3]}
+          - {name: "design B {{instance_segmentation.mask_inputs.backbone_skips_map:percent}}", colour: yellow, points: "{{instance_segmentation.mask_inputs.backbone_skips_points}}", highlight: [1]}
+          - {name: "control {{instance_segmentation.mask_inputs.control_map:percent}}", colour: magenta, points: "{{instance_segmentation.mask_inputs.control_points}}", dim: [0, 1], highlight: [2]}
+        x_range: "{{instance_segmentation.mask_inputs.iteration_range}}"
+        y_range: "{{instance_segmentation.mask_inputs.map_range}}"
+        x_ticks: "{{instance_segmentation.mask_inputs.iteration_ticks}}"
+        y_ticks: "{{instance_segmentation.mask_inputs.map_ticks}}"
+        x_label: "iteration"
+        y_label: "mask mAP"
+      - {type: text, position: [760, 645], text: "gap between the launches of an arm at {{instance_segmentation.mask_inputs.compared_iteration:,}}:\nA {{instance_segmentation.mask_inputs.image_branch_launch_gap:points}}, B {{instance_segmentation.mask_inputs.backbone_skips_launch_gap:points}}, control {{instance_segmentation.mask_inputs.control_launch_gap:points}}, heads {{instance_segmentation.mask_inputs.heads_launch_gap:points}}", font: diagram_small, colour: dim, appear: 1}
+    narration:
+      - "Since doubling the mask resolution did not help, the instance segmentation benchmark gave its mask heads finer inputs: design A crops every box from the input image, design B reads backbone blocks before their pooling."
+      - "Averaged over {{instance_segmentation.mask_inputs.launches_per_arm:words}} launches, design A reaches a mask mAP from 0.5 to 0.95 of {{instance_segmentation.mask_inputs.image_branch_map:percent}} at iteration {{instance_segmentation.mask_inputs.compared_iteration:,}} and design B {{instance_segmentation.mask_inputs.backbone_skips_map:percent}}, a tie within the gap between launches, against {{instance_segmentation.mask_inputs.heads_map:percent}} without them."
+      - "Both add a fusion convolution at the mask resolution, which alone, as a control, reaches only {{instance_segmentation.mask_inputs.control_map:percent}}: designs A and B owe {{instance_segmentation.mask_inputs.image_branch_over_control:points}} and {{instance_segmentation.mask_inputs.backbone_skips_over_control:points}} to their finer inputs."
+      - "The benchmark keeps design A for its next stages, though on photographs, where colour edges and object borders part more often than on these flat shapes, its plan expects the image branch to gain less and the skips to carry better."
 
   - kind: html
     page: diagram
@@ -238,6 +277,7 @@ scenes:
       - {text: "Mask IoU in chunks, float64 ratio; mAP on masks, then on boxes"}
       - {text: "Mask mAP@0.5 {{instance_segmentation.report.trained.mask_methods.area.0:percent}}, box {{instance_segmentation.report.trained.box_methods.area.0:percent}} at {{instance_segmentation.run.checkpoint_iteration}}"}
       - {text: "AP@0.75 of the {{instance_segmentation.classes.largest_loss.name_text}}: mask {{instance_segmentation.classes.largest_loss.mask_ap_75:percent}}, box {{instance_segmentation.classes.largest_loss.box_ap_75:percent}}"}
+      - {text: "Finer mask inputs: image branch {{instance_segmentation.mask_inputs.image_branch_map:percent}}, skips {{instance_segmentation.mask_inputs.backbone_skips_map:percent}}, none {{instance_segmentation.mask_inputs.heads_map:percent}}"}
       - {text: "detection_masks [B, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}]: pasted and thresholded by the client"}
     narration:
       - "To recap: masks are scored after pasting, on their own IoU and size, next to the boxes of the same detections, and shipped as probabilities the client pastes."
