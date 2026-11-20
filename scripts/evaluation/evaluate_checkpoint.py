@@ -45,17 +45,22 @@ def apply_error_image_limit(experiment_configuration: Dict[str, Any],
             place.
         maximum_error_images_per_class_pair (Optional[int]): The largest number of error images of every pair of
             classes, None to keep the experiment's 'evaluation.error_dumps' settings.
+
+    Raises:
+        KeyError: If the configuration has no 'evaluation' section, which a loaded configuration always has.
     """
     if maximum_error_images_per_class_pair is None:
         return
 
-    # The tasks without an error_dumps section save no error image, so the limit has nothing to apply to
-    error_dumps_configuration = experiment_configuration.get("evaluation", {}).get("error_dumps")
-    if error_dumps_configuration is None:
+    # The tasks without an error_dumps section save no error image, so the limit has nothing to apply to; every task
+    # has an 'evaluation' section, which the configuration checks require
+    evaluation_configuration = experiment_configuration["evaluation"]
+    if "error_dumps" not in evaluation_configuration:
         print_color(color="yellow", output=f"maximum_error_images_per_class_pair is skipped: the "
                                            f"{experiment_configuration['task']} task saves no error image (no "
                                            f"'evaluation.error_dumps' section).")
         return
+    error_dumps_configuration = evaluation_configuration["error_dumps"]
     error_dumps_configuration["activated"] = True
     error_dumps_configuration["maximum_per_class_pair"] = maximum_error_images_per_class_pair
 
@@ -73,12 +78,15 @@ def apply_save_predictions(experiment_configuration: Dict[str, Any], save_predic
             place.
         save_predictions (Optional[bool]): Whether the predictions are saved, None to keep the experiment's
             'evaluation.save_predictions'.
+
+    Raises:
+        KeyError: If the configuration has no 'evaluation' section, which a loaded configuration always has.
     """
     if save_predictions is None:
         return
 
     # The tasks without a predictions file have no 'evaluation.save_predictions' setting to replace
-    evaluation_configuration = experiment_configuration.get("evaluation", {})
+    evaluation_configuration = experiment_configuration["evaluation"]
     if "save_predictions" not in evaluation_configuration:
         print_color(color="yellow", output=f"save_predictions is skipped: the {experiment_configuration['task']} task "
                                            f"writes no predictions file (no 'evaluation.save_predictions' setting).")
@@ -105,12 +113,13 @@ def apply_target_precisions(experiment_configuration: Dict[str, Any],
     Raises:
         ValueError: If a target precision is not within [0, 1], or if a list is given to a task keeping a single target
             precision.
+        KeyError: If the configuration has no 'evaluation' section, which a loaded configuration always has.
     """
     if target_precisions is None:
         return
 
     # The tasks without class thresholds have no 'evaluation.target_precision' setting to replace
-    evaluation_configuration = experiment_configuration.get("evaluation", {})
+    evaluation_configuration = experiment_configuration["evaluation"]
     if "target_precision" not in evaluation_configuration:
         print_color(color="yellow", output=f"target_precisions is skipped: the {experiment_configuration['task']} task "
                                            f"gives no class threshold (no 'evaluation.target_precision' setting).")

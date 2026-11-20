@@ -31,7 +31,7 @@ Whenever the checkpoints of a trained run must be judged again, on another split
 | `batch_size` | the evaluation batch size, `None` keeping the run's |
 | `track_evaluation` | sends the evaluation to MLflow, in a run named `<run name>-evaluation`, `None` keeping the `tracking.activated` of the run |
 | `save_predictions` | writes `predictions.csv` (CLS, M2O, M2M, CMP) or `selections.csv` (SEL) in every evaluated iteration folder when `True`, `None` keeping the `evaluation.save_predictions` of the run; skipped with a warning for the tasks without the setting |
-| `maximum_error_images_per_class_pair` | turns the error images on with at most this number per pair of classes, `None` keeping the `evaluation.error_dumps` of the run |
+| `maximum_error_images_per_class_pair` | turns the error images on with at most this number per pair of classes, `None` keeping the `evaluation.error_dumps` of the run; skipped with a warning for the tasks without error images (SEG, KPT, SSL) |
 | `target_precisions` | the precision, or list of precisions such as `[0.99, 0.95, 0.90]` (CLS, M2O, M2M, CMP), targeted by the class thresholds, `None` keeping the `evaluation.target_precision` of the run; skipped with a warning for the tasks without class thresholds |
 | `nms_criterion`, `nms_distance_exponent` | the final NMS of a DET or INS run replaced, `"iou"` (greedy) or `"distance_iou"` (DIoU-NMS) with the exponent of its distance term, `None` keeping the run's; an NMS other than the run's is written to `<run>/Checkpoint_Evaluation_nms_<criterion>[_<exponent>]/` (e.g. `Checkpoint_Evaluation_nms_distance_iou_0.6`), and the setting is skipped with a warning for the tasks without detector |
 
