@@ -233,8 +233,9 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
         raise ValueError(f"saved_thresholds_path {saved_thresholds_path} is only read with use_saved_temperature.")
 
     # PyTorch runs GPU convolutions in reduced-precision TF32 by default (about 3 significant digits instead of 7),
-    # while ONNX Runtime computes the exported model in exact FP32, so the two differ by about 1e-3 on scores even
-    # for a correct export. TF32 is switched off so that the reference is computed at full precision too.
+    # while ONNX Runtime computes the exported model in exact FP32, so the two differ even for a correct export, by up
+    # to about 1e-3 on the scores of a detector (5e-5 on the probabilities of a classifier). TF32 is switched off so
+    # that the reference is computed at full precision too.
     # The switch is global to the whole Python process: the previous values are saved here and restored at the end,
     # so that code calling this function does not silently keep slower full-precision GPU computations afterwards
     previous_cudnn_tf32, previous_matmul_tf32 = torch.backends.cudnn.allow_tf32, torch.backends.cuda.matmul.allow_tf32
