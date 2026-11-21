@@ -34,10 +34,12 @@ DETECTION_LEVEL_COMPONENTS = ["anchors", "region_proposal", "detector"]
 MASK_HEAD_LEVEL_COMPONENT = "mask_head"
 
 # Loss outputs of the two-stage detector, summed into the total loss with the weights of 'Optimization.loss_weights',
-# the instance segmentation adding the loss of its mask heads
+# the instance segmentation adding the loss of its mask heads, and the loss of their mask IoU heads when the masks are
+# scored ('MaskHead.mask_scoring')
 DETECTION_LOSS_NAMES = ["region_proposal_classification_loss", "region_proposal_localisation_loss",
                         "detection_classification_loss", "detection_regression_loss"]
 MASK_LOSS_NAME = "mask_loss"
+MASK_IOU_LOSS_NAME = "mask_iou_loss"
 
 
 def check_convolution_layers(convolutions: Any, key_path: str, inception: Any) -> List[str]:
@@ -550,7 +552,8 @@ def check_detection_configuration(experiment_configuration: Dict[str, Any],
     Runs every check specific to the object detection task: its evaluation settings, its label mapping, its data
     settings without the sequence settings nor the augmentation types moving the image only, its detection levels
     (anchors and heads of every level), neck, region proposal and detector sections, and the weights of its losses,
-    with the mask loss for the instance segmentation, which runs these checks too.
+    with the mask loss for the instance segmentation, which runs these checks too, and its mask IoU loss when its
+    masks are scored.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -572,7 +575,13 @@ def check_detection_configuration(experiment_configuration: Dict[str, Any],
     errors += check_detector_configuration(model_configuration=model_configuration)
 
     # Weight of every loss of the task, the instance segmentation (whose configuration has a MaskHead) adding its mask
-    # loss
-    loss_names = DETECTION_LOSS_NAMES + ([MASK_LOSS_NAME] if "MaskHead" in model_configuration else [])
+    # loss, and its mask IoU loss when the masks are scored
+    loss_names = list(DETECTION_LOSS_NAMES)
+    if "MaskHead" in model_configuration:
+        loss_names.append(MASK_LOSS_NAME)
+        mask_scoring = get_configuration_value(configuration=model_configuration,
+                                               key_path="MaskHead.mask_scoring.activated")
+        if mask_scoring is True:
+            loss_names.append(MASK_IOU_LOSS_NAME)
     errors += check_loss_weights_configuration(model_configuration=model_configuration, loss_names=loss_names)
     return errors

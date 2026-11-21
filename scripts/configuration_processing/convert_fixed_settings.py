@@ -10,7 +10,8 @@ their 'Detector' section, the smooth L1, the 'nms_criterion' and 'nms_distance_e
 the greedy NMS, the 'proposal_selection' of their 'RegionProposal' section, over all the levels at once, the
 'instance_index_maps' of the 'Data' section of the instance segmentation, one mask per object, and the finer inputs and
 fusion convolutions of its 'MaskHead' section, none; the 'benchmark_speed' diagnosis mode of every task, off; the
-'shared' setting of the 'MaskHead' section of the instance segmentation, one mask head per level), so
+'shared' setting of the 'MaskHead' section of the instance segmentation, one mask head per level; its 'mask_scoring'
+section, off), so
 that the training_configuration.yaml of the saved runs, reloaded to resume a run, by
 scripts/evaluation/evaluate_checkpoint.py and by the export, and the launch files of vision_training/main.py load
 again.
@@ -153,6 +154,22 @@ MASK_HEAD_SHARED_LINES = [
     '# on every level and equal level channels (a neck). False: one mask head per level.',
     'shared: False']
 
+# Lines of the mask scoring added to the 'MaskHead' section of the instance segmentation runs written before it, whose
+# masks are not scored: the comment lines, then the section
+MASK_HEAD_MASK_SCORING_LINES = [
+    ('# Mask Scoring R-CNN (arxiv.org/abs/1903.00241): a mask IoU head per mask head predicts the IoU of every mask, '
+     'its'),
+    '# mask score being the class score times it (mask AP ranking, mask_scores export output).',
+    'mask_scoring:',
+    '  # True to score the masks, with mask_iou_loss in Optimization.loss_weights (1.0 in the paper); needs M a',
+    '  # multiple of the pool sizes.',
+    '  activated: False',
+    '  # [layers, channels] of its 3x3 convolutions on the box features and the pooled mask, the last of stride 2;',
+    '  # [4, 256] in the paper.',
+    '  convolutions: [4, 64]',
+    '  # Sizes of its hidden fully connected layers, then one IoU per class; [1024, 1024] in the paper.',
+    '  fully_connected: [256, 256]']
+
 # Lines of the speed benchmark diagnosis mode added to the 'diagnosis_modes' of the runs of every task written before
 # it, off: the comment lines, then the setting
 DIAGNOSIS_BENCHMARK_SPEED_LINES = [
@@ -193,7 +210,9 @@ ADDED_SETTINGS = {"Detector.box_loss": {"tasks": ["object_detection", "instance_
                       "after": "ExperimentConfiguration.diagnosis_modes.view_input_images",
                       "lines": DIAGNOSIS_BENCHMARK_SPEED_LINES},
                   "MaskHead.shared": {"tasks": ["instance_segmentation"], "after": "MaskHead.fusion_convolutions",
-                                      "lines": MASK_HEAD_SHARED_LINES}}
+                                      "lines": MASK_HEAD_SHARED_LINES},
+                  "MaskHead.mask_scoring": {"tasks": ["instance_segmentation"], "after": "MaskHead.shared",
+                                            "lines": MASK_HEAD_MASK_SCORING_LINES}}
 
 # Name of the configuration saved in every run folder
 RUN_CONFIGURATION_NAME = "training_configuration.yaml"
@@ -522,13 +541,17 @@ def check_conversion(original_text: str, converted_text: str, task: str, configu
         if task in added_section["tasks"] and not original_section_paths:
             expected_settings.update(flatten_settings(settings=yaml.safe_load(added_section["text"])))
 
-    # Settings the task requires inside its sections and the original file lacked, with the values of ADDED_SETTINGS,
-    # a file without the section of a setting (a partial draft) staying without it
+    # Settings the task requires inside its sections and the original file lacked, with the values of ADDED_SETTINGS
+    # (every setting of an added section, such as 'MaskHead.mask_scoring'), a file without the section of a setting (a
+    # partial draft) staying without it
     for key_path, added_setting in ADDED_SETTINGS.items():
-        if task in added_setting["tasks"] and key_path not in original_settings and \
+        holds_setting = any(path == key_path or path.startswith(f"{key_path}.") for path in original_settings)
+        if task in added_setting["tasks"] and not holds_setting and \
                 holds_parent_section(key_paths=list(expected_settings), key_path=key_path):
+            parent_path, setting_name = key_path.rsplit(".", 1)
             added_values = yaml.safe_load(stream="\n".join(added_setting["lines"]))
-            expected_settings[key_path] = added_values[key_path.split(".")[-1]]
+            expected_settings.update(flatten_settings(settings={setting_name: added_values[setting_name]},
+                                                      prefix=parent_path))
     if converted_settings != expected_settings:
         # Settings lost or added by the conversion, and settings whose value changed
         changed_paths = sorted(set(expected_settings) ^ set(converted_settings) |
@@ -703,9 +726,9 @@ if __name__ == "__main__":
     # '_before_anchor_centres_removal' for its removal on 2026-11-13, '_before_instance_index_maps' for the
     # 'Data.instance_index_maps' added on 2026-11-13, '_before_mask_fine_inputs' for the finer inputs and fusion
     # convolutions of the 'MaskHead' section added on 2026-11-15, '_before_benchmark_speed' for the
-    # 'diagnosis_modes.benchmark_speed' added on 2026-11-16, then '_before_shared_mask_head' for the 'MaskHead.shared'
-    # added on 2026-11-20
-    backup_suffix = "_before_shared_mask_head"
+    # 'diagnosis_modes.benchmark_speed' added on 2026-11-16, '_before_shared_mask_head' for the 'MaskHead.shared'
+    # added on 2026-11-20, then '_before_mask_scoring' for the 'MaskHead.mask_scoring' added on 2026-11-21
+    backup_suffix = "_before_mask_scoring"
 
     files_to_convert = convert_fixed_settings(run_roots=run_roots, configuration_folders=configuration_folders,
                                               write_files=write_files, backup_suffix=backup_suffix)

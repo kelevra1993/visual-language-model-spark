@@ -726,7 +726,9 @@ def get_instance_segmentation_reference_configurations() -> Tuple[Dict[str, Any]
     experiment_configuration["task"] = "instance_segmentation"
     for level_configuration in model_configuration["DetectionLevels"].values():
         level_configuration["mask_head"] = {"roi_align_pool_size": 14, "convolutions": [4, 64]}
-    model_configuration["MaskHead"] = {"shared": False, "mask_resolution": 28, "upsampling": "transposed",
+    model_configuration["MaskHead"] = {"shared": False, "mask_scoring": {"activated": False, "convolutions": [4, 64],
+                                                                         "fully_connected": [256, 256]},
+                                       "mask_resolution": 28, "upsampling": "transposed",
                                        "skip_blocks_at_pool_size": [], "image_branch_convolutions": [0, 0],
                                        "skip_blocks_at_mask_resolution": [], "fusion_convolutions": [0, 0],
                                        "normalization": {"feature_map_normalization": "batch"},
@@ -794,6 +796,22 @@ def share_the_mask_head_with_the_image_branch(experiment_configuration: Dict[str
                                             "fusion_convolutions": [1, 64]})
 
 
+def score_the_masks_of_the_shared_head(experiment_configuration: Dict[str, Any],
+                                       model_configuration: Dict[str, Any]) -> None:
+    """
+    Scores the masks of one mask head shared by the levels with design A of stage 3b, with a mask IoU head of three
+    convolutions of 32 channels and two fully connected layers of 128 and 64 features.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    share_the_mask_head_with_the_image_branch(experiment_configuration=experiment_configuration,
+                                              model_configuration=model_configuration)
+    model_configuration["MaskHead"]["mask_scoring"] = {"activated": True, "convolutions": [3, 32],
+                                                       "fully_connected": [128, 64]}
+
+
 # Run name of the instance segmentation reference settings: the detection sections with the mask heads before the
 # classes
 INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME = REFERENCE_RUN_NAME.replace("DET_", "INS_").replace(
@@ -807,14 +825,17 @@ INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME = REFERENCE_RUN_NAME.replace("DET_", "I
         "-MR28_", "-MR28-MSP4.5-MIB5x32-MSM0.3-MF1x64_")),
     (use_mask_head_fusion_convolutions, INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME.replace("-MR28_", "-MR28-MF2x32_")),
     (share_the_mask_head_with_the_image_branch, INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME.replace(
-        "-M14.4x64-MR28_", "-M14.4x64-MSH-MR28-MIB5x32-MF1x64_"))])
+        "-M14.4x64-MR28_", "-M14.4x64-MSH-MR28-MIB5x32-MF1x64_")),
+    (score_the_masks_of_the_shared_head, INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME.replace(
+        "-M14.4x64-MR28_", "-M14.4x64-MSH-MR28-MIB5x32-MF1x64-MIOU3x32.128.64_"))])
 def test_instance_segmentation_run_names(modify_function: Callable[[Dict[str, Any], Dict[str, Any]], None] | None,
                                          expected_run_name: str) -> None:
     """
     Verifies the run names of the instance segmentation: the INS code, the detection sections, and the mask heads
     section (modules, normalization, upsampling, pool size and convolutions of every level, MSH for a mask head shared
     by the levels, mask resolution, then the finer inputs and fusion convolutions in the order of their data flow when
-    used) before the classes.
+    used, and MIOU with the layers of the mask IoU heads when the masks are scored) before the classes, the mask
+    scoring giving no token when it is off.
 
     Args:
         modify_function (Callable[[Dict[str, Any], Dict[str, Any]], None] | None): Function changing the reference

@@ -6,7 +6,7 @@ classes after those of their source run are covered too: the class layers of the
 heads and of the semantic segmentation grown to the new classes, which keep the random initialisation of the new run,
 and the source runs without class names. The keypoint head only moves between runs predicting the same keypoints on
 the same channels, read from the record of the data of the source run, and the mask heads between runs sharing them
-by the levels or not alike.
+by the levels or not alike, and scoring their masks with the same mask IoU heads or not at all.
 """
 
 import copy
@@ -26,7 +26,8 @@ from vision_training.models.model_registry import TASK_MODEL_CLASSES
 from vision_training.models.model_transfer import (NORMALIZATION_LAYER_TYPES, TRANSFERABLE_COMPONENTS,
                                                    compare_component_configurations, count_loaded_backbone_blocks,
                                                    count_shared_backbone_blocks, disable_pretrained_settings,
-                                                   find_backbone_block_index, freeze_batch_normalization_statistics,
+                                                   find_backbone_block_index, find_class_layer,
+                                                   freeze_batch_normalization_statistics,
                                                    freeze_component, freeze_normalization_parameters,
                                                    load_pretrained_component, load_segmentation_class_layers,
                                                    select_transferred_part)
@@ -977,6 +978,68 @@ def test_mask_heads_move_only_between_runs_of_the_same_sharing(tmp_path: Path) -
         "'MaskHead.shared' is True in the source run and False in this run."]
     assert compare_component_configurations(section_name="MaskHead", source_configuration=former_configuration,
                                             target_configuration=level_configuration) == []
+
+
+def test_mask_heads_move_only_between_runs_of_the_same_mask_scoring(tmp_path: Path) -> None:
+    """
+    Verifies that the mask heads of a run scoring its masks ('MaskHead.mask_scoring') move with their mask IoU heads to
+    a run scoring its masks with the same layers, every tensor being copied and the IoU predictor growing with the
+    classes like the mask predictor, that heads with and without mask IoU heads, or with other ones, are refused by each
+    other, a source run written before the mask scoring scoring none, and that two runs without mask scoring match
+    whatever the sizes written for the heads they never build.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    scored_configuration, _, _ = get_detection_model_configuration(mask_head=True)
+    scored_configuration = copy.deepcopy(scored_configuration)
+    scored_configuration["MaskHead"]["mask_scoring"]["activated"] = True
+    source_segmenter = build_task_model(task="instance_segmentation", configuration=scored_configuration, seed=0)
+    write_source_run(run_folder=tmp_path / "scored_run", configuration=scored_configuration, model=source_segmenter)
+    target_segmenter = build_task_model(task="instance_segmentation", configuration=scored_configuration, seed=1)
+    load_pretrained_component(component=target_segmenter.mask_heads_dictionary, section_name="MaskHead",
+                              model_configuration=point_to_source_run(configuration=scored_configuration,
+                                                                      section_name="MaskHead",
+                                                                      source_folder=tmp_path / "scored_run"),
+                              device=torch.device("cpu"))
+
+    # Every tensor of the mask heads copied, those of their mask IoU heads included
+    source_state = source_segmenter.mask_heads_dictionary.state_dict()
+    target_state = target_segmenter.mask_heads_dictionary.state_dict()
+    assert any(".mask_iou_head.iou_predictor." in tensor_name for tensor_name in source_state)
+    assert source_state.keys() == target_state.keys()
+    for tensor_name, tensor_value in source_state.items():
+        assert torch.equal(input=target_state[tensor_name], other=tensor_value), tensor_name
+    assert find_class_layer(section_name="MaskHead", module_name="5.mask_iou_head.iou_predictor") == 1
+    assert find_class_layer(section_name="MaskHead", module_name="5.mask_iou_head.fully_connected_block.0") is None
+
+    # Heads with and without mask IoU heads refused by each other, a source run written before the mask scoring
+    # scoring none
+    unscored_configuration, _, _ = get_detection_model_configuration(mask_head=True)
+    former_configuration = copy.deepcopy(unscored_configuration)
+    former_configuration["MaskHead"].pop("mask_scoring")
+    scored_section = scored_configuration["MaskHead"]["mask_scoring"]
+    unscored_section = unscored_configuration["MaskHead"]["mask_scoring"]
+    for source_configuration, source_section in [(unscored_configuration, unscored_section),
+                                                 (former_configuration, {"activated": False})]:
+        assert compare_component_configurations(section_name="MaskHead", source_configuration=source_configuration,
+                                                target_configuration=scored_configuration) == [
+            f"'MaskHead.mask_scoring' is {source_section!r} in the source run and {scored_section!r} in this run."]
+    assert compare_component_configurations(section_name="MaskHead", source_configuration=scored_configuration,
+                                            target_configuration=unscored_configuration) == [
+        f"'MaskHead.mask_scoring' is {scored_section!r} in the source run and {unscored_section!r} in this run."]
+
+    # Other mask IoU heads refused, while runs without mask scoring match whatever their sizes
+    wider_configuration = copy.deepcopy(scored_configuration)
+    wider_configuration["MaskHead"]["mask_scoring"]["fully_connected"] = [64]
+    assert len(compare_component_configurations(section_name="MaskHead", source_configuration=scored_configuration,
+                                                target_configuration=wider_configuration)) == 1
+    resized_unscored_configuration = copy.deepcopy(unscored_configuration)
+    resized_unscored_configuration["MaskHead"]["mask_scoring"].update({"convolutions": [4, 64],
+                                                                      "fully_connected": [256, 256]})
+    for source_configuration in [former_configuration, resized_unscored_configuration]:
+        assert compare_component_configurations(section_name="MaskHead", source_configuration=source_configuration,
+                                                target_configuration=unscored_configuration) == []
 
 
 def test_segmentation_class_layers_follow_the_decoder(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:

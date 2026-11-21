@@ -3,8 +3,10 @@ Tests of the InstanceSegmenter (vision_training/models/instance_segmentation/ins
 version: the mask loss with ground truth, the masks of the final detections in evaluation mode, the refused ground
 truth without masks and the inference instance segmenter reproducing the eager model, with a pool size per level and
 bilinear upsamplings, without and with the finer inputs of the mask heads (image branch, backbone skips, fusion
-convolutions), whose layers and channels are checked against the configuration, and with one mask head shared by the
-levels ('MaskHead.shared'), trained on the positives of every level and refused for levels of different mask heads.
+convolutions), whose layers and channels are checked against the configuration, with one mask head shared by the
+levels ('MaskHead.shared'), trained on the positives of every level and refused for levels of different mask heads, and
+with the masks scored by mask IoU heads ('MaskHead.mask_scoring'), their loss training the mask heads and their mask
+scores reproduced by the inference instance segmenter.
 """
 
 import pytest
@@ -53,6 +55,21 @@ SHARED_IMAGE_BRANCH_MASK_HEAD_SETTINGS = {"MaskHead": {**SHARED_MASK_HEAD_SETTIN
                                                        "image_branch_convolutions": [2, 8],
                                                        "fusion_convolutions": [1, 16]},
                                           "level_mask_heads": SHARED_MASK_HEAD_SETTINGS["level_mask_heads"]}
+
+# Masks scored by mask IoU heads (stage 8 of the benchmark), every pool size dividing the 14 x 14 masks: heads of
+# pools 7 and 14 per level without neck, and one head shared by the levels with design A after the neck
+MASK_SCORING_SETTINGS = {"activated": True, "convolutions": [2, 16], "fully_connected": [32]}
+SCORED_MASK_HEAD_SETTINGS = {"MaskHead": {"mask_resolution": 14, "upsampling": "bilinear",
+                                          "mask_scoring": MASK_SCORING_SETTINGS}, "level_mask_heads": {
+    "5": {"roi_align_pool_size": 7, "convolutions": [2, 32]}, "6": {"roi_align_pool_size": 14, "convolutions": [2, 32]},
+    "7": {"roi_align_pool_size": 7, "convolutions": [2, 16]}}}
+SCORED_SHARED_MASK_HEAD_SETTINGS = {"MaskHead": {"shared": True, "mask_resolution": 14, "upsampling": "bilinear",
+                                                 "image_branch_convolutions": [2, 8], "fusion_convolutions": [1, 16],
+                                                 "mask_scoring": MASK_SCORING_SETTINGS},
+                                    "level_mask_heads": {level_key: {"roi_align_pool_size": 7, "convolutions": [2, 32]}
+                                                         for level_key in ["5", "6", "7"]}}
+SCORED_GEOMETRIES_AND_NECKS = [(SCORED_MASK_HEAD_SETTINGS, "none"),
+                               (SCORED_SHARED_MASK_HEAD_SETTINGS, "path_aggregation")]
 
 # Mask geometries and neck types of the tests, the mask heads reading the levels after the neck, and those with finer
 # inputs, the backbone skips being read before the neck
@@ -240,6 +257,119 @@ def test_inference_instance_segmenter_with_fine_inputs_matches_the_eager_model(m
         assert bool(masks[image_index, int(numbers[image_index]):].eq(0.0).all())
 
 
+@pytest.mark.parametrize(argnames=["mask_head_settings", "neck_type"], argvalues=SCORED_GEOMETRIES_AND_NECKS)
+def test_scored_masks_train_the_mask_heads_and_score_the_detections(mask_head_settings: Dict[str, Any],
+                                                                    neck_type: str) -> None:
+    """
+    Verifies the mask scoring of Mask Scoring R-CNN in the instance segmenter: with ground truth it adds a finite mask
+    IoU loss, whose gradient reaches every layer of the mask heads (the mask IoU heads, and through the box features and
+    the masks they read, the convolution blocks and predictors), and in evaluation mode the mask score of every final
+    detection, within [0, 1], at most its class score and 0 for the padding detections.
+
+    Args:
+        mask_head_settings (Dict[str, Any]): The mask geometry and mask scoring replacing those of the fixture.
+        neck_type (str): The 'Neck.type' of the instance segmenter.
+    """
+    model = build_test_model(dtype=torch.float32, instance_segmentation=True, mask_head_settings=mask_head_settings,
+                             neck_type=neck_type)
+    assert all(mask_head.mask_iou_head is not None for mask_head in model.mask_heads_dictionary.values())
+    images, boxes, labels = get_fixed_batch()
+    images, boxes = images.float(), [image_boxes.float() for image_boxes in boxes]
+    masks = build_box_masks(boxes=boxes, image_size=model.input_image_size)
+
+    # Training: the mask IoU loss joins the mask loss and trains every layer of the mask heads
+    model.train()
+    torch.manual_seed(seed=2)
+    outputs = model(input_tensor=images, ground_truth_bounding_boxes=boxes, ground_truth_labels=labels,
+                    ground_truth_masks=masks)
+    assert torch.isfinite(input=outputs["mask_iou_loss"]) and float(outputs["mask_iou_loss"].detach()) > 0.0
+    outputs["mask_iou_loss"].backward()
+    for parameter_name, parameter in model.mask_heads_dictionary.named_parameters():
+        assert parameter.grad is not None, parameter_name
+    for mask_head in model.mask_heads_dictionary.values():
+        assert any(float(parameter.grad.abs().sum()) > 0.0 for parameter in mask_head.convolutional_block.parameters())
+        assert float(mask_head.mask_predictor.weight.grad.abs().sum()) > 0.0
+
+    # Evaluation: the mask score of every final detection, its class score times its clipped predicted IoU, with a
+    # score threshold at the median score of the first image so that padding detections follow the valid ones
+    model.eval()
+    with torch.no_grad():
+        model.detection_score_threshold = float(model(input_tensor=images)["final_detection_scores"][0].median())
+        outputs = model(input_tensor=images)
+    mask_scores, detection_scores = outputs["final_detection_mask_scores"], outputs["final_detection_scores"]
+    assert mask_scores.shape == (2, model.maximum_detections) and mask_scores.dtype == detection_scores.dtype
+    assert float(mask_scores.min()) >= 0.0 and bool((mask_scores <= detection_scores + 1e-6).all())
+    for image_index in range(2):
+        number_detections = int(outputs["number_detections"][image_index])
+        assert 0 < number_detections < model.maximum_detections
+        assert bool(mask_scores[image_index, number_detections:].eq(0.0).all())
+
+
+def test_unscored_masks_give_no_mask_iou_loss_nor_mask_scores() -> None:
+    """
+    Verifies that without mask scoring the mask heads hold no mask IoU head, the training gives no mask IoU loss, the
+    evaluation no mask scores, and the inference instance segmenter its five outputs.
+    """
+    model = build_test_model(dtype=torch.float32, instance_segmentation=True,
+                             mask_head_settings=MIXED_MASK_HEAD_SETTINGS)
+    assert not model.mask_scoring
+    assert all(mask_head.mask_iou_head is None for mask_head in model.mask_heads_dictionary.values())
+    images, boxes, labels = get_fixed_batch()
+    images, boxes = images.float(), [image_boxes.float() for image_boxes in boxes]
+    model.train()
+    outputs = model(input_tensor=images, ground_truth_bounding_boxes=boxes, ground_truth_labels=labels,
+                    ground_truth_masks=build_box_masks(boxes=boxes, image_size=model.input_image_size))
+    assert "mask_loss" in outputs and "mask_iou_loss" not in outputs
+    model.eval()
+    with torch.no_grad():
+        assert "final_detection_mask_scores" not in model(input_tensor=images)
+        assert len(InferenceInstanceSegmenter(model=model).eval()(images=images)) == 5
+
+
+@pytest.mark.parametrize(argnames=["mask_head_settings", "neck_type"], argvalues=SCORED_GEOMETRIES_AND_NECKS)
+def test_inference_instance_segmenter_scores_the_masks_like_the_eager_model(mask_head_settings: Dict[str, Any],
+                                                                            neck_type: str) -> None:
+    """
+    Verifies that the export-friendly inference instance segmenter, which runs the mask IoU head of every level on
+    every detection and keeps the predicted IoU of its own level (or runs the shared head once), gives a sixth output
+    with the mask scores of the eager model, the detections of equal scores being compared in the same order, and 0
+    for the padding detections.
+
+    Args:
+        mask_head_settings (Dict[str, Any]): The mask geometry and mask scoring replacing those of the fixture.
+        neck_type (str): The 'Neck.type' of the instance segmenter.
+    """
+    model = build_test_model(dtype=torch.float32, instance_segmentation=True, mask_head_settings=mask_head_settings,
+                             neck_type=neck_type)
+    images = torch.rand(size=(2, 3, 512, 512), generator=torch.Generator().manual_seed(1)) * 255.0
+
+    # A score threshold at the median score of the first image, so that padding detections follow the valid ones
+    with torch.no_grad():
+        model.detection_score_threshold = float(model(input_tensor=images)["final_detection_scores"][0].median())
+    segmenter = InferenceInstanceSegmenter(model=model).eval()
+
+    with torch.no_grad():
+        eager_outputs = model(input_tensor=images)
+        boxes, scores, labels, numbers, masks, mask_scores = segmenter(images=images)
+
+    assert 0 < int(numbers.min()) < model.maximum_detections
+    assert torch.equal(input=numbers, other=eager_outputs["number_detections"])
+    assert torch.equal(input=labels, other=eager_outputs["final_detection_labels"])
+
+    # Masks, then mask scores, given in the place of the masks, of the detections ordered alike
+    for inference_values, eager_values in [(masks, eager_outputs["final_detection_masks"]),
+                                           (mask_scores, eager_outputs["final_detection_mask_scores"])]:
+        inference_detections = order_tied_detections(boxes=boxes, scores=scores, masks=inference_values,
+                                                     number_detections=numbers)
+        eager_detections = order_tied_detections(boxes=eager_outputs["final_detection_boxes"],
+                                                 scores=eager_outputs["final_detection_scores"], masks=eager_values,
+                                                 number_detections=numbers)
+        for inference_tensor, eager_tensor in zip(inference_detections, eager_detections):
+            assert torch.allclose(input=inference_tensor, other=eager_tensor, atol=1e-5)
+    for image_index in range(2):
+        assert bool(mask_scores[image_index, int(numbers[image_index]):].eq(0.0).all())
+
+
 def test_mask_loss_gives_every_level_the_fine_features_of_its_proposals() -> None:
     """
     Verifies that the mask loss, which computes the fine features of the positive proposals of all the levels at once,
@@ -261,7 +391,7 @@ def test_mask_loss_gives_every_level_the_fine_features_of_its_proposals() -> Non
         aggregated_detections = detection_stages["aggregated_detections_dictionary"]
         mask_loss = model.compute_proposal_mask_loss(feature_maps=feature_maps, skip_feature_maps=skip_feature_maps,
                                                      aggregated_detections=aggregated_detections,
-                                                     ground_truth_masks=masks)
+                                                     ground_truth_masks=masks)["mask_loss"]
 
         # Level by level, the fine features computed on the positive proposals of the level alone
         positive_mask = aggregated_detections["sliced_labels"] > 0
@@ -316,7 +446,7 @@ def test_shared_mask_head_trains_on_the_positives_of_every_level() -> None:
         aggregated_detections = detection_stages["aggregated_detections_dictionary"]
         mask_loss = model.compute_proposal_mask_loss(feature_maps=feature_maps, skip_feature_maps=skip_feature_maps,
                                                      aggregated_detections=aggregated_detections,
-                                                     ground_truth_masks=masks)
+                                                     ground_truth_masks=masks)["mask_loss"]
 
         # Level by level, the shared head pooling each level at its own scale
         positive_mask = aggregated_detections["sliced_labels"] > 0

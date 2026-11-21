@@ -7,8 +7,8 @@ report their differences, the inference models match the training path on full s
 the classifier softens its probabilities in the eager model and both exports, the exports of the detector keep its
 DIoU-NMS, its greedy NMS beyond the size at which batched_nms changes its algorithm and its selection of the proposals
 level by level, its ONNX suppressions see the boxes of the image only, the exports of the instance segmenter keep
-the finer inputs of its mask heads and the mask head shared by its levels, and the ONNX export keeps none of the
-debugging metadata of the exporter but the metadata of the model.
+the finer inputs of its mask heads, the mask head shared by its levels and the mask scores of its scored masks, and the
+ONNX export keeps none of the debugging metadata of the exporter but the metadata of the model.
 """
 
 import numpy as np
@@ -32,7 +32,8 @@ from vision_training.deployment.export_specifications import (FRAME_OUTPUT_TASKS
 from vision_training.deployment.input_contract import write_onnx_input_contract
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
 from vision_training.models.task_model import TaskModel
-from tests.models.instance_segmentation.test_instance_segmenter import MIXED_MASK_HEAD_SETTINGS
+from tests.models.instance_segmentation.test_instance_segmenter import (MIXED_MASK_HEAD_SETTINGS,
+                                                                       SCORED_GEOMETRIES_AND_NECKS)
 from tests.testing_utilities import build_test_model as build_test_detector
 from tests.fixtures.configuration_fixtures import (get_classification_model_configuration,
                                                    get_keypoint_model_configuration,
@@ -384,6 +385,65 @@ def test_instance_segmenter_exports_keep_the_mask_head_shared_by_the_levels(tmp_
     export_onnx(inference_model=inference_model, example_inputs=example_inputs, output_path=tmp_path / "model.onnx",
                 specification=specification, maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE)
     session = onnxruntime.InferenceSession(str(tmp_path / "model.onnx"), providers=["CPUExecutionProvider"])
+    onnx_outputs = session.run(None, {"images": check_inputs["images"].numpy()})
+    assert specification["compare_outputs"](reference=reference_outputs, candidate=onnx_outputs,
+                                            **specification["comparison_tolerances"]) == []
+
+
+@pytest.mark.parametrize(argnames=["mask_head_settings", "neck_type"], argvalues=SCORED_GEOMETRIES_AND_NECKS)
+def test_instance_segmenter_exports_keep_the_mask_scores(tmp_path: Path, mask_head_settings: dict,
+                                                         neck_type: str) -> None:
+    """
+    Verifies the exports of the inference instance segmenter whose masks are scored ('MaskHead.mask_scoring'): its
+    specification adds the 'mask_scores' output after the masks, the comparison reports a changed mask score, and the
+    TorchScript and ONNX exports reproduce the detections, masks and mask scores of the eager inference segmenter on a
+    batch of another size than the traced one, with per-level mask heads and with the head shared by the levels.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        mask_head_settings (dict): The mask geometry and mask scoring replacing those of the fixture.
+        neck_type (str): The 'Neck.type' of the instance segmenter.
+    """
+    hide_known_export_warnings()
+    inference_model = build_inference_model(task="instance_segmentation", model=build_test_detector(
+        dtype=torch.float32, instance_segmentation=True, mask_head_settings=mask_head_settings, neck_type=neck_type))
+    specification = get_export_specification(task="instance_segmentation", inference_model=inference_model)
+    assert [output["name"] for output in specification["outputs"]][4:] == ["detection_masks", "mask_scores"]
+    assert specification["outputs"][5]["dimensions"] == [inference_model.maximum_detections]
+    example_inputs = create_random_inputs(specification=specification, shape_name="example_shape",
+                                          maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE, device=torch.device("cpu"),
+                                          generator=torch.Generator().manual_seed(1))
+    check_inputs = create_random_inputs(specification=specification, shape_name="check_shape",
+                                        maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE, device=torch.device("cpu"),
+                                        generator=torch.Generator().manual_seed(2))
+    with torch.no_grad():
+        reference_outputs = convert_outputs_to_numpy(outputs=inference_model(**check_inputs))
+    assert len(reference_outputs) == 6 and int(reference_outputs[3].sum()) > 0
+
+    # A mask score changed beyond the score tolerance, or missing, is reported
+    changed_outputs = [output.copy() for output in reference_outputs]
+    changed_outputs[5][0, 0] += 0.01
+    assert specification["compare_outputs"](reference=reference_outputs, candidate=changed_outputs,
+                                            **specification["comparison_tolerances"]) == [
+        "image 0: mask score difference 1.00e-02"]
+    assert specification["compare_outputs"](reference=reference_outputs, candidate=reference_outputs[:5],
+                                            **specification["comparison_tolerances"]) == [
+        "6 eager outputs against 5 exported outputs"]
+
+    # TorchScript export, traced on the example batch and run on the check batch
+    export_torchscript(inference_model=inference_model, example_inputs=example_inputs,
+                       output_path=tmp_path / "model.pt")
+    with torch.no_grad():
+        torchscript_outputs = convert_outputs_to_numpy(outputs=torch.jit.load(str(tmp_path / "model.pt"))(
+            **check_inputs))
+    assert specification["compare_outputs"](reference=reference_outputs, candidate=torchscript_outputs,
+                                            **specification["comparison_tolerances"]) == []
+
+    # Dynamo ONNX export with a dynamic batch, run by ONNX Runtime on the check batch
+    export_onnx(inference_model=inference_model, example_inputs=example_inputs, output_path=tmp_path / "model.onnx",
+                specification=specification, maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE)
+    session = onnxruntime.InferenceSession(str(tmp_path / "model.onnx"), providers=["CPUExecutionProvider"])
+    assert [output.name for output in session.get_outputs()][4:] == ["detection_masks", "mask_scores"]
     onnx_outputs = session.run(None, {"images": check_inputs["images"].numpy()})
     assert specification["compare_outputs"](reference=reference_outputs, candidate=onnx_outputs,
                                             **specification["comparison_tolerances"]) == []

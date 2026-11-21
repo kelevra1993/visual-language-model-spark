@@ -721,7 +721,7 @@ To be able to start from a trained component, such as a backbone trained on Imag
 | `SegmentationDecoder` | U-Net decoder, with its class layers when `load_class_layers` is True | SEG |
 | `RegionProposal` | region proposal heads of every detection level | DET, INS |
 | `Detector` | detection heads of every detection level, with their classification and box regression layers | DET, INS |
-| `MaskHead` | mask heads of every detection level, with their mask prediction layers | INS |
+| `MaskHead` | mask heads of every detection level, with their mask prediction layers and, with `MaskHead.mask_scoring`, their mask IoU heads | INS |
 | `HRNet`, `KeypointHead` | high resolution network, heatmap and tag head | KPT |
 
 <p align="center">
@@ -1274,7 +1274,7 @@ The models are written to `vision_training/deployment/triton/served_models/<mode
 |---|---|---|---|
 | CLS | `image_classifier` | `images` [B, 3, S, S] | `class_probabilities` [B, K] |
 | DET | `object_detector` | `images` [B, 3, S, S] | `detection_boxes` [B, D, 4], `detection_scores` [B, D], `detection_labels` [B, D], `number_detections` [B] |
-| INS | `instance_segmenter` | `images` [B, 3, S, S] | the outputs of DET, then `detection_masks` [B, D, M, M] |
+| INS | `instance_segmenter` | `images` [B, 3, S, S] | the outputs of DET, then `detection_masks` [B, D, M, M], and `mask_scores` [B, D] with `MaskHead.mask_scoring` |
 | KPT | `keypoint_detector` | `images` [B, 3, S, S] | `candidate_positions` [B, C, N, 2], `candidate_scores` [B, C, N], `candidate_tags` [B, C, N] |
 | SEG | `semantic_segmenter` | `images` [B, 3, S, S] | `class_map` [B, S, S], `class_probabilities` [B, K, S, S] |
 | M2O | `sequence_classifier` | `images` [B, T, 3, S, S] | `class_probabilities` [B, K] |
@@ -1961,7 +1961,7 @@ The mask IoU compares the pixels of a predicted mask with those of a ground trut
 mask IoU = pixels in both masks / pixels in either mask     (0 for two empty masks)
 ```
 - The instance segmentation trainer pastes the `MaskHead.mask_resolution` (28 x 28) probabilities of every detection into its box at the size of the ground truth masks (`paste_instance_masks`), keeps the pixels from `MaskHead.inference.mask_threshold` (0.5), and compares every detection with every object of the image by `compute_mask_intersection_over_union` of `vision_training/models/instance_segmentation/mask_operations.py` (`compute_mask_overlaps` of `vision_training/trainers/instance_segmentation_trainer.py`). The pixel counts are exact and the ratio is taken in float64, so an exact 13 / 20 is not pushed below 0.65.
-- The mask mAP is `evaluate_detections` with these overlaps (`overlap_type="masks"`): the same matching, curves, methods, thresholds and mean average recall as the boxes, the objects being sized by their mask area. The report prints the `Mask` tables (`Mask Mean Average Precision`, `Mask Mean Average Precision By Object Size (Area)`, `Mask Mean Average Recall`, `Mask Per Class Average Precision (Area)`, ...) before the `Box` tables of the same detections; the mask scalars start with `Mask ` (`Mask mAP@0.5/area`, `Mask mAR@0.5/all`), the box scalars keep the names of the object detection so that both tasks compare, and the mask columns of `class_metrics.csv` start with `mask_`.
+- The mask mAP is `evaluate_detections` with these overlaps (`overlap_type="masks"`): the same matching, curves, methods, thresholds and mean average recall as the boxes, the objects being sized by their mask area. The report prints the `Mask` tables (`Mask Mean Average Precision`, `Mask Mean Average Precision By Object Size (Area)`, `Mask Mean Average Recall`, `Mask Per Class Average Precision (Area)`, ...) before the `Box` tables of the same detections; the mask scalars start with `Mask ` (`Mask mAP@0.5/area`, `Mask mAR@0.5/all`), the box scalars keep the names of the object detection so that both tasks compare, and the mask columns of `class_metrics.csv` start with `mask_`. With `MaskHead.mask_scoring` (Mask Scoring R-CNN), the mask mAP ranks the detections by their mask scores, the class score times the IoU the mask IoU head predicts for the mask, the box mAP keeping the class scores.
 - `Mask mAP@0.5/area` compares the checkpoints of an instance segmentation run (`headline_metric` of `compute_evaluation_results` in `instance_segmentation_trainer.py`). The class thresholds, the confusion matrix and the error images also match by masks.
 
 Two toy masks show how far the two overlaps can disagree, both computed by the repository functions on 96 x 96 masks (the boxes being the tight boxes of the masks, `compute_mask_bounding_boxes`): a hollow square whose predicted mask fills the hole has a box IoU of 1.00 and a mask IoU of 0.64; an L shape whose mask misses the top 20 pixels of its arm has a box IoU of 0.69 and a mask IoU of 0.81, a match at 0.75 by its mask but not by its box.

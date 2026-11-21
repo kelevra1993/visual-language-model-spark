@@ -15,11 +15,15 @@ benchmark): backbone blocks before their pooling pooled at the pool size and con
 (U-Net skips), and the fine features of MaskFineInputs, shared by the levels (the image branch, RoIAlign of the
 normalized input image followed by plain convolutions, and backbone blocks pooled at the mask resolution), concatenated
 after the doublings and mixed by the fusion convolutions of the head before its predictor.
+With 'MaskHead.mask_scoring' (stage 8 of the instance segmentation benchmark, Mask Scoring R-CNN,
+https://arxiv.org/abs/1903.00241), every MaskHead also holds a MaskIoUHead predicting the intersection over union of
+the mask of every box with its object (predict_masks_and_mask_iou), from which the instance segmenter makes the mask
+score of every detection, its class score times its predicted mask IoU.
 """
 
 import torch
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from torch import nn
 from torch.nn import functional as torch_functional
 from torchvision.ops import roi_align
@@ -27,6 +31,11 @@ from torchvision.ops import roi_align
 from vision_training.configuration_processing.configuration_values import VALID_UPSAMPLINGS
 from vision_training.models.backbones.backbone import SKIP_OUTPUT_PREFIX
 from vision_training.models.components.convolution_block import ConvolutionBlock
+from vision_training.models.components.fully_connected_block import build_fully_connected_block
+
+# Standard deviation of the normal initialisation of the mask IoU predictor, its bias starting at 0, as in the official
+# code of Mask Scoring R-CNN, so that the predicted IoUs start near 0
+MASK_IOU_PREDICTOR_INITIALISATION_STANDARD_DEVIATION = 0.01
 
 
 def count_mask_upsamplings(roi_align_pool_size: int, mask_resolution: int) -> int:
@@ -81,17 +90,19 @@ class MaskHead(nn.Module):
     """
     Predicts the binary mask of the object of every box of the detection levels it reads, one [M, M] logit map per
     class, the channel of the detected (or ground truth) class being read by the instance segmenter. A head reads one
-    level, or every level when the mask head is shared by the levels ('MaskHead.shared').
+    level, or every level when the mask head is shared by the levels ('MaskHead.shared'), and holds a mask IoU head
+    predicting the IoU of its masks when they are scored ('MaskHead.mask_scoring').
     """
 
     def __init__(self, head_configuration: Dict[str, Any], mask_resolution: int, upsampling: str, number_classes: int,
                  input_channels: int, feature_map_normalization: str, batch_normalization_momentum: float,
                  input_image_size: int, feature_map_sizes: Dict[str, int], modules: Dict[str, Any],
                  skip_information: Dict[str, Dict[str, int]], fine_input_channels: int,
-                 fusion_convolutions: List[int], dtype: torch.dtype, device: torch.device) -> None:
+                 fusion_convolutions: List[int], mask_scoring: Dict[str, Any], dtype: torch.dtype,
+                 device: torch.device) -> None:
         """
         Builds the mask head of one detection level, or the mask head shared by every level, from the 'MaskHead'
-        section of the configuration.
+        section of the configuration, with its mask IoU head when the masks are scored.
 
         Args:
             head_configuration (Dict[str, Any]): The 'roi_align_pool_size' P and the [number_layers, output_channels]
@@ -118,6 +129,8 @@ class MaskHead(nn.Module):
                 doublings, 0 without fine features.
             fusion_convolutions (List[int]): The [number_layers, output_channels] of the 3x3 convolutions at the
                 mask resolution before the predictor ('MaskHead.fusion_convolutions'), [0, 0] for none.
+            mask_scoring (Dict[str, Any]): The 'MaskHead.mask_scoring' section: 'activated', and the 'convolutions'
+                and 'fully_connected' layers of the mask IoU head built when it is activated.
             dtype (torch.dtype): The data type of the parameters.
             device (torch.device): The device of the parameters.
 
@@ -200,6 +213,16 @@ class MaskHead(nn.Module):
         self.mask_predictor = nn.Conv2d(in_channels=predictor_input_channels, out_channels=number_classes,
                                         kernel_size=1, device=device, dtype=dtype)
 
+        # Mask IoU head reading the output of the convolution block with the mask of the class of every box, None
+        # when the masks are not scored
+        self.mask_iou_head = None
+        if mask_scoring["activated"]:
+            self.mask_iou_head = MaskIoUHead(
+                input_channels=convolution_output_channels, roi_align_pool_size=self.roi_align_pool_size,
+                mask_resolution=mask_resolution, convolutions=mask_scoring["convolutions"],
+                fully_connected=mask_scoring["fully_connected"], number_classes=number_classes, dtype=dtype,
+                device=device)
+
     def forward(self, proposal_boxes: torch.Tensor, input_tensor: torch.Tensor,
                 skip_feature_maps: Dict[str, torch.Tensor], fine_features: Optional[torch.Tensor]) -> torch.Tensor:
         """
@@ -272,12 +295,62 @@ class MaskHead(nn.Module):
                                      fine_features: Optional[torch.Tensor]) -> torch.Tensor:
         """
         Predicts the mask logits of pooled boxes, whatever the levels they were pooled from: the convolution block,
-        the doublings, the fine features joined at the mask resolution, the fusion convolutions and the predictor.
+        then the doublings, the fine features joined at the mask resolution, the fusion convolutions and the predictor
+        (predict_mask_logits).
 
         Args:
             pooled_features (torch.Tensor): The [R, C + skip channels, P, P] pooled features (pool_box_features).
             fine_features (Optional[torch.Tensor]): The [R, fine_input_channels, M, M] fine features of the boxes
                 (MaskFineInputs), in the order of the pooled features, None when the head has none.
+
+        Returns:
+            torch.Tensor: The [R, number_classes, M, M] mask logits.
+        """
+        box_features = self.convolutional_block(input_tensor=pooled_features)
+        return self.predict_mask_logits(box_features=box_features, fine_features=fine_features)
+
+    def predict_masks_and_mask_iou(self, pooled_features: torch.Tensor, fine_features: Optional[torch.Tensor],
+                                   class_indices: torch.Tensor) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        """
+        Predicts the mask logits of pooled boxes like predict_from_pooled_features and, when the masks are scored, the
+        intersection over union of the mask of the given class of every box with its object (the ground truth class
+        for the mask IoU loss of the proposals, the detected class for the mask scores of the detections): the mask
+        IoU head reads the output of the convolution block with the mask probabilities of that class, as in Mask
+        Scoring R-CNN, neither of them detached so that the mask IoU loss also trains the mask head.
+
+        Args:
+            pooled_features (torch.Tensor): The [R, C + skip channels, P, P] pooled features (pool_box_features).
+            fine_features (Optional[torch.Tensor]): The [R, fine_input_channels, M, M] fine features of the boxes
+                (MaskFineInputs), in the order of the pooled features, None when the head has none.
+            class_indices (torch.Tensor): The [R] int64 class of every box whose mask is scored.
+
+        Returns:
+            Tuple[torch.Tensor, Optional[torch.Tensor]]: The [R, number_classes, M, M] mask logits, and the [R]
+                predicted mask IoU of the class of every box, None without mask IoU head.
+        """
+        box_features = self.convolutional_block(input_tensor=pooled_features)
+        mask_logits = self.predict_mask_logits(box_features=box_features, fine_features=fine_features)
+        if self.mask_iou_head is None:
+            return mask_logits, None
+
+        # Mask probabilities of the class of every box, gathered so that the export keeps fixed shapes
+        mask_size = mask_logits.shape[-1]
+        class_masks = torch.sigmoid(input=torch.gather(
+            input=mask_logits, dim=1, index=class_indices.reshape(-1, 1, 1, 1).expand(-1, 1, mask_size, mask_size)))
+
+        # Predicted IoU of every class, the one of the class of the box kept
+        class_mask_iou = self.mask_iou_head(box_features=box_features, class_masks=class_masks)
+        return mask_logits, torch.gather(input=class_mask_iou, dim=1, index=class_indices.reshape(-1, 1)).squeeze(dim=1)
+
+    def predict_mask_logits(self, box_features: torch.Tensor, fine_features: Optional[torch.Tensor]) -> torch.Tensor:
+        """
+        Predicts the mask logits of boxes from the output of the convolution block: the doublings, the fine features
+        joined at the mask resolution, the fusion convolutions and the predictor.
+
+        Args:
+            box_features (torch.Tensor): The [R, convolution channels, P, P] output of the convolution block.
+            fine_features (Optional[torch.Tensor]): The [R, fine_input_channels, M, M] fine features of the boxes
+                (MaskFineInputs), in the order of the box features, None when the head has none.
 
         Returns:
             torch.Tensor: The [R, number_classes, M, M] mask logits.
@@ -290,8 +363,8 @@ class MaskHead(nn.Module):
             raise ValueError(f"The mask head was built for {self.fine_input_channels} channels of fine features, got "
                              f"{'none' if fine_features is None else fine_features.shape[1]}.")
 
-        # Refine the pooled features and double their resolution as many times as fits
-        features = self.convolutional_block(input_tensor=pooled_features)
+        # Double the resolution of the refined features as many times as fits
+        features = box_features
         for upsampling_layer in self.upsampling_layers:
             features = self.activation(input=upsampling_layer(input=features))
 
@@ -312,6 +385,98 @@ class MaskHead(nn.Module):
             mask_logits = torch_functional.interpolate(input=mask_logits, size=(self.mask_size, self.mask_size),
                                                        mode="bilinear", align_corners=False)
         return mask_logits
+
+
+class MaskIoUHead(nn.Module):
+    """
+    MaskIoU head of Mask Scoring R-CNN (https://arxiv.org/abs/1903.00241, section 3.2): predicts, for every class, the
+    intersection over union of the predicted mask of a box with its object, from the output of the convolution block
+    of its mask head at the pool size P concatenated with the mask probabilities of its class max-pooled from M to P.
+    Its 3x3 convolutions end with one of stride 2 and are followed by fully connected layers and one output per class,
+    without normalization as in the paper ([4, 256] and [1024, 1024] there). Built by every MaskHead when
+    'MaskHead.mask_scoring' is activated, so that it follows one head per level or the head shared by the levels.
+    """
+
+    def __init__(self, input_channels: int, roi_align_pool_size: int, mask_resolution: int, convolutions: List[int],
+                 fully_connected: List[int], number_classes: int, dtype: torch.dtype, device: torch.device) -> None:
+        """
+        Builds the convolutions, fully connected layers and predictor of the mask IoU head, initialised as in the
+        official code of Mask Scoring R-CNN (Kaiming normal convolutions, Kaiming uniform fully connected layers of
+        gain 1, a predictor of standard deviation MASK_IOU_PREDICTOR_INITIALISATION_STANDARD_DEVIATION).
+
+        Args:
+            input_channels (int): The output channels of the convolution block of the mask head.
+            roi_align_pool_size (int): The pool size P of the mask head, the side of its box features.
+            mask_resolution (int): The side M of the masks, a multiple of P.
+            convolutions (List[int]): The [number_layers, output_channels] of the 3x3 convolutions, the last one of
+                stride 2.
+            fully_connected (List[int]): The output size of every hidden fully connected layer, at least one.
+            number_classes (int): The number of classes, background included, one predicted IoU per class.
+            dtype (torch.dtype): The data type of the parameters.
+            device (torch.device): The device of the parameters.
+
+        Raises:
+            ValueError: If the mask resolution is not a multiple of the pool size, the masks being max-pooled to it.
+        """
+        super(MaskIoUHead, self).__init__()
+        if mask_resolution % roi_align_pool_size != 0:
+            raise ValueError(f"The mask IoU head max-pools the masks of side {mask_resolution} to the pool size "
+                             f"{roi_align_pool_size}, which must divide it.")
+        self.mask_pooling_size = mask_resolution // roi_align_pool_size
+        self.convolutions = list(convolutions)
+        self.fully_connected = list(fully_connected)
+
+        # 3x3 convolutions with a ReLU on the box features and the pooled mask, the last one halving the resolution
+        number_layers, output_channels = convolutions
+        convolution_layers, current_channels = [], input_channels + 1
+        for layer_index in range(number_layers):
+            convolution_layers += [nn.Conv2d(in_channels=current_channels, out_channels=output_channels, kernel_size=3,
+                                             stride=2 if layer_index == number_layers - 1 else 1, padding=1,
+                                             device=device, dtype=dtype), nn.ReLU()]
+            current_channels = output_channels
+        self.convolution_layers = nn.Sequential(*convolution_layers)
+
+        # Fully connected layers on the flattened features, then one IoU per class
+        output_size = (roi_align_pool_size - 1) // 2 + 1
+        self.fully_connected_block = build_fully_connected_block(
+            input_dimension=output_channels * output_size * output_size, dimensions=self.fully_connected,
+            dropout_rate=0.0, add_dropout_layers=False, normalization="none", batch_normalization_momentum=0.1,
+            device=device, dtype=dtype)
+        self.iou_predictor = nn.Linear(in_features=self.fully_connected[-1], out_features=number_classes,
+                                       device=device, dtype=dtype)
+
+        # Initialisation of the official code: the convolutions for their ReLU, the predictor near 0
+        for module in self.modules():
+            if isinstance(module, nn.Conv2d):
+                nn.init.kaiming_normal_(tensor=module.weight, mode="fan_out", nonlinearity="relu")
+                nn.init.zeros_(tensor=module.bias)
+            elif isinstance(module, nn.Linear) and module is not self.iou_predictor:
+                nn.init.kaiming_uniform_(tensor=module.weight, a=1)
+                nn.init.zeros_(tensor=module.bias)
+        nn.init.normal_(tensor=self.iou_predictor.weight, mean=0.0,
+                        std=MASK_IOU_PREDICTOR_INITIALISATION_STANDARD_DEVIATION)
+        nn.init.zeros_(tensor=self.iou_predictor.bias)
+
+    def forward(self, box_features: torch.Tensor, class_masks: torch.Tensor) -> torch.Tensor:
+        """
+        Predicts the mask IoU of every class of every box.
+
+        Args:
+            box_features (torch.Tensor): The [R, input_channels, P, P] output of the convolution block of the mask
+                head.
+            class_masks (torch.Tensor): The [R, 1, M, M] mask probabilities of the class of every box.
+
+        Returns:
+            torch.Tensor: The [R, number_classes] predicted mask IoU, not bounded.
+        """
+        # Masks max-pooled to the pool size, then joined to the box features
+        pooled_masks = torch_functional.max_pool2d(input=class_masks, kernel_size=self.mask_pooling_size,
+                                                   stride=self.mask_pooling_size)
+        features = torch.cat(tensors=[box_features, pooled_masks.to(dtype=box_features.dtype)], dim=1)
+
+        # Convolutions, fully connected layers and the IoU of every class
+        features = self.convolution_layers(input=features)
+        return self.iou_predictor(input=self.fully_connected_block(input=features.flatten(start_dim=1)))
 
 
 class MaskFineInputs(nn.Module):

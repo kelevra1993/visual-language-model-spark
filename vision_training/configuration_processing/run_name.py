@@ -339,11 +339,13 @@ def build_instance_segmentation_sections(model_configuration: Dict[str, Any]) ->
     '+' in level order, MSH when a single mask head is shared by the levels ('MaskHead.shared'), MR<mask resolution>,
     then the finer inputs of the mask heads when used, MSP<blocks> for the backbone skips at the pool size,
     MIB<layers>x<channels> for the image branch, MSM<blocks> for the backbone skips at the mask resolution and
-    MF<layers>x<channels> for the fusion convolutions (blocks joined with '.', 0 being the normalized input image), and
-    MPT, followed by MFRZ when frozen, when the mask heads are initialised by those of another run (see
-    build_pretrained_tokens), e.g. 'MRES-MBN-MUTC-M14.4x64-MR28', 'MRES-MBN-MUTC-M14.4x64-MR28-MIB5x32-MF1x64' or
-    'MRES-MBN-MUBL-M14.4x64-MSH-MR28-MIB5x32-MF1x64'. The mask threshold gives no token, so that it can change between two
-    resumptions of a run.
+    MF<layers>x<channels> for the fusion convolutions (blocks joined with '.', 0 being the normalized input image),
+    MIOU<layers>x<channels>.<fully connected sizes joined with '.'> when the masks are scored by mask IoU heads
+    ('MaskHead.mask_scoring'), and MPT, followed by MFRZ when frozen, when the mask heads are initialised by those of
+    another run (see build_pretrained_tokens), e.g. 'MRES-MBN-MUTC-M14.4x64-MR28',
+    'MRES-MBN-MUTC-M14.4x64-MR28-MIB5x32-MF1x64', 'MRES-MBN-MUBL-M14.4x64-MSH-MR28-MIB5x32-MF1x64' or
+    'MRES-MBN-MUBL-M14.4x64-MSH-MR28-MIB5x32-MF1x64-MIOU4x64.256.256'. The mask threshold gives no token, so that it
+    can change between two resumptions of a run.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
@@ -394,6 +396,13 @@ def build_instance_segmentation_sections(model_configuration: Dict[str, Any]) ->
     fusion_layers, fusion_channels = mask_head_configuration["fusion_convolutions"]
     if fusion_layers > 0:
         mask_tokens.append(f"MF{fusion_layers}x{fusion_channels}")
+
+    # Mask IoU heads scoring the masks after the predictor, only when used so that the runs written before them keep
+    # their names
+    mask_scoring = mask_head_configuration["mask_scoring"]
+    if mask_scoring["activated"]:
+        mask_tokens.append(f"MIOU{mask_scoring['convolutions'][0]}x{mask_scoring['convolutions'][1]}." +
+                           ".".join(str(size) for size in mask_scoring["fully_connected"]))
     mask_tokens += build_pretrained_tokens(model_configuration=model_configuration, section_name="MaskHead")
 
     # The mask heads section comes before the classes section of the detection sections
