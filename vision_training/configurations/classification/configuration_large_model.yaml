@@ -1,5 +1,5 @@
-# ImageNet-22k classification (21,841 classes); vision_training/data/classification/imagenet_download.py downloads it
-# and writes its labels.json manifests and label mapping, the validation split being the test split.
+# ImageNet-22k pretraining (21,841 classes), Large size: blocks 1x128.2x128.2x128.16x256.20x256.20x256, head [512, 256].
+# Other settings shared by Small, Medium and Large; manifests: vision_training/data/classification/imagenet_download.py.
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "classification": the image classifier; needs
   # ClassificationHead.
@@ -191,12 +191,12 @@ Backbone:
   # [convolutions, output filters] of every block.
   convolutions:
     {
-      "1": [ 1, 64 ],
-      "2": [ 2, 64 ],
-      "3": [ 2, 64 ],
-      "4": [ 16, 128 ],
-      "5": [ 20, 128 ],
-      "6": [ 20, 128 ]
+      "1": [ 1, 128 ],
+      "2": [ 2, 128 ],
+      "3": [ 2, 128 ],
+      "4": [ 16, 256 ],
+      "5": [ 20, 256 ],
+      "6": [ 20, 256 ]
     }
 
   # Max pooling after the last block.

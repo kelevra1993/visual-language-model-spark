@@ -1,5 +1,5 @@
-# ImageNet-22k classification, classic backbone (blocks of 1x64, 2x64, 2x64, 4x64, 5x64, 5x64 filters), head [512, 256],
-# the rest as configuration_small_model.yaml; manifests: vision_training/data/classification/imagenet_download.py.
+# ImageNet-22k pretraining (21,841 classes), Medium size: blocks 1x64.2x64.2x64.16x128.20x128.20x128, head [512, 256].
+# Other settings shared by Small, Medium and Large; manifests: vision_training/data/classification/imagenet_download.py.
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "classification": the image classifier; needs
   # ClassificationHead.
@@ -27,7 +27,7 @@ ExperimentConfiguration:
   # Total training iterations.
   number_iterations: 1e10
   # Validation interval in iterations: 0 never, 1 every iteration, N every Nth.
-  validation_iteration_ratio: 0
+  validation_iteration_ratio: 25
   # Test evaluation at every weight_saving_iterations checkpoint: accuracy, balanced accuracy, macro F1, top-k accuracy,
   # per-class metrics, confusion matrix and class thresholds in Evaluation/Iteration_<n>/.
   evaluation:
@@ -54,14 +54,14 @@ ExperimentConfiguration:
   # (configuration, confusion matrices, class metrics and thresholds, Results.txt); MLflow errors only warn.
   tracking:
     # Turns MLflow tracking on.
-    activated: False
+    activated: True
     # MLflow server address (e.g. "http://192.168.1.20:5000"), null for <experiment_folder>/mlflow.db; credentials from
     # MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD; browse: mlflow ui --backend-store-uri sqlite:///<that file>
     tracking_uri: null
     # MLflow experiment, null for the task name ("classification").
     experiment_name: null
   # Base learning rate.
-  learning_rate: 5.0e-5
+  learning_rate: 2.0e-4
   # Lets a resumed run train on a changed labels.json (the previous data.json kept as data_until_iteration_<n>.json);
   # False refuses it, a new run (run_name_suffix) being needed. A moved data folder with the same labels resumes.
   allow_data_change_on_resume: false
@@ -116,14 +116,14 @@ Data:
     activated: True
     # Probability that a training image is augmented, each activated type then applied with its own probability;
     # sequence frames share one augmentation.
-    probability: 0.2
+    probability: 0.3
     types:
       # Geometric augmentations : they keep the class of an image.
       # Random Crop : 75% to 100% of each side (same ratio), resized back
       random_crop: { activated: True, probability: 0.25 }
       # Random Aspect Crop : 75% to 100% of the width and, separately, of the height, resized back (x0.75 to x1.33
       # stretch; other camera proportions, for keep_ratio False)
-      random_aspect_crop: { activated: True, probability: 0.25 }
+      random_aspect_crop: { activated: False, probability: 0.25 }
       # Random Zoom Out : image shrunk to 50% to 100% of each side on a black canvas, objects appearing smaller
       random_zoom_out: { activated: True, probability: 0.25 }
       # Random Translation : shift of up to 25% along x, y or both, border filled black
@@ -131,14 +131,14 @@ Data:
       # Random Left-Right Flip
       random_left_right_flip: { activated: True, probability: 0.5 }
       # Random Up-Down Flip
-      random_up_down_flip: { activated: True, probability: 0.5 }
+      random_up_down_flip: { activated: False, probability: 0.5 }
       # Random Rotation of -5° to 5°
       random_rotation: { activated: True, probability: 0.25 }
       # Random +-90° rotation (square images only)
       random_90_rotation: { activated: False, probability: 0.25 }
       # Random Perspective : corners moved inwards by up to 5% of half the width and height, border filled black;
       # refused for tasks with boxes, masks or keypoints
-      random_perspective: { activated: True, probability: 0.25 }
+      random_perspective: { activated: False, probability: 0.25 }
       # Random Jigsaw : 2x2 pieces shuffled, breaking the global layout; refused for tasks with boxes, masks or
       # keypoints
       random_jigsaw: { activated: False, probability: 0.25 }
@@ -147,7 +147,7 @@ Data:
       # Brightness (+-40 levels), contrast and saturation (x0.7 to x1.0)
       brightness_contrast_saturation: { activated: True, probability: 0.25 }
       # Random Hue : hue turned by up to 18 degrees (5% of the circle) either way
-      random_hue: { activated: True, probability: 0.25 }
+      random_hue: { activated: False, probability: 0.25 }
       # CLAHE, clip limit 2.0 on a 4x4 tile grid
       clahe_augment: { activated: True, probability: 0.25 }
       # Laplacian of Gaussian unsharp mask sharpening (sigma 1.5, strength 3)
@@ -163,15 +163,15 @@ Data:
       # Random Colour augmentation : BGR to RGB channel swap
       random_colour_augmentation: { activated: False, probability: 0.25 }
       # Random Gamma : gamma 0.8 to 1.25, darkening or lightening the mid-tones
-      random_gamma: { activated: True, probability: 0.25 }
+      random_gamma: { activated: False, probability: 0.25 }
       # Random Linear Illumination : 13 to 38 level ramp across the image, brightening or darkening one side
-      random_linear_illumination: { activated: True, probability: 0.25 }
+      random_linear_illumination: { activated: False, probability: 0.25 }
       # Random Plasma Shadow : irregular fractal shadows darkening by up to 77 levels
       random_plasma_shadow: { activated: False, probability: 0.25 }
       # Random Blur : 9x9 Gaussian kernel, sigma 2.5
       random_blur: { activated: True, probability: 0.25 }
       # Random Motion Blurring : 5 to 15 pixel streak at 0 to 180 degrees (camera or object motion)
-      random_motion_blur: { activated: True, probability: 0.25 }
+      random_motion_blur: { activated: False, probability: 0.25 }
       # Random Haze : uniform grey airlight of 180 to 255 levels taking 20% to 60% of every pixel, a camera fog (after
       # the blurs, before solarization, black-out and erasing)
       random_haze: { activated: True, probability: 0.25 }
@@ -179,10 +179,10 @@ Data:
       random_solarize: { activated: False, probability: 0.25 }
       # Random Black Out : grid_size x grid_size cells, each blacked out with probability 0.2 (after the other
       # photometric types but the erasing); labels unchanged, so a hidden object keeps its label
-      random_black_out: { activated: True, probability: 0.25, grid_size: 8 }
+      random_black_out: { activated: False, probability: 0.25, grid_size: 8 }
       # Random Erasing : one black rectangle of 2% to 15% of the image, height / width 0.3 to 3.3, applied last; labels
       # unchanged
-      random_erasing: { activated: True, probability: 0.25 }
+      random_erasing: { activated: False, probability: 0.25 }
 
 Backbone:
   # Input channels of the first convolution block: 3, the loaders giving BGR images
@@ -194,9 +194,9 @@ Backbone:
       "1": [ 1, 64 ],
       "2": [ 2, 64 ],
       "3": [ 2, 64 ],
-      "4": [ 4, 64 ],
-      "5": [ 5, 64 ],
-      "6": [ 5, 64 ]
+      "4": [ 16, 128 ],
+      "5": [ 20, 128 ],
+      "6": [ 20, 128 ]
     }
 
   # Max pooling after the last block.
