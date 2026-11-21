@@ -63,6 +63,7 @@ If you are looking for the code of a step, these are the files of the task and t
 | Synthetic data generator | `vision_training/data/synthetic/create_synthetic_dataset.py` | `create_synthetic_dataset`, `build_classification_labels` (one shape per image, or with `multi_label` the distinct classes of the counted shapes images of `configuration_synthetic_counted_shapes.yaml`) |
 | Real dataset converters | `vision_training/data/classification/class_folder_manifests.py`, `imagenet_download.py` | one folder of images per class (`create_class_folder_manifests`), ImageNet-22k with one held-out image per class as both validation and test (`download_imagenet_22k`) |
 | Export | `vision_training/models/classification/inference_classifier.py`, `vision_training/deployment/export_model.py`, `vision_training/deployment/input_contract.py` | `InferenceClassifier` (model name `image_classifier`), `export_experiment`, `build_input_contract`, `write_preprocessing_file` |
+| Export sizes at launch | `vision_training/deployment/export_size_estimates.py` | `estimate_export_sizes`, `probe_inference_graph`, `print_export_size_summary` |
 | Standalone evaluation | `scripts/evaluation/evaluate_checkpoint.py`, `vision_training/evaluation/checkpoint_evaluation.py` | `evaluate_checkpoints`, `summarise_checkpoint_evaluations` |
 | Figures of a research report | `scripts/evaluation/draw_report_figures.py` | `draw_report_figures`, `read_report_thresholds`, `draw_precision_recall_figure`, `compare_seen_and_never_seen_groups` |
 
@@ -395,6 +396,9 @@ main()
 │       │       block (traced with a dummy image), the head panel, then the parameters and size of backbone, head and
 │       │       total. print_receptive_field_summary, switched by diagnosis_modes.compute_receptive_field, prints the
 │       │       receptive field of every layer between them.
+│       ├── estimate_export_sizes() + print_export_size_summary()
+│       │       Always runs: the Export Sizes panel, the parameters the inference model reads and the sizes of the
+│       │       PyTorch, TorchScript, ONNX, TensorRT and checkpoint files the model is turned into.
 │       ├── view_input_batches()  (only with diagnosis_modes.view_input_images, then exits)
 │       │       Shows an augmented training image next to a validation image, each with its class. ENTER closes the
 │       │       viewer and exit() stops the program before any training; no run folder was created.
@@ -1173,7 +1177,7 @@ iterations_per_epoch     = 4966
 ```
 
 ### Step 2.24 — `print_summary()` / `print_receptive_field_summary()` / `print_model_size_summary()`
-`print_summary()` always runs: for every backbone block, the modules it uses and the input and output shape traced with a dummy image in `eval()` mode without gradients (as shown in Step 2.14), then a panel for the head (`print_classification_head_summary()`: pooling, input features, hidden layers, their normalization, with its momentum for `"batch"`, dropout, output mode, classes). `print_model_size_summary()` always runs too, last: the number of parameters and the size of the backbone, the head and the whole model. `print_receptive_field_summary()` is optional, switched by `diagnosis_modes.compute_receptive_field`, and prints between them the receptive field of every layer (the area of the input image that one output value depends on).
+`print_summary()` always runs: for every backbone block, the modules it uses and the input and output shape traced with a dummy image in `eval()` mode without gradients (as shown in Step 2.14), then a panel for the head (`print_classification_head_summary()`: pooling, input features, hidden layers, their normalization, with its momentum for `"batch"`, dropout, output mode, classes). `print_model_size_summary()` always runs too, as the last panel of the model: the number of parameters and the size of the backbone, the head and the whole model. `print_receptive_field_summary()` is optional, switched by `diagnosis_modes.compute_receptive_field`, and prints between them the receptive field of every layer (the area of the input image that one output value depends on). The trainer then prints the Export Sizes panel (`print_export_size_summary()` on the sizes of `estimate_export_sizes()`): the parameters the forward pass of the inference model (`InferenceClassifier`) reads, as `Exported Parameters : <n> of <total>`, then the size of the PyTorch weights in FP32 and FP16, the TorchScript file, the ONNX files, the TensorRT engines in FP32 and FP16 and the training checkpoint, each with how it was obtained (a margin for an estimate, `± 1 %` or `± 3 %` for ONNX, `traced` for the TorchScript file written to a temporary `model.pt` and measured, `range` for the TensorRT engines), and the seconds it took in its subtitle. A failed probe or trace prints its rows `failed` in red, with the error under the table, and the training goes on ([Export Sizes](../../README.md#export-sizes)).
 
 **Example output: the head panel, the receptive field panel (shortened) and the size panel**
 ```text

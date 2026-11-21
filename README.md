@@ -32,6 +32,7 @@
   - [From A Checkpoint To A Served Model](#from-a-checkpoint-to-a-served-model)
   - [Number Formats](#number-formats)
   - [Export](#export)
+  - [Export Sizes](#export-sizes)
   - [Input Contract](#input-contract)
   - [Triton Server](#triton-server)
   - [Serving Formats And Precision](#serving-formats-and-precision)
@@ -203,7 +204,7 @@ In case a training has to stop, Ctrl+C saves a checkpoint of the last step, and 
 - A failed save (a full disk, or weights holding NaN, which are never saved), a failed test evaluation (an unreadable test image) or more than 20 dropped batches among the last 200 of a split stop the training at once with status FAILED and the traceback of the error, instead of training on without checkpoints, evaluations or most of the data.
 
 ### Console And TensorBoard
-So that a run can be followed live, the trainer prints at launch the run name, its folders as clickable links, the settings and data changed since the last start, the transferred components, the splits and the model summary.
+So that a run can be followed live, the trainer prints at launch the run name, its folders as clickable links, the settings and data changed since the last start, the transferred components, the splits, the model summary, the model size and the size of every file the model will be exported to ([Export Sizes](#export-sizes)).
 
 <p align="center">
   <img src="README/experiment_launch_information.png" width="100%" />
@@ -964,7 +965,7 @@ Should you try to load a checkpoint without this repository, you get named tenso
 #### How The Export Records The Graph
 To turn Python code into a file of operations, `export_experiment` (`vision_training/deployment/export_model.py`) runs the inference model on an example batch and writes down what it does:
 - **TorchScript**: `torch.jit.trace` (`export_torchscript` in `export_formats.py`) runs `forward` on a random batch of 2 images and records every tensor operation it executes. Python itself is not recorded: an `if` is decided once and only the branch the example batch took stays. The README classifier keeps the division by 255 and the subtraction of 0.5 of `InputNormalizer`, and nothing of the per-image standardization behind `if self.per_sample_normalization:`, False for this run; a branch on the values of a tensor would be frozen to the example batch in the same way.
-- **ONNX**: `torch.onnx.export(..., opset_version=18, dynamo=True, dynamic_shapes=...)` (`export_onnx`) captures the graph with `torch.export`, which follows the batch dimension as a symbol, `batch` from 1 to `maximum_batch_size`, instead of the number 2, so that `model.onnx` declares its input as [batch, 3, 512, 512]. The optimizer of the exporter then simplifies the graph and folds each batch normalization into the weights and bias of the convolution before it.
+- **ONNX**: `torch.onnx.export(..., opset_version=18, dynamo=True, dynamic_shapes=...)` (`export_onnx`) captures the graph with `torch.export`, which follows the batch dimension as a symbol, `batch` from 1 to `maximum_batch_size`, instead of the number 2, so that `model.onnx` declares its input as [batch, 3, 512, 512]. The optimizer of the exporter then simplifies the graph and folds each batch normalization into the weights and bias of the convolution before it. Last, `strip_exporter_metadata` removes the debugging notes the exporter attaches to every node (its Python stack trace, with the absolute paths of the machine that exported it, its module path and the text of its FX node) and to the graph (the signature of the traced program), which no runtime reads and which made 87 to 94 % of `model.onnx` on the ten tutorial runs (1.37 MB for the run_9 detector, 0.16 MB without them), the input contract written afterwards into the metadata of the model staying.
 - **The check**: each file runs again on a random batch of 3 images, so that a batch dimension frozen to 2 fails at export rather than in Triton: `model.pt` with `torch.jit.load` on the GPU, `model.onnx` with ONNX Runtime on the CPU. Their outputs must match the eager model, TF32 off, within the tolerance of the task (1e-4 on probabilities, 0.01 pixel on boxes), and the served models are replaced only when every format matches ([Export](#export)).
 
 #### TorchScript
@@ -1286,6 +1287,42 @@ S is `Data.image_settings.size`, K the number of classes, F the size of the L2 n
 
 A classifier that reaches its target precision only above a threshold such as 0.999 can be exported with a logit temperature chosen on its evaluation: start `uv run python -m scripts.evaluation.serve_temperature_explorer`, open `http://127.0.0.1:8091/`, pick a run, an iteration and **Trained** or **EMA**, then press **Save Thresholds At This Temperature** and **Export At T = …**. The export goes to `<run>/Exports/Iteration_<n>[_EMA]_T<temperature>/`, a Triton model repository of its own; from the script, `use_saved_temperature` builds the saved temperature and thresholds into the model. Details: [tools reference](documentation/reference/tools_reference.md#logit-temperature).
 
+### Export Sizes
+Before a run trains for hours, the Export Sizes panel printed at its launch, right after the Model Size panel, gives the size of every file its model will be turned into, so that a model too large for its server, its device or its disk shows before the training. Every task prints it; here the detector of the detection benchmark (run_9, Adam with the moving average) on the GPU:
+
+```text
+╭────────────────────── Export Sizes ──────────────────────╮
+│ Exported Parameters : 845,544 of 845,544                 │
+│                                                          │
+│ Format                           Size  Method            │
+│ PyTorch FP32 Weights          3.55 MB  ± 1 %             │
+│ PyTorch FP16 Weights          1.85 MB  ± 1 %             │
+│ TorchScript                   4.60 MB  traced            │
+│ ONNX                          4.20 MB  ± 3 %             │
+│ TensorRT FP32 Engine  5.97 to 6.94 MB  range             │
+│ TensorRT FP16 Engine  3.96 to 4.93 MB  range             │
+│ Training Checkpoint          14.05 MB  ± 1 %             │
+╰────────────────────── 1.3 seconds ───────────────────────╯
+```
+
+The real files of this run measure 3.57 and 1.84 MB (`torch.save` of the state dictionary in FP32 and FP16), 4.14 MB (`model.onnx` and `model.onnx.data`), 6.46 and 4.44 MB (the engines Triton 26.01 built in the [serving benchmark](#serving-benchmark-results)) and 14.17 MB (`model_015000.pt`). Only the TorchScript file is written, to a temporary folder removed at once; every other size comes from a formula of `vision_training/deployment/export_size_estimates.py` that stayed within its margin on the ten tutorial runs, one per task:
+
+| Format | How the size is obtained | Largest error on the ten tutorial runs |
+|---|---|---|
+| PyTorch FP32 and FP16 weights | the values of the state dictionary of the inference model, the floating ones in 2 bytes for FP16, plus 300 bytes and the characters of its key per tensor | 0.70 % |
+| TorchScript | the trace of the export (`export_torchscript`) on its example batch, written to a temporary `model.pt` | measured; an export in another process differs by up to 1 %, the classes of a trace being numbered after the earlier traces of its process |
+| ONNX | the weights and constants (such as the anchors) one forward pass of one sample reads, every batch normalization folded into the convolution before it, plus 165 bytes of graph per operator | 2.29 % |
+| TensorRT FP32 and FP16 engines | the same weights in the precision of the engine, plus 17,700 bytes per convolution, matrix product or recurrent layer and 120 per other operator, times 0.8 to 1.2 | the six engines of the serving benchmark (CLS, DET, M2M) between 0.85 and 1.09 times this overhead |
+| Training checkpoint | the weights of the model (twice with the moving average), the moments of the optimizer for every trained parameter (two for Adam and AdamW, one for SGD) and 20 kB of metadata | 0.87 % |
+
+`Exported Parameters` counts the parameters the forward pass reads, those the ONNX file and the engines keep: 438,368 of 571,104 for the SimCLR encoder of the tutorials, whose projector serves the training only (the PyTorch weights and the TorchScript file still hold it). The estimates take 0.2 to 2.1 seconds per run on the GPU (the ten tutorial runs and the large ImageNet classifier of 19.2 million parameters, while other trainings shared it), against 2 to 27 seconds for the real TorchScript, ONNX and PyTorch files of the tutorial runs, the ONNX export taking most of it, and 5 to 13 seconds for each TensorRT engine. A forward pass or a trace that fails leaves its rows `failed` in red with the error under the table, and the training goes on.
+
+After a change to the exports or to their libraries, `scripts/deployment/check_export_size_estimates.py` exports the ten tutorial runs, prints every estimate against its real file and fits the constants again ([tools reference](documentation/reference/tools_reference.md#export-size-check)); the TensorRT constants come from the six engines of the serving benchmark until it is run with `--build-tensorrt-engines` on an idle GPU:
+
+```bash
+uv run python -m scripts.deployment.check_export_size_estimates
+```
+
 ### Input Contract
 Should a server build the input of an exported model from a photo, it reads the input contract written with the model instead of assuming a resize or a channel order. Every export writes it into the `metadata_props` of `model.onnx` and as `preprocessing.json` next to the model of both formats, with the keys of `vision_training/deployment/input_contract.py`: the BGR photo as `cv2.imread` decodes it, a `stretch`, `keep_ratio` or `tiles` resize with its OpenCV interpolation, the padding and the layout. The export stops before writing any file when a run uses an input the contract cannot describe.
 
@@ -1510,9 +1547,9 @@ To find your way in the code, the diagram follows the packages along the path of
 │   ├── trainers/                      # Base trainer, trainer of every task, checkpoints, moving average, speed benchmark
 │   ├── evaluation/                    # Metrics, reports and checkpoint evaluation
 │   ├── tracking/                      # MLflow tracking
-│   ├── deployment/                    # Export, input contract, Triton server, throughput measurement
+│   ├── deployment/                    # Export, export size estimates, input contract, Triton server, throughput measurement
 │   └── utilities/                     # File, tensor, mask and visualization helpers
-├── scripts/                           # Configuration, data, deployment (serving benchmark), embedding, evaluation and model drawing scripts
+├── scripts/                           # Configuration, data, deployment (serving benchmark, export size check), embedding, evaluation and model drawing scripts
 ├── tests/                             # Tests, mirroring vision_training/ and scripts/
 └── tutorials/                         # Narrated tutorial videos: storyboards, figure scripts, run snapshots, MAINTAINING.md
 ```

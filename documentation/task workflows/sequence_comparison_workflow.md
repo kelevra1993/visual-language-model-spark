@@ -60,6 +60,7 @@ Should you need to change one part of the task, this table gives the file holdin
 | Synthetic data generator | `vision_training/data/synthetic/create_synthetic_dataset.py` | `create_synthetic_dataset`, `generate_object_loss_pair`, `draw_shapes_frame` |
 | Real dataset converter | `vision_training/data/sequence/pair_list_manifests.py` | `create_pair_list_manifests` (one pair list file per split, `data/` linked to the source folder) |
 | Export | `vision_training/models/sequence/inference_sequence_comparator.py`, `vision_training/deployment/export_specifications.py`, `export_model.py`, `input_contract.py` | `InferenceSequenceComparator` (model name `sequence_comparator`, inputs `before_images` and `after_images`); `build_input_contract`, the input contract of the run written as `preprocessing.json` next to the model and into the metadata of `model.onnx`, its layout `NTCHW` for both inputs |
+| Export sizes at launch | `vision_training/deployment/export_size_estimates.py` | `estimate_export_sizes`, `probe_inference_graph`, `print_export_size_summary` |
 | Standalone evaluation | `scripts/evaluation/evaluate_checkpoint.py`, `vision_training/evaluation/checkpoint_evaluation.py` | `evaluate_checkpoints`, `summarise_checkpoint_evaluations` |
 
 ### Run It
@@ -201,6 +202,7 @@ main()
 │       ├── print_experiment_information() -> describe_split() -> count_split_pairs()
 │       │       "N pairs, F frames, K pairs of members of at most M frames"; an epoch is K pairs.
 │       ├── print_summary()                     adds the Member Fusion panel
+│       ├── estimate_export_sizes() + print_export_size_summary()   size of every export and of the checkpoint
 │       ├── view_input_batches() -> show_input_samples()   the before grid above the after grid
 │       └── restore_last_model()
 │
@@ -552,7 +554,7 @@ MetricTracker: batch_size 16, validation_iteration_ratio 25, sample_name 'Pairs'
 ```
 
 ### Step 2.21 — `print_summary()` / `print_model_size_summary()`
-The comparator adds the Member Fusion panel between the temporal module and the head panels; the size panel lists the fusion on its own line.
+The comparator adds the Member Fusion panel between the temporal module and the head panels; the size panel lists the fusion on its own line. The trainer then prints the Export Sizes panel: the parameters the forward pass of the inference model reads, then the size of the PyTorch weights, the TorchScript file, the ONNX files and the TensorRT engines the model is turned into and of the training checkpoint ([Export Sizes](../../README.md#export-sizes)).
 
 **Example output** (shortened)
 ```text

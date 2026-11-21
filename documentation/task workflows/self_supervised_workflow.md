@@ -59,6 +59,7 @@ Should you need to change one part of the task, this table gives the file holdin
 | Run name | `vision_training/configuration_processing/run_name.py` | `build_run_name`, `build_self_supervised_sections` |
 | Synthetic data generator | `vision_training/data/synthetic/create_synthetic_dataset.py` | `create_synthetic_dataset`, `build_classification_labels` (this configuration), `build_shape_count_labels` (the counted shapes) |
 | Export | `vision_training/models/self_supervised/inference_encoder.py`, `vision_training/deployment/export_specifications.py`, `vision_training/deployment/export_model.py`, `vision_training/deployment/input_contract.py` | `InferenceEncoder` (model name `image_encoder`, input `images`, output `representations`), `compare_representations`, `export_experiment`, `build_input_contract` (the input contract of the run, in the ONNX metadata and `preprocessing.json` next to every exported model) |
+| Export sizes at launch | `vision_training/deployment/export_size_estimates.py` | `estimate_export_sizes`, `probe_inference_graph`, `print_export_size_summary` |
 | Standalone evaluation | `scripts/evaluation/evaluate_checkpoint.py`, `vision_training/evaluation/checkpoint_evaluation.py` | `evaluate_checkpoints`, `summarise_checkpoint_evaluations` |
 
 ### Run It
@@ -240,6 +241,9 @@ main()
 │       ├── print_experiment_information() -> describe_split() -> count_split_samples()
 │       ├── print_summary() / print_receptive_field_summary() / print_model_size_summary()
 │       │       The summary adds a Projection Head panel.
+│       ├── estimate_export_sizes() + print_export_size_summary()
+│       │       The Export Sizes panel: sizes of the PyTorch, TorchScript, ONNX, TensorRT and checkpoint
+│       │       files; its exported parameters leave out the projection head, unused by the exported encoder.
 │       ├── view_input_batches()  (only with view_input_images, then exits)
 │       │       The two random views of a training image, each next to the augmentations drawn for it, every
 │       │       batch of the GroupedBatchSampler first shown whole (show_input_batch -> build_batch_mosaic).
@@ -685,7 +689,7 @@ get_percent_tracked_metrics(): simclr ['positive_pair_accuracy'], barlow_twins [
 The 3906 iterations per epoch are 500000 / 128 rounded down: the self-supervised trainer sets `DROPS_LAST_TRAINING_BATCH`, since its training loader drops its last incomplete batch, while the other tasks round up, except the classification and sequence tasks whose training loader drops it too, for a batch normalized classification head (see `classification_workflow.md`, Step 2.10).
 
 ### Step 2.20 — `print_summary()` / `print_receptive_field_summary()` / `print_model_size_summary()`
-The backbone panel of Step 2.14, the Projection Head panel of Step 2.15, the receptive field (with `diagnosis_modes.compute_receptive_field`) and the size of every component, always printed.
+The backbone panel of Step 2.14, the Projection Head panel of Step 2.15, the receptive field (with `diagnosis_modes.compute_receptive_field`) and the size of every component, always printed. The trainer then prints the Export Sizes panel: the parameters the forward pass of the exported encoder reads, which leave out the projection head, then the size of the PyTorch weights, the TorchScript file, the ONNX files and the TensorRT engines the model is turned into and of the training checkpoint ([Export Sizes](../../README.md#export-sizes)).
 
 **Example output** (shortened)
 ```text

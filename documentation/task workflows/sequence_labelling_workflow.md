@@ -45,6 +45,7 @@ Evaluation/Iteration_<n>/   class_metrics.csv   class_thresholds.json   confusio
 | Run name | `vision_training/configuration_processing/run_name.py` | `build_sequence_sections`, `build_temporal_tokens` |
 | Synthetic data | `vision_training/data/synthetic/create_synthetic_dataset.py` | `generate_shape_change_sequence`, `CHANGE_CATEGORIES` |
 | Export | `vision_training/deployment/export_specifications.py`, `vision_training/models/sequence/inference_sequence_model.py`, `vision_training/deployment/input_contract.py` | `InferenceSequenceModel`: `sequence_labeller_<format>`, `images` [B, T, 3, S, S] to `class_probabilities` [B, T, K], no sequence mask; `build_input_contract`: `preprocessing.json` next to the model and the ONNX metadata (`BGR`, `keep_ratio`, size, `linear`, padding 0 `centred`, `NTCHW`, `0-255`) |
+| Export sizes at launch | `vision_training/deployment/export_size_estimates.py` | `estimate_export_sizes`, `probe_inference_graph`, `print_export_size_summary` |
 
 ### Run It
 ```bash
@@ -157,6 +158,7 @@ main()
 │       ├── initialise_pretrained_components() / build_optimizer() / MetricTracker(counts_frames=True)
 │       ├── print_experiment_information() -> describe_split() -> count_split_sequences()
 │       ├── print_summary() / print_receptive_field_summary() / print_model_size_summary()
+│       ├── estimate_export_sizes() + print_export_size_summary()   size of every export and of the checkpoint
 │       ├── view_input_batches() -> show_input_samples()   every frame captioned with its class
 │       └── restore_last_model()
 │
@@ -451,7 +453,7 @@ Every split line gives its sequences and frames, then the sequences kept and the
 ```
 
 ### Step 2.14 — `print_summary()` / `view_input_batches()` / `restore_last_model()`
-The summary panels are those of the sequence classification (`sequence_classification_workflow.md`, Step 2.21), the temporal module panel giving `Output Features : 128` and the head panel `Input Features : 128` and `Number Of Classes : 71`. In the backbone panel, blocks 2 and 4 change the channel count with 2 layers, so they add no residual shortcut and list `Squeeze-and-Excitation` alone (`ConvolutionBlock.count_residual_additions()`). With `view_input_images`, every frame of the grids is captioned with its number and its class (`get_frame_captions()`, `none` for an unmapped category), and the information panel of the sequence starts with the order of its classes (`get_sample_caption()`).
+The summary panels are those of the sequence classification (`sequence_classification_workflow.md`, Step 2.21), the temporal module panel giving `Output Features : 128` and the head panel `Input Features : 128` and `Number Of Classes : 71`. In the backbone panel, blocks 2 and 4 change the channel count with 2 layers, so they add no residual shortcut and list `Squeeze-and-Excitation` alone (`ConvolutionBlock.count_residual_additions()`). After the model size panel, the trainer prints the Export Sizes panel: the parameters the forward pass of the inference model reads, then the size of the PyTorch weights, the TorchScript file, the ONNX files and the TensorRT engines the model is turned into and of the training checkpoint ([Export Sizes](../../README.md#export-sizes)). With `view_input_images`, every frame of the grids is captioned with its number and its class (`get_frame_captions()`, `none` for an unmapped category), and the information panel of the sequence starts with the order of its classes (`get_sample_caption()`).
 
 **Example: the modules and shapes of the backbone panel, and the model size panel** (the model rebuilt on the CPU)
 ```text

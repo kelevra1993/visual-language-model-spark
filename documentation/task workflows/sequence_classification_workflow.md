@@ -62,6 +62,7 @@ Should you need to change one step of the task, this table names the file and th
 | Run name | `vision_training/configuration_processing/run_name.py` | `build_sequence_sections`, `build_sequence_length_tokens`, `build_temporal_tokens` |
 | Synthetic data generator | `vision_training/data/synthetic/create_synthetic_dataset.py` | `create_synthetic_dataset`, `generate_moving_shape_sequence`, `build_sequence_labels` |
 | Export | `vision_training/models/sequence/inference_sequence_model.py`, `vision_training/deployment/export_specifications.py`, `vision_training/deployment/export_model.py`, `vision_training/deployment/input_contract.py` | `InferenceSequenceModel` (model name `sequence_classifier`), `export_experiment`, `build_input_contract` (`preprocessing.json` next to every exported model) |
+| Export sizes at launch | `vision_training/deployment/export_size_estimates.py` | `estimate_export_sizes`, `probe_inference_graph`, `print_export_size_summary` |
 | Standalone evaluation | `scripts/evaluation/evaluate_checkpoint.py`, `vision_training/evaluation/checkpoint_evaluation.py` | `evaluate_checkpoints`, `summarise_checkpoint_evaluations` |
 
 ### Run It
@@ -218,6 +219,8 @@ main()
 │       │       "S sequences, F frames, K sequences of at most M frames"; an epoch is K sequences.
 │       ├── print_summary() / print_receptive_field_summary() / print_model_size_summary()
 │       │       The summary adds the Temporal Module panel; the size panel lists the temporal module on its own line.
+│       ├── estimate_export_sizes() + print_export_size_summary()
+│       │       The Export Sizes panel: sizes of the PyTorch, TorchScript, ONNX, TensorRT and checkpoint files.
 │       ├── view_input_batches() -> show_input_samples()  (only with view_input_images, then exits)
 │       └── restore_last_model() -> get_last_checkpoint_iteration() / load_model()
 │
@@ -607,7 +610,7 @@ MetricTracker: batch_size 16, validation_iteration_ratio 25, sample_name 'Sequen
 ```
 
 ### Step 2.21 — `print_summary()` / `print_receptive_field_summary()` / `print_model_size_summary()`
-The backbone panel is shown in Step 2.14 and the receptive field panel is the one of the backbone. The sequence classifier adds the Temporal Module panel, which lists every setting of the section, then the head panel; the size panel lists the temporal module on its own line, every component with its parameters, its trainable parameters and its estimated size.
+The backbone panel is shown in Step 2.14 and the receptive field panel is the one of the backbone. The sequence classifier adds the Temporal Module panel, which lists every setting of the section, then the head panel; the size panel lists the temporal module on its own line, every component with its parameters, its trainable parameters and its estimated size. The trainer then prints the Export Sizes panel: the parameters the forward pass of the inference model reads, then the size of the PyTorch weights, the TorchScript file, the ONNX files and the TensorRT engines the model is turned into and of the training checkpoint ([Export Sizes](../../README.md#export-sizes)).
 
 **Example output: the temporal module, head and size panels**
 ```text

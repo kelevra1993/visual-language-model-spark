@@ -52,6 +52,7 @@ Whenever a part of the task has to change, this table gives the file holding it 
 | Configuration checks | `vision_training/configuration_processing/sequence_checks.py` | `check_frame_selection_configuration`, `check_selection_configuration` |
 | Synthetic data | `vision_training/data/synthetic/create_synthetic_dataset.py` | `generate_selection_sequence`, `SELECTION_CATEGORIES` |
 | Export and deployment | `vision_training/deployment/export_model.py`, `frame_selection_deployment.py`, `frame_selection_decoder_backend.py`, `deployment_utilities.py`, `input_contract.py` | `export_experiment`, `install_staged_models`, `build_decoding_settings`, `find_class_thresholds_path`, `export_frame_selection_decoding`, `TritonPythonModel` of the decoder, `build_input_contract`, `write_preprocessing_file` |
+| Export sizes at launch | `vision_training/deployment/export_size_estimates.py` | `estimate_export_sizes`, `probe_inference_graph`, `print_export_size_summary` |
 
 ### Run It
 In order to generate the dataset, then train, evaluate and export the task, run these commands from the root of the repository after setting the values of their main blocks and of the configuration.
@@ -179,6 +180,7 @@ main()
 │       ├── initialise_pretrained_components() / build_optimizer() / MetricTracker(counts_frames=True)
 │       ├── print_experiment_information() -> describe_split() -> count_split_sequences()
 │       ├── print_summary() / print_receptive_field_summary() / print_model_size_summary()
+│       ├── estimate_export_sizes() + print_export_size_summary()   size of every export and of the checkpoint
 │       ├── view_input_batches() -> show_input_samples()   the frames of the wanted classes captioned
 │       └── restore_last_model()
 │
@@ -480,7 +482,7 @@ MetricTracker: batch_size 16, validation_iteration_ratio 25, sample_name 'Sequen
 ```
 
 ### Step 2.14 — `print_summary()` / `view_input_batches()` / `restore_last_model()`
-The summary panels are those of the sequence labelling, the temporal module panel giving `Output Features : 256` and the head panel `Input Features : 256` and `Number Of Classes : 4`. In the backbone panel, blocks 2 and 4 change the channel count with 2 layers, so they add no residual shortcut and list `Squeeze-and-Excitation` alone (`ConvolutionBlock.count_residual_additions()`). With `view_input_images`, the frames of the wanted classes are captioned with their number and their class and the unselected frames with their number only, their caption being empty (`get_frame_captions()`), and the information panel of the sequence starts with the frame of every wanted class (`get_sample_caption()`).
+The summary panels are those of the sequence labelling, the temporal module panel giving `Output Features : 256` and the head panel `Input Features : 256` and `Number Of Classes : 4`. In the backbone panel, blocks 2 and 4 change the channel count with 2 layers, so they add no residual shortcut and list `Squeeze-and-Excitation` alone (`ConvolutionBlock.count_residual_additions()`). After the model size panel, the trainer prints the Export Sizes panel: the parameters the forward pass of the inference model reads, then the size of the PyTorch weights, the TorchScript file, the ONNX files and the TensorRT engines the model is turned into and of the training checkpoint ([Export Sizes](../../README.md#export-sizes)). With `view_input_images`, the frames of the wanted classes are captioned with their number and their class and the unselected frames with their number only, their caption being empty (`get_frame_captions()`), and the information panel of the sequence starts with the frame of every wanted class (`get_sample_caption()`).
 
 **Example: the modules and shapes of the backbone panel, and the model size panel** (the model rebuilt on the CPU)
 ```text

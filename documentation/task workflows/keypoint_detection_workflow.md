@@ -54,6 +54,7 @@ files          Evaluation/Iteration_<n>/ class_metrics.csv, keypoint_metrics.csv
 | Run name | `vision_training/configuration_processing/run_name.py` | `build_run_name`, `build_keypoint_sections` |
 | Synthetic data generator | `vision_training/data/synthetic/create_synthetic_dataset.py` | `create_synthetic_dataset`, `build_keypoint_labels`, `build_keypoint_label_mapping`, `KEYPOINT_CATEGORIES`, `KEYPOINT_NAMES` |
 | Export | `vision_training/models/keypoints/inference_keypoint_detector.py`, `vision_training/deployment/export_specifications.py`, `vision_training/deployment/input_contract.py` | `InferenceKeypointDetector` (model name `keypoint_detector`, candidates only), `get_export_specification`, `compare_keypoints`; `build_input_contract`, `write_onnx_input_contract`, `write_preprocessing_file` |
+| Export sizes at launch | `vision_training/deployment/export_size_estimates.py` | `estimate_export_sizes`, `probe_inference_graph`, `print_export_size_summary` |
 
 ### Run It
 
@@ -177,6 +178,8 @@ main()
 │       ├── build_optimizer() / get_tracked_metrics()              Total, Heatmap, Tag Pull and Tag Push Loss
 │       ├── print_experiment_information() (-> describe_split()) / print_summary()
 │       │                                                          backbone, HRNet, receptive field, model size panels
+│       ├── estimate_export_sizes() + print_export_size_summary()
+│       │                                                          size of every export and of the checkpoint
 │       └── restore_last_model()
 │
 └── trainer.run_training_loop()   [STAGE 3]
@@ -602,7 +605,7 @@ Final Backbone output shape: [1, 64, 128, 128]
 │   - Estimated Size       : 12.50 MB                      │
 ╰──────────────────────────────────────────────────────────╯
 ```
-The model size panel is shortened here (it also gives the trainable parameters, equal to the parameters, and an empty line between the components). The keypoint head has 16 × 9 × 256 weights for its 3x3 convolution, 2 × 256 for its batch normalization and 256 × 486 + 486 for its 1x1 convolution: 162,278 parameters. The higher resolution branch is mostly its transposed convolution (502 × 16 × 16 = 128,512) and its heatmap head. The receptive field of the stem (30 pixels) is small next to a 512 pixel image: the context of the objects comes from the lower branches of the HRNet.
+The model size panel is shortened here (it also gives the trainable parameters, equal to the parameters, and an empty line between the components). The keypoint head has 16 × 9 × 256 weights for its 3x3 convolution, 2 × 256 for its batch normalization and 256 × 486 + 486 for its 1x1 convolution: 162,278 parameters. The higher resolution branch is mostly its transposed convolution (502 × 16 × 16 = 128,512) and its heatmap head. The receptive field of the stem (30 pixels) is small next to a 512 pixel image: the context of the objects comes from the lower branches of the HRNet. After the model size panel, the trainer prints the Export Sizes panel: the parameters the forward pass of the inference model reads, then the size of the PyTorch weights, the TorchScript file, the ONNX files and the TensorRT engines the model is turned into and of the training checkpoint ([Export Sizes](../../README.md#export-sizes)).
 
 ### Step 2.12 — `view_input_batches()`
 Off in this run (`diagnosis_modes.view_input_images: False`); the panels it would show are given in Step 3.9.

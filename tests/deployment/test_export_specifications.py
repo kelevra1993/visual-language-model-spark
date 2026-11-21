@@ -6,8 +6,9 @@ labeller and frame selector keep their dynamic frames, the comparisons of the se
 report their differences, the inference models match the training path on full sequences, the logit temperature of
 the classifier softens its probabilities in the eager model and both exports, the exports of the detector keep its
 DIoU-NMS, its greedy NMS beyond the size at which batched_nms changes its algorithm and its selection of the proposals
-level by level, its ONNX suppressions see the boxes of the image only, and the exports of the instance segmenter keep
-the finer inputs of its mask heads and the mask head shared by its levels.
+level by level, its ONNX suppressions see the boxes of the image only, the exports of the instance segmenter keep
+the finer inputs of its mask heads and the mask head shared by its levels, and the ONNX export keeps none of the
+debugging metadata of the exporter but the metadata of the model.
 """
 
 import numpy as np
@@ -21,12 +22,14 @@ from torch import nn
 from typing import Optional
 
 from vision_training.deployment.export_formats import (export_onnx, export_torchscript, find_fixed_dynamic_dimensions,
-                                                       hide_known_export_warnings, restore_dynamic_output_frames)
+                                                       hide_known_export_warnings, list_graph_metadata_holders,
+                                                       restore_dynamic_output_frames, strip_exporter_metadata)
 from vision_training.deployment.export_specifications import (FRAME_OUTPUT_TASKS, TASK_INPUT_NAMES,
                                                               build_inference_model, compare_keypoints,
                                                               compare_segmentations,
                                                               convert_outputs_to_numpy, create_random_inputs,
                                                               get_export_specification)
+from vision_training.deployment.input_contract import write_onnx_input_contract
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
 from vision_training.models.task_model import TaskModel
 from tests.models.instance_segmentation.test_instance_segmenter import MIXED_MASK_HEAD_SETTINGS
@@ -530,6 +533,74 @@ def test_detector_onnx_suppression_keeps_the_boxes_in_the_image(tmp_path: Path) 
         assert boxes.min() >= 0.0 and boxes.max() <= image_size
     assert specification["compare_outputs"](reference=reference_outputs, candidate=outputs[:len(reference_outputs)],
                                             **specification["comparison_tolerances"]) == []
+
+
+def test_onnx_export_keeps_no_exporter_metadata(tmp_path: Path) -> None:
+    """
+    Verifies that the ONNX export of a classifier keeps none of the debugging metadata of the dynamo exporter: no
+    metadata on the graph, its nodes, values and weights, and no absolute path of the repository in the graph file
+    (the stack traces of the nodes held them), while the input contract written into the metadata of the model after
+    the export stays, and the exported model still reproduces the eager probabilities.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    hide_known_export_warnings()
+    inference_model = build_inference_model(task="classification", model=build_test_model(
+        task="classification", temporal_type=None, fusion_type=None, global_pooling="average"))
+    specification = get_export_specification(task="classification", inference_model=inference_model)
+    example_inputs = create_random_inputs(specification=specification, shape_name="example_shape",
+                                          maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE, device=torch.device("cpu"),
+                                          generator=torch.Generator().manual_seed(1))
+    model_path = tmp_path / "model.onnx"
+    export_onnx(inference_model=inference_model, example_inputs=example_inputs, output_path=model_path,
+                specification=specification, maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE)
+    write_onnx_input_contract(model_path=model_path, input_contract={"input_layout": "NCHW"})
+
+    # No metadata left on any element of the graph, nor the path of the repository in the file
+    model_proto = onnx.load(f=str(model_path), load_external_data=False)
+    assert sum(len(holder.metadata_props) for holder in list_graph_metadata_holders(graph=model_proto.graph)) == 0
+    repository_path = Path(__file__).resolve().parents[2]
+    assert str(repository_path).encode() not in model_path.read_bytes()
+    assert {entry.key: entry.value for entry in model_proto.metadata_props} == {"input_layout": "NCHW"}
+
+    # The stripped file still runs and gives the eager probabilities
+    with torch.no_grad():
+        reference_outputs = convert_outputs_to_numpy(outputs=inference_model(**example_inputs))
+    session = onnxruntime.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
+    onnx_outputs = session.run(None, {"images": example_inputs["images"].numpy()})
+    assert specification["compare_outputs"](reference=reference_outputs, candidate=onnx_outputs,
+                                            **specification["comparison_tolerances"]) == []
+
+
+def test_exporter_metadata_stripping_keeps_the_model_metadata() -> None:
+    """
+    Verifies that strip_exporter_metadata empties the metadata of the nodes, values, weights and graph, those of the
+    graph nested in the branch of a node included, counts the removed entries, and keeps the metadata of the model,
+    where the input contract is stored.
+    """
+    # A graph with metadata on a node, a value, a weight and the graph, a nested branch graph, and model metadata
+    nested_node = onnx.helper.make_node(op_type="Identity", inputs=["x"], outputs=["y"])
+    nested_node.metadata_props.add(key="pkg.torch.onnx.stack_trace", value="File \"/home/user/model.py\"")
+    nested_graph = onnx.helper.make_graph(nodes=[nested_node], name="branch", inputs=[], outputs=[
+        onnx.helper.make_tensor_value_info(name="y", elem_type=onnx.TensorProto.FLOAT, shape=[1])])
+    node = onnx.helper.make_node(op_type="If", inputs=["condition"], outputs=["z"], then_branch=nested_graph,
+                                 else_branch=nested_graph)
+    node.metadata_props.add(key="namespace", value="model/backbone")
+    weight = onnx.helper.make_tensor(name="x", data_type=onnx.TensorProto.FLOAT, dims=[1], vals=[1.0])
+    weight.metadata_props.add(key="pkg.torch.onnx.original_node_name", value="p_weight")
+    graph = onnx.helper.make_graph(nodes=[node], name="main", initializer=[weight], inputs=[
+        onnx.helper.make_tensor_value_info(name="condition", elem_type=onnx.TensorProto.BOOL, shape=[])], outputs=[
+        onnx.helper.make_tensor_value_info(name="z", elem_type=onnx.TensorProto.FLOAT, shape=[1])])
+    graph.input[0].metadata_props.add(key="pkg.torch.export.graph_signature.InputSpec.kind", value="USER_INPUT")
+    graph.metadata_props.add(key="pkg.torch.export.ExportedProgram.graph_signature", value="# inputs")
+    model_proto = onnx.helper.make_model(graph=graph)
+    model_proto.metadata_props.add(key="input_layout", value="NCHW")
+
+    # Six entries removed, one in each of the two copies of the branch graph, and the model metadata kept
+    assert strip_exporter_metadata(model_proto=model_proto) == 6
+    assert sum(len(holder.metadata_props) for holder in list_graph_metadata_holders(graph=model_proto.graph)) == 0
+    assert [(entry.key, entry.value) for entry in model_proto.metadata_props] == [("input_layout", "NCHW")]
 
 
 def test_segmentation_comparison_reports_the_differences() -> None:

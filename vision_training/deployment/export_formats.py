@@ -1,9 +1,11 @@
 """
 Writes an inference model to the files of the export formats served by Triton: a traced TorchScript file for the
 PyTorch (libtorch) backend and an ONNX file with dynamic batch (and frame) dimensions for the ONNX Runtime backend,
-optionally accelerated by TensorRT, with the warnings of the libraries hidden during the export. Used by
-deployment/export_model.py, which checks the exported files and installs them in the Triton model repository, and by
-the speed benchmark of the trainers (trainers/speed_benchmark.py), which times every format in the training process.
+optionally accelerated by TensorRT, without the debugging metadata of the exporter, with the warnings of the libraries
+hidden during the export. Used by deployment/export_model.py, which checks the exported files and installs them in the
+Triton model repository, by the speed benchmark of the trainers (trainers/speed_benchmark.py), which times every format
+in the training process, and by the Export Sizes panel of the launch (deployment/export_size_estimates.py), which
+measures the TorchScript file.
 """
 
 import logging
@@ -207,13 +209,64 @@ def restore_dynamic_output_frames(model_proto: onnx.ModelProto, specification: D
     return restored_outputs
 
 
+def list_graph_metadata_holders(graph: onnx.GraphProto) -> List[Any]:
+    """
+    Lists every element of an ONNX graph that can carry metadata_props (the graph, its nodes, inputs, outputs,
+    intermediate shapes and initializers), the graphs nested in the attributes of its nodes (the branches and bodies of
+    control flow operators) included, for strip_exporter_metadata.
+
+    Args:
+        graph (onnx.GraphProto): The graph to walk.
+
+    Returns:
+        List[Any]: The graph and its elements, then those of the nested graphs.
+    """
+    metadata_holders = [graph, *graph.node, *graph.input, *graph.output, *graph.value_info, *graph.initializer]
+    # Branches and loop bodies are graphs of their own, stored in the attributes of their node
+    for node in graph.node:
+        for attribute in node.attribute:
+            nested_graphs = ([attribute.g] if attribute.HasField("g") else []) + list(attribute.graphs)
+            for nested_graph in nested_graphs:
+                metadata_holders += list_graph_metadata_holders(graph=nested_graph)
+    return metadata_holders
+
+
+def strip_exporter_metadata(model_proto: onnx.ModelProto) -> int:
+    """
+    Removes the debugging metadata the dynamo exporter writes into the ONNX graph: on every node its Python stack trace
+    (with the absolute paths of the files of this machine), its module path and class hierarchy and the text of its FX
+    node, on the inputs, shapes and weights their original names, and on the graph the signature of the traced
+    program, which together make 87 to 94 % of 'model.onnx' (1.37 MB for the run_9 detector, whose graph alone takes
+    0.16 MB) and which no runtime reads. The metadata of the model itself (the input contract written by
+    write_onnx_input_contract after the export) is kept. Called by export_onnx, so that the shipped files carry no
+    local path and the ONNX size estimates of export_size_estimates.py hold within their calibrated margin.
+
+    Args:
+        model_proto (onnx.ModelProto): The exported model, loaded without its external weights, changed in place.
+
+    Returns:
+        int: The number of metadata entries removed.
+    """
+    removed_entries = 0
+    # The main graph and its local functions, every element with metadata emptied
+    metadata_holders = list_graph_metadata_holders(graph=model_proto.graph)
+    for function in model_proto.functions:
+        metadata_holders += [function, *function.node]
+    for metadata_holder in metadata_holders:
+        removed_entries += len(metadata_holder.metadata_props)
+        del metadata_holder.metadata_props[:]
+    return removed_entries
+
+
 def export_onnx(inference_model: nn.Module, example_inputs: Dict[str, torch.Tensor], output_path: Path,
                 specification: Dict[str, Any], maximum_batch_size: int) -> None:
     """
     Exports an inference model to an ONNX file served by Triton's ONNX Runtime backend (optionally accelerated by
     TensorRT), with one dynamic batch dimension shared by every input up to the maximum batch size and, for the
     sequence models, a dynamic number of frames per input up to the maximum sequence length of the training, so that
-    the before and after members of the comparison model may have different numbers of frames.
+    the before and after members of the comparison model may have different numbers of frames. The weights go to
+    'model.onnx.data' next to it, and the debugging metadata of the exporter is removed from the graph
+    (strip_exporter_metadata).
 
     Args:
         inference_model (nn.Module): The inference model to export, in evaluation mode.
@@ -249,11 +302,13 @@ def export_onnx(inference_model: nn.Module, example_inputs: Dict[str, torch.Tens
                       custom_translation_table={STACKED_GROUP_SUPPRESSION_OPERATOR:
                                                 translate_stacked_group_suppression})
 
-    # Frames of the outputs per frame made dynamic again where the export fixed them, the external weights file left
-    # untouched, then the dynamic dimensions of the file checked
+    # Frames of the outputs per frame made dynamic again where the export fixed them and the debugging metadata of the
+    # exporter removed, the graph file written again with the external weights file left untouched, then the dynamic
+    # dimensions of the file checked
     model_proto = onnx.load(f=str(output_path), load_external_data=False)
-    if restore_dynamic_output_frames(model_proto=model_proto, specification=specification):
-        onnx.save(proto=model_proto, f=str(output_path))
+    restore_dynamic_output_frames(model_proto=model_proto, specification=specification)
+    strip_exporter_metadata(model_proto=model_proto)
+    onnx.save(proto=model_proto, f=str(output_path))
     fixed_dimensions = find_fixed_dynamic_dimensions(model_proto=model_proto, specification=specification)
     if fixed_dimensions:
         raise RuntimeError(f"The ONNX Export Wrote Fixed Dimensions : {format_path_link(path=output_path)}\n" +

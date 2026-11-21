@@ -67,6 +67,7 @@ confusion_matrix.csv/.png, proposal_recall.csv, Samples/, EMA/} · Tensorboard/{
 | Configuration checks and run name | `vision_training/configuration_processing/detection_checks.py`, `run_name.py` | `check_detection_configuration`, `build_detection_sections`, `build_anchors_hash` |
 | Synthetic data | `vision_training/data/synthetic/create_synthetic_dataset.py` | `create_synthetic_dataset` (task `"instance_segmentation"` for the DET configuration) |
 | Export | `vision_training/models/detection/inference_detector.py`, `vision_training/deployment/export_specifications.py` | `InferenceDetector`, `get_export_specification` (inputs `images`, outputs `detection_boxes`, `detection_scores`, `detection_labels`, `number_detections`) |
+| Export sizes at launch | `vision_training/deployment/export_size_estimates.py` | `estimate_export_sizes`, `probe_inference_graph`, `print_export_size_summary` |
 
 ### Run It
 1. Generate the dataset: the DET configuration reads the instance segmentation dataset, whose boxes are those of the visible part of every shape. In the main block of `vision_training/data/synthetic/create_synthetic_dataset.py`, set `task = "instance_segmentation"` (its `output_folders`, `image_sizes`, `split_sizes` and `maximum_objects` entries give `/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes`, 512 pixels, 128,000 / 20,000 / 20,000 images and 5 to 6 shapes, as long as `instance_segmentation_benchmark_dataset` stays `False`, which would draw the 1024 pixel images of the instance segmentation benchmark instead, and `same_class_neighbour_probability` stays at 0, its value above 0 being kept for the occlusion test split of the detection benchmark), then run it. A new dataset has the 35 shapes of `SHAPE_CATEGORIES` (run names ending in `MC35`), from 16 pixels to 80 % of the side like every synthetic dataset; the dataset was generated again on 2026-11-18, the 5000-iteration run of Stages 3 to 5 having been trained on 2026-10-24 on the dataset of that day, of 20 classes (`MC20`).
@@ -197,6 +198,7 @@ main()
 │       ├── get_loss_weights() / get_tracked_metrics() + MetricTracker()
 │       ├── print_experiment_information() -> describe_split() -> count_split_images_and_annotations()
 │       ├── print_summary() / print_receptive_field_summary() / print_model_size_summary()
+│       ├── estimate_export_sizes() + print_export_size_summary()   size of every export and of the checkpoint
 │       ├── diagnose_data_splits()   anchor recall of every split   (only with compute_anchor_coverage)
 │       ├── view_input_batches() -> show_input_samples()   (only with view_input_images)
 │       ├── benchmark_speed()   (only with benchmark_speed); any of these three modes then exits, without run folder
@@ -548,7 +550,7 @@ Adam, 1 parameter group, base_learning_rates [0.0002], weight decay 0.0
 ```
 
 ### Step 2.19 — `print_summary()` / `print_receptive_field_summary()` / `print_model_size_summary()`
-The summary of the detector adds a neck panel (its type, and with a neck the size and channels of every level), a region proposal panel (the anchors of every level) and a detection panel (the heads of every level); the receptive field panel marks the anchor scales of every detection block, to compare them with what a position of its feature map sees. The `Modules` line of a head lists the residual shortcuts only when its block adds one (`get_active_module_names()` -> `count_residual_additions()`): the heads of blocks 6 and 7, whose first convolution turns 128 channels into 64 and whose 2 layers then add no shortcut (Step 2.15), list the squeeze-and-excitation only.
+The summary of the detector adds a neck panel (its type, and with a neck the size and channels of every level), a region proposal panel (the anchors of every level) and a detection panel (the heads of every level); the receptive field panel marks the anchor scales of every detection block, to compare them with what a position of its feature map sees. The `Modules` line of a head lists the residual shortcuts only when its block adds one (`get_active_module_names()` -> `count_residual_additions()`): the heads of blocks 6 and 7, whose first convolution turns 128 channels into 64 and whose 2 layers then add no shortcut (Step 2.15), list the squeeze-and-excitation only. After the model size panel, the trainer prints the Export Sizes panel: the parameters the forward pass of the inference model reads, then the size of the PyTorch weights, the TorchScript file, the ONNX files and the TensorRT engines the model is turned into and of the training checkpoint ([Export Sizes](../../README.md#export-sizes)).
 
 **Example output** (shortened; the panels rebuilt on the CPU with the current code from the configuration of this stage)
 ```text

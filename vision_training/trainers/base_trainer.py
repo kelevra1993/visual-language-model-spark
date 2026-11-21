@@ -45,6 +45,7 @@ from vision_training.data.data_record import (CLASSES_RECORD_KEY, COMPARED_SPLIT
 from vision_training.data.label_mapping import (RUN_LABEL_DICTIONARY_FILE_NAME, read_run_label_dictionary,
                                                 write_run_label_dictionary)
 from vision_training.data.loaders import uses_pinned_memory
+from vision_training.deployment.export_size_estimates import estimate_export_sizes, print_export_size_summary
 from vision_training.deployment.export_specifications import (INFERENCE_MODEL_CLASSES, build_inference_model,
                                                               get_export_specification)
 from vision_training.evaluation.evaluation_curves import (AVERAGED_WEIGHTS_COLUMN_PREFIX,
@@ -401,10 +402,15 @@ class BaseTrainer(ABC):
         self.print_experiment_information()
         self.model.print_summary()
 
-        # Architecture diagnostics printed before training continues: the optional receptive field, then the model size
+        # Architecture diagnostics printed before training continues: the optional receptive field, the model size, then
+        # the size of every file the model is exported to for the tasks Triton serves
         if self.diagnosis_modes["compute_receptive_field"]:
             self.model.print_receptive_field_summary()
         self.model.print_model_size_summary()
+        if self.TASK_NAME in INFERENCE_MODEL_CLASSES:
+            print_export_size_summary(export_sizes=estimate_export_sizes(
+                task=self.TASK_NAME, model=self.model, optimizer=self.optimizer,
+                keeps_moving_average=self.exponential_moving_average is not None))
 
         # Optional diagnoses ending the program without training nor creating the run folder: the analysis of every
         # split against the model (the anchor coverage of the detection tasks), the viewer of the training and

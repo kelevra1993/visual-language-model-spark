@@ -58,6 +58,7 @@ If you are looking for the code of a step, these are the files of the task and t
 | Run name | `vision_training/configuration_processing/run_name.py` | `build_run_name`, `build_segmentation_sections` |
 | Synthetic data generator | `vision_training/data/synthetic/create_synthetic_dataset.py` | `create_synthetic_dataset`, `build_segmentation_labels` |
 | Export | `vision_training/models/segmentation/inference_segmenter.py`, `vision_training/deployment/export_specifications.py`, `vision_training/deployment/input_contract.py` | `InferenceSegmenter` (model name `semantic_segmenter`, the deep supervision heads left out), `compare_segmentations`, `build_input_contract` (the tile keys of a run trained on tiles) |
+| Export sizes at launch | `vision_training/deployment/export_size_estimates.py` | `estimate_export_sizes`, `probe_inference_graph`, `print_export_size_summary` |
 | Standalone evaluation | `scripts/evaluation/evaluate_checkpoint.py`, `vision_training/evaluation/checkpoint_evaluation.py` | `evaluate_checkpoints`, `summarise_checkpoint_evaluations` |
 
 ### Run It
@@ -233,6 +234,8 @@ main()
 │       ├── print_summary() / print_receptive_field_summary() / print_model_size_summary()
 │       │       The summary adds a decoder panel: the bottleneck, then for every level its skip connection,
 │       │       convolutions and output, the head dropout and the size of the class logits.
+│       ├── estimate_export_sizes() + print_export_size_summary()
+│       │       The Export Sizes panel: sizes of the PyTorch, TorchScript, ONNX, TensorRT and checkpoint files.
 │       ├── view_input_batches()  (only with view_input_images, then exits)
 │       │       Each image with its mask painted over it, captioned with the classes it holds.
 │       └── restore_last_model() -> get_last_checkpoint_iteration() / load_model()
@@ -681,7 +684,7 @@ Every path is a terminal link showing the name of its file or folder (`format_pa
 ```
 
 ### Step 2.23 — `print_summary()` / `print_receptive_field_summary()` / `print_model_size_summary()`
-The backbone and decoder panels are shown in Steps 2.14 and 2.17. The size panel lists the decoder and the head on their own lines.
+The backbone and decoder panels are shown in Steps 2.14 and 2.17. The size panel lists the decoder and the head on their own lines. The trainer then prints the Export Sizes panel: the parameters the forward pass of the inference model reads, then the size of the PyTorch weights, the TorchScript file, the ONNX files and the TensorRT engines the model is turned into and of the training checkpoint ([Export Sizes](../../README.md#export-sizes)).
 
 **Example output: the size panel**
 ```text
