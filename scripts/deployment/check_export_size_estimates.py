@@ -6,10 +6,11 @@ the libraries. For every run it loads the last checkpoint, computes the estimate
 writes the PyTorch weights in FP32 and FP16 with torch.save and the ONNX files with export_onnx, and reads the size of
 the real checkpoint of the run. With --build-tensorrt-engines it also serves the ONNX files in the Triton container of
 the serving benchmark (scripts/deployment/benchmark_serving_formats.py), once in FP32 and once in FP16, sends one
-request at batch 1 and one at the largest batch so that ONNX Runtime builds the TensorRT engines, and reads their size
-in the engine cache: about a minute of GPU per run and precision, to run when the GPU is free. Every output stays
-outside the repository, under --output-folder: one folder of exported files per run, the Triton logs and
-'export_size_check.csv', one line per run.
+request at batch 1 and one at the largest batch so that ONNX Runtime builds the TensorRT engines, and reads the size of
+the engines every model added to the engine cache, the time of those first requests (the engine builds) and whether
+the engines carry the cache prefix of the model: about a minute of GPU per run and precision, to run when the GPU is
+free. Every output stays outside the repository, under --output-folder: one folder of exported files per run, the
+Triton logs and 'export_size_check.csv', one line per run.
 
 Run from the repository root:
     uv run python -m scripts.deployment.check_export_size_estimates
@@ -25,7 +26,7 @@ import torch
 
 from pathlib import Path
 from torch import nn
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from scripts.deployment.benchmark_serving_formats import (load_served_model, start_triton_server, stop_triton_server,
                                                           time_first_requests, unload_served_model)
@@ -63,15 +64,23 @@ DEFAULT_EXPERIMENT_FOLDERS = [
 # which the checkpoint estimate only reads the class and the momentum
 OPTIMIZER_CLASSES = {"adam": torch.optim.Adam, "adamw": torch.optim.AdamW, "sgd": torch.optim.SGD}
 
+# Largest request sent to Triton to build the TensorRT engines, its second request taking the largest batch up to
+# EXPORT_MAXIMUM_BATCH_SIZE below it: gRPC refuses messages above 2 GB, which a batch of 16 sequences of 50 frames of
+# 512 pixels (2.5 GB per input) would pass
+MAXIMUM_REQUEST_BYTES = 1_000_000_000
+
 # Columns of export_size_check.csv: the run, the time of the estimates, the forward pass of the probe, then the
-# estimated and real size of every format, in bytes (empty when not measured)
+# estimated and real size of every format, in bytes, with the seconds of the first requests building the TensorRT
+# engines and whether the engines carry the cache prefix of the model (empty when not measured)
 RESULT_COLUMNS = ["run", "task", "device", "estimate_seconds", "total_parameters", "exported_parameters",
                   "state_dictionary_tensors", "state_dictionary_key_characters", "constant_bytes",
                   "batch_normalization_bytes", "weighted_operators", "other_operators",
                   "pytorch_fp32_estimated", "pytorch_fp32_real", "pytorch_fp16_estimated", "pytorch_fp16_real",
                   "torchscript_measured", "onnx_estimated", "onnx_graph_real", "onnx_data_real", "onnx_real",
                   "checkpoint_estimated", "checkpoint_real", "tensorrt_fp32_lowest", "tensorrt_fp32_highest",
-                  "tensorrt_fp32_real", "tensorrt_fp16_lowest", "tensorrt_fp16_highest", "tensorrt_fp16_real"]
+                  "tensorrt_fp32_real", "tensorrt_fp32_build_seconds", "tensorrt_fp32_named_after_prefix",
+                  "tensorrt_fp16_lowest", "tensorrt_fp16_highest", "tensorrt_fp16_real",
+                  "tensorrt_fp16_build_seconds", "tensorrt_fp16_named_after_prefix", "tensorrt_largest_batch"]
 
 # Rows of the printed report: the label, the estimated and real columns (a range for TensorRT)
 REPORT_FORMATS = [("PyTorch FP32 Weights", ["pytorch_fp32_estimated"], "pytorch_fp32_real"),
@@ -176,7 +185,10 @@ def check_run(experiment_folder: Path, device: torch.device, output_folder: Path
               "tensorrt_fp32_highest": estimated["TensorRT FP32 Engine"]["highest_bytes"],
               "tensorrt_fp16_lowest": estimated["TensorRT FP16 Engine"]["lowest_bytes"],
               "tensorrt_fp16_highest": estimated["TensorRT FP16 Engine"]["highest_bytes"],
-              "tensorrt_fp32_real": None, "tensorrt_fp16_real": None}
+              "tensorrt_fp32_real": None, "tensorrt_fp32_build_seconds": None,
+              "tensorrt_fp32_named_after_prefix": None, "tensorrt_fp16_real": None,
+              "tensorrt_fp16_build_seconds": None, "tensorrt_fp16_named_after_prefix": None,
+              "tensorrt_largest_batch": None}
     result.update(measure_saved_state_dictionaries(state_dictionary=state_dictionary, output_folder=output_folder))
 
     # ONNX files of the export, traced on the example batch of the export
@@ -244,20 +256,32 @@ def read_export_specification(experiment_folder: Path) -> Dict[str, Any]:
     return get_export_specification(task=experiment_configuration["task"], inference_model=inference_model)
 
 
-def sum_engine_bytes(engine_cache_folder: Path, engine_cache_prefix: str) -> Optional[int]:
+def measure_new_engines(engine_cache_folder: Path, engines_before: Set[Path], engine_cache_prefix: str
+                        ) -> Tuple[int, bool]:
     """
-    Sums the TensorRT engines ONNX Runtime wrote into the cache for one model, one file per part of the graph handed
-    to TensorRT, named after the cache prefix of its config.pbtxt.
+    Sums the TensorRT engines ONNX Runtime wrote into the cache while one model was served alone, one file per part of
+    the graph handed to TensorRT (an engine rebuilt for a larger batch replacing its file), and tells whether they all
+    carry the cache prefix of the config.pbtxt of the model, the prefix keeping an export from being served with the
+    engines built from the files of another (build_tensorrt_engine_cache_prefix). The engines are found as the files
+    the model added, so that their size is measured whatever ONNX Runtime names them.
 
     Args:
         engine_cache_folder (Path): The engine cache folder mounted into the container.
+        engines_before (Set[Path]): The engine files of the cache before the model was loaded.
         engine_cache_prefix (str): The 'trt_engine_cache_prefix' of the model.
 
     Returns:
-        Optional[int]: The bytes of its engines, None when it has none.
+        Tuple[int, bool]: The bytes of the new engines, and whether the name of every one starts with the prefix.
+
+    Raises:
+        RuntimeError: If the model added no engine to the cache.
     """
-    engine_paths = sorted(engine_cache_folder.glob(f"{engine_cache_prefix}*.engine"))
-    return sum(engine_path.stat().st_size for engine_path in engine_paths) if engine_paths else None
+    new_engine_paths = sorted(set(engine_cache_folder.glob("*.engine")) - engines_before)
+    if not new_engine_paths:
+        raise RuntimeError(f"No engine written for the model of prefix {engine_cache_prefix} in {engine_cache_folder}: "
+                           f"{sorted(path.name for path in engine_cache_folder.iterdir())}")
+    return (sum(engine_path.stat().st_size for engine_path in new_engine_paths),
+            all(engine_path.name.startswith(engine_cache_prefix) for engine_path in new_engine_paths))
 
 
 def read_engine_cache_prefix(model_directory: Path) -> str:
@@ -282,10 +306,12 @@ def read_engine_cache_prefix(model_directory: Path) -> str:
 def measure_tensorrt_engines(results: List[Dict[str, Any]], experiment_folders: List[Path],
                              output_folder: Path) -> None:
     """
-    Builds the TensorRT engines of every run in FP32 and FP16 through Triton and records their size in the results:
-    for every precision, one server on the repository of build_tensorrt_repository with an empty engine cache, every
-    model loaded alone and sent a random request at batch 1 then at the largest batch (ONNX Runtime building its
-    engines at the first request and again for a larger batch), then unloaded.
+    Builds the TensorRT engines of every run in FP32 and FP16 through Triton and records in the results their size,
+    the seconds of the first requests that built them and whether they carry the cache prefix of the model: for every
+    precision, one server on the repository of build_tensorrt_repository with an empty engine cache, every model loaded
+    alone and sent a random request at batch 1 then at the largest batch up to EXPORT_MAXIMUM_BATCH_SIZE whose request
+    stays below MAXIMUM_REQUEST_BYTES (ONNX Runtime building its engines at the first request and again for a larger
+    batch), then unloaded.
 
     Args:
         results (List[Dict[str, Any]]): The lines of the runs, from check_run, completed in place.
@@ -307,16 +333,26 @@ def measure_tensorrt_engines(results: List[Dict[str, Any]], experiment_folders: 
                 request = {name: batch.numpy().astype(np.float32) for name, batch in create_random_inputs(
                     specification=specification, shape_name="example_shape", maximum_batch_size=1,
                     device=torch.device("cpu"), generator=torch.Generator().manual_seed(0)).items()}
+                largest_batch = min(EXPORT_MAXIMUM_BATCH_SIZE, max(1, MAXIMUM_REQUEST_BYTES // sum(
+                    array.nbytes for array in request.values())))
+                # Engines of the model: the files it adds to the cache while it is served alone
+                engines_before = set(engine_cache_folder.glob("*.engine"))
                 load_served_model(model_name=model_name, configuration=None)
-                time_first_requests(model_name=model_name, request=request,
-                                    batch_sizes=[1, EXPORT_MAXIMUM_BATCH_SIZE])
+                first_request_seconds = time_first_requests(model_name=model_name, request=request,
+                                                            batch_sizes=sorted({1, largest_batch}))
                 unload_served_model(model_name=model_name)
-                engine_bytes = sum_engine_bytes(engine_cache_folder=engine_cache_folder, engine_cache_prefix=(
-                    read_engine_cache_prefix(model_directory=repository / model_name)))
-                if engine_bytes is None:
-                    raise RuntimeError(f"No engine of {model_name} in {engine_cache_folder}: "
-                                       f"{sorted(path.name for path in engine_cache_folder.iterdir())}")
-                result[f"tensorrt_{tensorrt_precision.lower()}_real"] = engine_bytes
+                result["tensorrt_largest_batch"] = largest_batch
+                engine_bytes, named_after_prefix = measure_new_engines(
+                    engine_cache_folder=engine_cache_folder, engines_before=engines_before,
+                    engine_cache_prefix=read_engine_cache_prefix(model_directory=repository / model_name))
+                precision_name = tensorrt_precision.lower()
+                result.update({f"tensorrt_{precision_name}_real": engine_bytes,
+                               f"tensorrt_{precision_name}_build_seconds": round(sum(first_request_seconds.values()),
+                                                                                 2),
+                               f"tensorrt_{precision_name}_named_after_prefix": named_after_prefix})
+                if not named_after_prefix:
+                    print_color(color="red", output=f"The engines of {model_name} do not start with the "
+                                                    f"trt_engine_cache_prefix of its config.pbtxt", indent=2)
         finally:
             stop_triton_server(log_path=output_folder / f"triton_{tensorrt_precision.lower()}.log")
 
@@ -362,6 +398,14 @@ def print_check_report(results: List[Dict[str, Any]]) -> None:
             estimate_text = " to ".join(f"{estimate:,}" for estimate in estimates)
             real_text = f"{real_bytes:,}" if real_bytes is not None else "-"
             print(f"  {label:<22}{estimate_text:>27}  {real_text:>12}  {error_text}")
+
+        # Time of the engine builds and naming of the engines, once they were built
+        for precision_name in ["fp32", "fp16"]:
+            if result[f"tensorrt_{precision_name}_build_seconds"] is not None:
+                print(f"  TensorRT {precision_name.upper()} engines built in "
+                      f"{result[f'tensorrt_{precision_name}_build_seconds']:.1f} seconds (batch 1 then "
+                      f"{result['tensorrt_largest_batch']}), named after their cache prefix: "
+                      f"{'yes' if result[f'tensorrt_{precision_name}_named_after_prefix'] else 'no'}")
 
 
 def fit_calibration(results: List[Dict[str, Any]]) -> None:
