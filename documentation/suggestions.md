@@ -247,7 +247,7 @@ pyramid, background IoU minimum 0.1, proposal selection per level, DIoU-NMS 0.6 
       - Barlow Twins trained together with the cross entropy from scratch lowered the accuracy of a VQA model
         (arXiv 2203.03727), the two losses having very different ranges. Training with the cross entropy first, then
         fine-tuning with both, worked.
-    - **Measured redundancy:** correlation of the features of the large ImageNet run (`configuration_large_model.yaml`,
+    - **Measured redundancy:** feature correlation of the ImageNet-1k Medium run (`configuration_medium_model.yaml`,
       Iteration 115000, EMA weights) on two batches of 256 test images (mean of both batches), each layer compared with
       independent Gaussian features of the same size, measured on 2026-10-18 with a temporary script:
 
@@ -272,11 +272,11 @@ pyramid, background IoU minimum 0.1, proposal selection per level, DIoU-NMS 0.6 
       more features than images: at the batch size of 256, the 512 units of the first hidden layer keep a floor, while
       the 256 units of the second fit. The sampling noise alone also gives a sum of the squared off-diagonal terms of
       about D(D − 1) / (N − 1), 256 for D = N = 256, below which the term only fits noise.
-    - **Experiment:** the classic model with and without the term, for the same number of iterations, compared on the
+    - **Experiment:** the Small model with and without the term, for the same number of iterations, compared on the
       test top-1 and on the statistics above, with a weight giving the term about a tenth of the cross entropy at the
       start, turned on after a warm-up of the cross entropy as in the VQA result.
 
-    Cost and risk: small to medium. The large run underfits (iterations 110000 to 115000: training accuracy 0.599 with
+    Cost and risk: small to medium. The Medium run underfits (iterations 110000 to 115000: training accuracy 0.599 with
     the augmentation and the dropout, validation accuracy 0.613), and the papers report regularisation-sized gains, so
     the term may lower the top-1 as well as raise it. Decorrelated features also stay dependent in non-linear ways.
 

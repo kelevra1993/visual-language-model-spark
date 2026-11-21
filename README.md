@@ -83,7 +83,7 @@ This README gives the commands and the settings that matter most. The details ar
 - [Tasks reference](documentation/reference/tasks_reference.md): synthetic datasets, data format, converters, losses and metrics of every task.
 - [Configuration reference](documentation/reference/configuration_reference.md): keys and values of every task, evaluation outputs, run name tokens, MLflow metrics.
 - [Tools reference](documentation/reference/tools_reference.md): checkpoint evaluation, launch comparison, embedding clustering, export, input contract and Triton.
-- [Pretraining reference](documentation/reference/pretraining_reference.md): download of ImageNet-22k, on which the classification configurations pre-train the backbones, its validation and test splits, and the order in which the T to XL backbone sizes are pre-trained then fine-tuned for detection and instance segmentation.
+- [Pretraining reference](documentation/reference/pretraining_reference.md): download of ImageNet-22k, on which the classification configurations pre-train the backbones, its validation and test splits, and the order in which the Small, Medium and Large backbone sizes are pre-trained then fine-tuned for detection and instance segmentation.
 - Task workflows: one run of every task followed function by function, such as the [classification](documentation/task%20workflows/classification_workflow.md) and [object detection](documentation/task%20workflows/object_detection_workflow.md) workflows; the Details column of the [Tasks](#tasks) table links the workflow of every task.
 
 ## Prerequisites
@@ -1315,7 +1315,7 @@ The real files of this run measure 3.57 and 1.84 MB (`torch.save` of the state d
 | TensorRT FP32 and FP16 engines | the same weights in the precision of the engine, plus 17,700 bytes per convolution, matrix product or recurrent layer and 120 per other operator, times 0.8 to 1.2 | the six engines of the serving benchmark (CLS, DET, M2M) between 0.85 and 1.09 times this overhead |
 | Training checkpoint | the weights of the model (twice with the moving average), the moments of the optimizer for every trained parameter (two for Adam and AdamW, one for SGD) and 20 kB of metadata | 0.87 % |
 
-`Exported Parameters` counts the parameters the forward pass reads, those the ONNX file and the engines keep: 438,368 of 571,104 for the SimCLR encoder of the tutorials, whose projector serves the training only (the PyTorch weights and the TorchScript file still hold it). The estimates take 0.2 to 2.1 seconds per run on the GPU (the ten tutorial runs and the large ImageNet classifier of 19.2 million parameters, while other trainings shared it), against 2 to 27 seconds for the real TorchScript, ONNX and PyTorch files of the tutorial runs, the ONNX export taking most of it, and 5 to 13 seconds for each TensorRT engine. A forward pass or a trace that fails leaves its rows `failed` in red with the error under the table, and the training goes on.
+`Exported Parameters` counts the parameters the forward pass reads, those the ONNX file and the engines keep: 438,368 of 571,104 for the SimCLR encoder of the tutorials, whose projector serves the training only (the PyTorch weights and the TorchScript file still hold it). The estimates take 0.2 to 2.1 seconds per run on the GPU (the ten tutorial runs and the Medium ImageNet classifier of 19.2 million parameters, while other trainings shared it), against 2 to 27 seconds for the real TorchScript, ONNX and PyTorch files of the tutorial runs, the ONNX export taking most of it, and 5 to 13 seconds for each TensorRT engine. A forward pass or a trace that fails leaves its rows `failed` in red with the error under the table, and the training goes on.
 
 After a change to the exports or to their libraries, `scripts/deployment/check_export_size_estimates.py` exports the ten tutorial runs, prints every estimate against its real file and fits the constants again ([tools reference](documentation/reference/tools_reference.md#export-size-check)); the TensorRT constants come from the six engines of the serving benchmark until it is run with `--build-tensorrt-engines` on an idle GPU:
 
@@ -1532,7 +1532,7 @@ To find your way in the code, the diagram follows the packages along the path of
 ├── documentation/
 │   ├── architecture_benchmarking/     # Experiment plans, copies of their results, stage figures, experiment_comparisons.yaml
 │   ├── presentation/                  # Slide deck of the repository: deck.json, deck.css, one HTML file per slide and the figures made for it
-│   ├── reference/                     # Training, tasks, configurations, tools and pretraining (ImageNet-22k, order of the T to XL sizes) in detail
+│   ├── reference/                     # Training, tasks, configurations, tools and pretraining (ImageNet-22k, order of the S, M and L sizes) in detail
 │   ├── task workflows/                # One run of every task followed function by function
 │   └── suggestions.md                 # Proposed improvements not implemented yet
 ├── vision_training/                   # Training framework

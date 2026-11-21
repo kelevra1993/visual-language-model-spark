@@ -38,21 +38,19 @@ So that a configuration trains on the download, point its `train_data_folder`, `
 In case you compare its scores with other results, the held-out images (18,846) are both the validation and the test split, so a setting chosen on the validation curves is chosen on the test images, and the scores cannot be compared with published ImageNet-1k accuracies (shorter side of the images at most 600 pixels in the source, person classes kept). The split sizes and the retries of the download are in the [tasks reference](tasks_reference.md#classification-cls).
 
 ## Pretraining Strategy
-Before training the production models, this plan sets the order in which five backbone sizes are pretrained on classification, then fine-tuned for object detection and instance segmentation, so that every size ends with the same three models and one comparison table.
+Before training the production models, this plan sets the order in which three backbone sizes are pretrained on classification, then fine-tuned for object detection and instance segmentation, so that every size ends with the same three models and one comparison table.
 
 ### Model Sizes
-If one wishes to pick the size of a production model, the five candidates below all have 6 backbone blocks, written as convolutions x filters per block; S to XL already have their classification configuration in `vision_training/configurations/classification/`, and T needs a new one.
+If one wishes to pick the size of a production model, the three candidates below all have 6 backbone blocks, written as convolutions x filters per block, each with its classification configuration in `vision_training/configurations/classification/`. Each size doubles the filters of the size before it, which multiplies the convolution cost by about 4 (1.3, 4.9 and 19.4 billion multiply-accumulates per 256 pixel image for the backbones).
 
-| Size | Backbone | Configuration |
-|---|---|---|
-| T | 1x16 · 2x16 · 2x16 · 4x32 · 5x32 · 5x32 | `configuration_tiny_model.yaml`, to write from a copy of `configuration_small_model.yaml` |
-| S | 1x32 · 2x32 · 2x32 · 16x32 · 20x32 · 20x32 | `configuration_small_model.yaml` |
-| M | 1x64 · 2x64 · 2x64 · 4x64 · 5x64 · 5x64 | `configuration_classic_model.yaml`, the backbone of `configuration_example.yaml` |
-| L | 1x64 · 2x64 · 2x64 · 16x64 · 20x64 · 20x64 | `configuration_long_model.yaml` |
-| XL | 1x64 · 2x64 · 2x64 · 16x128 · 20x128 · 20x128 | `configuration_large_model.yaml` |
+| Size | Backbone | Head | Parameters (backbone + head, 21,841 classes) | Configuration |
+|---|---|---|---|---|
+| S | 1x32 · 2x32 · 2x32 · 16x64 · 20x64 · 20x64 | [256, 128] | 2.3 M + 3.9 M | `configuration_small_model.yaml` |
+| M | 1x64 · 2x64 · 2x64 · 16x128 · 20x128 · 20x128 | [512, 256] | 9.3 M + 9.9 M | `configuration_medium_model.yaml` |
+| L | 1x128 · 2x128 · 2x128 · 16x256 · 20x256 · 20x256 | [512, 256] | 37.1 M + 14.1 M | `configuration_large_model.yaml` |
 
 ### Classification Pretraining On ImageNet-22k
-For the five sizes to compare, each first learns general features on ImageNet-22k (21,841 classes, 256 pixels) with the same recipe, the dataset being downloaded by `vision_training/data/classification/imagenet_download.py` ([Downloading ImageNet-22k](#downloading-imagenet-22k)).
+For the three sizes to compare, each first learns general features on ImageNet-22k (21,841 classes, 256 pixels) with the same recipe (learning rate 2e-4, the best of stage 1 of the [classification benchmark](../architecture_benchmarking/experiment_plan.md#stage-1-learning-rate-10-launches)), the three files differing only in their backbone blocks and head layers, the dataset being downloaded by `vision_training/data/classification/imagenet_download.py` ([Downloading ImageNet-22k](#downloading-imagenet-22k)).
 
 1. Start each size from random weights, or from the backbone of an earlier classification run of the same backbone when one exists (`Backbone.pretrained`), the head of the 21,841 classes starting random.
 2. Train with the moving average of the weights, and keep the averaged weights.
@@ -74,16 +72,15 @@ So that the backbone, pyramid and proposal network are not trained twice, each i
 2. Record the mask and box mAP on the COCO validation set.
 
 ### Order And Resources
-To find problems on cheap runs first, T and S go through every stage before M, L and XL start.
+To find problems on cheap runs first, S goes through every stage before M and L start.
 
-1. T and S: classification, Open Images detection, COCO detection, instance segmentation, then a check of the whole chain.
-2. M, L and XL: the same chain, at most 2 trainings at a time on a DGX Spark, with 25 GB of its memory left free.
+1. S: classification, Open Images detection, COCO detection, instance segmentation, then a check of the whole chain.
+2. M and L: the same chain, at most 2 trainings at a time on a DGX Spark, with 25 GB of its memory left free.
 3. Final table per size: classification accuracy, Open Images and COCO box mAP, COCO mask mAP, speed per export format, memory and parameters.
 
 ### Open Questions
 In case you pick up the plan, these choices are still open:
-- Number of iterations of each stage and size.
-- The common recipe of the classification stage: the configurations differ today in learning rate (5e-5 for S and M, 2e-4 for L and XL), moving average of the weights (off for L) and share of augmented images (0.2 for S and M, 0.3 for XL, 0.4 for L).
+- Number of iterations of each stage and size, the classification files training with a constant learning rate until they are stopped (`number_iterations: 1e10`).
 - Image size of the detection stages (1024 pixels in the detection benchmark).
 - Whether Open Images detection keeps its 601 classes or a subset close to the production use cases.
 - Whether COCO crowd boxes and Open Images group-of boxes should become ignored regions instead of objects.
