@@ -44,19 +44,19 @@
     and 13, widening the receptive field of the deepest level at little cost (YOLOv4).
 
 ## B. Instance segmentation
-7. **One mask head shared by the levels, stage 5 left to run** (`MaskHead.shared`, implemented):
+7. **Region proposal and detection heads shared by the levels**, as the mask heads now are:
    - **Mask R-CNN:** `build_fpn_mask_graph` is built once (`model.py:956-1005`) and receives the RoIs of every level
      through `PyramidROIAlign`. The box head and the region proposal head are shared the same way
      (`model.py:1939-1944`).
-   - **Here:** with `MaskHead.shared: True`, one `MaskHead` pools the boxes of every level from the map of their level,
-     each at its own scale, and trains on every positive of the batch; the export runs it once on all the
-     detections. The run name gains `MSH`, and `compare_detection_heads` refuses to load per-level heads into a
-     shared one or the reverse. It needs the same `mask_head` on every level and equal level channels (a neck, or
-     backbone blocks of equal channels): the per-level 1×1 convolution that would bring different channels to one
-     head was left out. The detection heads could be shared the same way.
-   - **Left:** stage 5 of `instance_segmentation_experiment_plan.md`: mask mAP overall and by object size against
-     per-level heads, and the export throughput. A shared head may fit the coarse levels worse than dedicated heads
-     do, which is the point of measuring it.
+   - **Here:** `MaskHead.shared: True` gives one mask head read by every level, each box pooled at the scale of its
+     level (no per-level 1×1 convolution, so it needs equal level channels). Stage 5 of
+     `instance_segmentation_experiment_plan.md` tied with per-level heads on the score (+0.0050 at 10,000, inside the
+     launch gap) while leading at every evaluation, gaining 0.0169 on the large objects and cutting the mask branch
+     of the export by 3.3, and the user kept it on 2026-11-21. The region proposal and detection heads are still one
+     per level.
+   - **Change:** the same switch for `RegionProposal` and `Detector`, one head trained on the anchors or proposals of
+     every level, whose export runs once instead of once per level.
+   - **Measure:** box mAP overall and by object size, and the export throughput, as stage 5 measured the masks.
 8. **Ground truth masks cropped to their boxes ("mini masks")**:
    - **Mask R-CNN:** `USE_MINI_MASK` and `MINI_MASK_SHAPE` (56 × 56) (`config.py:103-104`): each mask is cropped to its
      box and resized (`minimize_mask`, `utils.py:517-534`), and the mask target of a RoI is cropped from that small
@@ -409,11 +409,10 @@ committed): every image can be taken again from them without training, except wh
     parameter names (or a run description) would let the table show the settings of the runs.
 
 ## Suggested Order
-1. **The instance segmentation stages of `instance_segmentation_experiment_plan.md`:** the shared mask head (item 7,
-   stage 5), guided by the AP of the small objects and the proposal recall of every level, before any tuning of the
-   anchors or of the proposal counts. The mask level chosen by the box size (item 2) and a finer map for the masks were
-   dropped on 2026-11-19, the image branch of design A (stage 3b) cropping every box from the image. The detection
-   stages are all done.
+1. **The instance segmentation stages of `instance_segmentation_experiment_plan.md`:** mask scoring (stage 8), the
+   shared mask head of stage 5 having been kept on 2026-11-21, before any tuning of the anchors or of the proposal
+   counts. The mask level chosen by the box size (item 2) and a finer map for the masks were dropped on 2026-11-19,
+   the image branch of design A (stage 3b) cropping every box from the image. The detection stages are all done.
 2. **The rest when the need appears:** item 12 when debugging, item 11 when deploying a class with its own threshold,
    item 40 before serving a model in FP16, items 8, 9 and 10 depending on the datasets, items 2 and 39 for the
    detection, and item 1 when a neck has to be transferred.

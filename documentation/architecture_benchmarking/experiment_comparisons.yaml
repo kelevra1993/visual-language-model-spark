@@ -671,6 +671,6 @@ comparisons:
     arms:
       - {label: "per level, bilinear", launches: [run_15, run_16], reference: true, trained_as_averaged: false}
       - {label: "shared", launches: [run_17, run_18], reference: false, trained_as_averaged: false}
-    kept: "per level by the tie rule unless the user keeps the shared head; the choice waits for the user"
+    kept: "shared, tied on the score and ahead elsewhere, kept by the user (2026-11-21)"
     verdict: "Shared: 87.17 % (87.24 %, 87.09 %) against 86.67 % for the per-level heads at 10,000 (+0.50 points, inside the reference launch gap of 0.53 points), a tie that led at every evaluation (+2.92 points at 4000, +0.94 at 8000); large objects +1.69 points, box mAP@[0.5:0.95] 80.27 % against 79.35 %, one head of 224,548 parameters instead of four and an export mask branch of 12.9 instead of 42.7 billion multiply-accumulates per image."
     notes: "run_15, run_16 (stage 4, bilinear, per level) are reused without training, read at 10,000, the stages training 10,000 iterations from stage 5 on. Other jobs of the user shared the GPU from about 02:00 to 06:25 and from about 11:45 to the end, slowing the pair without changing its iterations. The mask mAP by IoU, the object sizes and the box mAP of the plan cannot be drawn from the CSV, which holds the mask mAP@[0.5:0.95] only."
