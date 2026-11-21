@@ -18,6 +18,7 @@ import torch
 
 from pathlib import Path
 from rich.console import Console, Group
+from rich.padding import Padding
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -75,8 +76,9 @@ STATE_DICTIONARY_MARGIN = 0.01
 CHECKPOINT_MARGIN = 0.01
 ONNX_MARGIN = 0.03
 
-# Megabytes of the panel, as in the Model Size panel
+# Megabytes of the panel, as in the Model Size panel, and the spaces indenting its table of formats
 BYTES_PER_MEGABYTE = 1e6
+TABLE_INDENT = 3
 
 
 class GraphProbe(TypedDict):
@@ -516,26 +518,26 @@ def estimate_export_sizes(task: str, model: nn.Module, optimizer: torch.optim.Op
 
 def format_size(row: ExportSizeRow) -> str:
     """
-    Writes the size of a row of the panel in megabytes, a range as 'lowest to highest', a missing size as 'failed'.
+    Writes the size of a row of the panel in megabytes, a range as 'lowest - highest', a missing size as 'failed'.
 
     Args:
         row (ExportSizeRow): The row.
 
     Returns:
-        str: The size, e.g. '18.59 MB' or '18.94 to 19.24 MB'.
+        str: The size, e.g. '18.59 MB' or '18.94 - 19.24 MB'.
     """
     if row["lowest_bytes"] is None:
         return "failed"
     if row["lowest_bytes"] == row["highest_bytes"]:
         return f"{row['lowest_bytes'] / BYTES_PER_MEGABYTE:.2f} MB"
-    return f"{row['lowest_bytes'] / BYTES_PER_MEGABYTE:.2f} to {row['highest_bytes'] / BYTES_PER_MEGABYTE:.2f} MB"
+    return f"{row['lowest_bytes'] / BYTES_PER_MEGABYTE:.2f} - {row['highest_bytes'] / BYTES_PER_MEGABYTE:.2f} MB"
 
 
 def print_export_size_summary(export_sizes: ExportSizes) -> None:
     """
     Prints the Export Sizes panel after the Model Size panel at the launch of a training: the parameters the exports
-    keep, then the size of every format with how it was obtained, the time taken in the subtitle and the errors of a
-    failed trace or probe below the table.
+    keep, then, indented under them, the size of every format with how it was obtained, the time taken in the subtitle
+    and the errors of a failed trace or probe below the table.
 
     Args:
         export_sizes (ExportSizes): The sizes, from estimate_export_sizes.
@@ -551,6 +553,8 @@ def print_export_size_summary(export_sizes: ExportSizes) -> None:
     parameters_line = Text(text=f"Exported Parameters : {export_sizes['exported_parameters']:,} of "
                                 f"{export_sizes['total_parameters']:,}\n")
     error_lines = [Text(text=f"\n{error}", style="red") for error in export_sizes["errors"]]
-    panel = Panel(renderable=Group(parameters_line, table, *error_lines), title="[bold]Export Sizes[/bold]",
+    # Table indented under the parameters line, so that the formats do not run along the border of the panel
+    indented_table = Padding(renderable=table, pad=(0, 0, 0, TABLE_INDENT))
+    panel = Panel(renderable=Group(parameters_line, indented_table, *error_lines), title="[bold]Export Sizes[/bold]",
                   subtitle=f"{export_sizes['seconds']:.1f} seconds", border_style="cyan")
     console.print(panel)

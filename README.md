@@ -1294,14 +1294,14 @@ Before a run trains for hours, the Export Sizes panel printed at its launch, rig
 ╭────────────────────── Export Sizes ──────────────────────╮
 │ Exported Parameters : 845,544 of 845,544                 │
 │                                                          │
-│ Format                           Size  Method            │
-│ PyTorch FP32 Weights          3.55 MB  ± 1 %             │
-│ PyTorch FP16 Weights          1.85 MB  ± 1 %             │
-│ TorchScript                   4.60 MB  traced            │
-│ ONNX                          4.20 MB  ± 3 %             │
-│ TensorRT FP32 Engine  5.97 to 6.94 MB  range             │
-│ TensorRT FP16 Engine  3.96 to 4.93 MB  range             │
-│ Training Checkpoint          14.05 MB  ± 1 %             │
+│    Format                          Size  Method          │
+│    PyTorch FP32 Weights         3.55 MB  ± 1 %           │
+│    PyTorch FP16 Weights         1.85 MB  ± 1 %           │
+│    TorchScript                  4.60 MB  traced          │
+│    ONNX                         4.20 MB  ± 3 %           │
+│    TensorRT FP32 Engine  5.97 - 6.94 MB  range           │
+│    TensorRT FP16 Engine  3.96 - 4.93 MB  range           │
+│    Training Checkpoint         14.05 MB  ± 1 %           │
 ╰────────────────────── 1.3 seconds ───────────────────────╯
 ```
 
