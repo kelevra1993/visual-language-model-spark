@@ -6,6 +6,7 @@ Settings and outputs of the scripts run after a training, completing the [Evalua
 - [Evaluating Checkpoints](#evaluating-checkpoints)
   - [Logit Temperature](#logit-temperature)
   - [Drawing The Figures Of A Research Report](#drawing-the-figures-of-a-research-report)
+  - [Scoring A Large Split](#scoring-a-large-split)
 - [Comparing Launches](#comparing-launches)
   - [Comparing The Best Evaluations Of Runs](#comparing-the-best-evaluations-of-runs)
   - [Drawing The Comparison Of Every Stage](#drawing-the-comparison-of-every-stage)
@@ -68,6 +69,22 @@ It writes, drawn in the Inter font of the reports when it is installed in `/usr/
 - `training_curves.png`: the balanced accuracy of the trained and averaged weights at every checkpoint evaluated during the training (`Tensorboard/Test`, `Tensorboard/Test_EMA`), the kept checkpoint ringed with its value, drawn like the `evaluation_curves.png` of a run (`save_evaluation_curves_figure` of `vision_training/evaluation/evaluation_curves.py`) without the window of the moving average.
 - `seen_and_never_seen_groups.png`, with a manifest: the balanced accuracy on the samples of the groups having at least one training sample and on those of the groups never seen, with their numbers of groups and samples. The predictions must give the confusion matrix of the evaluation exactly, and every training and evaluated sample needs its group.
 - `report_values.json`: the numbers shown, to fill the tables of the report: accuracy, balanced accuracy and recall of every class, the temperature, the written and exact threshold, recall and precision of every class at every target precision, the balanced accuracy of the kept checkpoint during the training, and the groups, classes, samples and recall of the seen, never seen and all samples.
+
+### Scoring A Large Split
+Say a rare class must be mined from a split far larger than a test split: `scripts/evaluation/score_image_split.py` scores every image of it with one checkpoint, without the metrics, error images and second weights of `evaluate_checkpoint.py`. Its settings are command line options, not variables of its main block.
+
+| Option | Meaning |
+|---|---|
+| `--experiment-folder`, `--iteration` | the run folder and the scored checkpoint |
+| `--use-averaged-weights` | scores with the moving average of the weights saved with the checkpoint, refused for a run without one |
+| `--test-data-folder` | the scored split, a `labels.json` and its `data/` folder, every image given a class of the run (a placeholder class for unlabelled images) |
+| `--output-path` | the predictions file, appended to when it exists |
+| `--precision` | `float32` (default) or `bfloat16` autocast, the precision of the training |
+| `--batch-size`, `--number-workers` | the images per forward pass (128) and the loader worker processes (12) |
+| `--time-budget-hours` | the time after which no new batch is scored, `None` (default) for none |
+| `--compare-precisions` | first scores the labelled test split of the run in both precisions and prints their time, the largest difference of probability, the number of images whose predicted class changes and the balanced accuracy of each; without `--test-data-folder` it stops there |
+
+The predictions file has the columns of the `predictions.csv` of `evaluate_checkpoint.py`, `sample` (the file name of the image relative to `data/`) and one `probability_<class>` per class written with nine significant digits, one row per image in the order of the split, written batch by batch. A launch on an existing file scores only the images it does not hold, after checking that it names the same columns and that its last row is complete: a file of other classes, a row lacking a value or a file ending without a line break, as left by an interrupted write, is refused before anything is written. The header is written only by the launch that creates the file. The trainer of the run is built on the split and writes its `training_configuration.yaml`, `label_dictionary.json`, `data.json` and `Tensorboard/` into `<run>/Checkpoint_Evaluation_split_<parent folder>_<split folder>/` (`Checkpoint_Evaluation_score_image_split_test/` for the precision comparison), so that no file of the run or of its evaluations changes.
 
 ## Comparing Launches
 To decide which setting of a stage of a hyperparameter experiment to keep, `scripts/evaluation/collect_experiment_results.py` gathers every launch of the experiment into one CSV file. Every launch trains in its own `run_<n>` folder, a repeat launch in `run_<n><letters>` (`run_23b`).

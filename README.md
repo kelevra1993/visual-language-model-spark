@@ -783,6 +783,13 @@ uv run python -m scripts.evaluation.draw_report_figures
 </p>
 <p align="center"><em>The precision-recall curves and the training curves drawn for the classifier above at iteration 2000 (test balanced accuracy 81.65 %), the curves shown for the first nine of its 35 classes (the script draws one panel per class): a dot marks the threshold reaching 99 % precision, reached by these nine and never by trapezoid, hollow parallelogram and hollow kite, at a logit temperature of 1 since no temperature was saved. The confusion matrix of the report is the one shown above; the chart of the groups needs a group manifest, which the synthetic shapes do not have.</em></p>
 
+Suppose a kept classifier must find a rare class among a million unlabelled images: `scripts/evaluation/score_image_split.py` runs only the forward pass of one checkpoint over every image of a split, decoded by many loader workers through the test dataset of the run, and writes the probability of every class to a predictions file with the columns of `predictions.csv`. It scores the images in the order of the `labels.json` of the split, stops before the next batch once `--time-budget-hours` has passed, and a new launch on the same file scores only the images it does not hold yet. Details: [tools reference](documentation/reference/tools_reference.md#scoring-a-large-split).
+
+```bash
+uv run python -m scripts.evaluation.score_image_split --experiment-folder <run> --iteration 2000 \
+    --test-data-folder <split> --output-path <predictions.csv> --precision bfloat16 --time-budget-hours 3
+```
+
 ## Comparing Launches
 After the launches of a hyperparameter stage have trained, three scripts of `scripts/evaluation/` compare them:
 - `collect_experiment_results.py` gathers the test curve and the swept settings of the `run_<n>` launches into one CSV file, with a `mean` row per setting.
