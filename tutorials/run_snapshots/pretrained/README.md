@@ -70,7 +70,7 @@ blocks of the pretrainer.
 - `SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x64`: `vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml`, `vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml`, `vision_training/configurations/sequence_comparison/configuration_synthetic_pairs.yaml`, `vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml`.
 - `SE-RES-BN-B1x32.2x32.2x32.16x32.20x32.20x32`: none, the Small ImageNet configuration having 64 filters in blocks 4 to 6.
 - `SE-RES-BN-B1x64.2x64.2x64.4x64.5x64.5x64`: `vision_training/configurations/classification/configuration_example.yaml`, `vision_training/configurations/keypoint_detection/configuration_example.yaml`, `vision_training/configurations/self_supervised/configuration_example.yaml`.
-- `SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32`: `vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml`, `vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml`, `vision_training/configurations/object_detection/run-1.yaml`, `tutorials/run_configurations/object_detection_synthetic_shapes_tutorial.yaml`.
+- `SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32`: `vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml`, `vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml`, `tutorials/run_configurations/object_detection_synthetic_shapes_tutorial.yaml`.
 
 For the keypoint configuration, both pretrainers give stems of the same quality, the higher score of the 5 blocks
 (88.77 % against 17.58 %) not carrying over to the 3 blocks the stem takes: a linear probe of their 3 blocks (a logistic
