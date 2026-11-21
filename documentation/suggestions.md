@@ -364,8 +364,8 @@ an image holds but also which ones.
 ## K. README screenshots and synthetic runs: left to redo
 The 20 images of `README/` were taken on 2026-10-23 from runs of shortened copies of the
 synthetic configurations in `experiments/readme_screenshots/` (MLflow database `mlflow.db`, console logs `<task>.log`
-kept with their colours). The helpers that made them are in `experiments/readme_screenshots/helpers/` (not
-committed): every image can be taken again from them without training, except where a new run is needed below.
+kept with their colours). The helpers that made them, kept uncommitted in `experiments/readme_screenshots/helpers/`,
+were deleted on 2026-11-22 with the rest of `experiments/`: an image taken again needs its capture written again.
 
 28. **Throughput of the inference on an idle GPU** (`README/run_inference_output.png`): it was measured while three
     other trainings shared the GPU (48.72 samples per second locally, 43.14 through Triton as TorchScript and 96.59 as
