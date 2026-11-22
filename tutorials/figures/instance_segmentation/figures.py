@@ -315,10 +315,12 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
     listings_folder = output_folder / "listings"
 
     # Console summaries of the first evaluation and of the last iteration, read from the log next to the run folder,
-    # their metric lines written again by the console tracker of the current instance segmentation trainer
+    # their metric lines written again by the console tracker of the current instance segmentation trainer, which
+    # tracks the mask IoU loss only when the run scores its masks ('MaskHead.mask_scoring')
     console_facts = {}
-    metric_tracker = build_console_metric_tracker(run_folder=run_folder,
-                                                  trainer_class=InstanceSegmentationTrainer, trainer_attributes={})
+    mask_scoring = read_run_configuration(run_folder=run_folder)["MaskHead"]["mask_scoring"]["activated"]
+    metric_tracker = build_console_metric_tracker(run_folder=run_folder, trainer_class=InstanceSegmentationTrainer,
+                                                  trainer_attributes={"mask_scoring": mask_scoring})
     for log_name, iteration in CONSOLE_SUMMARIES:
         summary_lines = write_console_summary_listing(log_path=run_folder.parent / log_name, iteration=iteration,
                                                       output_path=listings_folder / f"console_{iteration}.txt",
