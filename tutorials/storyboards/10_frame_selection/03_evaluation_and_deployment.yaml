@@ -21,6 +21,7 @@ references:
   - "vision_training/deployment/frame_selection_deployment.py · export_frame_selection_decoding"
   - "vision_training/deployment/input_contract.py · write_preprocessing_file"
   - "vision_training/deployment/export_formats.py · restore_dynamic_output_frames"
+  - "vision_training/deployment/export_size_estimates.py · estimate_export_sizes"
   - "documentation/suggestions.md"
 scenes:
   - kind: title_card
@@ -129,6 +130,9 @@ scenes:
       # which Triton refuses against the dynamic frames of config.pbtxt; restore_dynamic_output_frames of
       # vision_training/deployment/export_formats.py gives that axis the frames of the input again
       - {type: box, box: [20, 60, 300, 270], text: "ONNX network:\noutput frames\nmade dynamic\nagain at export", font: diagram_small, outline: yellow, appear: 7, highlight: [7]}
+      # The Export Sizes panel printed at launch (vision_training/deployment/export_size_estimates.py) estimates the
+      # inference model of the task, the network alone
+      - {type: box, box: [20, 635, 300, 730], text: "Export Sizes panel\nat launch: the network", font: diagram_small, outline: blue, appear: 8, highlight: [8]}
     narration:
       - "The export writes three kinds of Triton models for a frame selection run, the networks checked against the model they were exported from before they replace the served ones."
       - "frame selector Torch Script or ONNX is the network alone: images of B by T by {{frame_selection.run.input_channels:words}} by {{frame_selection.dataset.image_size}} by {{frame_selection.dataset.image_size}} in, class probabilities of B by T by {{frame_selection.dataset.class_count:words}} out, without sequence mask and without decoding."
@@ -138,6 +142,7 @@ scenes:
       - "frame selector Torch Script ensemble, or ONNX ensemble, chains the two: the model the clients query."
       - "Picture a client with mixed lengths: without a mask, the sequences of one request share their number of frames, from one to the maximum sequence length."
       - "As for the sequence labeler, the dynamo export fixes the output of the ONNX network to the traced frames, and the export makes that axis dynamic again, which Triton needs to load it and its ensemble."
+      - "The Export Sizes panel printed at the launch of the training gives the size of the files of the network alone, the decoder and the ensembles left out."
 
   - kind: code
     title: "The settings of the decoder"

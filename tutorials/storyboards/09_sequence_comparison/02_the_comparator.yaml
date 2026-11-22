@@ -19,6 +19,7 @@ references:
   - "vision_training/models/sequence/frame_encoder.py · encode_frames"
   - "vision_training/models/sequence/inference_sequence_comparator.py · InferenceSequenceComparator"
   - "vision_training/configuration_processing/run_name.py · build_sequence_comparison_sections"
+  - "vision_training/deployment/export_size_estimates.py · print_export_size_summary"
 scenes:
   - kind: title_card
     heading: "The comparator"
@@ -139,9 +140,12 @@ scenes:
       - {type: box, box: [1240, 50, 1740, 170], text: "softmax\nclass probabilities [{{sequence_comparison.run.batch_size}}, {{sequence_comparison.run.class_count}}]", font: diagram_small, outline: violet}
       - {type: bars, box: [60, 280, 1500, 600], orientation: horizontal, label_width: 360, value_width: 160, values: ["{{sequence_comparison.parameters.backbone}}", "{{sequence_comparison.parameters.temporal_module}}", "{{sequence_comparison.parameters.member_fusion}}", "{{sequence_comparison.parameters.classification_head}}"], labels: ["backbone", "temporal module", "member fusion", "head"], value_labels: ["{{sequence_comparison.parameters.backbone:,}}", "{{sequence_comparison.parameters.temporal_module:,}}", "{{sequence_comparison.parameters.member_fusion:,}}", "{{sequence_comparison.parameters.classification_head:,}}"], colours: [blue, aqua, yellow, violet], appear: 1}
       - {type: text, position: [60, 650], text: "total {{sequence_comparison.parameters.total:,}} parameters, {{sequence_comparison.parameters.total_megabytes}} MB in float32", font: diagram_bold, appear: 1}
+      # The Export Sizes panel printed at launch after the model size (vision_training/deployment/export_size_estimates.py)
+      - {type: text, position: [1720, 650], text: "Export Sizes panel at launch: every exported file, the checkpoint", font: diagram_small, colour: dim, anchor: ra, appear: 2, highlight: [2]}
     narration:
       - "The head is the one of the classifier on {{sequence_comparison.features.pair}} features: dropout, {{sequence_comparison.run.head_hidden_units}} hidden units, dropout again, and {{sequence_comparison.run.class_count_words}} logits read with a softmax."
       - "With a mean pooling and a difference fusion, only the backbone and the head have weights: {{sequence_comparison.parameters.total:,}} parameters, under one megabyte."
+      - "Right after the model size, the launch prints the Export Sizes panel: the size of every file the comparator is exported to, and of the checkpoint, before any training."
 
   - kind: html
     page: diagram

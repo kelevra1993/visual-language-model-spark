@@ -1,7 +1,8 @@
 # Sequence classification, chapter 3: the README run of the synthetic configuration against the average pooling and
 # flatten runs at 512 pixels: the console summary, the training loss, Results.txt and its Per Class Recall table, the
 # confusion matrices and ROC curves, the probabilities of the predictions file, the sample sequences, the accuracy per
-# number of frames, the export with its input settings and the pitfalls of the task. The figures are made by
+# number of frames, the export with its input settings and the Export Sizes panel of the launch, and the pitfalls of the
+# task. The figures are made by
 # tutorials/figures/sequence_classification, the evaluations read from the Checkpoint_Evaluation folder of the runs.
 series: sequence_classification
 series_title: "Sequence Classification (M2O)"
@@ -20,6 +21,7 @@ references:
   - "vision_training/deployment/export_model.py"
   - "vision_training/deployment/export_specifications.py"
   - "vision_training/deployment/input_contract.py · build_input_contract"
+  - "vision_training/deployment/export_size_estimates.py · probe_inference_graph"
   - "documentation/suggestions.md"
   - "documentation/task workflows/sequence_classification_workflow.md"
 scenes:
@@ -165,6 +167,9 @@ scenes:
       - {type: text, position: [880, 570], text: "traced on {{sequence_classification.export.example_shape}}, checked on {{sequence_classification.export.check_shape}}", font: diagram_monospace_small, colour: dim, anchor: ma, appear: 1}
       - {type: box, box: [1380, 400, 1740, 620], text: "preprocessing.json\nand ONNX metadata\n\nthe input settings\nof the run, layout NTCHW", font: diagram_small, outline: yellow, appear: 3, highlight: [3]}
       - {type: text, position: [880, 640], text: "no mask in the graph: every frame of a request is a real frame", font: diagram_bold, colour: accent, anchor: ma, appear: 4}
+      # The Export Sizes panel printed at launch (vision_training/deployment/export_size_estimates.py), whose probe
+      # counts the recurrent layer as one operator of the exported graph
+      - {type: box, box: [20, 430, 380, 700], text: "Export Sizes panel\nat launch\n\nweights, TorchScript,\nONNX, TensorRT,\ncheckpoint\nthe GRU: one operator", font: diagram_small, outline: blue, appear: 5, highlight: [5]}
     # The range of the byte values of the frames, and the single frame a request holds at least
     literal_numbers: [zero, "0", "255", "1"]
     narration:
@@ -173,6 +178,7 @@ scenes:
       - "The input normalization, the backbone, the pooling, the GRU, the head and the softmax are in the graph; the resizing stays with the client."
       - "So that a server builds these frames as the training did, the export writes their resize, colour order, padding, value range and layout, the frames after the batch, in the preprocessing file next to the model and in the ONNX metadata."
       - "Take a client batching sequences of different lengths: the export runs the path without mask, where every frame counts, so it must not pad them, or the GRU reads the black frames as frames."
+      - "The size of these files is known before the first iteration: the launch prints an Export Sizes panel, whose estimates count the GRU as one operator, the single node it becomes in the ONNX graph, whatever the number of frames."
 
   - kind: html
     page: diagram

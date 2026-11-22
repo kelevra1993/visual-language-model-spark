@@ -554,7 +554,7 @@ MetricTracker: batch_size 16, validation_iteration_ratio 25, sample_name 'Pairs'
 ```
 
 ### Step 2.21 — `print_summary()` / `print_model_size_summary()`
-The comparator adds the Member Fusion panel between the temporal module and the head panels; the size panel lists the fusion on its own line. The trainer then prints the Export Sizes panel: the parameters the forward pass of the inference model reads, then the size of the PyTorch weights, the TorchScript file, the ONNX files and the TensorRT engines the model is turned into and of the training checkpoint ([Export Sizes](../../README.md#export-sizes)).
+The comparator adds the Member Fusion panel between the temporal module and the head panels; the size panel lists the fusion on its own line. The trainer then prints the Export Sizes panel: the parameters the forward pass of the inference model reads, then the size of the PyTorch weights, the TorchScript file, the ONNX files and the TensorRT engines the model is turned into and of the training checkpoint ([Export Sizes](../../README.md#export-sizes)). Its forward pass is the one of `InferenceSequenceComparator`, which encodes every member alone: the operators of the backbone are counted once per member, as the exported graph holds them, and its weights once (the operators once too with the sequence normalization of the `pair` scope, which encodes both members together).
 
 **Example output** (shortened)
 ```text

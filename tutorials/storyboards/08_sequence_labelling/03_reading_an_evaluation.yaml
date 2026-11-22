@@ -26,6 +26,7 @@ references:
   - "documentation/architecture_benchmarking/sequence_labelling_experiment_plan.md"
   - "documentation/architecture_benchmarking/sequence_labelling_results.csv"
   - "vision_training/deployment/input_contract.py · build_input_contract"
+  - "vision_training/deployment/export_size_estimates.py · print_export_size_summary"
 scenes:
   - kind: title_card
     heading: "Reading an evaluation"
@@ -294,6 +295,7 @@ scenes:
       - "It has no sequence mask, so every sequence of one request has the same number of frames, from one to the maximum sequence length."
       - "Before serving the ONNX file, know that the dynamo export fixes its output to the frames of the trace, so the export gives that axis the frames of the input again, which Triton needs to load it."
       - "The export also writes the color order, resize, size, padding, layout and value range of the run in the preprocessing file next to the model and in the ONNX metadata, for a server to build the frames as the training did."
+      - "The size of these files, and of the checkpoint, is printed before the first iteration, in the Export Sizes panel of the launch."
 
   - kind: summary
     title: "Recap"
