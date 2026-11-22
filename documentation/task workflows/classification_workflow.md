@@ -66,6 +66,7 @@ If you are looking for the code of a step, these are the files of the task and t
 | Export sizes at launch | `vision_training/deployment/export_size_estimates.py` | `estimate_export_sizes`, `probe_inference_graph`, `print_export_size_summary` |
 | Standalone evaluation | `scripts/evaluation/evaluate_checkpoint.py`, `vision_training/evaluation/checkpoint_evaluation.py` | `evaluate_checkpoints`, `summarise_checkpoint_evaluations` |
 | Figures of a research report | `scripts/evaluation/draw_report_figures.py` | `draw_report_figures`, `read_report_thresholds`, `draw_precision_recall_figure`, `compare_seen_and_never_seen_groups` |
+| Scoring a large split | `scripts/evaluation/score_image_split.py` | `build_scoring_trainer`, `score_dataset`, `read_scored_samples`, `compare_precisions` |
 
 ### Run It
 
@@ -711,6 +712,11 @@ scripts/evaluation/draw_report_figures.py  [STEP 5.7]
     block: draws the figures of the research report of a kept checkpoint from its evaluation folder (class_logits.npz,
     confusion_matrix.csv, saved_temperature_thresholds.json, predictions.csv) and the TensorBoard Test curves of its
     training, into <evaluation folder>/Report_Figures/ with report_values.json.
+
+scripts/evaluation/score_image_split.py  [STEP 5.8]
+    Separate script with command line options (uv run python -m scripts.evaluation.score_image_split ...): scores
+    every image of a large split with one checkpoint, forward pass only, into a predictions file with the columns of
+    predictions.csv, resumed where it stopped by the next launch on the same file.
 ```
 
 ---
@@ -1087,7 +1093,7 @@ class with  722 images: 1271167 / (1000 x  722) = 1.7606     <- the largest weig
 ### Step 2.19 — `initialise_pretrained_components()`
 This is the transfer learning step. For each of the `Backbone` and `ClassificationHead` sections whose `pretrained.experiment_folder` is not `null`, it loads the trained weights of that other run into the component, and freezes it (or only the scale and shift of the normalization layers of the backbone) if asked. It raises an error if every parameter ends up frozen, since nothing would be learned. When a run resumes from its own checkpoint, the source run is not loaded again: the checkpoint already holds the components as they were trained. A backbone deeper than its source backbone (the source blocks being its first blocks) loads those blocks only, its next blocks keeping their random weights; `loaded_backbone_blocks` counts them, from the configuration of the source run for a new run and from the `pretrained_backbone_blocks` of the last checkpoint for a resumed one, and only these blocks are frozen (`get_transferred_part()`).
 
-A component is read from the averaged weights of the source checkpoint when the source run kept a moving average and this run has `Optimization.exponential_moving_average.activated`, and from its trained weights otherwise (`read_checkpoint_model_state()`), the console printing which ones. The head may also have more classes than its source run: `prepare_class_layers()` compares the class names of both runs, those of the source run read from the `classes` of its `data.json` (`read_source_class_names()`, or its `class_names` for a run written before the classes were counted): every source class must be a class of this run (`compare_class_names()`), either among its first classes in the same order or anywhere under the same name, which must name one class in each run, a missing class stopping the run. Then `extend_class_layers()` copies the rows of the source classes into the rows of their classes in the head of this run (the first rows, or those at the index of their name, as for the 1,000 ImageNet-1k classes of a source run among the classes of the merged ImageNet sorted by WordNet identifier), the other classes keeping the random rows the head was built with. The console then prints `Classes Of The Source Run Moved To The Index Of Their Name In This Run` instead of the message below.
+A component is read from the averaged weights of the source checkpoint when the source run kept a moving average and this run has `Optimization.exponential_moving_average.activated`, and from its trained weights otherwise (`read_checkpoint_model_state()`), the console printing which ones. The head may also have more classes than its source run, or the same classes in another order: `prepare_class_layers()` compares the class names of both runs, those of the source run read from the `classes` of its `data.json` (`read_source_class_names()`, or its `class_names` for a run written before the classes were counted): every source class must be a class of this run (`compare_class_names()`), either among its first classes in the same order or anywhere under the same name, which must name one class in each run. A missing source class stops the run, the error naming the first five missing classes and counting the others, and a source run whose `data.json` holds no class names (written before they were recorded) gives its classes as the first classes of this run, with a yellow warning. Then `extend_class_layers()` copies the rows of the source classes into the rows of their classes in the head of this run (the first rows, or those at the index of their name, as for the 1,000 ImageNet-1k classes of a source run among the classes of the merged ImageNet sorted by WordNet identifier), the other classes keeping the random rows the head was built with. The console then prints `Classes Of The Source Run Moved To The Index Of Their Name In This Run` instead of the message below.
 
 **Example: the head of a 9-class run initialising a run of 20 classes**
 ```text
@@ -1218,6 +1224,22 @@ iterations_per_epoch     = 4966
 │   - Trainable Parameters : 3,234,280                     │
 │   - Estimated Size       : 12.95 MB                      │
 ╰──────────────────────────────────────────────────────────╯
+```
+
+**Example output: the Export Sizes panel** (the panels above, of the ImageNet-1k file, were recorded before it existed: this one is the model of `configuration_synthetic_shapes.yaml`, 35 classes, Adam without moving average, estimated on the CPU on 2026-11-22; every parameter is exported, the classifier having no part used by the training only)
+```text
+╭────────────────────── Export Sizes ──────────────────────╮
+│ Exported Parameters : 4,637,571 of 4,637,571             │
+│                                                          │
+│    Format                            Size  Method        │
+│    PyTorch FP32 Weights          18.60 MB  ± 1 %         │
+│    PyTorch FP16 Weights           9.32 MB  ± 1 %         │
+│    TorchScript                   18.74 MB  traced        │
+│    ONNX                          18.58 MB  ± 3 %         │
+│    TensorRT FP32 Engine  19.06 - 19.31 MB  range         │
+│    TensorRT FP16 Engine   9.78 - 10.04 MB  range         │
+│    Training Checkpoint           55.76 MB  ± 1 %         │
+╰────────────────────── 0.2 seconds ───────────────────────╯
 ```
 
 ### Step 2.25 — `view_input_batches()`
@@ -2093,3 +2115,11 @@ CLS_IN-KAR-64_..._MC9/Checkpoint_Evaluation/
 
 ### Step 5.7 — `scripts/evaluation/draw_report_figures.py`
 Should a research report of a kept classifier need its figures again, after a new evaluation of its checkpoint or a new temperature saved on its page, this separate script (`uv run python -m scripts.evaluation.draw_report_figures`, its settings in its `__main__` block, listed in the tools reference under Drawing The Figures Of A Research Report) draws them from the run folder into `Report_Figures/` of the evaluation folder of the kept iteration and weights, `<run>/Checkpoint_Evaluation/Iteration_<n>[/EMA]/` by default (`evaluation_folder_name`, `Evaluation` for the evaluation of the training). `draw_report_figures()` reads and checks every input before the first figure is drawn, so that a wrong one stops it without writing anything: the logits of the evaluation (`class_logits.npz`, one class per sample only), its `confusion_matrix.csv` with the same classes, the thresholds (`read_report_thresholds()`: those of `saved_temperature_thresholds.json`, which must be exactly the ones found again from the logits at its temperature, or without that file the thresholds at a temperature of 1, with a yellow warning) and the balanced accuracy of the trained and EMA weights at every checkpoint evaluated during the training (`Tensorboard/Test` and `Tensorboard/Test_EMA` of the run). It then writes `confusion_matrix.png` (drawn by `save_confusion_matrix_image()`, the accuracy and the balanced accuracy in percent in its title), `precision_recall_curves.png` (`draw_precision_recall_figure()`, the curves at the temperature of the thresholds with the threshold of every target precision), `training_curves.png` (the kept checkpoint ringed) and `report_values.json`, every number the figures show. Given a JSON Lines manifest of the group of every sample (`group_manifest_path`, e.g. the truck of every image), it also reads the `predictions.csv` of the evaluation (`save_predictions`, Step 5.1) and the `labels.json` of the training split, and draws `seen_and_never_seen_groups.png`, the balanced accuracy on the groups seen in training and on those never seen (`compare_seen_and_never_seen_groups()`).
+
+### Step 5.8 — `scripts/evaluation/score_image_split.py`
+In case a kept classifier must find the images of a rare class among a million unlabelled ones, this separate script scores every image of a split with one checkpoint, without the metrics, the error images and the second weights of `evaluate_checkpoint.py`. Its settings are command line options ([tools reference, Scoring A Large Split](../reference/tools_reference.md#scoring-a-large-split)): it runs only the forward pass of the trained weights, or of their moving average (`--use-averaged-weights`), in `float32` or in `bfloat16` autocast (`--precision`, `--compare-precisions` first comparing both on the labelled test split of the run), the images being decoded by many loader workers through the test dataset of the run, in the order of the `labels.json` of the split. Batch by batch, it appends to the file of `--output-path` the `sample` and `probability_<class>` columns of `predictions.csv` (Step 4.16), so that a launch stopped by `--time-budget-hours` or interrupted resumes on the same file with the images it does not hold yet. The trainer it builds on the split writes its copy of the configuration, `label_dictionary.json`, `data.json` and `Tensorboard/` into `<run>/Checkpoint_Evaluation_split_<parent folder>_<split folder>/`, so that no file of the run or of its evaluations changes.
+
+```bash
+uv run python -m scripts.evaluation.score_image_split --experiment-folder <run> --iteration 2000 \
+    --test-data-folder <split> --output-path <predictions.csv> --precision bfloat16 --time-budget-hours 3
+```

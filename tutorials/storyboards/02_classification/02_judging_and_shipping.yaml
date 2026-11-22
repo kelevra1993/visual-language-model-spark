@@ -1,11 +1,12 @@
 # Image classification, chapter 2: judging and shipping a classifier: the evaluation settings, the report block of
 # Results.txt, the confusion matrices of the three evaluations (and the non-zero cells kept above 1,000 classes), the
 # per-class F1 and the thresholds at the target precision, the precision-recall curves, the probabilities of
-# predictions.csv, the logit temperature and its explorer page, served to save the thresholds of a temperature and
-# export the checkpoint at it, the figures of a research report redrawn by draw_report_figures.py (the groups chart left
-# out: it needs a manifest of the group of every image), the sample and error images, the measured effects of the head
-# settings in the architecture benchmark, the pitfalls and the export with its temperature, its thresholds, its export
-# folder and its input settings. Coordinates of the html scenes are in pixels of the content area (1760 x 740, origin at
+# predictions.csv (and those of a large split written by score_image_split.py), the logit temperature and its explorer
+# page, served to save the thresholds of a temperature and export the checkpoint at it, the figures of a research
+# report redrawn by draw_report_figures.py (the groups chart left out: it needs a manifest of the group of every
+# image), the sample and error images, the measured effects of the head settings in the architecture benchmark, the
+# pitfalls and the export with its temperature, its thresholds, its export folder, its input settings and the Export
+# Sizes panel of the launch. Coordinates of the html scenes are in pixels of the content area (1760 x 740, origin at
 # its top left corner); the figures and facts named classification.* are made by tutorials/figures/classification from
 # the synthetic shapes run of tutorial_sources.yaml (35 classes, evaluated at 500, 1000, 1500 and 2000), the classes
 # named by their role (the worst F1, the largest confusions, the weakest recalls), and the images under runs: are the
@@ -31,9 +32,11 @@ references:
   - "vision_training/deployment/export_model.py · check_saved_thresholds_location"
   - "vision_training/deployment/export_model.py · find_saved_thresholds_path"
   - "vision_training/deployment/input_contract.py · write_preprocessing_file"
+  - "vision_training/deployment/export_size_estimates.py · print_export_size_summary"
   - "scripts/evaluation/serve_temperature_explorer.py"
   - "vision_training/deployment/export_specifications.py · TASK_MODEL_NAMES"
   - "scripts/evaluation/evaluate_checkpoint.py"
+  - "scripts/evaluation/score_image_split.py"
   - "documentation/suggestions.md"
   - "documentation/task workflows/classification_workflow.md"
 scenes:
@@ -118,7 +121,7 @@ scenes:
       - "At iteration {{classification.confusion.iterations[1]}}, the accuracy reaches {{classification.headline.iteration_1000.accuracy:percent}}, but {{classification.confusion.weakest_1.class_name}} is found {{classification.confusion.weakest_1.iteration_1000.recall:percent}} of the time, {{classification.confusion.weakest_2.class_name}} {{classification.confusion.weakest_2.iteration_1000.recall:percent}} and {{classification.confusion.weakest_3.class_name}} {{classification.confusion.weakest_3.iteration_1000.recall:percent}}."
       - "At iteration {{classification.confusion.iterations[2]}}, the accuracy reaches {{classification.headline.iteration_2000.accuracy:percent}}, and the largest errors left are pairs of close quadrilateral outlines: {{classification.confusion.pair_1.iteration_2000.count:,}} images of {{classification.confusion.pair_1.true_class}} taken for {{classification.confusion.pair_1.predicted_class}}, {{classification.confusion.pair_1.iteration_2000.share:percent}} of them, and {{classification.confusion.pair_2.iteration_2000.count:,}} of {{classification.confusion.pair_2.true_class}} for {{classification.confusion.pair_2.predicted_class}}."
       - "{{classification.confusion.pair_3.iteration_2000.count:,}} images of {{classification.confusion.pair_3.true_class}} go to {{classification.confusion.pair_3.predicted_class}}, and {{classification.confusion.most_taking.class_name}} takes {{classification.confusion.most_taking.wrong_count:,}} images of other classes, finding {{classification.confusion.most_taking.recall:percent}} of its own at a precision of only {{classification.confusion.most_taking.precision:percent}}."
-      - "Should a data set hold more than {{constant:vision_training/evaluation/classification/classification_metrics.py#MAXIMUM_DENSE_CONFUSION_CLASSES:,}} classes, the evaluation keeps only the non-zero cells, in confusion cells csv, with the same metrics and no image."
+      - "Above {{constant:vision_training/evaluation/classification/classification_metrics.py#MAXIMUM_DENSE_CONFUSION_CLASSES:,}} classes, the evaluation keeps only the non-zero cells, in confusion cells csv, with the same metrics and no image."
 
   - kind: image
     title: "The confusion matrix image"
@@ -198,6 +201,7 @@ scenes:
       - "When the goal is to study the errors and the thresholds again without running the model, the predictions file holds one row per test image, {{classification.confidence.test_images:,}} here, with the probability of every class."
       - "For the {{classification.confidence.wrong_count:,}} wrong predictions, the probability of the predicted class has a median of {{classification.confidence.wrong_median:.2f}}, and only {{classification.confidence.wrong_confident_count}} of them pass {{classification.confidence.confident_probability}}, where {{classification.confidence.correct_confident_share:percent}} of the right ones do."
       - "The test images of {{classification.confidence.pair_true_class}} show the largest confusion at work: {{classification.confidence.pair_predicted_class}} takes the probability {{classification.confidence.pair_true_class}} loses, and {{classification.confidence.pair_wrong:,}} of the {{classification.confidence.pair_images:,}} images tip over, {{classification.confidence.pair_wrong_to_predicted:,}} of them to {{classification.confidence.pair_predicted_class}}."
+      - "For a split far larger than a test split, such as images mined for a rare class, the score image split script writes the same probability columns with one checkpoint and the forward pass only, resuming where it stopped."
 
   - kind: html
     page: diagram
@@ -340,6 +344,7 @@ scenes:
       - {type: arrow, points: [[1290, 338], [1290, 402]], appear: 2}
       - {type: box, box: [1080, 410, 1740, 600], text: "saved_temperature_thresholds.json\nof the exported checkpoint: its T built in,\ncopied next to the model as class_thresholds.json\nuse_saved_temperature off: T = 1, no thresholds", font: diagram_small, outline: yellow, appear: 2, highlight: [2, 4, 5]}
       - {type: box, box: [20, 625, 1740, 725], text: "preprocessing.json next to the model, and the metadata of the ONNX model: colour order · resize · size\ninterpolation · padding value and placement · layout · value range, read from the run and its data loaders", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
+      - {type: box, box: [20, 345, 1000, 405], text: "at launch: the Export Sizes panel estimates every file", font: diagram_small, outline: magenta, appear: 6, highlight: [6]}
     narration:
       - "The export wraps the classifier in the inference classifier, which takes float BGR images from zero to 255, resized and padded to {{classification.head.image_size}} pixels like the training, and returns the class probabilities only."
       - "So that a server builds these inputs as the training did, the export also writes their colour order, resize, size, interpolation, padding, layout and value range in the preprocessing file next to the model and in the ONNX metadata."
@@ -347,6 +352,7 @@ scenes:
       - "Exported from that page, every checkpoint, weights and temperature gets its own Triton repository in the Exports folder of the run, with the record and the console output of the export."
       - "Faced with several evaluated checkpoints, the export only accepts the thresholds saved on the evaluation of the exported iteration and weights, in the evaluation folder of the training or the checkpoint evaluation folder, never in both."
       - "Run from export model with use saved temperature off, it keeps a temperature of one and copies no thresholds."
+      - "Long before any export, the launch of every training prints the Export Sizes panel after the Model Size panel: the estimated size of the PyTorch weights, the TorchScript and ONNX files, the TensorRT engines and the checkpoint."
 
   - kind: summary
     title: "Recap"
