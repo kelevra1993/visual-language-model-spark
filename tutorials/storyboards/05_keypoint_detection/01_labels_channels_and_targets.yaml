@@ -88,7 +88,7 @@ scenes:
       - "The synthetic images put a textured background behind {{constant:vision_training/data/synthetic/create_synthetic_dataset.py#TEXTURED_BACKGROUND_PROBABILITY:percent_label}} of them, and their shapes can be cut by the border or partly hidden by others."
       - "The {{keypoint_detection.single_unlabelled_keypoint_label}} key point of this {{keypoint_detection.single_class_label}} lies outside the image, so its x, y and visibility are all zero: it is not labelled."
       - "Suppose the data set holds objects without key points, like the {{keypoint_detection.labels_distractor_name}}, one of {{keypoint_detection.labels_distractor_count:words}} distractors: left out of the label mapping, its objects are not loaded, and the heat maps learn to stay silent on them."
-      - "An object without any labelled key point is dropped the same way; for the COCO crowds, ignore unlabelled objects also leaves their pixels out of the heat map loss."
+      - "An object without any labelled key point is dropped from the targets the same way, and ignored by the evaluation; for the COCO crowds, ignore unlabelled objects also leaves their pixels out of the heat map loss."
 
   - kind: html
     page: 05_keypoint_detection/channel_table
