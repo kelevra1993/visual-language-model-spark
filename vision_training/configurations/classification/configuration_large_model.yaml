@@ -6,7 +6,7 @@ ExperimentConfiguration:
   task: "classification"
   # Root of the runs, a subfolder per model, data and optimizer settings (run_name.py), resumed if equal; augmentation,
   # batch size, learning rate, schedule, dropout can change on resume.
-  experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments"
+  experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/imagenet_experiments/large"
   # Last run name section, e.g. "v1" giving <run name>_v1, to start a new folder for the same settings with another
   # batch size, augmentation or learning rate. Letters, digits, '-' and '.', null for none.
   run_name_suffix: null
