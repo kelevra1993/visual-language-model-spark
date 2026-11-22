@@ -124,8 +124,9 @@ class ExportGraphProbe(TorchDispatchMode):
     tensor computed from the inputs is marked by INPUT_DEPENDENCE_ATTRIBUTE, the inputs being marked before the pass.
     The memory read is measured per storage as the union of the byte ranges of the tensors read, so that a weight read
     through several views (transposed, expanded over the batch, flattened by a recurrent layer) counts once. A recurrent
-    layer, run as many operators on the CPU but exported as one node, counts as one weighted operator (its forward
-    hooks set recurrent_depth).
+    module, run as many operators on the CPU but exported as one node per stacked layer (a two-layer LSTM gives two
+    LSTM nodes, each holding both directions), counts as one weighted operator per layer (its forward hooks set
+    recurrent_depth).
     """
 
     def __init__(self) -> None:
@@ -203,15 +204,15 @@ class ExportGraphProbe(TorchDispatchMode):
 
     def enter_recurrent_layer(self, module: nn.Module, arguments: Tuple) -> None:
         """
-        Forward pre-hook of the recurrent layers: the layer counts as one weighted operator, the operators it runs
-        being left out of the count until it returns.
+        Forward pre-hook of the recurrent modules: the module counts as one weighted operator per stacked layer, the
+        ONNX node of each layer, the operators it runs being left out of the count until it returns.
 
         Args:
-            module (nn.Module): The recurrent layer.
+            module (nn.Module): The recurrent module (nn.RNNBase), with its 'num_layers'.
             arguments (Tuple): Its positional arguments, unused.
         """
         if self.recurrent_depth == 0:
-            self.weighted_operators += 1
+            self.weighted_operators += module.num_layers
         self.recurrent_depth += 1
 
     def leave_recurrent_layer(self, module: nn.Module, arguments: Tuple, outputs: Any) -> None:
@@ -507,7 +508,8 @@ def estimate_export_sizes(task: str, model: nn.Module, optimizer: torch.optim.Op
             {"label": "Training Checkpoint", "lowest_bytes": checkpoint_bytes, "highest_bytes": checkpoint_bytes,
              "method": format_margin(margin=CHECKPOINT_MARGIN)}]
 
-    # Parameters the forward pass reads, those of the training-only parts (projectors of the views) staying out
+    # Parameters the forward pass reads, those of the training-only parts (the projection head of a self-supervised
+    # encoder) staying out
     exported_parameters = (sum(parameter.numel() for parameter in model.parameters()
                                if parameter.untyped_storage().data_ptr() in probe["constant_storages"])
                            if probe is not None else 0)

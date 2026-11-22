@@ -2,7 +2,7 @@
 Tests of vision_training/deployment/export_size_estimates.py, the Export Sizes panel printed at the launch of every
 training of a task Triton serves: the probe of the forward pass counts once the memory of the weights it reads through
 several views, counts the constants it computes and leaves out the weights it never reads, counts a recurrent layer as
-one operator whatever the number of frames; the state dictionary and checkpoint formulas stay within their margins of
+one operator whatever the number of frames, and a stacked recurrent module as one operator per layer; the state dictionary and checkpoint formulas stay within their margins of
 the files torch.save and save_checkpoint write; the estimates of a classifier give the size of its TorchScript file
 (up to the numbering of its classes by TorchScript) and the size of its ONNX files within their margin, and leave the
 training modes and the random stream of the training as they were; the model of every task Triton serves is probed
@@ -71,15 +71,20 @@ class ProbedModule(nn.Module):
 
 class RecurrentModule(nn.Module):
     """
-    Module of the recurrent probe test: a bidirectional GRU over sequences of features, summed over the frames.
+    Module of the recurrent probe tests: a bidirectional GRU of one or more stacked layers over sequences of features,
+    summed over the frames.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, number_layers: int = 1) -> None:
         """
-        Builds the recurrent layer.
+        Builds the recurrent layers.
+
+        Args:
+            number_layers (int): The stacked layers of the GRU, each exported as one ONNX node.
         """
         super().__init__()
-        self.recurrent = nn.GRU(input_size=4, hidden_size=6, batch_first=True, bidirectional=True)
+        self.recurrent = nn.GRU(input_size=4, hidden_size=6, num_layers=number_layers, batch_first=True,
+                                bidirectional=True)
 
     def forward(self, sequences: torch.Tensor) -> torch.Tensor:
         """
@@ -162,6 +167,19 @@ def test_probe_counts_a_recurrent_layer_as_one_operator() -> None:
         assert weight_bytes < probe["constant_bytes"] < 1.2 * weight_bytes
     assert probes[0]["constant_bytes"] == probes[1]["constant_bytes"]
     assert probes[0]["other_operators"] == probes[1]["other_operators"]
+
+
+def test_probe_counts_one_operator_per_stacked_recurrent_layer() -> None:
+    """
+    Verifies that a GRU of three stacked layers counts as three weighted operators, the ONNX export writing one GRU
+    node per layer (two LSTM nodes in model.onnx of the two-layer sequence labelling tutorial run), with the weights of
+    every layer read.
+    """
+    module = RecurrentModule(number_layers=3).eval()
+    probe = probe_inference_graph(inference_model=module, inputs={"sequences": torch.rand(1, 5, 4)})
+    assert probe["weighted_operators"] == 3
+    assert all(parameter.untyped_storage().data_ptr() in probe["constant_storages"]
+               for parameter in module.parameters())
 
 
 def test_range_union_counts_overlapping_reads_once() -> None:
