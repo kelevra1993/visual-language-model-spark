@@ -37,7 +37,7 @@ class CocoSplitTrainer(BaseTrainer):
         """
         Gives the class names taken from the test manifest by read_test_manifest, the background first, for the record
         of the data of the run and the transfer of the heads (detection, mask or keypoint heads) to a run adding
-        classes after them.
+        classes after them or holding them at other indices under the same names.
 
         Returns:
             Optional[List[str]]: The class names, in class index order.

@@ -4,9 +4,9 @@ Record of the data a run is trained on: the 'data.json' file the base trainer wr
 manifest categories mapped to it, the names of their keypoints for the keypoint detection, and its number of images
 (or annotations, sequences, frames, pairs) in every split, and, for every split (train, validation, test), its data
 folder, the SHA-256 of its 'labels.json' and the list of its images, so that the classes and the images a model was
-trained and evaluated on stay known when the data folders change, that a run adding classes after those of its source
-run can check that the source classes come first and that a keypoint head only initialises a run predicting the same
-keypoints on the same channels (model_transfer.py). The images are read from the four manifest formats of the
+trained and evaluated on stay known when the data folders change, that a run adding classes to those of its source
+run can find every source class, first or under its name, and that a keypoint head only initialises a run predicting
+the same keypoints on the same channels (model_transfer.py). The images are read from the four manifest formats of the
 framework: the COCO 'images' of the detection tasks, the 'samples' of the classification and semantic segmentation,
 the frames of the 'sequences' of the sequence tasks and the frames of both members of the 'pairs' of the sequence
 comparison. A resumed run compares its data with the saved record (BaseTrainer.save_data_record) and keeps the
@@ -28,7 +28,7 @@ DATA_RECORD_FILE_NAME = "data.json"
 
 # Entry of the record listing the classes of the run in class index order (background first for the detection and
 # segmentation tasks), with their names read by the transfer of the class layers to a run adding classes after those
-# of its source run
+# of its source run or holding them at other indices
 CLASSES_RECORD_KEY = "classes"
 
 # Entry of the records written before the classes were counted, holding only their names, still read from a source run
