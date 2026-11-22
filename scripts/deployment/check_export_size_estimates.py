@@ -26,6 +26,7 @@ import torch
 
 from pathlib import Path
 from torch import nn
+from tritonclient.utils import InferenceServerException
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from scripts.deployment.benchmark_serving_formats import (load_served_model, start_triton_server, stop_triton_server,
@@ -71,7 +72,8 @@ MAXIMUM_REQUEST_BYTES = 1_000_000_000
 
 # Columns of export_size_check.csv: the run, the time of the estimates, the forward pass of the probe, then the
 # estimated and real size of every format, in bytes, with the seconds of the first requests building the TensorRT
-# engines and whether the engines carry the cache prefix of the model (empty when not measured)
+# engines, whether the engines carry the cache prefix of the model and the error of a model Triton failed to serve
+# (empty when not measured)
 RESULT_COLUMNS = ["run", "task", "device", "estimate_seconds", "total_parameters", "exported_parameters",
                   "state_dictionary_tensors", "state_dictionary_key_characters", "constant_bytes",
                   "batch_normalization_bytes", "weighted_operators", "other_operators",
@@ -80,7 +82,8 @@ RESULT_COLUMNS = ["run", "task", "device", "estimate_seconds", "total_parameters
                   "checkpoint_estimated", "checkpoint_real", "tensorrt_fp32_lowest", "tensorrt_fp32_highest",
                   "tensorrt_fp32_real", "tensorrt_fp32_build_seconds", "tensorrt_fp32_named_after_prefix",
                   "tensorrt_fp16_lowest", "tensorrt_fp16_highest", "tensorrt_fp16_real",
-                  "tensorrt_fp16_build_seconds", "tensorrt_fp16_named_after_prefix", "tensorrt_largest_batch"]
+                  "tensorrt_fp16_build_seconds", "tensorrt_fp16_named_after_prefix", "tensorrt_largest_batch",
+                  "tensorrt_fp32_error", "tensorrt_fp16_error"]
 
 # Rows of the printed report: the label, the estimated and real columns (a range for TensorRT)
 REPORT_FORMATS = [("PyTorch FP32 Weights", ["pytorch_fp32_estimated"], "pytorch_fp32_real"),
@@ -188,7 +191,7 @@ def check_run(experiment_folder: Path, device: torch.device, output_folder: Path
               "tensorrt_fp32_real": None, "tensorrt_fp32_build_seconds": None,
               "tensorrt_fp32_named_after_prefix": None, "tensorrt_fp16_real": None,
               "tensorrt_fp16_build_seconds": None, "tensorrt_fp16_named_after_prefix": None,
-              "tensorrt_largest_batch": None}
+              "tensorrt_largest_batch": None, "tensorrt_fp32_error": None, "tensorrt_fp16_error": None}
     result.update(measure_saved_state_dictionaries(state_dictionary=state_dictionary, output_folder=output_folder))
 
     # ONNX files of the export, traced on the example batch of the export
@@ -303,6 +306,32 @@ def read_engine_cache_prefix(model_directory: Path) -> str:
     raise ValueError(f"No trt_engine_cache_prefix in {model_directory / 'config.pbtxt'}.")
 
 
+def serve_model_for_engines(model_name: str, request: Dict[str, np.ndarray], batch_sizes: List[int]
+                            ) -> Tuple[Optional[Dict[int, float]], Optional[str]]:
+    """
+    Loads one model into the running Triton server, sends its first requests, which make ONNX Runtime build the
+    TensorRT engines, and unloads it, for measure_tensorrt_engines. A request or load that fails, the server crashing
+    included (the keypoint detector of the tutorials crashes Triton 26.01 at its first TensorRT request), is returned
+    as its error instead of stopping the check, so that the engines of the other models are still measured.
+
+    Args:
+        model_name (str): The Triton model name.
+        request (Dict[str, np.ndarray]): The batch-1 request, keyed by input name.
+        batch_sizes (List[int]): The batch sizes of the first requests, in the order sent.
+
+    Returns:
+        Tuple[Optional[Dict[int, float]], Optional[str]]: The seconds of the first request of every batch size and
+            None, or None and the error of the server.
+    """
+    try:
+        load_served_model(model_name=model_name, configuration=None)
+        first_request_seconds = time_first_requests(model_name=model_name, request=request, batch_sizes=batch_sizes)
+        unload_served_model(model_name=model_name)
+    except InferenceServerException as error:
+        return None, f"{error}".splitlines()[0]
+    return first_request_seconds, None
+
+
 def measure_tensorrt_engines(results: List[Dict[str, Any]], experiment_folders: List[Path],
                              output_folder: Path) -> None:
     """
@@ -311,7 +340,8 @@ def measure_tensorrt_engines(results: List[Dict[str, Any]], experiment_folders: 
     precision, one server on the repository of build_tensorrt_repository with an empty engine cache, every model loaded
     alone and sent a random request at batch 1 then at the largest batch up to EXPORT_MAXIMUM_BATCH_SIZE whose request
     stays below MAXIMUM_REQUEST_BYTES (ONNX Runtime building its engines at the first request and again for a larger
-    batch), then unloaded.
+    batch), then unloaded. A model whose requests fail gets its error in red and in the results, the engines it wrote
+    before failing measured, and the server is started again for the next models with the log of the failure kept.
 
     Args:
         results (List[Dict[str, Any]]): The lines of the runs, from check_run, completed in place.
@@ -319,9 +349,10 @@ def measure_tensorrt_engines(results: List[Dict[str, Any]], experiment_folders: 
         output_folder (Path): The folder of every output of the check.
     """
     for tensorrt_precision in ["FP32", "FP16"]:
+        precision_name = tensorrt_precision.lower()
         repository = build_tensorrt_repository(results=results, experiment_folders=experiment_folders,
                                                output_folder=output_folder, tensorrt_precision=tensorrt_precision)
-        engine_cache_folder = output_folder / f"tensorrt_engine_cache_{tensorrt_precision.lower()}"
+        engine_cache_folder = output_folder / f"tensorrt_engine_cache_{precision_name}"
         shutil.rmtree(path=engine_cache_folder, ignore_errors=True)
         start_triton_server(repository=repository, engine_cache_folder=engine_cache_folder, environment={})
         try:
@@ -335,26 +366,35 @@ def measure_tensorrt_engines(results: List[Dict[str, Any]], experiment_folders: 
                     device=torch.device("cpu"), generator=torch.Generator().manual_seed(0)).items()}
                 largest_batch = min(EXPORT_MAXIMUM_BATCH_SIZE, max(1, MAXIMUM_REQUEST_BYTES // sum(
                     array.nbytes for array in request.values())))
+                result["tensorrt_largest_batch"] = largest_batch
                 # Engines of the model: the files it adds to the cache while it is served alone
                 engines_before = set(engine_cache_folder.glob("*.engine"))
-                load_served_model(model_name=model_name, configuration=None)
-                first_request_seconds = time_first_requests(model_name=model_name, request=request,
-                                                            batch_sizes=sorted({1, largest_batch}))
-                unload_served_model(model_name=model_name)
-                result["tensorrt_largest_batch"] = largest_batch
+                first_request_seconds, error_text = serve_model_for_engines(
+                    model_name=model_name, request=request, batch_sizes=sorted({1, largest_batch}))
+                result[f"tensorrt_{precision_name}_error"] = error_text
+                if first_request_seconds is not None:
+                    result[f"tensorrt_{precision_name}_build_seconds"] = round(sum(first_request_seconds.values()), 2)
+                    print("    first requests: " + ", ".join(f"batch {batch_size} {seconds:.1f} seconds"
+                                                              for batch_size, seconds in first_request_seconds.items()))
+                else:
+                    # Failure log kept and a new server, on the same engine cache, for the next models
+                    print_color(color="red", output=f"Serving {model_name} with TensorRT {tensorrt_precision} failed: "
+                                                    f"{error_text}", indent=2)
+                    stop_triton_server(log_path=output_folder / f"triton_{precision_name}_{model_name}_failure.log")
+                    start_triton_server(repository=repository, engine_cache_folder=engine_cache_folder,
+                                        environment={})
+                    if not set(engine_cache_folder.glob("*.engine")) - engines_before:
+                        continue
                 engine_bytes, named_after_prefix = measure_new_engines(
                     engine_cache_folder=engine_cache_folder, engines_before=engines_before,
                     engine_cache_prefix=read_engine_cache_prefix(model_directory=repository / model_name))
-                precision_name = tensorrt_precision.lower()
                 result.update({f"tensorrt_{precision_name}_real": engine_bytes,
-                               f"tensorrt_{precision_name}_build_seconds": round(sum(first_request_seconds.values()),
-                                                                                 2),
                                f"tensorrt_{precision_name}_named_after_prefix": named_after_prefix})
                 if not named_after_prefix:
                     print_color(color="red", output=f"The engines of {model_name} do not start with the "
                                                     f"trt_engine_cache_prefix of its config.pbtxt", indent=2)
         finally:
-            stop_triton_server(log_path=output_folder / f"triton_{tensorrt_precision.lower()}.log")
+            stop_triton_server(log_path=output_folder / f"triton_{precision_name}.log")
 
 
 def compute_relative_error(estimated_bytes: Optional[int], real_bytes: Optional[int]) -> Optional[float]:
@@ -399,8 +439,11 @@ def print_check_report(results: List[Dict[str, Any]]) -> None:
             real_text = f"{real_bytes:,}" if real_bytes is not None else "-"
             print(f"  {label:<22}{estimate_text:>27}  {real_text:>12}  {error_text}")
 
-        # Time of the engine builds and naming of the engines, once they were built
+        # Time of the engine builds and naming of the engines, once they were built, or the failure of the server
         for precision_name in ["fp32", "fp16"]:
+            if result[f"tensorrt_{precision_name}_error"] is not None:
+                print_color(color="red", output=f"TensorRT {precision_name.upper()} serving failed: "
+                                                f"{result[f'tensorrt_{precision_name}_error']}", indent=1)
             if result[f"tensorrt_{precision_name}_build_seconds"] is not None:
                 print(f"  TensorRT {precision_name.upper()} engines built in "
                       f"{result[f'tensorrt_{precision_name}_build_seconds']:.1f} seconds (batch 1 then "
@@ -413,7 +456,8 @@ def fit_calibration(results: List[Dict[str, Any]]) -> None:
     Prints the constants of export_size_estimates.py fitted on the runs next to their current values, and the largest
     errors of the current estimates, the margins of the panel: the bytes per tensor of a state dictionary, the bytes of
     the ONNX graph per operator, and, once engines were built, the TensorRT bytes per weighted and other operator by
-    least squares on the overhead of every engine (its size less its weights in its precision).
+    least squares on the overhead of every engine (its size less its weights in its precision), the engines of a
+    model Triton failed to serve left out (built for its first request only).
 
     Args:
         results (List[Dict[str, Any]]): The lines of the runs.
@@ -439,7 +483,8 @@ def fit_calibration(results: List[Dict[str, Any]]) -> None:
     for result in results:
         folded_bytes = result["constant_bytes"] - result["batch_normalization_bytes"] * 3 // 4
         for precision_name, bytes_per_value in [("fp32", 4), ("fp16", 2)]:
-            if result[f"tensorrt_{precision_name}_real"] is not None:
+            served = result[f"tensorrt_{precision_name}_error"] is None
+            if result[f"tensorrt_{precision_name}_real"] is not None and served:
                 overhead_rows.append([result["weighted_operators"], result["other_operators"]])
                 overhead_bytes.append(result[f"tensorrt_{precision_name}_real"] - folded_bytes * bytes_per_value // 4)
     if len(overhead_rows) >= 2:
