@@ -1,7 +1,5 @@
-# Tutorial object_detection run (tutorial_sources.yaml): object_detection/configuration_synthetic_shapes.yaml with a
-# level 4 and a 384 pixel scale on level 7, tested on test_5000 every 1000 of 8000 iterations, in ~/Data/tutorial_runs.
-# Synthetic shapes dataset (create_synthetic_dataset.py "instance_segmentation", boxes of the visible parts), 5 to 6
-# shapes per image, 16 pixels to 80% of the side, mostly hidden ones unlabelled; the 35 SHAPE_CATEGORIES classes.
+# Tutorial DET run (tutorial_sources.yaml): the synthetic shapes configuration plus a level 4 and a 384 pixel scale
+# on level 7, 8000 iterations tested on test_5000 every 1000, in ~/Data/tutorial_runs; 35 shape classes.
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "object_detection": two-stage detector; needs RegionProposal,
   # DetectionLevels and Detector. Labels: COCO annotations with a 'bbox' per object.

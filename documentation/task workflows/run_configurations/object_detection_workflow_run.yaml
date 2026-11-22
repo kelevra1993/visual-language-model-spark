@@ -1,6 +1,5 @@
-# Run of documentation/task workflows/object_detection_workflow.md (trained 2026-10-24, 5000 iterations), a copy of
-# object_detection/configuration_synthetic_shapes.yaml as it was then (joint proposals, greedy NMS, learning rate 2e-4,
-# background minimum 0.0, no neck) in workflow_runs.
+# Run of object_detection_workflow.md (2026-10-24, 5000 iterations, in workflow_runs): the synthetic shapes
+# configuration of then, joint proposals, greedy NMS, learning rate 2e-4, background minimum 0.0, no neck.
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "object_detection": two-stage detector; needs RegionProposal,
   # DetectionLevels and Detector. Labels: COCO annotations with a 'bbox' per object.
