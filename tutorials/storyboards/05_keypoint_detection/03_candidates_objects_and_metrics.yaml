@@ -168,6 +168,8 @@ scenes:
       - "From iteration {{keypoint_detection.metrics_first_iteration}} to {{keypoint_detection.checkpoint_iteration}}, the OKS mean average precision at 0.5 rises from {{keypoint_detection.metrics_trained_2000_map_0_5:percent}} to {{keypoint_detection.metrics_trained_6000_map_0_5:percent}}, and the strict one at 0.95 from {{keypoint_detection.metrics_trained_2000_map_0_95:percent}} to {{keypoint_detection.metrics_trained_6000_map_0_95:percent}}."
       - "At iteration {{keypoint_detection.metrics_first_iteration}} the averaged weights are well ahead, {{keypoint_detection.metrics_ema_2000_map_0_95:percent}} at 0.95; by {{keypoint_detection.checkpoint_iteration}} they reach {{keypoint_detection.metrics_ema_6000_map_0_95:percent}}, against {{keypoint_detection.metrics_trained_6000_map_0_95:percent}} for the trained weights."
       - "A ground truth counts as matched only by an object reaching an OKS of {{constant:vision_training/evaluation/keypoints/object_keypoint_similarity.py#MINIMUM_MATCH_SIMILARITY}}: {{keypoint_detection.metrics_trained_6000_matched:percent}} at iteration {{keypoint_detection.checkpoint_iteration}}, the mean error of {{keypoint_detection.metrics_trained_6000_error:.1f}} pixels coming from these matches only."
+      - "Should a test set hold objects without any labelled key point, like the COCO crowds, the evaluation ignores them, as the official COCO evaluation does."
+      - "An object found on one of them, and on no labelled object, counts neither as a true nor as a false positive; the test images of this run hold none."
 
   - kind: image
     title: "Worst classes and key points"
@@ -190,13 +192,14 @@ scenes:
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml\""}
       - {role: comment, text: "# Evaluation of checkpoints: run and iteration set in its main block"}
       - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
-      - {role: comment, text: "# Export to Torch Script and ONNX: needs CUDA"}
+      - {role: comment, text: "# Export to Torch Script and ONNX: needs CUDA; tensorrt_precision = None for this detector"}
       - {role: command, text: "uv run python -m vision_training.deployment.export_model"}
     narration:
       - "To train a run like it, generate the synthetic key point data set with the task set in the main block of the script, then train with the synthetic configuration set to {{keypoint_detection.run_iterations}} iterations and a cosine decay over {{keypoint_detection.run_decay_iterations}}."
       - "Its test folder holds the first {{keypoint_detection.metrics_test_images}} test images, and every other setting is the one of the configuration file, augmentations included."
       - "The evaluation script skips its maximum error images per class pair with a yellow warning, key point detection saving no error images."
       - "In a situation where no GPU is available, the export cannot run: it loads the checkpoint on CUDA, hard-coded."
+      - "For now, set its TensorRT precision to None for this detector: with the TensorRT configuration of the default, Triton crashed at its first request, while ONNX Runtime alone serves it."
 
   - kind: html
     page: diagram
