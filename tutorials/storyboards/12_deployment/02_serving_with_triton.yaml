@@ -2,8 +2,11 @@
 # the layout of a model repository (the real one of the serving benchmark), the path of a request (input contract,
 # gRPC or system shared memory, dynamic batcher, instances, backend), run_inference.py, the serving paths the export
 # offers (TorchScript on libtorch, ONNX Runtime CUDA, ONNX with the TensorRT accelerator in FP32 or FP16, BF16 refused
-# by the backend, native TensorRT engines not implemented), the TensorRT engines built at the first requests, and how
-# the dynamic batching and the instances of a model are changed. Coordinates of the html scenes are in pixels of the
+# by the backend, native TensorRT engines not implemented), the keypoint detector that crashes Triton with the TensorRT
+# accelerator (measured on 2026-11-22 with the Triton image of the compose file: signal 11 in ONNX Runtime at the first
+# request, after the engine build, in FP32 and FP16, while the same model.onnx served by ONNX Runtime alone answers at
+# batch 1 and 16), the TensorRT engines built at the first requests, and how the dynamic batching and the instances of
+# a model are changed. Coordinates of the html scenes are in pixels of the
 # content area (1760 x 740, origin at its top left corner); the facts named deployment.* are made by
 # tutorials/figures/deployment from the code and from the serving benchmark (serving_benchmark_results.csv and the
 # file list of its model repository, serving_benchmark_model_repository_files.txt, committed next to its plan).
@@ -151,32 +154,35 @@ scenes:
       - {type: text, position: [500, 252], text: "model.onnx · onnxruntime_onnx", font: diagram_small, anchor: lm}
       - {type: text, position: [1050, 252], text: "FP32", font: diagram_small, anchor: lm}
       - {type: text, position: [1420, 252], text: "checked on the CPU", font: diagram_small, anchor: lm}
-      - {type: box, box: [20, 300, 1740, 375], fill: null, outline: violet, highlight: [2]}
+      - {type: box, box: [20, 300, 1740, 375], fill: null, outline: violet, highlight: [2, 4]}
       - {type: text, position: [30, 337], text: "TensorRT FP32", font: diagram_small, anchor: lm}
       - {type: text, position: [500, 337], text: "model.onnx + TensorRT accelerator", font: diagram_small, anchor: lm}
       - {type: text, position: [1050, 337], text: "FP32, TF32 allowed", font: diagram_small, anchor: lm}
       - {type: text, position: [1420, 337], text: "engine not checked", font: diagram_small, colour: yellow, anchor: lm}
-      - {type: box, box: [20, 385, 1740, 460], fill: null, outline: yellow, highlight: [3]}
+      - {type: box, box: [20, 385, 1740, 460], fill: null, outline: yellow, highlight: [3, 4]}
       - {type: text, position: [30, 422], text: "TensorRT FP16", font: diagram_small, anchor: lm}
       - {type: text, position: [500, 422], text: "precision_mode FP16", font: diagram_small, anchor: lm}
       - {type: text, position: [1050, 422], text: "FP16 where faster", font: diagram_small, anchor: lm}
       - {type: text, position: [1420, 422], text: "engine not checked", font: diagram_small, colour: yellow, anchor: lm}
-      - {type: box, box: [20, 470, 1740, 545], fill: null, outline: red, appear: 4, highlight: [4]}
-      - {type: text, position: [30, 507], text: "TensorRT BF16", font: diagram_small, anchor: lm, appear: 4}
-      - {type: text, position: [500, 507], text: "precision_mode BF16", font: diagram_small, anchor: lm, appear: 4}
-      - {type: text, position: [1050, 507], text: "refused at load", font: diagram_small, anchor: lm, appear: 4}
-      - {type: text, position: [1420, 507], text: "not servable", font: diagram_small, colour: red, anchor: lm, appear: 4}
-      - {type: box, box: [20, 555, 1740, 630], fill: null, outline: red, appear: 5, highlight: [5]}
-      - {type: text, position: [30, 592], text: "native TensorRT engine", font: diagram_small, anchor: lm, appear: 5}
-      - {type: text, position: [500, 592], text: "model.plan · tensorrt_plan", font: diagram_small, anchor: lm, appear: 5}
-      - {type: text, position: [1050, 592], text: "FP32 to FP8", font: diagram_small, anchor: lm, appear: 5}
-      - {type: text, position: [1420, 592], text: "not implemented", font: diagram_small, colour: red, anchor: lm, appear: 5}
-      - {type: text, position: [880, 690], text: "inputs and outputs float32 on every path · INT8 and FP8 left out, without calibration", font: diagram_small, colour: dim, anchor: mm, appear: 5}
+      - {type: box, box: [20, 470, 1740, 545], fill: null, outline: red, appear: 6, highlight: [6]}
+      - {type: text, position: [30, 507], text: "TensorRT BF16", font: diagram_small, anchor: lm, appear: 6}
+      - {type: text, position: [500, 507], text: "precision_mode BF16", font: diagram_small, anchor: lm, appear: 6}
+      - {type: text, position: [1050, 507], text: "refused at load", font: diagram_small, anchor: lm, appear: 6}
+      - {type: text, position: [1420, 507], text: "not servable", font: diagram_small, colour: red, anchor: lm, appear: 6}
+      - {type: box, box: [20, 555, 1740, 630], fill: null, outline: red, appear: 7, highlight: [7]}
+      - {type: text, position: [30, 592], text: "native TensorRT engine", font: diagram_small, anchor: lm, appear: 7}
+      - {type: text, position: [500, 592], text: "model.plan · tensorrt_plan", font: diagram_small, anchor: lm, appear: 7}
+      - {type: text, position: [1050, 592], text: "FP32 to FP8", font: diagram_small, anchor: lm, appear: 7}
+      - {type: text, position: [1420, 592], text: "not implemented", font: diagram_small, colour: red, anchor: lm, appear: 7}
+      - {type: text, position: [880, 665], text: "keypoint detector: TensorRT FP32 or FP16 crashes the server at the first request, plain ONNX Runtime serves it", font: diagram_small, colour: red, anchor: mm, appear: 4, highlight: [4, 5]}
+      - {type: text, position: [880, 710], text: "inputs and outputs float32 on every path · INT8 and FP8 left out, without calibration", font: diagram_small, colour: dim, anchor: mm, appear: 7}
     narration:
       - "The reference of every comparison is the eager model in the process, which runs its convolutions in TF32, the default of PyTorch."
       - "TorchScript is served by libtorch and plain ONNX by ONNX Runtime on CUDA, both in float32, and both checked by the export."
       - "With the TensorRT accelerator, ONNX Runtime hands the parts of the graph TensorRT supports to an engine built for this GPU: layers fused, kernels timed on the device, TF32 allowed in FP32."
       - "In FP16, TensorRT may run any layer in half precision where it finds it faster, and neither engine is checked by the export."
+      - "Not every graph survives the accelerator: with this Triton image, the keypoint detector of the tutorials crashes the server at its first request, once its engine is built, in FP32 as in FP16."
+      - "The same file served by plain ONNX Runtime answers, so export it with no TensorRT precision."
       - "BF16 cannot be served this way: the ONNX Runtime backend of this Triton image refuses the precision mode at load, does not accept the TensorRT parameter that would enable it, and the environment variable of ONNX Runtime is ignored."
       - "Native TensorRT engines, the only route to BF16 or calibrated INT8, are not implemented, and INT8 and FP8 are left out of the export."
 
