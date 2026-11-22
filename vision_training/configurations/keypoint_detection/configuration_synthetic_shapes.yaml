@@ -14,7 +14,7 @@ ExperimentConfiguration:
   train_data_folder: "/home/robert_kelevra/Data/keypoint_data/synthetic_shapes/train"
   # Validation images and labels.json annotations.
   validation_data_folder: "/home/robert_kelevra/Data/keypoint_data/synthetic_shapes/validation"
-  # Test images and labels.json annotations. Objects without labelled keypoint (the distractors) are left out of the
+  # Test images and labels.json annotations. The distractor shapes, of categories without keypoints, are left out of the
   # labels of every split, their images kept: the heatmaps learn to find no keypoint on them.
   test_data_folder: "/home/robert_kelevra/Data/keypoint_data/synthetic_shapes/test"
   # Whole images per forward/backward pass.
