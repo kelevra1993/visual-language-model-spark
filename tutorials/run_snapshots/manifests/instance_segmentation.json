@@ -87,33 +87,33 @@
       "reduction": "copy",
       "snapshot_bytes": 12070,
       "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/Checkpoint_Evaluation/Iteration_6000/class_metrics.csv",
-      "snapshot_sha256": "77e648be73e3491fe032dc0782b1587266f788373191f38f0e17cb54491d5b26",
+      "snapshot_sha256": "e8081c44a6e6c975cd21ff59781087f5f23dec95f5677f998c81de3371cdd007",
       "source_bytes": 12070,
       "source_kind": "run",
       "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/Checkpoint_Evaluation/Iteration_6000/class_metrics.csv",
-      "source_sha256": "77e648be73e3491fe032dc0782b1587266f788373191f38f0e17cb54491d5b26"
+      "source_sha256": "e8081c44a6e6c975cd21ff59781087f5f23dec95f5677f998c81de3371cdd007"
     },
     {
       "options": {},
       "reduction": "copy",
       "snapshot_bytes": 360,
       "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/Checkpoint_Evaluation/Iteration_6000/proposal_recall.csv",
-      "snapshot_sha256": "e828dbeb23ac2cc2859d59b88da289f70c1b021ae4bfc8f44edb47937fbf04b2",
+      "snapshot_sha256": "278c5607284a91e68126105a6b1e8fd336d26a5ecc8f7871291526efc50e8d43",
       "source_bytes": 360,
       "source_kind": "run",
       "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/Checkpoint_Evaluation/Iteration_6000/proposal_recall.csv",
-      "source_sha256": "e828dbeb23ac2cc2859d59b88da289f70c1b021ae4bfc8f44edb47937fbf04b2"
+      "source_sha256": "278c5607284a91e68126105a6b1e8fd336d26a5ecc8f7871291526efc50e8d43"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 44103,
+      "snapshot_bytes": 88206,
       "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/Checkpoint_Evaluation/Results.txt",
-      "snapshot_sha256": "f959969a1729a6c81169ae2f35cec6757dd5a446ccc013b9526e4ee9498202bc",
-      "source_bytes": 44103,
+      "snapshot_sha256": "01c84699ba05d6f2569fdd3706c55eb279c8f4b2a554aa5e5d02f05a50effa57",
+      "source_bytes": 88206,
       "source_kind": "run",
       "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/Checkpoint_Evaluation/Results.txt",
-      "source_sha256": "f959969a1729a6c81169ae2f35cec6757dd5a446ccc013b9526e4ee9498202bc"
+      "source_sha256": "01c84699ba05d6f2569fdd3706c55eb279c8f4b2a554aa5e5d02f05a50effa57"
     },
     {
       "options": {},
@@ -227,5 +227,5 @@
     }
   ],
   "series": "instance_segmentation",
-  "snapshot_bytes": 4751044
+  "snapshot_bytes": 4796051
 }

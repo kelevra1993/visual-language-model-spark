@@ -164,22 +164,22 @@
       "reduction": "copy",
       "snapshot_bytes": 6622,
       "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/Iteration_5000/class_metrics.csv",
-      "snapshot_sha256": "f87974619ebdb03444d504f4320da40cad96b069b6117045770aacae380d3383",
+      "snapshot_sha256": "a38fd303d1ac0505ef3ab588ae377910bd33b932c94e5d8c5922fb7f2d4cc135",
       "source_bytes": 6622,
       "source_kind": "run",
       "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/Iteration_5000/class_metrics.csv",
-      "source_sha256": "f87974619ebdb03444d504f4320da40cad96b069b6117045770aacae380d3383"
+      "source_sha256": "a38fd303d1ac0505ef3ab588ae377910bd33b932c94e5d8c5922fb7f2d4cc135"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 3952,
+      "snapshot_bytes": 3953,
       "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/Iteration_5000/class_thresholds.json",
-      "snapshot_sha256": "42155a5036106e3c01a8e7730341578c18ef0511e51de1e9ce7b643cc613765d",
-      "source_bytes": 3952,
+      "snapshot_sha256": "c0f4cd91fb114c066bb27e4a460b6b010cf531ee8bedd135f774e055bcca5be9",
+      "source_bytes": 3953,
       "source_kind": "run",
       "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/Iteration_5000/class_thresholds.json",
-      "source_sha256": "42155a5036106e3c01a8e7730341578c18ef0511e51de1e9ce7b643cc613765d"
+      "source_sha256": "c0f4cd91fb114c066bb27e4a460b6b010cf531ee8bedd135f774e055bcca5be9"
     },
     {
       "options": {},
@@ -197,22 +197,22 @@
       "reduction": "copy",
       "snapshot_bytes": 360,
       "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/Iteration_5000/proposal_recall.csv",
-      "snapshot_sha256": "89e9f30db369e1a9dc1e933dd38f943203de96919cec3295e02c680fdc1e8c88",
+      "snapshot_sha256": "e8de19218c8719ec042db509686dd3196a14d2c8c4c2f69136c8bb0ea5cf9559",
       "source_bytes": 360,
       "source_kind": "run",
       "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/Iteration_5000/proposal_recall.csv",
-      "source_sha256": "89e9f30db369e1a9dc1e933dd38f943203de96919cec3295e02c680fdc1e8c88"
+      "source_sha256": "e8de19218c8719ec042db509686dd3196a14d2c8c4c2f69136c8bb0ea5cf9559"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 24521,
+      "snapshot_bytes": 49042,
       "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/Results.txt",
-      "snapshot_sha256": "df764132024e323ebdbe68139b79bf1c744d7967555387ad0975e458f35412bf",
-      "source_bytes": 24521,
+      "snapshot_sha256": "b79220eb12b5fa8326c579fc1843669fd58008cbc441bd6c73b1b8a973626b43",
+      "source_bytes": 49042,
       "source_kind": "run",
       "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/Results.txt",
-      "source_sha256": "df764132024e323ebdbe68139b79bf1c744d7967555387ad0975e458f35412bf"
+      "source_sha256": "b79220eb12b5fa8326c579fc1843669fd58008cbc441bd6c73b1b8a973626b43"
     },
     {
       "options": {},
@@ -348,5 +348,5 @@
     }
   ],
   "series": "object_detection",
-  "snapshot_bytes": 4369133
+  "snapshot_bytes": 4393655
 }
