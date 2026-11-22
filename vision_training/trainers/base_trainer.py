@@ -1402,10 +1402,10 @@ class BaseTrainer(ABC):
         heads, mask heads): its source run folder, then the checkpoint iteration it comes from, whether it is frozen,
         whether the normalization layers of the backbone are frozen, the loaded blocks of a backbone deeper than its
         source backbone (the others starting random), whether the class layers of the semantic segmentation are loaded
-        with its decoder, the initialisation of the classes added after those of the source run (components with class
-        layers), and the learning rate it learns at with its multiplier, which gives no token in the run name. A frozen
-        component does not learn, so it has no learning rate line. Components trained from random weights print
-        nothing.
+        with its decoder, and the learning rate it learns at with its multiplier, which gives no token in the run name.
+        A frozen component does not learn, so it has no learning rate line. Components trained from random weights
+        print nothing; the classes kept, added or moved by name are printed by the transfer itself
+        (prepare_class_layers).
         """
         pretrained_labels = {"Backbone": "Pretrained Backbone", "TemporalModel": "Pretrained Temp. Module",
                              "ClassificationHead": "Pretrained Class. Head",
