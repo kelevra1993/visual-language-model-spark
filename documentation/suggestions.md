@@ -389,12 +389,6 @@ synthetic configurations in `experiments/readme_screenshots/` (MLflow database `
 kept with their colours). The helpers that made them, kept uncommitted in `experiments/readme_screenshots/helpers/`,
 were deleted on 2026-11-22 with the rest of `experiments/`: an image taken again needs its capture written again.
 
-28. **Throughput of the inference on an idle GPU** (`README/run_inference_output.png`): it was measured while three
-    other trainings shared the GPU (48.72 samples per second locally, 43.14 through Triton as TorchScript and 96.59 as
-    ONNX with TensorRT), so it is lower than what the model gives alone. To take again once the GPU is free: export the
-    classification run into `vision_training/deployment/triton/served_models` with `helpers/export_and_measure.py
-    --step=export`, start Triton from that folder (`docker compose up -d`), run the same helper with `--step=measure`,
-    keep the final line of every progress bar and render them with `helpers/render_console_capture.py`.
 29. **Sequence labelling that learns** (`README/sequence_labelling_sample.png`): the sample is `test_000001` of the
     sequence labelling tutorial run of 2026-11-15 (pretrained backbone, bidirectional LSTM 2x96, flatten, balanced class
     weights, 2000 iterations: accuracy 77.16 %, balanced accuracy 72.17 % on the 10,000 test sequences of that day),

@@ -248,7 +248,6 @@ In case you pick up the work this benchmark left open, these entries are still t
   - Dynamic batching off for the three models, with two instances for CLS and M2M (CLS 1,747 against 1,168 images per second at 16 requests in flight, twice the throughput at one client; DET 166 against 153 without it since the NMS fix).
   - The TensorRT engine cache mounted by `docker-compose.yml`, or native engines built at export with optimization profiles of the batch sizes, the only route to BF16 since the ONNX Runtime backend of Triton 26.01 refuses it.
   - Inputs smaller than float32 tensors over gRPC (uint8 images normalized in the model), a batch of 16 large images being bound by the request.
-- **Capture `README/run_inference_output.png` again** on the idle GPU (the figure of [Triton Server](../../README.md#triton-server) was measured while three trainings shared the GPU).
 
 ## Status
 In order to follow the benchmark, this section keeps its steps.
@@ -262,3 +261,4 @@ In order to follow the benchmark, this section keeps its steps.
 - 2026-11-17, 18:10 to 19:10: the exported NMS of the detectors without offsets (`suppress_stacked_groups`) and DIoU-NMS on boxes in fractions of the image; run_9 exported again (test metric of TensorRT FP16 and FP32, speed at batch 1 and 16, batching on and off) and a DIoU copy of run_9 checked on 200 test images.
 - 2026-11-18: the ONNX export restores the output frames of the sequence labeller and frame selector itself (`restore_dynamic_output_frames`) and checks them, the repair of the drivers removed.
 - 2026-11-18, about 14:25 to 14:45: the ONNX Runtime CUDA row of DET measured again with the NMS without offsets (speed at batch 1 and 16, test metric), and the M2M and frame selector networks exported again and served by Triton without repair.
+- 2026-11-22: `README/run_inference_output.png` captured again on the idle GPU with the default run of `run_inference.py`, the 35-class README classifier exported with TensorRT FP32 (445.79 samples per second in the process, 144.22 through Triton as TorchScript and 195.11 as ONNX with TensorRT, one client sending one image per request).

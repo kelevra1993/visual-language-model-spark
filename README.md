@@ -1357,7 +1357,7 @@ docker compose up
 <p align="center">
   <img src="README/run_inference_output.png" width="100%" />
 </p>
-<p align="center"><em>The 9-class README classifier (512 pixels) exported with TensorRT FP32, measured on 2026-10-23 while three trainings shared the GPU (item 28 of <code>documentation/suggestions.md</code>): lower than the model gives alone, to measure again on an idle GPU.</em></p>
+<p align="center"><em>The default run of <code>run_inference.py</code>, the 35-class README classifier (512 pixels) exported with TensorRT FP32, measured on 2026-11-22 on the idle GPU: one image per request, so Triton pays a gRPC request for every image the process sends straight to the model.</em></p>
 
 ### Serving Formats And Precision
 Before a model goes to production, its serving path and its number format decide its latency, its throughput, its memory and how far its outputs move from the FP32 model that was evaluated. This part states what the repository exports today, what Triton, TensorRT and the [reduced precisions](#number-formats) add and cost on the DGX Spark of the measurements (GB10 GPU; the Triton image `26.01-py3` ships Triton 2.65.0, CUDA 13.1.1 and TensorRT 10.14.1, [release notes](https://docs.nvidia.com/deeplearning/triton-inference-server/archives/triton-inference-server-2670/release-notes/rel-26-01.html)), and what the [serving benchmark](documentation/architecture_benchmarking/serving_benchmark_plan.md) of 2026-11-17 measured on the idle GPU.
