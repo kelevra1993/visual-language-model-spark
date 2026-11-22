@@ -356,7 +356,7 @@ ClassificationHead:
   # Classification head of another training run initialising this run instead of random weights. Its fully_connected
   # layers and fully_connected_normalization must be identical in both runs (the dropout rate may
   # differ), as well as the size of the vectors it reads. The classes of the source run, read
-  # from its data.json, must be the first classes of this run, in the same order: classes may be appended after them,
+  # from its data.json, must be classes of this run, first in the same order or under the same name, the other classes
   # keeping the random initialisation of this run.
   pretrained:
     # Run folder whose trained classification head initialises this run, null to start from random weights. A

@@ -286,7 +286,7 @@ SegmentationDecoder:
     # Freezes the loaded decoder (no gradient, frozen batch statistics). Requires experiment_folder.
     freeze: False
     # Also loads the segmentation head and deep supervision heads of levels in both runs; source classes (its data.json)
-    # first in this run, in order, appended ones random. Requires experiment_folder; gives the DCL token.
+    # first in order or by name, others random. Requires experiment_folder; gives the DCL token.
     load_class_layers: False
     # Learning rate factor of the loaded decoder, e.g. 0.1 to train it 10x slower.
     learning_rate_multiplier: 1.0

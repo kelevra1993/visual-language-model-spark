@@ -701,7 +701,8 @@ class BaseTrainer(ABC):
         Gives the class names of the run in class index order (background first for the detection and segmentation
         tasks), written in the record of its data ('data.json', see save_data_record) and compared with those of the
         source run when a component with class layers is transferred, so that a run can add classes after those of
-        its source run. Built by the tasks after their data loaders; None for a task without class names.
+        its source run or hold them at other indices under the same names. Built by the tasks after their data
+        loaders; None for a task without class names.
 
         Returns:
             Optional[List[str]]: The class names, None when the task has none.
@@ -952,7 +953,8 @@ class BaseTrainer(ABC):
         'pretrained.experiment_folder' is set (backbone, temporal module, classification head, segmentation decoder,
         region proposal heads, detection heads, mask heads), and freezes them when asked, or only the scale and shift of
         the normalization layers of the backbone. The class names of the run are given to the transfer, so that a run
-        may add classes after those of its source run, and the class layers of the semantic segmentation are loaded
+        may add classes after those of its source run or hold them at other indices under the same names, and the
+        class layers of the semantic segmentation are loaded
         with its decoder when 'SegmentationDecoder.pretrained.load_class_layers' is True (they are never frozen, the
         new classes having to learn). A run resuming from its own checkpoints does not load them, its checkpoint holding
         the components it was training, but keeps them frozen. A backbone deeper than its source backbone loads its

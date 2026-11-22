@@ -374,7 +374,7 @@ Detector:
   # decoded boxes, https://arxiv.org/abs/2005.03572).
   box_loss: "smooth_l1"
   # Detection heads of another DET or INS run initialising this one; levels, per-level detectors, normalization, modules
-  # and backbone channels must match; source classes (its data.json) first, in order, appended ones random.
+  # and backbone channels must match; source classes (its data.json) first in order or by name, others random.
   pretrained:
     # Run folder of the loaded detection heads, null for random weights; not reloaded when the run resumes.
     experiment_folder: null

@@ -308,7 +308,7 @@ ClassificationHead:
   # Loss class weights: "none" or "balanced" (inverse to the training sequences of each class).
   class_weighting: "none"
   # Classification head of another run initialising this one: fully_connected, its normalization and the input size must
-  # match; the source classes must come first in this run, appended classes staying random.
+  # match; every source class must be in this run, first in order or by name (rows moved), others staying random.
   pretrained:
     # Run folder of the loaded head, null for random weights; not reloaded when the run resumes.
     experiment_folder: null

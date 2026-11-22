@@ -5,10 +5,11 @@ and keypoint head, the loading of a pretrained component from the checkpoint of 
 it kept a moving average and the new run keeps one), the first blocks of a deeper backbone initialising a shorter one
 (the stem of the keypoint detector from an ImageNet backbone) and a shorter backbone initialising the first blocks of
 a deeper one (its next blocks staying random, and only its loaded blocks frozen or fine-tuned at the multiplier of the
-transfer), the class layers of a run adding classes after those of its source run (the source classes keeping their
-trained rows, the new classes the random rows of the new run), the class layers of the semantic segmentation loaded
-with its decoder, and the freezing of components, normalization parameters and batch statistics. Used by the base
-trainer and by scripts/evaluation/evaluate_checkpoint.py.
+transfer), the class layers of a run adding classes after those of its source run or holding them in another order
+(the source classes keeping their trained rows, at the index of the same class name, the new classes the random rows
+of the new run), the class layers of the semantic segmentation loaded with its decoder, and the freezing of
+components, normalization parameters and batch statistics. Used by the base trainer and by
+scripts/evaluation/evaluate_checkpoint.py.
 """
 
 import re
@@ -42,8 +43,9 @@ TRANSFERABLE_COMPONENTS = {"Backbone": "backbone", "TemporalModel": "temporal_mo
 COMPONENT_NAMES = {"RegionProposal": "region proposal heads", "Detector": "detection heads",
                    "MaskHead": "mask heads"}
 
-# Differing keypoint channels named in the refusal of a keypoint head transfer, the others being only counted
-MAXIMUM_LISTED_CHANNEL_DIFFERENCES = 5
+# Differing keypoint channels, or source classes the new run does not have, named in the refusal of a transfer, the
+# others being only counted
+MAXIMUM_LISTED_DIFFERENCES = 5
 
 # Attributes of the semantic segmenter holding its class layers, outside the decoder so that a decoder serves runs of
 # other classes, loaded with the decoder when 'SegmentationDecoder.pretrained.load_class_layers' is True: the 1x1
@@ -144,8 +146,8 @@ BATCH_NORMALIZATION_LAYER_TYPES = (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3
 # Class layers of the components, one row (or output channel) per class or 4 rows per class for the box regressor, as
 # [module name pattern, rows per class], the pattern matching the name of the module in the component state (in the
 # state of the segmentation head and deep supervision heads for the decoder). When a run adds classes after those of
-# its source run, the rows of the source classes are copied and those of the new classes keep the random
-# initialisation the layer of the new run was built with
+# its source run or holds them in another order, the rows of the source classes are copied to the index of their class
+# in the new run and those of the new classes keep the random initialisation the layer of the new run was built with
 CLASS_LAYERS = {"ClassificationHead": [[r"classifier", 1]],
                 "Detector": [[r"\w+\.classifier", 1], [r"\w+\.bounding_box_regressor", 4]],
                 "MaskHead": [[r"\w+\.mask_predictor", 1], [r"\w+\.mask_iou_head\.iou_predictor", 1]],
@@ -373,7 +375,7 @@ def compare_classification_heads(source_configuration: Dict[str, Any],
     dropout layers, so the rate does not change the names of their weights, and the momentum changes no tensor.
     The other sizes of the input vectors (e.g. the channels of the last backbone block) are compared on the weights
     themselves, and the classes by load_pretrained_component, the run receiving the head being allowed to add classes
-    after those of the source run.
+    after those of the source run or to hold them at other indices under the same names.
 
     Args:
         source_configuration (Dict[str, Any]): The whole configuration of the source run, as saved in its folder.
@@ -482,7 +484,8 @@ def compare_detection_heads(section_name: str, source_configuration: Dict[str, A
     number of anchors per position of every level.
     The channels of the backbone blocks they read are compared on the weights themselves, and the classes of the
     detection and mask heads (classifier, per-class box regressor, per-class mask predictor and mask IoU predictor) by
-    load_pretrained_component, the run receiving the heads being allowed to add classes after those of the source run.
+    load_pretrained_component, the run receiving the heads being allowed to add classes after those of the source run
+    or to hold them at other indices under the same names.
 
     Args:
         section_name (str): "RegionProposal", "Detector" or "MaskHead".
@@ -697,9 +700,10 @@ def compare_state_dictionaries(source_state: Dict[str, torch.Tensor],
 def read_source_class_names(source_folder: Path) -> Optional[List[str]]:
     """
     Reads the class names of a source run, in class index order, from the record of its data ('data.json' of its run
-    folder), so that a run adding classes after those of its source run is checked to keep them first and in the same
-    order. The names are read from the 'classes' of the record, or from the 'class_names' of the records written
-    before the classes were counted; the runs written before the class names were recorded have none.
+    folder), so that a run adding classes after those of its source run is checked to keep them, first and in the
+    same order or under the same names (see compare_class_names). The names are read from the 'classes' of the
+    record, or from the 'class_names' of the records written before the classes were counted; the runs written before
+    the class names were recorded have none.
 
     Args:
         source_folder (Path): The run folder of the source run.
@@ -781,8 +785,8 @@ def compare_keypoint_channels(source_channels: List[str], target_channels: List[
         target_channels (List[str]): The 'class.keypoint' name of every channel of the new run.
 
     Returns:
-        List[str]: The description of every difference (the first MAXIMUM_LISTED_CHANNEL_DIFFERENCES differing
-            channels and their count), empty when every channel predicts the same keypoint.
+        List[str]: The description of every difference (the first MAXIMUM_LISTED_DIFFERENCES differing channels and
+            their count), empty when every channel predicts the same keypoint.
     """
     if len(source_channels) != len(target_channels):
         return [f"The Source Run Predicts {len(source_channels)} Keypoint Channels And This Run "
@@ -793,8 +797,8 @@ def compare_keypoint_channels(source_channels: List[str], target_channels: List[
                           f"{target_channel!r} In This Run."
                           for channel_index, (source_channel, target_channel)
                           in enumerate(zip(source_channels, target_channels)) if source_channel != target_channel]
-    if len(differing_channels) > MAXIMUM_LISTED_CHANNEL_DIFFERENCES:
-        return (differing_channels[:MAXIMUM_LISTED_CHANNEL_DIFFERENCES] +
+    if len(differing_channels) > MAXIMUM_LISTED_DIFFERENCES:
+        return (differing_channels[:MAXIMUM_LISTED_DIFFERENCES] +
                 [f"({len(differing_channels)} Channels Differ.)"])
     return differing_channels
 
@@ -802,7 +806,7 @@ def compare_keypoint_channels(source_channels: List[str], target_channels: List[
 def find_class_layer(section_name: str, module_name: str) -> Optional[int]:
     """
     Tells whether a module of a component is one of its class layers (see CLASS_LAYERS), whose rows follow the classes
-    of the run and grow when a run adds classes after those of its source run.
+    of the run and move to the classes of a run adding classes after those of its source run or reordering them.
 
     Args:
         section_name (str): A key of CLASS_LAYERS.
@@ -839,12 +843,15 @@ def count_state_classes(state: Dict[str, torch.Tensor], section_name: str) -> Op
 
 
 def compare_class_names(source_class_names: Optional[List[str]], target_class_names: Optional[List[str]],
-                        number_source_classes: int, number_target_classes: int) -> List[str]:
+                        number_source_classes: int, number_target_classes: int) -> Tuple[List[int], List[str]]:
     """
-    Lists what prevents the class layers of a source run from initialising those of a new run: the new run may only
-    keep the classes of the source run, first and in the same order (background first for the detection and
-    segmentation tasks), and add classes after them. The class names are compared when both runs have them, the
-    names of a source run written before they were recorded being unknown.
+    Finds where the classes of a source run sit in a new run, so that the class layers of the source run initialise
+    those of the new run, and lists what prevents it: the new run keeps every class of the source run, either first
+    and in the same order (background first for the detection and segmentation tasks) with its new classes after them,
+    or, when both runs have class names, at any index under the same name, e.g. the 1,000 ImageNet-1k classes of a
+    source run scattered among the 21,842 classes sorted by WordNet identifier of a merged ImageNet run. The names of a
+    source run written before they were recorded being unknown, its classes are taken as the first classes of the new
+    run.
 
     Args:
         source_class_names (Optional[List[str]]): The class names of the source run, None when it has none.
@@ -853,91 +860,129 @@ def compare_class_names(source_class_names: Optional[List[str]], target_class_na
         number_target_classes (int): The number of classes of the class layers of the new run.
 
     Returns:
-        List[str]: The description of every difference, empty when the source classes are the first classes of the new
-            run.
+        Tuple[List[int], List[str]]: The index in the new run of every source class, in source class order, and the
+            description of every difference (the first MAXIMUM_LISTED_DIFFERENCES missing classes and their count),
+            empty when every source class is found.
     """
+    first_class_indices = list(range(number_source_classes))
     if number_target_classes < number_source_classes:
-        return [f"The source run predicts {number_source_classes} classes and this run {number_target_classes}: a "
-                f"run can only add classes after those of its source run."]
+        return first_class_indices, [f"The source run predicts {number_source_classes} classes and this run "
+                                     f"{number_target_classes}: a run keeps every class of its source run."]
     if source_class_names is None or target_class_names is None:
-        return []
+        return first_class_indices, []
 
     # The record of the data of the source run follows its last start, which may have changed its classes
     if len(source_class_names) != number_source_classes:
-        return [f"The data record of the source run names {len(source_class_names)} classes and its checkpoint "
-                f"predicts {number_source_classes} classes."]
+        return first_class_indices, [f"The data record of the source run names {len(source_class_names)} classes and "
+                                     f"its checkpoint predicts {number_source_classes} classes."]
 
-    # Every source class keeps its index in the new run
-    renamed_classes = [f"{class_index} is {source_name!r} in the source run and {target_name!r} in this run"
-                       for class_index, (source_name, target_name) in
-                       enumerate(zip(source_class_names, target_class_names)) if source_name != target_name]
-    if renamed_classes:
-        return ["The classes of the source run must be the first classes of this run, in the same order: class " +
-                ", class ".join(renamed_classes) + "."]
-    return []
+    # Source classes first and in the same order: every source class keeps its index
+    if target_class_names[:number_source_classes] == source_class_names:
+        return first_class_indices, []
+
+    # Otherwise every source class is found by its name, which must name a single class in each run
+    target_class_index_lists = {}
+    for class_index, class_name in enumerate(target_class_names):
+        target_class_index_lists.setdefault(class_name, []).append(class_index)
+    source_class_counts = {}
+    for class_name in source_class_names:
+        source_class_counts[class_name] = source_class_counts.get(class_name, 0) + 1
+    repeated_classes = [class_name for class_name, class_count in source_class_counts.items()
+                        if class_count > 1 or len(target_class_index_lists.get(class_name, [])) > 1]
+    if repeated_classes:
+        return first_class_indices, [f"The class names {repeated_classes[:MAXIMUM_LISTED_DIFFERENCES]} name several "
+                                     f"classes of the source run or of this run, so that the classes of the source "
+                                     f"run cannot be found by their names."]
+    missing_classes = [class_name for class_name in source_class_names if class_name not in target_class_index_lists]
+    if missing_classes:
+        counted_classes = f" ({len(missing_classes)} classes missing)" if len(missing_classes) > \
+            MAXIMUM_LISTED_DIFFERENCES else ""
+        return first_class_indices, [f"The classes {missing_classes[:MAXIMUM_LISTED_DIFFERENCES]}{counted_classes} of "
+                                     f"the source run are not classes of this run: a run keeps every class of its "
+                                     f"source run, first and in the same order or under the same name."]
+    return [target_class_index_lists[class_name][0] for class_name in source_class_names], []
 
 
 def extend_class_layer(weight: torch.Tensor, bias: torch.Tensor, target_weight: torch.Tensor,
-                       target_bias: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+                       target_bias: torch.Tensor, target_class_indices: List[int],
+                       rows_per_class: int) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Grows a class layer of a source run to the classes of a new run that adds classes after them: the rows (output
-    channels of a convolution) of the source classes are copied, and the rows of the new classes keep the random
-    initialisation the layer of the new run received when it was built, as in a run trained from scratch. The rows of
-    a class follow each other (4 for the box regressor), so the rows of the source classes are the first rows of the
-    layer of the new run.
+    Moves a class layer of a source run to the classes of a new run that keeps its classes, after them or under the
+    same names at other indices (see compare_class_names): the rows (output channels of a convolution) of every source
+    class are copied to the rows of its class in the new run, and the rows of the other classes keep the random
+    initialisation the layer of the new run received when it was built, as in a run trained from scratch. The rows of a
+    class follow each other (4 for the box regressor), so class c owns the rows c x rows per class to (c + 1) x rows per
+    class - 1 in both layers.
 
     Args:
         weight (torch.Tensor): The [source classes x rows per class, ...] weight of the source layer.
         bias (torch.Tensor): The [source classes x rows per class] bias of the source layer.
         target_weight (torch.Tensor): The [target classes x rows per class, ...] randomly initialised weight of the
-            layer of the new run, which has more classes than the source layer.
+            layer of the new run.
         target_bias (torch.Tensor): The [target classes x rows per class] randomly initialised bias of that layer.
+        target_class_indices (List[int]): The index in the new run of every source class, in source class order.
+        rows_per_class (int): The number of rows of every class (see CLASS_LAYERS).
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: The [target classes x rows per class, ...] weight and the bias of the layer
             of the new run, on the device and in the precision of the source layer.
     """
-    # Random initialisation of the new run kept for the new classes, its first rows replaced by the source classes
+    # Random initialisation of the new run kept for the other classes
     extended_weight = target_weight.detach().clone().to(device=weight.device, dtype=weight.dtype)
     extended_bias = target_bias.detach().clone().to(device=bias.device, dtype=bias.dtype)
-    extended_weight[:weight.shape[0]] = weight
-    extended_bias[:bias.shape[0]] = bias
+
+    # Rows of every source class in the new layer, in the order of the source rows
+    class_indices = torch.tensor(data=target_class_indices, dtype=torch.long, device=weight.device)
+    row_offsets = torch.arange(end=rows_per_class, dtype=torch.long, device=weight.device)
+    target_rows = (class_indices[:, None] * rows_per_class + row_offsets[None, :]).reshape(-1)
+    extended_weight[target_rows] = weight
+    extended_bias[target_rows] = bias
     return extended_weight, extended_bias
 
 
 def extend_class_layers(component_state: Dict[str, torch.Tensor], target_state: Dict[str, torch.Tensor],
-                        section_name: str) -> Dict[str, torch.Tensor]:
+                        section_name: str, target_class_indices: List[int]) -> Dict[str, torch.Tensor]:
     """
-    Grows every class layer of a source component whose layer in the new run has more classes and reads inputs of the
-    same size (see extend_class_layer), the other tensors being kept as they are, so that compare_state_dictionaries
-    still reports every other mismatch.
+    Moves every class layer of a source component to the classes of the new run (see extend_class_layer) when its
+    layer in the new run reads inputs of the same size and holds the rows of every target class index, the other
+    tensors being kept as they are, so that compare_state_dictionaries still reports every other mismatch. A layer
+    whose source classes keep their indices in a run of as many classes is kept as it is.
 
     Args:
         component_state (Dict[str, torch.Tensor]): The tensors of the source component, without prefix.
         target_state (Dict[str, torch.Tensor]): The state dictionary of the component of the new run, holding the
             random initialisation of its layers.
         section_name (str): A key of CLASS_LAYERS.
+        target_class_indices (List[int]): The index in the new run of every source class, in source class order (see
+            compare_class_names).
 
     Returns:
-        Dict[str, torch.Tensor]: The tensors of the source component with its class layers grown.
+        Dict[str, torch.Tensor]: The tensors of the source component with its class layers moved to the classes of
+            the new run.
     """
     extended_state = dict(component_state)
+    keeps_class_indices = target_class_indices == list(range(len(target_class_indices)))
     for tensor_name, source_weight in component_state.items():
         if not tensor_name.endswith(".weight"):
             continue
         module_name = tensor_name[:-len(".weight")]
         bias_name = f"{module_name}.bias"
-        if find_class_layer(section_name=section_name, module_name=module_name) is None or \
-                tensor_name not in target_state or bias_name not in component_state:
+        rows_per_class = find_class_layer(section_name=section_name, module_name=module_name)
+        if rows_per_class is None or tensor_name not in target_state or bias_name not in component_state:
             continue
 
-        # Only a layer reading inputs of the same size with more classes in the new run grows
+        # Only a layer reading inputs of the same size, holding the rows of the source classes and of their target
+        # indices, moves; a layer of as many classes in the same order stays
         target_weight = target_state[tensor_name]
-        if target_weight.shape[1:] != source_weight.shape[1:] or target_weight.shape[0] <= source_weight.shape[0]:
+        if target_weight.shape[1:] != source_weight.shape[1:] or \
+                source_weight.shape[0] != len(target_class_indices) * rows_per_class or \
+                target_weight.shape[0] < (max(target_class_indices, default=-1) + 1) * rows_per_class or \
+                (keeps_class_indices and target_weight.shape[0] == source_weight.shape[0]):
             continue
         extended_state[tensor_name], extended_state[bias_name] = extend_class_layer(
             weight=source_weight, bias=component_state[bias_name], target_weight=target_weight,
-            target_bias=target_state[bias_name])
+            target_bias=target_state[bias_name], target_class_indices=target_class_indices,
+            rows_per_class=rows_per_class)
     return extended_state
 
 
@@ -945,11 +990,12 @@ def prepare_class_layers(component_state: Dict[str, torch.Tensor], target_state:
                          section_name: str, source_folder: Path,
                          class_names: Optional[List[str]]) -> Dict[str, torch.Tensor]:
     """
-    Checks the classes of a source component against those of the new run (see compare_class_names) and grows its
-    class layers when the new run adds classes after them (see extend_class_layers), the new classes keeping the random
-    initialisation of the new run, for the components with class layers: the classification head, the detection
-    heads, the mask heads and the class layers of the semantic segmentation. A source run without class names prints
-    that its classes are taken as the first classes of the new run.
+    Checks the classes of a source component against those of the new run (see compare_class_names) and moves its
+    class layers to the classes of the new run (see extend_class_layers) when the new run adds classes after them or
+    holds them at other indices under the same names, the other classes keeping the random initialisation of the new
+    run, for the components with class layers: the classification head, the detection heads, the mask heads and the
+    class layers of the semantic segmentation. A source run without class names prints that its classes are taken as
+    the first classes of the new run.
 
     Args:
         component_state (Dict[str, torch.Tensor]): The tensors of the source component, without prefix.
@@ -960,38 +1006,47 @@ def prepare_class_layers(component_state: Dict[str, torch.Tensor], target_state:
             without them.
 
     Returns:
-        Dict[str, torch.Tensor]: The tensors of the source component, its class layers grown to the classes of the new
+        Dict[str, torch.Tensor]: The tensors of the source component, its class layers moved to the classes of the new
             run.
 
     Raises:
-        ValueError: If the classes of the source run are not the first classes of the new run.
+        ValueError: If a class of the source run is neither among the first classes of the new run, in the same order,
+            nor found under its name in the new run.
     """
     number_source_classes = count_state_classes(state=component_state, section_name=section_name)
     number_target_classes = count_state_classes(state=target_state, section_name=section_name)
     if number_source_classes is None or number_target_classes is None:
         return component_state
 
-    # The source classes must keep their indices in the new run
+    # Every source class must be found in the new run, at its index or under its name
     component_name = get_component_name(section_name=section_name)
     source_class_names = read_source_class_names(source_folder=source_folder)
-    class_differences = compare_class_names(source_class_names=source_class_names, target_class_names=class_names,
-                                            number_source_classes=number_source_classes,
-                                            number_target_classes=number_target_classes)
+    target_class_indices, class_differences = compare_class_names(
+        source_class_names=source_class_names, target_class_names=class_names,
+        number_source_classes=number_source_classes, number_target_classes=number_target_classes)
     if class_differences:
         raise ValueError(f"The {component_name.title()} Of The Source Run {format_path_link(path=source_folder)} "
                          f"Cannot Initialise This Run, Their Classes Differ: " + " ".join(class_differences))
-    if number_target_classes == number_source_classes:
+    keeps_class_indices = target_class_indices == list(range(number_source_classes))
+    if number_target_classes == number_source_classes and keeps_class_indices:
         return component_state
 
-    # New classes appended after those of the source run
+    # New classes appended after those of the source run, or source classes moved to the index of their name
+    number_other_classes = number_target_classes - number_source_classes
     if source_class_names is None:
         print_color(color="yellow", output=f"The Source Run Has No Class Names In Its {DATA_RECORD_FILE_NAME} (Written "
                                            f"Before They Were Recorded): Its {number_source_classes} Classes Are Taken "
                                            f"As The First {number_source_classes} Classes Of This Run.")
-    print_color(color="green", output=f"{component_name.title()} : {number_source_classes} Classes Of The Source Run "
-                                      f"Kept, {number_target_classes - number_source_classes} New Classes Added After "
-                                      "Them, Randomly Initialised.")
-    return extend_class_layers(component_state=component_state, target_state=target_state, section_name=section_name)
+    if keeps_class_indices:
+        print_color(color="green", output=f"{component_name.title()} : {number_source_classes} Classes Of The Source "
+                                          f"Run Kept, {number_other_classes} New Classes Added After Them, Randomly "
+                                          f"Initialised.")
+    else:
+        print_color(color="green", output=f"{component_name.title()} : {number_source_classes} Classes Of The Source "
+                                          f"Run Moved To The Index Of Their Name In This Run, {number_other_classes} "
+                                          f"Other Classes Randomly Initialised.")
+    return extend_class_layers(component_state=component_state, target_state=target_state, section_name=section_name,
+                               target_class_indices=target_class_indices)
 
 
 def read_checkpoint_model_state(checkpoint_path: Path, device: torch.device,
@@ -1170,8 +1225,9 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
     or ratios with the same number of anchors per position, which are reported too.
     The component is read from the averaged weights of the checkpoint when it holds a moving average and the new run
     keeps one, from its trained weights otherwise (see read_checkpoint_model_state). The new run may add classes after
-    those of the source run: the class layers of the classification head, detection heads and mask heads keep the rows
-    of the source classes, the rows of the new ones keeping their random initialisation (see prepare_class_layers).
+    those of the source run or hold them at other indices under the same names: the class layers of the classification
+    head, detection heads and mask heads keep the rows of the source classes, moved to the index of their name, the rows
+    of the other classes keeping their random initialisation (see prepare_class_layers).
     The keypoint head needs the keypoint channels of its source run, read from the record of its data, every heatmap
     and tag channel having to predict the same keypoint of the same class in both runs.
 
@@ -1188,8 +1244,8 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
         Path: The checkpoint file the component was loaded from.
 
     Raises:
-        ValueError: If the source run has no such component, if its settings differ, listing every difference, if its
-            classes are not the first classes of the new run, if the channels of its keypoint head are unknown or
+        ValueError: If the source run has no such component, if its settings differ, listing every difference, if one
+            of its classes is not a class of the new run, if the channels of its keypoint head are unknown or
             predict other keypoints than those of the new run, or if its tensors do not fit the component, listing
             every mismatching tensor.
     """
@@ -1294,7 +1350,7 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
                                 f"Learning Rate Of The Run.")
         print_color(color="yellow", output=transfer_message)
 
-    # Class layers checked against the classes of this run, and grown when it adds classes after the source ones
+    # Class layers checked against the classes of this run, and moved when it adds classes or reorders the source ones
     if section_name in CLASS_LAYERS:
         component_state = prepare_class_layers(component_state=component_state, target_state=target_state,
                                                section_name=section_name, source_folder=source_folder,
@@ -1322,8 +1378,9 @@ def load_segmentation_class_layers(segmenter: nn.Module, model_configuration: Di
     1x1 convolution of the segmentation head and those of the deep supervision heads), with those of the run its decoder
     comes from, when 'SegmentationDecoder.pretrained.load_class_layers' is True. Called after load_pretrained_component
     has loaded the decoder, whose checks cover the channels these layers read. The same weights are read as for the
-    decoder (averaged or trained), the classes of the source run must be the first classes of the new run, which may
-    add classes after them (see prepare_class_layers), and the deep supervision heads of the levels both runs supervise
+    decoder (averaged or trained), every class of the source run must be a class of the new run, first and in the
+    same order or under the same name, the new run adding its other classes (see prepare_class_layers), and the deep
+    supervision heads of the levels both runs supervise
     are loaded, those of the levels only the new run supervises keeping their random weights.
 
     Args:
@@ -1337,8 +1394,8 @@ def load_segmentation_class_layers(segmenter: nn.Module, model_configuration: Di
         Path: The checkpoint file the class layers were loaded from.
 
     Raises:
-        ValueError: If the classes of the source run are not the first classes of the new run, or if the tensors of
-            the class layers do not fit, listing every mismatching tensor.
+        ValueError: If a class of the source run is not a class of the new run, or if the tensors of the class layers
+            do not fit, listing every mismatching tensor.
     """
     pretrained_configuration = model_configuration["SegmentationDecoder"]["pretrained"]
     source_folder = Path(pretrained_configuration["experiment_folder"])
@@ -1370,7 +1427,7 @@ def load_segmentation_class_layers(segmenter: nn.Module, model_configuration: Di
                     if tensor_name in shared_state_names}
     target_state = {tensor_name: target_state[tensor_name] for tensor_name in shared_state_names}
 
-    # Classes checked and grown as for the heads, then every tensor must fit exactly
+    # Classes checked and moved as for the heads, then every tensor must fit exactly
     source_state = prepare_class_layers(component_state=source_state, target_state=target_state,
                                         section_name="SegmentationDecoder", source_folder=source_folder,
                                         class_names=class_names)

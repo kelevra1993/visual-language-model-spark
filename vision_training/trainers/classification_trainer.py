@@ -154,7 +154,8 @@ class ClassificationTrainer(BaseTrainer):
     def list_class_names(self) -> Optional[List[str]]:
         """
         Gives the class names taken from the training manifest by build_dataloaders, for the record of the data of the
-        run and the transfer of the classification head to a run adding classes after them. Inherited by the sequence
+        run and the transfer of the classification head to a run adding classes after them or holding them at other
+        indices under the same names. Inherited by the sequence
         trainers, whose heads predict the classes of their manifests too.
 
         Returns:

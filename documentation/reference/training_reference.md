@@ -270,10 +270,12 @@ The settings defining the layers must match, which is checked at launch. The ima
 - In the run name, `PT` marks a pretrained component and `FRZ` a frozen one, prefixed by the letter of the section (`RPT`, `RFRZ`); `load_class_layers` adds `DCL`. The `learning_rate_multiplier` gives no token.
 
 ### Adding Classes
-A component with class layers can initialise a run with more classes than its source:
-- The source classes must come first in the new run, in the same order, the background staying first for DET, INS and SEG: append the new classes at the end of the label mapping file.
-- The class names are compared from the `data.json` of both runs ([Run Folder](#run-folder)). A renamed, reordered or missing class stops the run.
-- The rows of the source classes are copied into the class layers. The new rows keep their random initialisation, which may disturb the source classes for the first iterations. The console prints the kept and added classes.
+Should a new run need more classes than its source, or hold the same classes in another order, a component with class layers can still initialise it:
+- Every source class must be a class of the new run. The class names are compared from the `data.json` of both runs ([Run Folder](#run-folder)).
+- When the source classes come first in the same order (the background first for DET, INS and SEG), their rows keep their indices: append the new classes at the end of the label mapping file.
+- Otherwise every source class is found by its name, which must name one class in each run, and its rows go to the index of that name, e.g. the 1,000 ImageNet-1k classes of a source run among the 21,842 merged ImageNet classes sorted by WordNet identifier. A missing source class stops the run, the console naming the first five and counting the others.
+- The rows of the other classes keep their random initialisation, which may disturb the source classes for the first iterations. The console prints the kept and added classes.
+- A source run without class names in its `data.json` (written before they were recorded) gives its classes as the first classes of the new run, with a warning.
 - With `load_class_layers`, a deep supervision level missing from the source keeps random weights, with a warning.
 
 | Layer | Section |

@@ -4,9 +4,10 @@ proposal, detection and mask heads of a saved run initialising other models and 
 rejected, source runs still holding the fixed settings, frozen backbones and the transfers turned off. The runs adding
 classes after those of their source run are covered too: the class layers of the classification, detection and mask
 heads and of the semantic segmentation grown to the new classes, which keep the random initialisation of the new run,
-and the source runs without class names. The keypoint head only moves between runs predicting the same keypoints on
-the same channels, read from the record of the data of the source run, and the mask heads between runs sharing them
-by the levels or not alike, and scoring their masks with the same mask IoU heads or not at all.
+the source runs without class names, and the runs holding the source classes at other indices, whose rows land at the
+index of their name, a run lacking a source class being refused. The keypoint head only moves between runs predicting
+the same keypoints on the same channels, read from the record of the data of the source run, and the mask heads between
+runs sharing them by the levels or not alike, and scoring their masks with the same mask IoU heads or not at all.
 """
 
 import copy
@@ -24,7 +25,8 @@ from vision_training.models.classification.image_classifier import ImageClassifi
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
 from vision_training.models.model_transfer import (NORMALIZATION_LAYER_TYPES, TRANSFERABLE_COMPONENTS,
-                                                   compare_component_configurations, count_loaded_backbone_blocks,
+                                                   compare_class_names, compare_component_configurations,
+                                                   count_loaded_backbone_blocks,
                                                    count_shared_backbone_blocks, disable_pretrained_settings,
                                                    find_backbone_block_index, find_class_layer,
                                                    freeze_batch_normalization_statistics,
@@ -834,6 +836,172 @@ def test_detection_heads_add_classes_after_the_source_classes(tmp_path: Path) ->
                 assert torch.equal(input=target_state[tensor_name][number_source_rows:],
                                    other=initial_target_state[tensor_name][number_source_rows:]), tensor_name
             assert torch.count_nonzero(input=target_state[f"{level}.{layer_name}.weight"][number_source_rows:]) > 0
+
+
+@pytest.mark.parametrize(argnames=["target_class_names", "number_other_classes"],
+                         argvalues=[(["rhombus", "triangle", "square", "ellipse", "circle"], 2),
+                                    (["triangle", "square", "circle"], 0)])
+def test_classification_head_finds_the_source_classes_by_name(tmp_path: Path, target_class_names: List[str],
+                                                              number_other_classes: int,
+                                                              capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the classification head of a run of 3 classes initialises the head of a run holding them at other
+    indices, among new classes or alone in another order, as the 1,000 ImageNet-1k classes among the merged ImageNet
+    classes sorted by WordNet identifier: the hidden layers are copied exactly, the row of every source class lands at
+    the index of its name, and the other classes keep the random weights and biases the head of the new run was built
+    with.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        target_class_names (List[str]): The class names of the run receiving the head, in class index order.
+        number_other_classes (int): The number of classes of that run missing from the source run.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the transfer.
+    """
+    source_configuration = get_class_configuration(task="classification", number_classes=3)
+    source_model = build_task_model(task="classification", configuration=source_configuration, seed=0)
+    write_source_run(run_folder=tmp_path / "source_run", configuration=source_configuration, model=source_model,
+                     class_names=SOURCE_CLASS_NAMES)
+    target_configuration = get_class_configuration(task="classification", number_classes=len(target_class_names))
+    target_model = build_task_model(task="classification", configuration=target_configuration, seed=1)
+    initial_target_state = {tensor_name: tensor_value.clone() for tensor_name, tensor_value in
+                            target_model.classification_head.state_dict().items()}
+    load_pretrained_component(component=target_model.classification_head, section_name="ClassificationHead",
+                              model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                      section_name="ClassificationHead",
+                                                                      source_folder=tmp_path / "source_run"),
+                              device=torch.device("cpu"), class_names=target_class_names)
+
+    # Hidden layers copied exactly
+    source_state = source_model.classification_head.state_dict()
+    target_state = target_model.classification_head.state_dict()
+    for tensor_name, tensor_value in source_state.items():
+        if not tensor_name.startswith("classifier."):
+            assert torch.equal(input=target_state[tensor_name], other=tensor_value), tensor_name
+
+    # Row of every source class at the index of its name, the other rows as the new run built them
+    for tensor_name in ["classifier.weight", "classifier.bias"]:
+        for target_index, class_name in enumerate(target_class_names):
+            expected_row = source_state[tensor_name][SOURCE_CLASS_NAMES.index(class_name)] if \
+                class_name in SOURCE_CLASS_NAMES else initial_target_state[tensor_name][target_index]
+            assert torch.equal(input=target_state[tensor_name][target_index], other=expected_row), class_name
+    assert (f"Classification Head : 3 Classes Of The Source Run Moved To The Index Of Their Name In This Run, "
+            f"{number_other_classes} Other Classes Randomly Initialised.") in capsys.readouterr().out
+
+
+def test_classification_head_refuses_a_run_without_every_source_class(tmp_path: Path) -> None:
+    """
+    Verifies that the classification head of a run of 3 classes is refused by a run lacking one of them, even with
+    more classes, the refusal naming the missing class, and that the head of the new run keeps its own weights.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    source_configuration = get_class_configuration(task="classification", number_classes=3)
+    source_model = build_task_model(task="classification", configuration=source_configuration, seed=0)
+    write_source_run(run_folder=tmp_path / "source_run", configuration=source_configuration, model=source_model,
+                     class_names=SOURCE_CLASS_NAMES)
+    target_class_names = ["square", "rhombus", "triangle", "ellipse"]
+    target_configuration = get_class_configuration(task="classification", number_classes=len(target_class_names))
+    target_model = build_task_model(task="classification", configuration=target_configuration, seed=1)
+    initial_target_state = copy.deepcopy(target_model.classification_head.state_dict())
+
+    with pytest.raises(expected_exception=ValueError, match=r"Their Classes Differ: The classes \['circle'\] of"):
+        load_pretrained_component(component=target_model.classification_head, section_name="ClassificationHead",
+                                  model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                          section_name="ClassificationHead",
+                                                                          source_folder=tmp_path / "source_run"),
+                                  device=torch.device("cpu"), class_names=target_class_names)
+    for tensor_name, tensor_value in target_model.classification_head.state_dict().items():
+        assert torch.equal(input=tensor_value, other=initial_target_state[tensor_name]), tensor_name
+
+
+# Source class names, class names of the new run, expected index of every source class in the new run, and a text of
+# the expected refusal (None when the classes are found)
+CLASS_NAME_CASES = [(["a", "b"], ["a", "b", "c"], [0, 1], None),
+                    (["a", "b"], ["c", "b", "a"], [2, 1], None),
+                    (None, ["c", "b", "a"], [0, 1], None),
+                    (["a", "b"], ["a", "c", "d"], [0, 1], "The classes ['b'] of the source run"),
+                    ([f"source_{index}" for index in range(8)], [f"target_{index}" for index in range(8)],
+                     list(range(8)), "'source_3', 'source_4'] (8 classes missing)"),
+                    (["a", "b"], ["b", "a", "a"], [0, 1], "The class names ['a'] name several classes"),
+                    (["a", "b", "c"], ["c", "b"], [0, 1, 2], "a run keeps every class of its source run")]
+
+
+@pytest.mark.parametrize(argnames=["source_class_names", "target_class_names", "expected_indices", "expected_refusal"],
+                         argvalues=CLASS_NAME_CASES)
+def test_source_classes_are_found_first_or_by_name(source_class_names: Optional[List[str]],
+                                                   target_class_names: List[str], expected_indices: List[int],
+                                                   expected_refusal: Optional[str]) -> None:
+    """
+    Verifies where compare_class_names places the classes of a source run in a new run: first and in the same order
+    when the names agree or are unknown, at the index of their name otherwise, and refused when a source class is
+    missing (the first 5 named, all counted), when a name names several classes, or when the new run has fewer
+    classes.
+
+    Args:
+        source_class_names (Optional[List[str]]): The class names of the source run, None when it has none.
+        target_class_names (List[str]): The class names of the new run.
+        expected_indices (List[int]): The expected index in the new run of every source class.
+        expected_refusal (Optional[str]): A text of the expected refusal, None when the classes are found.
+    """
+    number_source_classes = len(expected_indices)
+    target_class_indices, differences = compare_class_names(
+        source_class_names=source_class_names, target_class_names=target_class_names,
+        number_source_classes=number_source_classes, number_target_classes=len(target_class_names))
+    assert target_class_indices == expected_indices
+    if expected_refusal is None:
+        assert differences == []
+    else:
+        assert len(differences) == 1 and expected_refusal in differences[0], differences
+
+
+def test_detection_heads_find_the_source_classes_by_name(tmp_path: Path) -> None:
+    """
+    Verifies that the detection heads of a detector of 5 foreground classes initialise the heads of a detector holding
+    them at other indices among 2 new classes: on every level, the classifier row of the background and of every
+    source class and the 4 box regressor rows of every source class land at the index of its name, and the rows of the
+    new classes keep the random weights and biases the heads of the new detector were built with.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    source_configuration, _, _ = get_detection_model_configuration()
+    source_class_names = list_detection_class_names(configuration=source_configuration)
+    source_configuration, source_detector = write_detector_run(run_folder=tmp_path / "detection_run",
+                                                               class_names=source_class_names)
+    target_configuration = copy.deepcopy(source_configuration)
+    target_configuration["Data"]["label_dictionary"] = {"background": 0, "foreground_6": 1, "foreground_5": 2,
+                                                        "foreground_1": 3, "foreground_2": 4, "foreground_4": 5,
+                                                        "foreground_3": 6, "foreground_7": 7}
+    target_class_names = list_detection_class_names(configuration=target_configuration)
+    target_detector = build_task_model(task="object_detection", configuration=target_configuration, seed=1)
+    initial_target_state = {tensor_name: tensor_value.clone() for tensor_name, tensor_value in
+                            target_detector.detector_heads_dictionary.state_dict().items()}
+    load_pretrained_component(component=target_detector.detector_heads_dictionary, section_name="Detector",
+                              model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                      section_name="Detector",
+                                                                      source_folder=tmp_path / "detection_run"),
+                              device=torch.device("cpu"), class_names=target_class_names)
+
+    # Rows of every class of the new run, from the class of the same name in the source run or as the new run built
+    # them, 1 row per class for the classifier and 4 for the box regressor
+    source_state = source_detector.detector_heads_dictionary.state_dict()
+    target_state = target_detector.detector_heads_dictionary.state_dict()
+    for level in target_configuration["DetectionLevels"]:
+        for layer_name, rows_per_class in [("classifier", 1), ("bounding_box_regressor", 4)]:
+            for parameter_name in ["weight", "bias"]:
+                tensor_name = f"{level}.{layer_name}.{parameter_name}"
+                for target_index, class_name in enumerate(target_class_names):
+                    target_rows = target_state[tensor_name][target_index * rows_per_class:
+                                                            (target_index + 1) * rows_per_class]
+                    if class_name in source_class_names:
+                        source_index = source_class_names.index(class_name)
+                        expected_rows = source_state[tensor_name][source_index * rows_per_class:
+                                                                  (source_index + 1) * rows_per_class]
+                    else:
+                        expected_rows = initial_target_state[tensor_name][target_index * rows_per_class:
+                                                                          (target_index + 1) * rows_per_class]
+                    assert torch.equal(input=target_rows, other=expected_rows), f"{tensor_name} {class_name}"
 
 
 def test_mask_heads_initialise_an_instance_segmenter_of_more_classes(tmp_path: Path,
