@@ -1,8 +1,8 @@
 """
 When run, scores every image of a large classification split with one checkpoint of a trained classifier, for the
 mining of rare classes: the probability of every class is written to a predictions file with the columns of the
-predictions.csv of scripts/evaluation/evaluate_checkpoint.py ('sample' and 'probability_<class>'), read e.g. by
-06_build_human_intervention_mining_part_2_from_scores.py of the ficha project repositories. Unlike evaluate_checkpoint.py,
+predictions.csv of scripts/evaluation/evaluate_checkpoint.py ('sample' and 'probability_<class>'), read by the
+scripts of a project that ranks the images by the probability of a class. Unlike evaluate_checkpoint.py,
 which runs the whole evaluation of the task with one loader worker and both the trained and the averaged weights, it
 only runs the forward pass of the chosen weights, the images decoded by many loader workers through the test dataset of
 the run (the same reading, resize and padding as its evaluation), the batches written as they come so that a run stopped
