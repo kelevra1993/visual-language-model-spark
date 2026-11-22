@@ -1,5 +1,6 @@
 # Instance segmentation, chapter 2: the masks of the final detections, their pasting into the image, the mask IoU,
-# the mask and box tables of the report, the classes where masks and boxes part, the finer inputs of the mask heads on
+# the mask and box tables of the report with the mask scores of Mask Scoring R-CNN ('MaskHead.mask_scoring', off in the
+# run and the configuration), the classes where masks and boxes part, the finer inputs of the mask heads on
 # the instance segmentation benchmark, the object sizes by mask and by box area, the evaluation at the original
 # resolution, the export with its input settings and its client side pasting, and the pitfalls. The numbers come from
 # the INS run of tutorial_sources.yaml (tutorials/figures/instance_segmentation), the objects and detections of the
@@ -133,10 +134,13 @@ scenes:
       - {type: box, box: [1080, 60, 1740, 200], text: "headline: Mask mAP@0.5/area\nclass thresholds and confusion\nmatrix on the masks", font: diagram_small, outline: magenta}
       - {type: box, box: [1080, 300, 1740, 430], text: "moving average of the weights:\nmask mAP@0.5 {{instance_segmentation.report.averaged.mask_methods.area.0:percent}}", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
       - {type: text, position: [30, 540], text: "{{instance_segmentation.run.test_scalar_count}} scalars per evaluation in Tensorboard/Test · class_metrics.csv: the box columns, then the mask_ ones", font: diagram_small, colour: dim, appear: 2}
+      - {type: box, box: [30, 590, 1740, 710], text: "MaskHead.mask_scoring · activated: {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_scoring.activated}} · a mask IoU head per mask head, trained by mask_iou_loss\nmask score = class score × predicted mask IoU: ranks the mask tables and their class thresholds", font: diagram_small, outline: aqua, appear: 3, highlight: [3, 4]}
     narration:
       - "The report starts with the mask tables: at {{instance_segmentation.run.checkpoint_iteration:words}}, a mask mAP of {{instance_segmentation.report.trained.mask_methods.area.0:percent}} at 0.5, {{instance_segmentation.report.trained.mask_methods.area.1:percent}} at 0.75 and {{instance_segmentation.report.trained.mask_methods.area.3:percent}} from 0.5 to 0.95; the first compares the checkpoints."
       - "The boxes of the same detections reach {{instance_segmentation.report.trained.box_methods.area.0:percent}} at 0.5, and the moving average of the weights reaches a mask mAP of {{instance_segmentation.report.averaged.mask_methods.area.0:percent}} at 0.5."
       - "At 0.95, the masks do better than the boxes, {{instance_segmentation.report.trained.mask_methods.area.2:percent}} against {{instance_segmentation.report.trained.box_methods.area.2:percent}}: a mask is scored on its pixels, where a box one pixel off fails."
+      - "Should you turn mask scoring on, as in Mask Scoring R-CNN, a mask IoU head learns the IoU of every mask with its object, and the mask score, the class score times that predicted IoU, ranks the masks of these tables and sets their class thresholds."
+      - "The box tables, the confusion matrix and the deployment threshold keep the class scores; the run shown scores none of its masks."
 
   - kind: image
     title: "Where masks and boxes part"
@@ -230,20 +234,23 @@ scenes:
     # padding masks
     literal_numbers: [four, zero]
     elements:
-      - {type: box, box: [20, 250, 300, 410], text: "images\n[B, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Backbone.input_channels}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Data.image_settings.size}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Data.image_settings.size}}]", font: diagram_small, outline: blue, highlight: [2]}
-      - {type: box, box: [20, 60, 350, 220], text: "preprocessing.json\nand ONNX metadata:\nthe letterbox of\nthe evaluation", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
+      - {type: box, box: [20, 250, 300, 410], text: "images\n[B, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Backbone.input_channels}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Data.image_settings.size}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Data.image_settings.size}}]", font: diagram_small, outline: blue, highlight: [3]}
+      - {type: box, box: [20, 60, 350, 220], text: "preprocessing.json\nand ONNX metadata:\nthe letterbox of\nthe evaluation", font: diagram_small, outline: yellow, appear: 3, highlight: [3]}
       - {type: arrow, points: [[300, 330], [365, 330]]}
       - {type: box, box: [370, 60, 1130, 560], fill: null, outline: violet, highlight: [1]}
       - {type: text, position: [750, 90], text: "instance_segmenter", font: diagram_bold, anchor: ma}
-      - {type: text, position: [410, 160], text: "the exported detector, then\nevery level's mask head on all {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections}} detections,\neach detection keeping its own level\nthe class channel picked by a gather\nthe sigmoid", font: diagram_text, appear: 1}
+      - {type: text, position: [410, 160], text: "the exported detector, then\nevery level's mask head on all {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections}} detections,\neach detection keeping its own level,\nor the shared mask head once\nthe class channel picked by a gather\nthe sigmoid", font: diagram_text, appear: 1}
       - {type: arrow, points: [[1130, 220], [1195, 150]]}
       - {type: text, position: [1205, 150], text: "the four outputs of DET", font: diagram_small, anchor: lm}
       - {type: arrow, points: [[1130, 380], [1195, 380]]}
       - {type: text, position: [1205, 380], text: "detection_masks\n[B, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}] FP32", font: diagram_monospace_small, anchor: lm, highlight: [0]}
-      - {type: box, box: [20, 600, 1740, 720], text: "client: restore_boxes_to_original_image(..., clip=False) · paste_instance_masks · pixels >= mask_threshold\na box clipped at the border squeezes its mask", font: diagram_small, outline: yellow, appear: 3, highlight: [3, 4]}
+      - {type: arrow, points: [[1130, 500], [1195, 500]], appear: 1}
+      - {type: text, position: [1205, 500], text: "mask_scores [B, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections}}] FP32\nwith mask scoring only", font: diagram_monospace_small, anchor: lm, appear: 1, highlight: [2]}
+      - {type: box, box: [20, 600, 1740, 720], text: "client: restore_boxes_to_original_image(..., clip=False) · paste_instance_masks · pixels >= mask_threshold\na box clipped at the border squeezes its mask", font: diagram_small, outline: yellow, appear: 4, highlight: [4, 5]}
     narration:
       - "The export writes the segmenter with the four outputs of the detector, then the detection masks: {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections:words}} probability masks of {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}} pixels per image in the frame of their boxes, zero for the padding."
-      - "In the graph, every level's mask head runs on all the detections, each keeping its own level, the class channel picked by a gather, then the sigmoid; the export is checked to a thousandth on the masks."
+      - "In the graph, every level's mask head runs on all the detections, each keeping its own level, or the shared head once on all of them; the class channel is picked by a gather, then the sigmoid, and the export is checked to a thousandth on the masks."
+      - "With mask scoring on, the mask scores follow the masks as a last output, and the class thresholds of the evaluation, found on these scores, apply to them, not to the detection scores."
       - "So that the client letterboxes its images as the evaluation did, the export also writes the colour order, resize, size, interpolation, padding, layout and value range of the run in the preprocessing file next to the model and in the ONNX metadata."
       - "The client pastes the masks itself with paste instance masks, at the boxes brought back to the original image, and keeps the pixels from the mask threshold, which the export does not apply."
       - "Take an object at the border: restore its box unclipped, since a box clipped at the border squeezes its mask, as the recipe of the tools reference says."
@@ -254,7 +261,7 @@ scenes:
       - heading: "Training"
         lines:
           - "{{instance_segmentation.samples.iterations[0]}} iterations: samples empty"
-          - "per-level mask heads: own positives only"
+          - "per-level heads: own positives; shared: all"
           - "block {{instance_segmentation.proposal_recall.busiest_block}} takes most proposals"
           - "polygons, overlaps: one full-size mask each"
       - heading: "Evaluation and export"
@@ -264,7 +271,8 @@ scenes:
           - "client pastes, thresholds itself"
           - "restore boxes unclipped"
     narration:
-      - "The pitfalls of the masks: short runs leave the samples empty; each level's mask head trains on the positives of its level only, while block {{instance_segmentation.proposal_recall.busiest_block}} takes most proposals; and polygons or overlapping masks, as in COCO, still travel through the loaders as one full-size mask each."
+      - "The pitfalls of the masks: short runs leave the samples empty, and each level's mask head trains on the positives of its level only, while block {{instance_segmentation.proposal_recall.busiest_block}} takes most proposals, unless the shared setting gives one head all of them."
+      - "Polygons or overlapping masks, as in COCO, still travel through the loaders as one full-size mask each."
       - "Masks pooled from coarse strides lose thin walls and points at strict IoU, the size rows of the mask and box tables hold different objects, and the client must paste with unclipped boxes and apply the threshold."
 
   - kind: summary

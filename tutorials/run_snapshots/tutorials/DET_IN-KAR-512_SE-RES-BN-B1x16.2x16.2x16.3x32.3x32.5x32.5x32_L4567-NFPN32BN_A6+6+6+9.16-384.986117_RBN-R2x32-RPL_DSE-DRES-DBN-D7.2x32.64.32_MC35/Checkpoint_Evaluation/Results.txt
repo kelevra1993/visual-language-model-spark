@@ -258,3 +258,263 @@ Iteration 5000 · 5000 Test Images · EMA Weights · 2026-11-19 19:27 ───�
   first, ties in class order. 95 % Lower and Upper : exact (Clopper-Pearson) interval, the counted samples being
   independent. — : no ground truths of the class.
 
+Iteration 5000 · 5000 Test Images · 2026-11-22 03:07 ───────────────────────────────────────────────────────────────────
+  Confusion Matrix : score >= 0.50, IoU >= 0.5 (boxes), 17096 right, 2347 wrong class, 1775 false positives, 8005 missed
+  Sample Images : 8 fixed test images
+
+  Mean Average Precision
+   Method      mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
+  ────────────────────────────────────────────────────────────
+   Area        75.24 %    68.29 %     0.49 %          55.05 %
+   11 Point    72.09 %    66.34 %     1.37 %          53.62 %
+   101 Point   74.99 %    68.09 %     0.56 %          54.92 %
+  The mAP@0.5 of the area method compares the checkpoints of the run.
+
+  Mean Average Precision By Object Size (Area)
+   Object Size           Objects   mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
+  ────────────────────────────────────────────────────────────────────────────────
+   Small (< 32²)            5778   71.25 %    60.84 %     0.06 %          49.60 %
+   Medium (32² to 96²)      9636   80.09 %    72.96 %     0.27 %          58.47 %
+   Large (>= 96²)          12034   73.17 %    67.88 %     0.90 %          54.78 %
+  COCO sizes by box area in network input pixels, the objects of the other sizes and the detections finding them being
+  ignored. — : no object of the size.
+
+  Mean Average Recall
+   Objects Of            Objects   mAR@0.5   mAR@0.75   mAR@0.95   mAR@[0.5:0.95]
+  ────────────────────────────────────────────────────────────────────────────────
+   All                     27448   96.65 %    89.33 %     5.30 %          74.75 %
+   Small (< 32²)            5778   93.05 %    81.63 %     1.58 %          67.79 %
+   Medium (32² to 96²)      9636   97.61 %    91.19 %     3.47 %          75.34 %
+   Large (>= 96²)          12034   97.79 %    91.44 %     7.34 %          77.06 %
+  Objects found by any detection kept for the evaluation, averaged over the classes. COCO sizes by box area in network
+  input pixels. — : no object of the size.
+
+  Proposal Recall
+                                                           Proposals
+   Objects               Count   Recall@0.5   Recall@0.7   Per Image
+  ───────────────────────────────────────────────────────────────────
+   All Objects           27448      98.39 %      95.70 %    250.0000
+   Small (< 32²)          5778      95.38 %      89.13 %           —
+   Medium (32² to 96²)    9636      98.78 %      96.73 %           —
+   Large (>= 96²)        12034      99.53 %      98.03 %           —
+   Block 4 Proposals     27448      33.57 %      31.70 %    238.6934
+   Block 5 Proposals     27448      38.80 %      35.89 %      2.8166
+   Block 6 Proposals     27448      40.72 %      37.02 %      2.8746
+   Block 7 Proposals     27448      48.74 %      46.02 %      5.6154
+  Share of the test objects overlapped by a proposal of the region proposal network by at least the IoU, sizes by box
+  area in network input pixels. A block row keeps the proposals of that block only. — : no object of the size.
+
+  Per Class Average Precision (Area)
+                          Ground                                                 Threshold    Recall
+   Class                  Truths    AP@0.5   AP@0.75   AP@0.95   AP@[0.5:0.95]     @ P99 %   @ P99 %
+  ───────────────────────────────────────────────────────────────────────────────────────────────────
+   kite                      776   32.82 %   28.57 %    0.08 %         22.86 %           —         —
+   rhombus                   782   35.57 %   31.73 %    0.05 %         25.05 %      0.4279    0.90 %
+   trapezoid                 748   35.75 %   32.88 %    0.07 %         26.10 %           —         —
+   hollow_kite               762   35.85 %   31.71 %    0.03 %         25.12 %      0.5639    0.13 %
+   hollow_rhombus            797   35.96 %   31.16 %    0.01 %         24.47 %           —         —
+   hollow_trapezoid          750   38.32 %   32.32 %    0.02 %         25.75 %           —         —
+   parallelogram             781   59.77 %   49.17 %    0.05 %         39.64 %      0.9279    1.28 %
+   hollow_capsule            765   60.77 %   51.23 %    0.29 %         41.02 %      0.6766    1.83 %
+   ellipse                   724   60.91 %   54.05 %    0.04 %         42.69 %      0.8810    1.24 %
+   capsule                   823   63.53 %   54.62 %    0.11 %         43.66 %      0.7201    4.74 %
+   hollow_parallelogram      786   64.71 %   47.94 %    0.01 %         41.19 %      0.9342    4.33 %
+   hollow_ellipse            805   69.59 %   58.89 %    0.01 %         45.24 %      0.8483    4.10 %
+   triangle                  796   74.86 %   61.34 %    0.03 %         48.60 %      0.9474   15.33 %
+   l_shape                   791   76.76 %   54.95 %    0.05 %         46.97 %      0.8739   24.40 %
+   semicircle                773   77.65 %   68.31 %    0.08 %         54.53 %      0.8316   15.52 %
+   hollow_octagon            748   80.17 %   79.15 %    0.16 %         62.43 %      0.7871    5.88 %
+   octagon                   798   80.84 %   78.59 %    0.92 %         64.57 %      0.8097    6.02 %
+   hollow_semicircle         803   81.41 %   71.31 %    0.02 %         54.83 %      0.7959   27.27 %
+   hollow_nonagon            815   84.88 %   83.20 %    3.39 %         69.48 %      0.9037    3.31 %
+   heptagon                  804   86.79 %   86.34 %    2.02 %         71.89 %      0.8880   15.80 %
+   nonagon                   770   87.43 %   86.33 %    3.53 %         73.94 %      0.8003   31.95 %
+   rectangle                 741   87.46 %   72.16 %    0.06 %         58.02 %      0.9812   33.60 %
+   hollow_triangle           858   87.90 %   66.52 %    0.02 %         54.61 %      0.8931   40.56 %
+   hexagon                   811   89.71 %   88.21 %    0.93 %         69.94 %      0.8600   37.36 %
+   hollow_heptagon           779   90.10 %   88.97 %    1.33 %         72.77 %      0.8557    8.99 %
+   hollow_rectangle          800   91.24 %   73.68 %    0.04 %         59.94 %      0.9430   55.62 %
+   hollow_hexagon            757   92.43 %   90.38 %    0.33 %         72.36 %      0.8431   30.38 %
+   pentagon                  753   92.91 %   90.47 %    0.62 %         73.18 %      0.7896   54.58 %
+   square                    783   95.73 %   89.62 %    0.47 %         73.22 %      0.8823   76.12 %
+   circle                    795   95.76 %   92.92 %    0.25 %         74.03 %      0.7635   77.86 %
+   hollow_square             764   96.34 %   90.42 %    0.33 %         71.27 %      0.8990   63.22 %
+   hollow_pentagon           791   96.46 %   94.24 %    0.74 %         76.71 %      0.7725   70.29 %
+   annulus                   812   97.37 %   95.23 %    0.43 %         75.79 %      0.7658   79.31 %
+   star                      798   97.68 %   90.11 %    0.58 %         72.37 %      0.7856   88.60 %
+   plus_sign                 809   98.15 %   93.32 %    0.07 %         72.54 %      0.8398   88.75 %
+  Worst AP@0.5 first, ties in class order. — : no ground truth box of the class, or the precision 99 % is never reached.
+
+  Per Class Recall
+                                           Recall      95 %       95 %    Recall      95 %      95 %
+   Class                  Ground Truths      @0.5     Lower      Upper     @0.75     Lower     Upper
+  ───────────────────────────────────────────────────────────────────────────────────────────────────
+   triangle                         796   90.20 %   87.92 %    92.18 %   77.76 %   74.71 %   80.61 %
+   rectangle                        741   92.31 %   90.15 %    94.12 %   79.08 %   75.97 %   81.96 %
+   parallelogram                    781   92.57 %   90.51 %    94.31 %   80.41 %   77.45 %   83.14 %
+   kite                             776   92.65 %   90.59 %    94.39 %   83.25 %   80.43 %   85.81 %
+   trapezoid                        748   93.45 %   91.43 %    95.11 %   86.23 %   83.55 %   88.62 %
+   rhombus                          782   93.73 %   91.80 %    95.33 %   83.50 %   80.71 %   86.04 %
+   hollow_parallelogram             786   93.77 %   91.84 %    95.35 %   77.74 %   74.66 %   80.60 %
+   semicircle                       773   94.18 %   92.29 %    95.72 %   84.22 %   81.45 %   86.72 %
+   l_shape                          791   94.18 %   92.32 %    95.71 %   75.47 %   72.32 %   78.44 %
+   hollow_rectangle                 800   95.00 %   93.25 %    96.40 %   83.00 %   80.21 %   85.54 %
+   hollow_semicircle                803   95.02 %   93.28 %    96.42 %   85.80 %   83.20 %   88.14 %
+   hollow_triangle                  858   95.22 %   93.57 %    96.55 %   77.97 %   75.05 %   80.70 %
+   capsule                          823   95.50 %   93.86 %    96.82 %   85.54 %   82.95 %   87.87 %
+   hollow_capsule                   765   96.21 %   94.60 %    97.45 %   86.80 %   84.19 %   89.12 %
+   ellipse                          724   96.27 %   94.62 %    97.53 %   89.36 %   86.89 %   91.52 %
+   hollow_rhombus                   797   96.36 %   94.82 %    97.55 %   85.57 %   82.94 %   87.94 %
+   hollow_trapezoid                 750   96.53 %   94.96 %    97.72 %   84.93 %   82.17 %   87.42 %
+   hollow_kite                      762   96.85 %   95.35 %    97.97 %   87.80 %   85.26 %   90.04 %
+   square                           783   97.70 %   96.39 %    98.63 %   93.36 %   91.38 %   95.00 %
+   hollow_ellipse                   805   97.76 %   96.49 %    98.67 %   87.95 %   85.50 %   90.12 %
+   circle                           795   98.36 %   97.22 %    99.13 %   95.85 %   94.22 %   97.13 %
+   star                             798   98.37 %   97.23 %    99.13 %   92.36 %   90.29 %   94.10 %
+   heptagon                         804   98.63 %   97.57 %    99.32 %   98.01 %   96.79 %   98.86 %
+   nonagon                          770   98.70 %   97.62 %    99.38 %   97.27 %   95.86 %   98.30 %
+   octagon                          798   98.75 %   97.71 %    99.40 %   96.24 %   94.68 %   97.45 %
+   hexagon                          811   98.77 %   97.74 %    99.41 %   97.04 %   95.63 %   98.09 %
+   plus_sign                        809   99.13 %   98.23 %    99.65 %   94.81 %   93.05 %   96.23 %
+   annulus                          812   99.14 %   98.23 %    99.65 %   97.29 %   95.93 %   98.29 %
+   pentagon                         753   99.20 %   98.27 %    99.71 %   96.55 %   94.98 %   97.73 %
+   hollow_square                    764   99.35 %   98.48 %    99.79 %   94.37 %   92.49 %   95.90 %
+   hollow_octagon                   748   99.60 %   98.83 %    99.92 %   98.40 %   97.21 %   99.17 %
+   hollow_nonagon                   815   99.63 %   98.93 %    99.92 %   97.79 %   96.53 %   98.69 %
+   hollow_hexagon                   757   99.74 %   99.05 %    99.97 %   97.75 %   96.43 %   98.69 %
+   hollow_heptagon                  779   99.87 %   99.29 %   100.00 %   98.97 %   97.99 %   99.56 %
+   hollow_pentagon                  791   99.87 %   99.30 %   100.00 %   98.10 %   96.89 %   98.93 %
+  Share of the ground truths matched by a detection at an overlap of 0.5 or 0.75, whatever its score. Worst Recall @0.5
+  first, ties in class order. 95 % Lower and Upper : exact (Clopper-Pearson) interval, the counted samples being
+  independent. — : no ground truths of the class.
+
+Iteration 5000 · 5000 Test Images · EMA Weights · 2026-11-22 03:07 ─────────────────────────────────────────────────────
+  Confusion Matrix : score >= 0.50, IoU >= 0.5 (boxes), 17265 right, 1643 wrong class, 1059 false positives, 8540 missed
+  Sample Images : 8 fixed test images
+
+  Mean Average Precision
+   Method      mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
+  ────────────────────────────────────────────────────────────
+   Area        77.78 %    74.06 %     5.73 %          63.55 %
+   11 Point    74.39 %    71.49 %     8.27 %          61.92 %
+   101 Point   77.49 %    73.79 %     5.96 %          63.39 %
+  The mAP@0.5 of the area method compares the checkpoints of the run.
+
+  Mean Average Precision By Object Size (Area)
+   Object Size           Objects   mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
+  ────────────────────────────────────────────────────────────────────────────────
+   Small (< 32²)            5778   72.01 %    66.80 %     2.37 %          56.16 %
+   Medium (32² to 96²)      9636   81.67 %    78.26 %     4.67 %          66.78 %
+   Large (>= 96²)          12034   76.73 %    73.51 %     8.33 %          63.96 %
+  COCO sizes by box area in network input pixels, the objects of the other sizes and the detections finding them being
+  ignored. — : no object of the size.
+
+  Mean Average Recall
+   Objects Of            Objects   mAR@0.5   mAR@0.75   mAR@0.95   mAR@[0.5:0.95]
+  ────────────────────────────────────────────────────────────────────────────────
+   All                     27448   97.08 %    92.66 %    19.87 %          82.21 %
+   Small (< 32²)            5778   93.49 %    86.78 %     9.18 %          74.99 %
+   Medium (32² to 96²)      9636   98.26 %    94.72 %    17.24 %          83.43 %
+   Large (>= 96²)          12034   98.06 %    93.87 %    24.67 %          84.33 %
+  Objects found by any detection kept for the evaluation, averaged over the classes. COCO sizes by box area in network
+  input pixels. — : no object of the size.
+
+  Proposal Recall
+                                                           Proposals
+   Objects               Count   Recall@0.5   Recall@0.7   Per Image
+  ───────────────────────────────────────────────────────────────────
+   All Objects           27448      98.45 %      96.22 %    250.0000
+   Small (< 32²)          5778      95.19 %      90.03 %           —
+   Medium (32² to 96²)    9636      99.02 %      97.43 %           —
+   Large (>= 96²)        12034      99.56 %      98.23 %           —
+   Block 4 Proposals     27448      34.69 %      33.02 %    239.8880
+   Block 5 Proposals     27448      38.60 %      36.23 %      2.4896
+   Block 6 Proposals     27448      40.19 %      37.33 %      2.6478
+   Block 7 Proposals     27448      48.49 %      46.20 %      4.9746
+  Share of the test objects overlapped by a proposal of the region proposal network by at least the IoU, sizes by box
+  area in network input pixels. A block row keeps the proposals of that block only. — : no object of the size.
+
+  Per Class Average Precision (Area)
+                          Ground                                                 Threshold    Recall
+   Class                  Truths    AP@0.5   AP@0.75   AP@0.95   AP@[0.5:0.95]     @ P99 %   @ P99 %
+  ───────────────────────────────────────────────────────────────────────────────────────────────────
+   kite                      776   33.57 %   31.16 %    0.50 %         25.89 %           —         —
+   trapezoid                 748   36.07 %   33.44 %    0.89 %         28.52 %      0.4760    0.40 %
+   hollow_kite               762   36.60 %   34.00 %    0.27 %         27.97 %      0.4665    0.26 %
+   rhombus                   782   37.14 %   34.64 %    0.81 %         29.21 %      0.4110    0.90 %
+   hollow_trapezoid          750   38.44 %   35.58 %    0.60 %         29.34 %      0.4652    1.60 %
+   hollow_rhombus            797   38.55 %   35.73 %    0.70 %         29.97 %      0.5209    0.13 %
+   ellipse                   724   61.22 %   57.29 %    1.91 %         48.44 %      0.7615    0.41 %
+   hollow_capsule            765   61.26 %   57.33 %    1.13 %         47.99 %      0.7081    0.13 %
+   capsule                   823   63.48 %   58.42 %    1.33 %         49.28 %      0.6397    2.92 %
+   hollow_ellipse            805   67.25 %   63.19 %    1.22 %         52.77 %      0.6653    5.59 %
+   parallelogram             781   68.10 %   60.69 %    0.76 %         50.34 %      0.8843    2.69 %
+   hollow_parallelogram      786   69.29 %   59.59 %    0.63 %         49.82 %      0.9063    2.42 %
+   triangle                  796   78.94 %   71.32 %    0.58 %         57.93 %      0.9642   14.45 %
+   semicircle                773   79.57 %   75.36 %    1.77 %         62.08 %      0.8380   13.07 %
+   l_shape                   791   82.02 %   71.21 %    0.32 %         57.63 %      0.7036   39.44 %
+   hollow_semicircle         803   84.71 %   80.24 %    1.23 %         66.30 %      0.7184   41.47 %
+   octagon                   798   86.95 %   85.67 %   17.15 %         77.19 %      0.6656   28.57 %
+   hollow_octagon            748   89.08 %   88.40 %   16.58 %         79.21 %      0.6813   20.86 %
+   heptagon                  804   89.27 %   89.02 %   13.31 %         78.92 %      0.9189    1.87 %
+   rectangle                 741   89.53 %   80.82 %    1.70 %         68.26 %      0.9897   41.97 %
+   nonagon                   770   89.79 %   88.95 %   15.99 %         79.31 %      0.7882   28.05 %
+   hollow_triangle           858   91.62 %   81.14 %    0.48 %         66.82 %      0.8389   58.86 %
+   hollow_nonagon            815   92.96 %   91.66 %   16.89 %         81.83 %      0.7893   28.10 %
+   hexagon                   811   93.12 %   91.64 %   10.46 %         80.70 %      0.8145   42.29 %
+   hollow_heptagon           779   93.87 %   93.30 %   12.80 %         82.69 %      0.8161   17.84 %
+   hollow_rectangle          800   94.20 %   85.74 %    1.46 %         70.84 %      0.9707   52.62 %
+   pentagon                  753   94.86 %   92.75 %   10.86 %         82.10 %      0.8553   48.61 %
+   hollow_hexagon            757   95.96 %   95.20 %   11.86 %         84.14 %      0.8081   44.12 %
+   circle                    795   96.42 %   94.78 %    9.91 %         82.62 %      0.7816   80.25 %
+   square                    783   97.60 %   94.06 %    7.88 %         82.04 %      0.9635   77.01 %
+   annulus                   812   97.70 %   96.26 %   12.11 %         84.91 %      0.7105   87.56 %
+   hollow_pentagon           791   97.90 %   96.58 %    8.47 %         84.53 %      0.7243   80.40 %
+   star                      798   97.98 %   93.64 %    3.10 %         77.80 %      0.8126   89.97 %
+   hollow_square             764   98.38 %   96.91 %    6.99 %         83.52 %      0.8139   84.95 %
+   plus_sign                 809   98.76 %   96.36 %    7.89 %         83.43 %      0.7756   93.20 %
+  Worst AP@0.5 first, ties in class order. — : no ground truth box of the class, or the precision 99 % is never reached.
+
+  Per Class Recall
+                                           Recall      95 %       95 %    Recall      95 %      95 %
+   Class                  Ground Truths      @0.5     Lower      Upper     @0.75     Lower     Upper
+  ───────────────────────────────────────────────────────────────────────────────────────────────────
+   triangle                         796   91.96 %   89.85 %    93.75 %   83.54 %   80.78 %   86.05 %
+   rectangle                        741   92.17 %   90.00 %    94.00 %   84.75 %   81.96 %   87.26 %
+   semicircle                       773   93.53 %   91.56 %    95.16 %   88.49 %   86.02 %   90.65 %
+   l_shape                          791   94.06 %   92.18 %    95.60 %   83.06 %   80.26 %   85.61 %
+   kite                             776   94.07 %   92.17 %    95.63 %   88.02 %   85.52 %   90.22 %
+   parallelogram                    781   94.62 %   92.80 %    96.10 %   86.56 %   83.96 %   88.87 %
+   hollow_parallelogram             786   94.66 %   92.85 %    96.12 %   84.73 %   82.03 %   87.18 %
+   ellipse                          724   95.58 %   93.82 %    96.96 %   90.75 %   88.40 %   92.76 %
+   capsule                          823   95.63 %   94.00 %    96.92 %   89.19 %   86.86 %   91.23 %
+   rhombus                          782   95.65 %   93.98 %    96.97 %   88.49 %   86.04 %   90.64 %
+   hollow_capsule                   765   95.69 %   94.00 %    97.01 %   91.11 %   88.87 %   93.03 %
+   trapezoid                        748   95.72 %   94.01 %    97.06 %   89.17 %   86.72 %   91.31 %
+   hollow_semicircle                803   96.01 %   94.42 %    97.26 %   90.66 %   88.43 %   92.58 %
+   hollow_rectangle                 800   96.38 %   94.84 %    97.56 %   89.88 %   87.57 %   91.88 %
+   hollow_triangle                  858   96.39 %   94.91 %    97.53 %   86.95 %   84.51 %   89.13 %
+   hollow_ellipse                   805   96.89 %   95.45 %    97.98 %   91.55 %   89.41 %   93.38 %
+   hollow_trapezoid                 750   97.47 %   96.07 %    98.47 %   91.07 %   88.79 %   93.01 %
+   hollow_kite                      762   97.64 %   96.29 %    98.59 %   92.39 %   90.27 %   94.17 %
+   hollow_rhombus                   797   97.99 %   96.76 %    98.85 %   91.97 %   89.86 %   93.76 %
+   circle                           795   98.24 %   97.06 %    99.03 %   96.86 %   95.39 %   97.95 %
+   star                             798   98.50 %   97.39 %    99.22 %   94.61 %   92.81 %   96.07 %
+   heptagon                         804   98.51 %   97.41 %    99.23 %   98.13 %   96.94 %   98.95 %
+   nonagon                          770   98.57 %   97.46 %    99.28 %   97.53 %   96.17 %   98.51 %
+   square                           783   98.60 %   97.50 %    99.30 %   95.91 %   94.28 %   97.19 %
+   octagon                          798   98.62 %   97.55 %    99.31 %   97.12 %   95.71 %   98.16 %
+   hexagon                          811   98.89 %   97.90 %    99.49 %   97.16 %   95.77 %   98.19 %
+   annulus                          812   99.01 %   98.07 %    99.57 %   97.66 %   96.37 %   98.59 %
+   pentagon                         753   99.07 %   98.09 %    99.63 %   97.08 %   95.61 %   98.16 %
+   plus_sign                        809   99.26 %   98.39 %    99.73 %   96.91 %   95.47 %   97.99 %
+   hollow_square                    764   99.48 %   98.66 %    99.86 %   97.91 %   96.62 %   98.80 %
+   hollow_octagon                   748   99.60 %   98.83 %    99.92 %   98.66 %   97.56 %   99.36 %
+   hollow_nonagon                   815   99.75 %   99.12 %    99.97 %   98.28 %   97.13 %   99.06 %
+   hollow_hexagon                   757   99.87 %   99.27 %   100.00 %   98.94 %   97.93 %   99.54 %
+   hollow_heptagon                  779   99.87 %   99.29 %   100.00 %   99.23 %   98.33 %   99.72 %
+   hollow_pentagon                  791   99.87 %   99.30 %   100.00 %   98.74 %   97.69 %   99.39 %
+  Share of the ground truths matched by a detection at an overlap of 0.5 or 0.75, whatever its score. Worst Recall @0.5
+  first, ties in class order. 95 % Lower and Upper : exact (Clopper-Pearson) interval, the counted samples being
+  independent. — : no ground truths of the class.
+

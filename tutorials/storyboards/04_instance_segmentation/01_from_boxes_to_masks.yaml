@@ -124,7 +124,7 @@ scenes:
     code_reference: "vision_training/models/instance_segmentation/mask_head.py · count_mask_upsamplings"
     source:
       file: vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml
-      keys: [DetectionLevels.5.mask_head, MaskHead.mask_resolution, MaskHead.upsampling, MaskHead.skip_blocks_at_pool_size, MaskHead.image_branch_convolutions, MaskHead.skip_blocks_at_mask_resolution, MaskHead.fusion_convolutions, MaskHead.normalization, MaskHead.modules, MaskHead.inference]
+      keys: [DetectionLevels.5.mask_head, MaskHead.mask_resolution, MaskHead.upsampling, MaskHead.skip_blocks_at_pool_size, MaskHead.image_branch_convolutions, MaskHead.skip_blocks_at_mask_resolution, MaskHead.fusion_convolutions, MaskHead.shared, MaskHead.mask_scoring.activated, MaskHead.normalization, MaskHead.modules, MaskHead.inference]
       comments: false
     highlights:
       - {match: "mask_head:", sentences: [0]}
@@ -134,6 +134,8 @@ scenes:
       - {match: "skip_blocks_at_pool_size:|image_branch_convolutions:|skip_blocks_at_mask_resolution:|fusion_convolutions:", sentences: [4]}
       - {key: MaskHead.skip_blocks_at_pool_size, sentences: [5]}
       - {key: MaskHead.skip_blocks_at_mask_resolution, sentences: [5]}
+      - {key: MaskHead.shared, sentences: [6]}
+      - {key: MaskHead.mask_scoring.activated, sentences: [7]}
     # The pool size, doubled size and mask resolution of the scenario, not of the configuration
     literal_numbers: ["10", "20", "28"]
     narration:
@@ -143,6 +145,8 @@ scenes:
       - "The mask threshold of {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.inference.mask_threshold}} serves the evaluation and the sample images; the export leaves it to the client."
       - "The skip, image branch and fusion settings, off here, would feed the head finer inputs: backbone blocks before their pooling, convolutions on the crop of the input image, and convolutions mixing them before the predictor."
       - "The configuration check holds the skips to the layout of a U-Net: all finer than the finest level, the finest ones at the mask resolution, and no block read at both sizes."
+      - "The shared setting, off here, builds one mask head read by every level, as in Mask R-CNN, trained on the positives of all the levels; it needs the same mask head and channels on every level, which a neck gives."
+      - "Mask scoring, off too, gives every mask head a small head predicting the IoU of each mask with its object, for the mask scores of the next chapter."
 
   - kind: html
     page: diagram
@@ -220,13 +224,13 @@ scenes:
       - heading: "Different here"
         lines:
           - "feature pyramid of the run: strides {{instance_segmentation.geometry.strides_text}}, not 4 to 32"
-          - "one mask head per level, not shared"
+          - "one mask head per level by default"
           - "full-size ground truth masks, no mini masks"
           - "ground truth boxes added to the proposals"
           - "unscaled box targets, smooth L1 beta {{instance_segmentation.geometry.box_loss_beta}}"
     narration:
       - "The mask branch is the design of that reference: ROI Align of 14, small convolutions, a transposed convolution to 28, one sigmoid mask per class, the loss on the ground truth class, and masks on the refined boxes."
-      - "What feeds it differs: the feature pyramid of the run shown gives the masks strides of {{instance_segmentation.geometry.strides_text}}, coarser than the 4 to 32 of the reference, with one head per level, full-size ground truth masks, and the box choices of the detector."
+      - "What feeds it differs: the feature pyramid of the run shown gives the masks strides of {{instance_segmentation.geometry.strides_text}}, coarser than the 4 to 32 of the reference, with one head per level by default, full-size ground truth masks, and the box choices of the detector."
 
   - kind: image
     title: "The mask loss of the run"
