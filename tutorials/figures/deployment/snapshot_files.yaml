@@ -1,9 +1,10 @@
 # Files of the runs the deployment figures read, copied into tutorials/run_snapshots by tutorials/make_run_snapshots.py
 # (tutorials/MAINTAINING.md, section Run Snapshots). The series loads no checkpoint: the classifier and the detector of
-# its config.pbtxt listings are stand-ins built from these configurations and label dictionaries, and the serving
+# its config.pbtxt listings are stand-ins built from these configurations and label dictionaries, the model of the
+# Export Sizes panel is built from the configuration of the README classifier with random weights, and the serving
 # benchmark results are repository files (repository_files of tutorial_sources.yaml).
 runs:
-  # README classifier: image size, class count and input contract of the export chapter
+  # README classifier: image size, class count, input contract and Export Sizes panel of the export chapter
   - run: classification
     files:
       - path: training_configuration.yaml

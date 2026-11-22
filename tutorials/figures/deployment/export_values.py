@@ -6,32 +6,40 @@ batches the exports are traced and checked on and the comparison tolerances of e
 get_export_specification of export_specifications.py, given stand-ins holding the attributes it reads), the config.pbtxt
 files the export writes for the README classifier and for the benchmark detector (write_triton_configuration on their
 export specifications, into a temporary folder), the input contract of the README classifier (build_input_contract,
-no file written), the size of the float32 requests, the ports and image of the Triton docker compose file, and the
+no file written), the Export Sizes panel its launch prints (estimate_export_sizes on its model built on the CPU), the
+size of the float32 requests, the ports and image of the Triton docker compose file, and the
 layout of a real model repository of the serving benchmark (its file list committed next to the plan of the benchmark,
 serving_benchmark_model_repository_files.txt). The listings are text files drawn by the listing elements of the diagram
 scenes; the facts are quoted as {{deployment.<name>}}.
 """
 
+import functools
 import json
 import re
 import tempfile
 
+import torch
 import yaml
 
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List, Tuple
 
+from scripts.deployment.check_export_size_estimates import build_run_optimizer
 from tutorial_builder.figure_context import find_repository_root
 from tutorials.figures.classification.data_listings import write_listing
 from tutorials.figures.figure_utilities import find_repository_file, find_run_folder, read_run_configuration
 from tutorials.figures.foundations.code_values import read_main_block_value, read_triton_host_ports
+from tutorials.figures.foundations.listings import capture_printed_text
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
+from vision_training.deployment.export_size_estimates import estimate_export_sizes, print_export_size_summary
 from vision_training.deployment.export_specifications import build_input_specification, get_export_specification
 from vision_training.deployment.frame_selection_deployment import DECODER_OUTPUT_TYPES
 from vision_training.deployment.input_contract import INPUT_CONTRACT_KEYS, build_input_contract
 from vision_training.deployment.triton_configuration import (format_dimensions, get_served_output_names,
                                                              write_triton_configuration)
+from vision_training.models.classification.image_classifier import ImageClassifier
+from vision_training.models.model_transfer import TRANSFERABLE_COMPONENTS
 
 # Export script, whose main block sets the formats, the version, the largest batch size and the TensorRT precision
 EXPORT_SCRIPT = Path("vision_training") / "deployment" / "export_model.py"
@@ -52,10 +60,16 @@ FLOAT32_BYTES = 4
 BYTES_PER_MEGABYTE = 1e6
 
 # Values the stand-in inference models give get_export_specification for the tasks the tutorials only quote the
-# tolerances of: the tolerances do not depend on them, they only fill the shapes of the outputs
+# tolerances of: the tolerances do not depend on them, they only fill the shapes of the outputs (mask_scoring adds the
+# 'mask_scores' output of the instance segmenter, compared within the score tolerance)
 STAND_IN_ATTRIBUTES = {"input_image_size": 64, "number_classes": 2, "maximum_detections": 10, "mask_size": 28,
-                       "maximum_sequence_length": 8, "number_channels": 3, "number_candidates": 5,
-                       "representation_size": 16}
+                       "mask_scoring": False, "maximum_sequence_length": 8, "number_channels": 3,
+                       "number_candidates": 5, "representation_size": 16}
+
+# Bottom border of the Export Sizes panel, whose subtitle gives the seconds the estimates took, different at every
+# build: the listing writes PANEL_SECONDS_SUBTITLE in their place, so that it only changes with the sizes
+PANEL_SECONDS_PATTERN = re.compile(pattern=r"^╰─+ [0-9.]+ seconds ─+╯$")
+PANEL_SECONDS_SUBTITLE = " <seconds> seconds "
 
 # Content of the stand-in model file of the config.pbtxt listings, no checkpoint being exported
 STAND_IN_MODEL_BYTES = b"stand-in for the exported model file"
@@ -333,6 +347,60 @@ def describe_input_contract(output_folder: Path, classification_run_folder: Path
             "contract.input_resize": input_contract["input_resize"]}
 
 
+def describe_export_sizes(output_folder: Path, classification_run_folder: Path) -> Dict[str, Any]:
+    """
+    Writes the Export Sizes panel the launch of the README classifier prints after its Model Size panel
+    (estimate_export_sizes and print_export_size_summary of vision_training/deployment/export_size_estimates.py), so
+    that the export chapter shows that the size of every exported file is known before the training. The model is
+    built on the CPU from the saved configuration of the run, its random weights giving the same sizes as the trained
+    ones, with the optimizer and moving average of that configuration (build_run_optimizer of
+    scripts/deployment/check_export_size_estimates.py, as the calibration of the panel builds them); the seconds of the
+    subtitle, different at every build, are written '<seconds>'.
+
+    Args:
+        output_folder (Path): The figures folder of the series.
+        classification_run_folder (Path): The classification run of the tutorials (the README classifier).
+
+    Returns:
+        Dict[str, Any]: The facts export_sizes.exported_parameters and export_sizes.total_parameters.
+
+    Raises:
+        ValueError: If a component of the run is frozen (the trainer leaves its parameters out of the optimizer, this
+            model trains all of them) or if the panel has no subtitle of seconds.
+        RuntimeError: If the forward pass or the trace of the estimates failed.
+    """
+    experiment_configuration, model_configuration = load_experiment_configuration(
+        configuration_path=classification_run_folder / "training_configuration.yaml")
+    frozen_sections = [section_name for section_name in TRANSFERABLE_COMPONENTS if section_name in model_configuration
+                       and model_configuration[section_name]["pretrained"]["freeze"]]
+    if frozen_sections:
+        raise ValueError(f"{classification_run_folder.name} freezes {frozen_sections}, whose parameters the optimizer "
+                         f"built here would count in the checkpoint estimate.")
+
+    # Estimates of the panel for the model in training mode, as at launch, with the optimizer of its configuration
+    model = ImageClassifier(configuration=model_configuration, device=torch.device(device="cpu"), dtype=torch.float32)
+    optimization_configuration = model_configuration["Optimization"]
+    export_sizes = estimate_export_sizes(
+        task=experiment_configuration["task"], model=model.train(),
+        optimizer=build_run_optimizer(model=model, optimizer_name=optimization_configuration["optimizer"]),
+        keeps_moving_average=optimization_configuration["exponential_moving_average"]["activated"])
+    if export_sizes["errors"]:
+        raise RuntimeError(f"The export size estimates of {classification_run_folder.name} failed:\n" +
+                           "\n".join(export_sizes["errors"]))
+
+    # Printed panel, its bottom border written again around '<seconds>' at the same width
+    panel_lines = capture_printed_text(printing_function=functools.partial(
+        print_export_size_summary, export_sizes=export_sizes)).rstrip("\n").split("\n")
+    if PANEL_SECONDS_PATTERN.match(panel_lines[-1]) is None:
+        raise ValueError(f"The Export Sizes panel ends with '{panel_lines[-1]}', expected its seconds subtitle.")
+    border_width = len(panel_lines[-1]) - 2 - len(PANEL_SECONDS_SUBTITLE)
+    panel_lines[-1] = (f"╰{'─' * (border_width // 2)}{PANEL_SECONDS_SUBTITLE}"
+                       f"{'─' * (border_width - border_width // 2)}╯")
+    write_listing(lines=panel_lines, output_path=output_folder / "listings" / "export_sizes_classifier.txt")
+    return {"export_sizes.exported_parameters": export_sizes["exported_parameters"],
+            "export_sizes.total_parameters": export_sizes["total_parameters"]}
+
+
 def describe_request_sizes(classification_image_size: int, detection_image_size: int) -> Dict[str, Any]:
     """
     Gives the size of one float32 image of the classifier and of the detector inside a request, the tensor a gRPC
@@ -428,8 +496,9 @@ def describe_model_repository(output_folder: Path) -> Dict[str, Any]:
 def make_export_values(output_folder: Path, experiments_folder: Path) -> Dict[str, Any]:
     """
     Makes the listings and facts of the export and serving chapters of the deployment series, from the code of the
-    repository, the classification, detection benchmark and sequence labelling runs of tutorial_sources.yaml and the
-    committed file list of the model repository of the serving benchmark.
+    repository, the classification (its configuration, input contract and Export Sizes panel), detection benchmark and
+    sequence labelling runs of tutorial_sources.yaml and the committed file list of the model repository of the serving
+    benchmark.
 
     Args:
         output_folder (Path): The figures folder of the series.
@@ -454,6 +523,7 @@ def make_export_values(output_folder: Path, experiments_folder: Path) -> Dict[st
             **describe_check_batches(sequence_run_folder=sequence_run_folder),
             **describe_comparison_tolerances(),
             **describe_input_contract(output_folder=output_folder, classification_run_folder=classification_run_folder),
+            **describe_export_sizes(output_folder=output_folder, classification_run_folder=classification_run_folder),
             **describe_request_sizes(classification_image_size=triton_facts["classifier.image_size"],
                                      detection_image_size=triton_facts["detector.image_size"]),
             **describe_compose_file(repository_folder=repository_folder),

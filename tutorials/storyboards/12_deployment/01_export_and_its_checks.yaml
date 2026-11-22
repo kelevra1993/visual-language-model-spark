@@ -2,12 +2,14 @@
 # export_experiment (inference model, input contract, reference outputs, staging folder, every format checked against
 # the eager model, install_staged_models), the batches the exports are traced and checked on, the comparison tolerances
 # of every task and what the check does not cover (the TensorRT engine), the config.pbtxt the export writes, the input
-# contract (preprocessing.json and the ONNX metadata), and the extras of the classifier (temperature and class
-# thresholds) and of the frame selector (decoder and ensembles). Coordinates of the html scenes are in pixels of the
-# content area (1760 x 740, origin at its top left corner); the facts named deployment.* and the listings under
-# figures:deployment/listings are made by tutorials/figures/deployment from the code, the README classifier, the
-# run_9 detector and the sequence labelling run of tutorial_sources.yaml, and the file list of a model repository of
-# the serving benchmark (serving_benchmark_model_repository_files.txt, committed next to its plan).
+# contract (preprocessing.json and the ONNX metadata), the extras of the classifier (temperature and class thresholds)
+# and of the frame selector (decoder and ensembles), and the Export Sizes panel printed at the launch of every training
+# (the size of every exported file estimated, and the script checking the estimates). Coordinates of the html scenes
+# are in pixels of the content area (1760 x 740, origin at its top left corner); the facts named deployment.* and the
+# listings under figures:deployment/listings are made by tutorials/figures/deployment from the code, the README
+# classifier (its Export Sizes panel from its model built on the CPU), the run_9 detector and the sequence labelling
+# run of tutorial_sources.yaml, and the file list of a model repository of the serving benchmark
+# (serving_benchmark_model_repository_files.txt, committed next to its plan).
 series: deployment
 series_title: "Export And Deployment"
 chapter: 1
@@ -30,6 +32,9 @@ references:
   - "vision_training/deployment/frame_selection_deployment.py · build_decoding_settings"
   - "vision_training/deployment/frame_selection_decoder_backend.py"
   - "vision_training/models/classification/inference_classifier.py · InferenceClassifier.set_logit_temperature"
+  - "vision_training/deployment/export_size_estimates.py · probe_inference_graph"
+  - "vision_training/deployment/export_size_estimates.py · print_export_size_summary"
+  - "scripts/deployment/check_export_size_estimates.py · fit_calibration"
   - "README.md"
 scenes:
   - kind: title_card
@@ -75,7 +80,7 @@ scenes:
       - {type: box, box: [20, 215, 1740, 525], fill: null, outline: border, appear: 3}
       - {type: text, position: [40, 245], text: "staging folder {{constant:vision_training/deployment/export_model.py#STAGING_FOLDER_PREFIX}}<random>/, next to the model repository", font: diagram_small, colour: dim, anchor: lm, appear: 3}
       - {type: box, box: [40, 280, 560, 390], text: "TorchScript: torch.jit.trace\nmodel.pt", font: diagram_small, outline: aqua, appear: 3, highlight: [3]}
-      - {type: box, box: [40, 405, 560, 515], text: "ONNX: dynamo export\nmodel.onnx + model.onnx.data", font: diagram_small, outline: aqua, appear: 3, highlight: [3]}
+      - {type: box, box: [40, 405, 560, 515], text: "ONNX: dynamo export\nmodel.onnx + model.onnx.data\ndebugging metadata removed", font: diagram_small, outline: aqua, appear: 3, highlight: [3]}
       - {type: arrow, points: [[568, 335], [612, 335]], appear: 3}
       - {type: arrow, points: [[568, 460], [612, 460]], appear: 3}
       - {type: box, box: [620, 280, 1140, 390], text: "torch.jit.load on CUDA", font: diagram_small, outline: aqua, appear: 3}
@@ -115,11 +120,11 @@ scenes:
     source:
       file: vision_training/deployment/export_specifications.py
       function: get_export_specification
-      start: "# Object detection: a fixed number of detections"
-      end: "\"comparison_tolerances\": \\{\"box_tolerance\": 1e-2, \"score_tolerance\": 1e-4\\}\\}"
+      start: "if task == \"object_detection\":"
+      end: "\"comparison_tolerances\": \\{\"box_tolerance\": 1e-2, \"score_tolerance\": 1e-4, \"mask_tolerance\": 1e-3\\}\\}"
     highlights:
       - {match: "compare_detections,|\"comparison_tolerances\": \\{\"box_tolerance\": 1e-2, \"score_tolerance\": 1e-4\\}\\}", sentences: [0, 1]}
-      - {match: "\"detection_scores\"|\"number_detections\"", sentences: [2]}
+      - {match: "\"detection_masks\"|\"mask_scores\"|\"mask_tolerance\"", sentences: [2]}
     # The tolerances are read with all their decimals, as the specification writes them
     exact_facts: [deployment.tolerances.object_detection.box_tolerance, deployment.tolerances.object_detection.score_tolerance,
                   deployment.tolerances.classification.tolerance, deployment.tolerances.instance_segmentation.mask_tolerance,
@@ -127,7 +132,8 @@ scenes:
     narration:
       - "Each task compares its outputs its own way: a detector must keep every detection, within {{deployment.tolerances.object_detection.box_tolerance}} pixels on the boxes and {{deployment.tolerances.object_detection.score_tolerance}} on the scores."
       - "Detections whose scores are tied can swap places after a rounding, so match detections pairs them by label, score and nearest box before comparing, rather than by rank."
-      - "Masks add a tolerance of {{deployment.tolerances.instance_segmentation.mask_tolerance}}; classifiers and sequence models compare probabilities within {{deployment.tolerances.classification.tolerance}}, and a segmenter must agree on a share of {{deployment.tolerances.semantic_segmentation.minimum_equal_share}} of its pixels, a keypoint detector on {{deployment.tolerances.keypoint_detection.minimum_equal_share}} of its candidates."
+      - "An instance segmenter adds its masks, within {{deployment.tolerances.instance_segmentation.mask_tolerance}}, and, when mask scoring is on, its mask scores, an output of their own compared within the tolerance of the scores."
+      - "Classifiers and sequence models compare probabilities within {{deployment.tolerances.classification.tolerance}}, and a segmenter must agree on a share of {{deployment.tolerances.semantic_segmentation.minimum_equal_share}} of its pixels, a keypoint detector on {{deployment.tolerances.keypoint_detection.minimum_equal_share}} of its candidates."
       - "Here is the pitfall: the ONNX check runs the graph on the CPU, never the TensorRT engine that Triton builds from it, so an FP16 engine is served without any check."
       - "That is how a detector lost points of mAP in FP16 without the export noticing, the story of the third chapter."
 
@@ -241,16 +247,44 @@ scenes:
       - "They receive the selected frames, their probabilities, a low confidence flag from the thresholds of the evaluation, and the candidate frames."
       - "Both extras read the files of the evaluation of the exported iteration, in the evaluation folder of the training or of the checkpoint evaluation script, and refuse to choose when both hold one."
 
+  - kind: html
+    page: diagram
+    title: "Export sizes known at launch"
+    code_reference: "vision_training/deployment/export_size_estimates.py · estimate_export_sizes"
+    elements:
+      - {type: text, position: [20, 20], text: "Export Sizes panel of the README classifier, its model built on the CPU from its configuration", font: diagram_small, colour: dim, anchor: lm}
+      - type: listing
+        box: [20, 50, 800, 380]
+        font: diagram_monospace_small
+        source: {file: "figures:deployment/listings/export_sizes_classifier.txt"}
+        highlights:
+          - {match: "Export Sizes", sentences: [0]}
+          - {match: "Exported Parameters|ONNX", sentences: [1]}
+          - {match: "PyTorch FP32|PyTorch FP16|TorchScript|Training Checkpoint", sentences: [2]}
+          - {match: "TensorRT", sentences: [3]}
+      - {type: box, box: [20, 420, 800, 590], text: "printed by BaseTrainer at every launch,\nafter the Model Size panel; a failed\nprobe or trace prints its rows as failed\nand the training goes on", font: diagram_small, outline: border, highlight: [0]}
+      - {type: box, box: [860, 50, 1740, 210], text: "one forward pass of one sample under ExportGraphProbe:\noperators counted, every constant read counted once,\nbatch normalization folded as the exports fold it", font: diagram_small, outline: violet, appear: 1, highlight: [1]}
+      - {type: box, box: [860, 240, 1740, 400], text: "formulas: state dictionaries, optimizer state,\naveraged weights and metadata of the checkpoint\nTorchScript: traced to a temporary model.pt", font: diagram_small, outline: blue, appear: 2, highlight: [2]}
+      - {type: box, box: [860, 430, 1740, 590], text: "TensorRT: the weights in the engine precision\nplus an overhead per operator,\ntimes {{constant:vision_training/deployment/export_size_estimates.py#TENSORRT_OVERHEAD_RANGE[0]}} to {{constant:vision_training/deployment/export_size_estimates.py#TENSORRT_OVERHEAD_RANGE[1]}}", font: diagram_small, outline: yellow, appear: 3, highlight: [3]}
+      - {type: box, box: [20, 620, 1740, 730], text: "scripts/deployment/check_export_size_estimates.py: real exports of the tutorial runs,\nevery estimate against its file, the constants fitted again;\n--build-tensorrt-engines adds the engines Triton builds, on an idle GPU", font: diagram_small, outline: aqua, appear: 4, highlight: [4]}
+    narration:
+      - "Say you train a model for a small device: the launch of every training already prints the size of every file the model becomes, from its weights to its TensorRT engines, in the Export Sizes panel."
+      - "Nothing is exported there: one forward pass of one sample, recorded operator by operator, gives the number of operators of the graph and the weights and constants the ONNX file keeps."
+      - "The PyTorch weights and the training checkpoint, with its optimizer state and averaged weights, come from formulas; only the TorchScript file is traced into a temporary folder and measured."
+      - "The TensorRT engines are a range: their weights in the precision of the engine, plus an overhead per operator fitted on real engines, which only the TensorRT builder decides."
+      - "After a change to the exports or to their libraries, check export size estimates exports the tutorial runs, compares every estimate with its real file, and fits the constants again."
+
   - kind: summary
     title: "Recap"
     items:
       - {text: "export_model.py: TorchScript and ONNX, one folder per model and version"}
-      - {text: "Every format checked against the eager model, TF32 off, on another batch size"}
+      - {text: "Every format checked against the eager model, never the TensorRT engine"}
       - {text: "Staging folder: the served models replaced only when every format matches"}
-      - {text: "The TensorRT engine itself is never checked by the export"}
       - {text: "config.pbtxt: max batch {{deployment.export.maximum_batch_size}}, dynamic batching, {{deployment.triton.instance_count}} instance, TensorRT accelerator"}
       - {text: "preprocessing.json and ONNX metadata: the input contract, version {{constant:vision_training/deployment/input_contract.py#INPUT_CONTRACT_VERSION}}"}
       - {text: "Classifier temperature and thresholds, frame selector decoder and ensembles"}
+      - {text: "Export Sizes panel at every launch: every file estimated, TorchScript traced"}
     narration:
       - "To recap: one script exports any task in both formats, checks each file against the eager model, and installs them only when all agree, with their Triton configuration and their input contract."
+      - "The size of each of these files is printed at the launch of the training, estimated rather than exported."
       - "The next chapter starts Triton on this repository, sends it requests, and goes through the serving paths it offers."
