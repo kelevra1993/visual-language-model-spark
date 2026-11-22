@@ -171,12 +171,10 @@ scenes:
       - {key: ExperimentConfiguration.number_iterations, sentences: [3]}
       - {key: ExperimentConfiguration.weight_saving_iterations, sentences: [3]}
       - {key: ExperimentConfiguration.validation_iteration_ratio, sentences: [3]}
-    # The three keys forgotten in the situation of the third sentence
-    literal_numbers: [three]
     narration:
       - "A configuration has one section for the experiment, one for the optimization, one for the data, one for the backbone, and the sections of the task, here the classification head."
       - "Detection and instance segmentation also have a Neck section between the backbone and their heads, whose type picks a feature pyramid, a path aggregation, or no neck."
-      - "There are no defaults, the file of a task holding every key the task reads: if, for instance, you forget three keys, the checks at launch gather every missing or inconsistent value before stopping, so one launch lists all three."
+      - "There are no defaults, the file of a task holding every key the task reads: if, for instance, you forget a key, the launch stops on it with its path, while the checks gather every inconsistent value before stopping, so one launch lists them all."
       - "The training is counted in iterations, not epochs: checkpoints, evaluations and summaries are all set in iterations."
 
   # Consoles of configuration_consoles.py, which runs the check on copies of the synthetic configuration written at
@@ -207,7 +205,7 @@ scenes:
       - {role: output, text: "{{foundations.configuration_check.misspelled_problem_line}}"}
     narration:
       - "A misspelled key, like the batch size of this copy written without its underscore, is read by no code, so its value would be silently ignored."
-      - "The check refuses every key the code of the task does not read, alone and before the other checks, with its path and the closest known key."
+      - "The check refuses every key the code of the task does not read, alone and before the checks of the values, with its path and the closest known key."
 
   # The old copy holds a removed setting (OLD_REMOVED_SETTING of configuration_consoles.py) with the value the code now
   # always uses; the conversion searches a launch folder holding it alone, the folders of the main block being those
