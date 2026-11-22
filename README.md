@@ -1258,7 +1258,7 @@ For a served model to read less memory at every request, a reduced precision als
 The DGX Spark gives its GPU 273 GB/s of memory bandwidth shared with the CPU ([specifications](https://www.nvidia.com/en-us/products/workstations/dgx-spark/)), so halving the bytes of weights and activations halves the traffic of a memory-bound layer; TensorRT FP16 serves 1.9 times the images of TensorRT FP32 at batch 16 on CLS and M2M, and DET serves 189 images per second with both since the fix of its exported NMS ([Serving Benchmark Results](#serving-benchmark-results)).
 
 ### Export
-When a run is ready to be served, `vision_training/deployment/export_model.py` writes it to the Triton model repository as [TorchScript](#torchscript) and [ONNX](#onnx), with the Triton configuration of every model, and checks every export against the [eager](#the-eager-model) PyTorch model, the served models being replaced only once every format matches ([How The Export Records The Graph](#how-the-export-records-the-graph)). Set `experiment_folder`, `iteration`, `use_averaged_weights`, `formats` (`"torchscript"` and `"onnx"`), `maximum_batch_size` and `tensorrt_precision` (`"FP16"`, `"FP32"`, or `None` for ONNX Runtime CUDA only) in its main block, any other format or precision stopping the export before it starts, then run:
+When a run is ready to be served, `vision_training/deployment/export_model.py` writes it to the Triton model repository as [TorchScript](#torchscript) and [ONNX](#onnx), with the Triton configuration of every model, and checks every export against the [eager](#the-eager-model) PyTorch model, the served models being replaced only once every format matches ([How The Export Records The Graph](#how-the-export-records-the-graph)). Set `experiment_folder`, `iteration`, `use_averaged_weights`, `formats` (`"torchscript"` and `"onnx"`), `maximum_batch_size` and `tensorrt_precision` (`"FP16"`, `"FP32"`, or `None` for ONNX Runtime CUDA only) in its main block, any other format or precision stopping the export before it starts (a keypoint detector with `None` for now: served with TensorRT, the keypoint detector of the tutorials crashed Triton 26.01 at its first request on 2026-11-22, and the TensorRT FP32 engines of the four sequence models of the tutorials failed to build beyond batch 1, item 41 of `documentation/suggestions.md`), then run:
 
 ```bash
 uv run python -m vision_training.deployment.export_model
@@ -1294,33 +1294,34 @@ Before a run trains for hours, the Export Sizes panel printed at its launch, rig
 ╭────────────────────── Export Sizes ──────────────────────╮
 │ Exported Parameters : 845,544 of 845,544                 │
 │                                                          │
-│    Format                          Size  Method          │
-│    PyTorch FP32 Weights         3.55 MB  ± 1 %           │
-│    PyTorch FP16 Weights         1.85 MB  ± 1 %           │
-│    TorchScript                  4.60 MB  traced          │
-│    ONNX                         4.20 MB  ± 3 %           │
-│    TensorRT FP32 Engine  5.97 - 6.94 MB  range           │
-│    TensorRT FP16 Engine  3.96 - 4.93 MB  range           │
-│    Training Checkpoint         14.05 MB  ± 1 %           │
-╰────────────────────── 1.3 seconds ───────────────────────╯
+│    Format                           Size  Method         │
+│    PyTorch FP32 Weights          3.55 MB  ± 1 %          │
+│    PyTorch FP16 Weights          1.85 MB  ± 1 %          │
+│    TorchScript                   4.60 MB  traced         │
+│    ONNX                          4.20 MB  ± 3 %          │
+│    TensorRT FP32 Engine  5.59 - 10.92 MB  range          │
+│    TensorRT FP16 Engine   3.58 - 8.91 MB  range          │
+│    Training Checkpoint          14.05 MB  ± 1 %          │
+╰────────────────────── 0.6 seconds ───────────────────────╯
 ```
 
-The real files of this run measure 3.57 and 1.84 MB (`torch.save` of the state dictionary in FP32 and FP16), 4.14 MB (`model.onnx` and `model.onnx.data`), 6.46 and 4.44 MB (the engines Triton 26.01 built in the [serving benchmark](#serving-benchmark-results)) and 14.17 MB (`model_015000.pt`). Only the TorchScript file is written, to a temporary folder removed at once; every other size comes from a formula of `vision_training/deployment/export_size_estimates.py` that stayed within its margin on the ten tutorial runs, one per task:
+The real files of this run measure 3.57 and 1.84 MB (`torch.save` of the state dictionary in FP32 and FP16), 4.14 MB (`model.onnx` and `model.onnx.data`), 6.42 and 4.40 MB (the engines Triton 26.01 built for the check below on 2026-11-22) and 14.17 MB (`model_015000.pt`). Only the TorchScript file is written, to a temporary folder removed at once; every other size comes from a formula of `vision_training/deployment/export_size_estimates.py` that stayed within its margin on the ten tutorial runs, one per task:
 
 | Format | How the size is obtained | Largest error on the ten tutorial runs |
 |---|---|---|
 | PyTorch FP32 and FP16 weights | the values of the state dictionary of the inference model, the floating ones in 2 bytes for FP16, plus 300 bytes and the characters of its key per tensor | 0.70 % |
 | TorchScript | the trace of the export (`export_torchscript`) on its example batch, written to a temporary `model.pt` | measured; an export in another process differs by up to 1 %, the classes of a trace being numbered after the earlier traces of its process |
-| ONNX | the weights and constants (such as the anchors) one forward pass of one sample reads, every batch normalization folded into the convolution before it, plus 165 bytes of graph per operator | 2.29 % |
-| TensorRT FP32 and FP16 engines | the same weights in the precision of the engine, plus 17,700 bytes per convolution, matrix product or recurrent layer and 120 per other operator, times 0.8 to 1.2 | the six engines of the serving benchmark (CLS, DET, M2M) between 0.85 and 1.09 times this overhead |
+| ONNX | the weights and constants (such as the anchors) one forward pass of one sample reads, every batch normalization folded into the convolution before it, plus 165 bytes of graph per operator | 2.30 % |
+| TensorRT FP32 and FP16 engines | the same weights in the precision of the engine, plus 7,700 bytes per convolution, matrix product or recurrent layer and 2,300 per other operator, times 0.5 to 2.2 | the 20 engines of the ten runs (Triton 26.01, 2026-11-22) between 0.52 and 2.12 times this overhead: it follows the operators loosely, so the range is wide where the overhead outweighs the weights (INS 10.31 - 24.84 MB for a 19.74 MB engine) |
 | Training checkpoint | the weights of the model (twice with the moving average), the moments of the optimizer for every trained parameter (two for Adam and AdamW, one for SGD) and 20 kB of metadata | 0.87 % |
 
-`Exported Parameters` counts the parameters the forward pass reads, those the ONNX file and the engines keep: 438,368 of 571,104 for the SimCLR encoder of the tutorials, whose projector serves the training only (the PyTorch weights and the TorchScript file still hold it). The estimates take 0.2 to 2.1 seconds per run on the GPU (the ten tutorial runs and the Medium ImageNet classifier of 19.2 million parameters, while other trainings shared it), against 2 to 27 seconds for the real TorchScript, ONNX and PyTorch files of the tutorial runs, the ONNX export taking most of it, and 5 to 13 seconds for each TensorRT engine. A forward pass or a trace that fails leaves its rows `failed` in red with the error under the table, and the training goes on.
+`Exported Parameters` counts the parameters the forward pass reads, those the ONNX file and the engines keep: 438,368 of 571,104 for the SimCLR encoder of the tutorials, whose projector serves the training only (the PyTorch weights and the TorchScript file still hold it). The estimates take 0.1 to 0.8 seconds per tutorial run on the idle GPU and 0.2 to 5.0 seconds on the CPU (2026-11-22), up to 2.1 seconds for the Medium ImageNet classifier of 19.2 million parameters on a GPU other trainings shared, against 2 to 27 seconds for the real TorchScript, ONNX and PyTorch files of the tutorial runs, the ONNX export taking most of it, and from 5 seconds to 43 minutes for each TensorRT engine (the batch-16 engine of the instance segmenter). A forward pass or a trace that fails leaves its rows `failed` in red with the error under the table, and the training goes on.
 
-After a change to the exports or to their libraries, `scripts/deployment/check_export_size_estimates.py` exports the ten tutorial runs, prints every estimate against its real file and fits the constants again ([tools reference](documentation/reference/tools_reference.md#export-size-check)); the TensorRT constants come from the six engines of the serving benchmark until it is run with `--build-tensorrt-engines` on an idle GPU:
+After a change to the exports or to their libraries, `scripts/deployment/check_export_size_estimates.py` exports the ten tutorial runs, prints every estimate against its real file and fits the constants again ([tools reference](documentation/reference/tools_reference.md#export-size-check)); with `--build-tensorrt-engines`, on an idle GPU, it also builds the 20 TensorRT engines through Triton, about two hours, to fit the TensorRT constants:
 
 ```bash
 uv run python -m scripts.deployment.check_export_size_estimates
+uv run python -m scripts.deployment.check_export_size_estimates --device cuda --build-tensorrt-engines
 ```
 
 ### Input Contract
@@ -1444,7 +1445,7 @@ The plan gives the gRPC loads, the four server settings and the queue and comput
 - **DET needed its exported NMS fixed for TensorRT.** It lost 7.88 points of mAP@0.5 in FP16 (5.73 of mAP@[0.5:0.95], 9.23 on large objects) for the same recall: the group offsets of its NMS overflowed FP16 from the second image of a batch and duplicates stayed, and DIoU-NMS overflowed its areas in pixels. With one NonMaxSuppression batch per group and DIoU on boxes in fractions of the image, its FP16 and FP32 engines match the eager model (+0.21 and +0.01 points) and serve 189 images per second at batch 16, 17 times the eager model, the NMS taking as long in both precisions.
 - **The FP32 paths match the eager model** within 0.01 points, TensorRT FP32 on DET too since the NMS fix (-0.46 points before it).
 - **TorchScript through Triton is not faster than the eager model**, and ONNX Runtime CUDA takes the most memory (DET 13.66 GB against 5.99 with TensorRT FP16).
-- **TensorRT engines cost about a minute of first requests for DET** (FP32 and FP16), paid again in every recreated container since `docker-compose.yml` does not mount the engine cache.
+- **TensorRT engines cost about a minute of first requests for DET** (FP32 and FP16), paid again in every recreated container since `docker-compose.yml` does not mount the engine cache. The instance segmenter of the tutorials needs 49 minutes, 43 of them for its batch-16 engine ([Export Size Check](documentation/reference/tools_reference.md#export-size-check), 2026-11-22).
 - **The exported dynamic batching suits none of these models**: CLS and M2M serve more with it off and two instances, DET as much or more with it off since the NMS fix (166 against 153 images per second at 16 requests in flight), and over gRPC a client sending batches of large float32 images is bound by the request (CLS 109 images per second at batch 16 against 1,215 over shared memory).
 - **The eager and TorchScript DET do not gain from batches** (16 milliseconds for one image, 1.4 seconds for 16), unlike its TensorRT engines.
 

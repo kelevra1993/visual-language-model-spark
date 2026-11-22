@@ -128,6 +128,28 @@
     graph against 65,504, the largest FP16 value, would catch it for every task. The engine cache, which could serve
     the engines of older weights, is named after the exported files since 2026-11-20
     (`build_tensorrt_engine_cache_prefix`).
+41. **Keypoint and sequence models served with TensorRT**: on 2026-11-22, the tutorial models exported to ONNX and
+    served by Triton 26.01 with the TensorRT `config.pbtxt` that `export_model.py` writes by default (FP32, maximum
+    batch 16, dynamic batching) gave two failures, the five image models (CLS, DET, INS, SEG, SSL) serving batches of
+    1 and 16 in both precisions:
+    - **Keypoint detector** (`keypoint_focal_synthetic/experiments/KPT_..._MC33`): Triton crashed (signal 11 in
+      `libonnxruntime.so`, inside `TRITONBACKEND_ModelInstanceExecute`) at the first batch-1 request, in FP32 and in
+      FP16, about 19 seconds after the engine was built and written to the cache; the same `model.onnx` served by ONNX
+      Runtime without TensorRT answered at batch 1 and 16. Until the cause is found, a keypoint export is written with
+      `tensorrt_precision = None` (keypoint workflow, deployment chapter 2). To find it: serve the graph cut after the
+      heatmaps, then after the candidate extraction (`TopK` and the gathers of the candidates), and try a newer image.
+    - **The four sequence models** (M2O, M2M, SEL and CMP of `DEFAULT_EXPERIMENT_FOLDERS`): their batch-1 engine is
+      built and answers, but the engine of the largest batch sent (6, 16, 16 and 3, the largest below 1 GB) is not:
+      the request fails with "onnx runtime error 11", the log giving `IBuilder::buildSerializedNetwork: Error Code 10:
+      Could not find any implementation for node {ForeignNode[node_Reshape_...node_softmax]}` with the 4 GB TensorRT
+      workspace of `config.pbtxt`. In FP32 for all four, measured again alone on the idle machine; in FP16 for M2O
+      only, M2M, SEL and CMP building and serving their larger batch. The serving benchmark served this M2M with
+      TensorRT FP32 at batch 16 on 2026-11-17, so an export change since (the dynamic output frames of
+      `restore_dynamic_output_frames`, the stripped metadata) or the larger batch request are the first suspects:
+      export the run with the code of 2026-11-17, compare the graphs, then try a larger `max_workspace_size_bytes`. A
+      served sequence model fails as soon as the dynamic batcher forms a batch above the one its engine was built for.
+    `scripts/deployment/check_export_size_estimates.py --build-tensorrt-engines` reproduces both (the models are
+    reported in red and the other engines still measured).
 
 ## F. Reference: Mask R-CNN compared stage by stage
 **The mask branch is the same design.** Both use RoIAlign 14 × 14, a stack of 3 × 3 convolutions, a 2 × 2 transposed

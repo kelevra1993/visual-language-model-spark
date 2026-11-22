@@ -3,8 +3,8 @@ Tests of scripts/deployment/check_export_size_estimates.py, the check of the Exp
 the engines a model adds to the TensorRT cache are summed and checked for the cache prefix of its configuration, the
 report gives the error of every estimate, places a real engine inside or outside its range and gives the time of the
 engine builds or the failure of the server, a model Triton fails to serve is returned as its error, the calibration
-fits the TensorRT overhead per operator from the engines built for every request, the results file keeps one line per
-run with its columns, and the optimizer of a run is of the class the trainer builds.
+fits the TensorRT overhead per operator from every engine built, the results file keeps one line per run with its
+columns, and the optimizer of a run is of the class the trainer builds.
 """
 
 import csv
@@ -22,6 +22,8 @@ from scripts.deployment.check_export_size_estimates import (RESULT_COLUMNS, buil
                                                             fit_calibration, measure_new_engines, print_check_report,
                                                             read_engine_cache_prefix, serve_model_for_engines,
                                                             write_results)
+from vision_training.deployment.export_size_estimates import (TENSORRT_BYTES_PER_OTHER_OPERATOR,
+                                                              TENSORRT_BYTES_PER_WEIGHTED_OPERATOR)
 
 # One run of the check as check_run gives it, with the engines of both precisions measured: 100 weighted and 1000 other
 # operators whose engines hold 2,000,000 bytes of overhead besides 4,000,000 bytes of FP32 weights
@@ -170,8 +172,8 @@ def test_report_gives_the_errors_and_the_range_positions(capsys: pytest.CaptureF
 def test_calibration_fits_the_tensorrt_overhead(capsys: pytest.CaptureFixture) -> None:
     """
     Verifies that the calibration recovers the TensorRT bytes per weighted and other operator of engines built from
-    known overheads, leaving out the engines of a model Triton failed to serve, and prints the largest error of every
-    single estimate.
+    known overheads, the engine of a model Triton failed to serve included, gives the spread of the real overheads
+    around the current constants, and prints the largest error of every single estimate.
 
     Args:
         capsys (pytest.CaptureFixture): Captures the printed calibration.
@@ -182,14 +184,23 @@ def test_calibration_fits_the_tensorrt_overhead(capsys: pytest.CaptureFixture) -
     second_run = {**CHECKED_RUN, "run": "CLS_test", "weighted_operators": 40, "other_operators": 120,
                   "tensorrt_fp32_real": 4000000 + 40 * 15000 + 120 * 500,
                   "tensorrt_fp16_real": 2000000 + 40 * 15000 + 120 * 500}
-    # A third run whose server crashed after its first engine: its size left out of the fit
-    failed_run = {**CHECKED_RUN, "run": "KPT_test", "tensorrt_fp32_real": 90000000, "tensorrt_fp16_real": None,
-                  "tensorrt_fp32_error": SERVER_CRASH_ERROR, "tensorrt_fp16_error": SERVER_CRASH_ERROR}
+    # A third run whose server crashed after its first engine, the engine built with the same overheads: still fitted
+    failed_run = {**CHECKED_RUN, "run": "KPT_test", "tensorrt_fp32_real": 4000000 + 100 * 15000 + 1000 * 500,
+                  "tensorrt_fp16_real": None, "tensorrt_fp32_error": SERVER_CRASH_ERROR,
+                  "tensorrt_fp16_error": SERVER_CRASH_ERROR}
     fit_calibration(results=[first_run, second_run, failed_run])
     printed_text = capsys.readouterr().out
-    assert "TENSORRT_BYTES_PER_WEIGHTED_OPERATOR current 17700, fitted 15000" in printed_text
-    assert "TENSORRT_BYTES_PER_OTHER_OPERATOR    current 120, fitted 500" in printed_text
-    assert "from 1.00 to 1.00 times the fitted one (4 engines)" in printed_text
+    assert f"TENSORRT_BYTES_PER_WEIGHTED_OPERATOR current {TENSORRT_BYTES_PER_WEIGHTED_OPERATOR}, fitted 15000" in (
+        printed_text)
+    assert f"TENSORRT_BYTES_PER_OTHER_OPERATOR    current {TENSORRT_BYTES_PER_OTHER_OPERATOR}, fitted 500" in (
+        printed_text)
+    # Real overheads against the current constants: the larger and the smaller run
+    current_ratios = [(100 * 15000 + 1000 * 500) / (100 * TENSORRT_BYTES_PER_WEIGHTED_OPERATOR
+                                                    + 1000 * TENSORRT_BYTES_PER_OTHER_OPERATOR),
+                      (40 * 15000 + 120 * 500) / (40 * TENSORRT_BYTES_PER_WEIGHTED_OPERATOR
+                                                  + 120 * TENSORRT_BYTES_PER_OTHER_OPERATOR)]
+    assert (f"from 1.00 to 1.00 times the fitted one, from {min(current_ratios):.2f} to {max(current_ratios):.2f} "
+            f"times the current one (5 engines)") in printed_text
     assert "Training Checkpoint    largest error 0.62 % (3 runs)" in printed_text
 
 

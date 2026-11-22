@@ -8,8 +8,10 @@ the real checkpoint of the run. With --build-tensorrt-engines it also serves the
 the serving benchmark (scripts/deployment/benchmark_serving_formats.py), once in FP32 and once in FP16, sends one
 request at batch 1 and one at the largest batch so that ONNX Runtime builds the TensorRT engines, and reads the size of
 the engines every model added to the engine cache, the time of those first requests (the engine builds) and whether
-the engines carry the cache prefix of the model: about a minute of GPU per run and precision, to run when the GPU is
-free. Every output stays outside the repository, under --output-folder: one folder of exported files per run, the
+the engines carry the cache prefix of the model, a model Triton fails to serve being reported in red with its error:
+from 10 seconds to a minute of first requests per model and precision, but 49 minutes for the instance segmenter of
+the tutorials (43 of them for its batch-16 engine), so about two hours in all, to run when the GPU is free. Every
+output stays outside the repository, under --output-folder: one folder of exported files per run, the
 Triton logs and 'export_size_check.csv', one line per run.
 
 Run from the repository root:
@@ -37,7 +39,7 @@ from vision_training.deployment.export_size_estimates import (EXPORT_MAXIMUM_BAT
                                                               STATE_DICTIONARY_BYTES_PER_TENSOR,
                                                               TENSORRT_BYTES_PER_OTHER_OPERATOR,
                                                               TENSORRT_BYTES_PER_WEIGHTED_OPERATOR,
-                                                              estimate_export_sizes)
+                                                              TENSORRT_OVERHEAD_RANGE, estimate_export_sizes)
 from vision_training.deployment.export_specifications import (TASK_MODEL_NAMES, build_inference_model,
                                                               create_random_inputs, get_export_specification)
 from vision_training.deployment.triton_configuration import write_triton_configuration
@@ -456,8 +458,10 @@ def fit_calibration(results: List[Dict[str, Any]]) -> None:
     Prints the constants of export_size_estimates.py fitted on the runs next to their current values, and the largest
     errors of the current estimates, the margins of the panel: the bytes per tensor of a state dictionary, the bytes of
     the ONNX graph per operator, and, once engines were built, the TensorRT bytes per weighted and other operator by
-    least squares on the overhead of every engine (its size less its weights in its precision), the engines of a
-    model Triton failed to serve left out (built for its first request only).
+    least squares on the relative errors of the overhead of every engine built (its size less its weights in its
+    precision), the engines of a model Triton failed to serve included (those of 2026-11-22 lay among the others),
+    with the ratios of the real overheads to the fitted ones and to the current constants, the second giving
+    TENSORRT_OVERHEAD_RANGE.
 
     Args:
         results (List[Dict[str, Any]]): The lines of the runs.
@@ -478,26 +482,32 @@ def fit_calibration(results: List[Dict[str, Any]]) -> None:
           f"{statistics.median(graph_bytes_per_operator):.0f} (median, from {min(graph_bytes_per_operator):.0f} to "
           f"{max(graph_bytes_per_operator):.0f})")
 
-    # TensorRT overhead per weighted and other operator, by least squares over the engines built
+    # TensorRT overhead per weighted and other operator, by least squares on the relative errors over the engines
+    # built, every row and overhead divided by the overhead, so that the small engines weigh as much as the large ones
+    # in a range that is a ratio
     overhead_rows, overhead_bytes = [], []
     for result in results:
         folded_bytes = result["constant_bytes"] - result["batch_normalization_bytes"] * 3 // 4
         for precision_name, bytes_per_value in [("fp32", 4), ("fp16", 2)]:
-            served = result[f"tensorrt_{precision_name}_error"] is None
-            if result[f"tensorrt_{precision_name}_real"] is not None and served:
+            if result[f"tensorrt_{precision_name}_real"] is not None:
                 overhead_rows.append([result["weighted_operators"], result["other_operators"]])
                 overhead_bytes.append(result[f"tensorrt_{precision_name}_real"] - folded_bytes * bytes_per_value // 4)
     if len(overhead_rows) >= 2:
-        fitted_constants = np.linalg.lstsq(np.array(overhead_rows, dtype=np.float64),
-                                           np.array(overhead_bytes, dtype=np.float64), rcond=None)[0]
-        predicted_overheads = np.array(overhead_rows, dtype=np.float64) @ fitted_constants
-        overhead_ratios = np.array(overhead_bytes, dtype=np.float64) / predicted_overheads
+        operator_counts = np.array(overhead_rows, dtype=np.float64)
+        real_overheads = np.array(overhead_bytes, dtype=np.float64)
+        fitted_constants = np.linalg.lstsq(operator_counts / real_overheads[:, None], np.ones(len(real_overheads)),
+                                           rcond=None)[0]
+        fitted_ratios = real_overheads / (operator_counts @ fitted_constants)
+        current_ratios = real_overheads / (operator_counts @ np.array([TENSORRT_BYTES_PER_WEIGHTED_OPERATOR,
+                                                                       TENSORRT_BYTES_PER_OTHER_OPERATOR]))
         print(f"  TENSORRT_BYTES_PER_WEIGHTED_OPERATOR current {TENSORRT_BYTES_PER_WEIGHTED_OPERATOR}, fitted "
               f"{fitted_constants[0]:.0f}")
         print(f"  TENSORRT_BYTES_PER_OTHER_OPERATOR    current {TENSORRT_BYTES_PER_OTHER_OPERATOR}, fitted "
               f"{fitted_constants[1]:.0f}")
-        print(f"  TENSORRT_OVERHEAD_RANGE              real overhead from {overhead_ratios.min():.2f} to "
-              f"{overhead_ratios.max():.2f} times the fitted one ({len(overhead_rows)} engines)")
+        print(f"  TENSORRT_OVERHEAD_RANGE              current {TENSORRT_OVERHEAD_RANGE}, real overhead from "
+              f"{fitted_ratios.min():.2f} to {fitted_ratios.max():.2f} times the fitted one, from "
+              f"{current_ratios.min():.2f} to {current_ratios.max():.2f} times the current one "
+              f"({len(overhead_rows)} engines)")
 
     # Largest error of every estimated format, the margins printed by the panel
     for label, estimated_columns, real_column in REPORT_FORMATS:
@@ -536,8 +546,8 @@ def main() -> None:
                         help="Folder of the exported files, the Triton logs and export_size_check.csv.")
     parser.add_argument("--device", default="cpu", help="Device of the model during the estimates, e.g. 'cuda'.")
     parser.add_argument("--build-tensorrt-engines", action="store_true",
-                        help="Also build the TensorRT engines through Triton (about a minute of GPU per run and "
-                             "precision).")
+                        help="Also build the TensorRT engines through Triton (about two hours of GPU for the "
+                             "tutorial runs, most of it for the instance segmenter).")
     arguments = parser.parse_args()
 
     hide_known_export_warnings()

@@ -730,10 +730,10 @@ The backbone panel of Step 2.14, the Projection Head panel of Step 2.15, the rec
 │    PyTorch FP16 Weights         1.19 MB  ± 1 %           │
 │    TorchScript                  2.47 MB  traced          │
 │    ONNX                         1.78 MB  ± 3 %           │
-│    TensorRT FP32 Engine  2.23 - 2.47 MB  range           │
-│    TensorRT FP16 Engine  1.36 - 1.60 MB  range           │
+│    TensorRT FP32 Engine  2.03 - 3.00 MB  range           │
+│    TensorRT FP16 Engine  1.16 - 2.12 MB  range           │
 │    Training Checkpoint          6.96 MB  ± 1 %           │
-╰────────────────────── 0.2 seconds ───────────────────────╯
+╰────────────────────── 0.1 seconds ───────────────────────╯
 ```
 
 ### Step 2.21 — `view_input_batches()`

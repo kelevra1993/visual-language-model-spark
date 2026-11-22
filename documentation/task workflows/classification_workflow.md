@@ -1236,8 +1236,8 @@ iterations_per_epoch     = 4966
 │    PyTorch FP16 Weights           9.32 MB  ± 1 %         │
 │    TorchScript                   18.74 MB  traced        │
 │    ONNX                          18.58 MB  ± 3 %         │
-│    TensorRT FP32 Engine  19.06 - 19.31 MB  range         │
-│    TensorRT FP16 Engine   9.78 - 10.04 MB  range         │
+│    TensorRT FP32 Engine  18.84 - 19.84 MB  range         │
+│    TensorRT FP16 Engine   9.57 - 10.57 MB  range         │
 │    Training Checkpoint           55.76 MB  ± 1 %         │
 ╰────────────────────── 0.2 seconds ───────────────────────╯
 ```

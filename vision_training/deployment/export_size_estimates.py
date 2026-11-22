@@ -64,14 +64,15 @@ CHECKPOINT_METADATA_BYTES = 20000
 # of the exporter is removed (from 131 to 246 bytes on the tutorial runs, probed on the CPU or the GPU)
 ONNX_GRAPH_BYTES_PER_OPERATOR = 165
 # Bytes of a TensorRT engine besides its weights (layer descriptions, chosen kernels, fused kernels compiled by the
-# builder) per weighted operator or recurrent layer and per other operator, and the range around this overhead holding
-# the engines of the calibration (from 0.85 to 1.09 times the fitted overhead), the engine of a precision holding its
-# weights in that precision
-TENSORRT_BYTES_PER_WEIGHTED_OPERATOR = 17700
-TENSORRT_BYTES_PER_OTHER_OPERATOR = 120
-TENSORRT_OVERHEAD_RANGE = (0.8, 1.2)
+# builder) per weighted operator or recurrent layer and per other operator, fitted on the relative errors of the 20
+# engines Triton 26.01 built on the GB10 for the ten tutorial runs on 2026-11-22, and the range around this overhead
+# holding all of them (from 0.52 to 2.12 times it: the overhead follows the operators loosely, and two builds of the
+# same keypoint detector file gave engines 7 % apart), the engine of a precision holding its weights in that precision
+TENSORRT_BYTES_PER_WEIGHTED_OPERATOR = 7700
+TENSORRT_BYTES_PER_OTHER_OPERATOR = 2300
+TENSORRT_OVERHEAD_RANGE = (0.5, 2.2)
 # Margin printed next to every other estimate, the largest relative error on the tutorial runs rounded up (0.70 % for
-# the PyTorch weights, 0.87 % for the checkpoints, 2.29 % for the ONNX files, on the CPU and on the GPU)
+# the PyTorch weights, 0.87 % for the checkpoints, 2.30 % for the ONNX files, on the CPU and on the GPU)
 STATE_DICTIONARY_MARGIN = 0.01
 CHECKPOINT_MARGIN = 0.01
 ONNX_MARGIN = 0.03
@@ -398,7 +399,8 @@ def estimate_tensorrt_bytes(probe: GraphProbe, bytes_per_value: int) -> Tuple[in
     """
     Estimates the range of the size of the TensorRT engine Triton builds from the ONNX file of an export: its weights,
     folded as in the ONNX file, in the precision of the engine, and the overhead of its layers, larger for the
-    convolutions, matrix products and recurrent layers than for the other operators, within TENSORRT_OVERHEAD_RANGE.
+    convolutions, matrix products and recurrent layers than for the other operators, within TENSORRT_OVERHEAD_RANGE,
+    which is wide since the overhead follows the number of operators only loosely.
 
     Args:
         probe (GraphProbe): The forward pass of the inference model (probe_inference_graph).
