@@ -13,7 +13,7 @@ Keys, values and outputs of the configurations, completing the [Configurations](
 - [MLflow Tracking](#mlflow-tracking)
 
 ## Configurations
-Every task has a `configuration_example.yaml` and a `configuration_synthetic_*.yaml` with the same keys. A configuration file holds only the keys of its task, all required: the check lists every missing key. The settings fixed in the code are refused ([Fixed Settings](#fixed-settings)), then every key the code of the task does not read, whose value would otherwise be silently ignored: a misspelled key, a setting no code reads any longer, or a section or key of another task ([Keys Per Task](#keys-per-task)).
+Every task has a `configuration_example.yaml` and a `configuration_synthetic_*.yaml` with the same keys. A configuration file holds only the keys of its task, all required: the check stops at the first missing key, naming its path. The settings fixed in the code are refused ([Fixed Settings](#fixed-settings)), then every key the code of the task does not read, whose value would otherwise be silently ignored: a misspelled key, a setting no code reads any longer, or a section or key of another task ([Keys Per Task](#keys-per-task)).
 
 The tasks are written with their codes: DET `object_detection`, INS `instance_segmentation`, CLS `classification`, M2O `sequence_classification`, M2M `sequence_labelling`, CMP `sequence_comparison`, SEG `semantic_segmentation`, SEL `frame_selection`, SSL `self_supervised`, KPT `keypoint_detection`.
 
