@@ -66,6 +66,7 @@ If you are looking for the code of a step, these are the files of the task and t
 | Export sizes at launch | `vision_training/deployment/export_size_estimates.py` | `estimate_export_sizes`, `probe_inference_graph`, `print_export_size_summary` |
 | Standalone evaluation | `scripts/evaluation/evaluate_checkpoint.py`, `vision_training/evaluation/checkpoint_evaluation.py` | `evaluate_checkpoints`, `summarise_checkpoint_evaluations` |
 | Figures of a research report | `scripts/evaluation/draw_report_figures.py` | `draw_report_figures`, `read_report_thresholds`, `draw_precision_recall_figure`, `compare_seen_and_never_seen_groups` |
+| Scoring a large split | `scripts/evaluation/score_image_split.py` | `build_scoring_trainer`, `score_dataset`, `read_scored_samples`, `compare_precisions` |
 
 ### Run It
 
@@ -711,6 +712,11 @@ scripts/evaluation/draw_report_figures.py  [STEP 5.7]
     block: draws the figures of the research report of a kept checkpoint from its evaluation folder (class_logits.npz,
     confusion_matrix.csv, saved_temperature_thresholds.json, predictions.csv) and the TensorBoard Test curves of its
     training, into <evaluation folder>/Report_Figures/ with report_values.json.
+
+scripts/evaluation/score_image_split.py  [STEP 5.8]
+    Separate script with command line options (uv run python -m scripts.evaluation.score_image_split ...): scores
+    every image of a large split with one checkpoint, forward pass only, into a predictions file with the columns of
+    predictions.csv, resumed where it stopped by the next launch on the same file.
 ```
 
 ---
@@ -2109,3 +2115,11 @@ CLS_IN-KAR-64_..._MC9/Checkpoint_Evaluation/
 
 ### Step 5.7 — `scripts/evaluation/draw_report_figures.py`
 Should a research report of a kept classifier need its figures again, after a new evaluation of its checkpoint or a new temperature saved on its page, this separate script (`uv run python -m scripts.evaluation.draw_report_figures`, its settings in its `__main__` block, listed in the tools reference under Drawing The Figures Of A Research Report) draws them from the run folder into `Report_Figures/` of the evaluation folder of the kept iteration and weights, `<run>/Checkpoint_Evaluation/Iteration_<n>[/EMA]/` by default (`evaluation_folder_name`, `Evaluation` for the evaluation of the training). `draw_report_figures()` reads and checks every input before the first figure is drawn, so that a wrong one stops it without writing anything: the logits of the evaluation (`class_logits.npz`, one class per sample only), its `confusion_matrix.csv` with the same classes, the thresholds (`read_report_thresholds()`: those of `saved_temperature_thresholds.json`, which must be exactly the ones found again from the logits at its temperature, or without that file the thresholds at a temperature of 1, with a yellow warning) and the balanced accuracy of the trained and EMA weights at every checkpoint evaluated during the training (`Tensorboard/Test` and `Tensorboard/Test_EMA` of the run). It then writes `confusion_matrix.png` (drawn by `save_confusion_matrix_image()`, the accuracy and the balanced accuracy in percent in its title), `precision_recall_curves.png` (`draw_precision_recall_figure()`, the curves at the temperature of the thresholds with the threshold of every target precision), `training_curves.png` (the kept checkpoint ringed) and `report_values.json`, every number the figures show. Given a JSON Lines manifest of the group of every sample (`group_manifest_path`, e.g. the truck of every image), it also reads the `predictions.csv` of the evaluation (`save_predictions`, Step 5.1) and the `labels.json` of the training split, and draws `seen_and_never_seen_groups.png`, the balanced accuracy on the groups seen in training and on those never seen (`compare_seen_and_never_seen_groups()`).
+
+### Step 5.8 — `scripts/evaluation/score_image_split.py`
+In case a kept classifier must find the images of a rare class among a million unlabelled ones, this separate script scores every image of a split with one checkpoint, without the metrics, the error images and the second weights of `evaluate_checkpoint.py`. Its settings are command line options ([tools reference, Scoring A Large Split](../reference/tools_reference.md#scoring-a-large-split)): it runs only the forward pass of the trained weights, or of their moving average (`--use-averaged-weights`), in `float32` or in `bfloat16` autocast (`--precision`, `--compare-precisions` first comparing both on the labelled test split of the run), the images being decoded by many loader workers through the test dataset of the run, in the order of the `labels.json` of the split. Batch by batch, it appends to the file of `--output-path` the `sample` and `probability_<class>` columns of `predictions.csv` (Step 4.16), so that a launch stopped by `--time-budget-hours` or interrupted resumes on the same file with the images it does not hold yet. The trainer it builds on the split writes its copy of the configuration, `label_dictionary.json`, `data.json` and `Tensorboard/` into `<run>/Checkpoint_Evaluation_split_<parent folder>_<split folder>/`, so that no file of the run or of its evaluations changes.
+
+```bash
+uv run python -m scripts.evaluation.score_image_split --experiment-folder <run> --iteration 2000 \
+    --test-data-folder <split> --output-path <predictions.csv> --precision bfloat16 --time-budget-hours 3
+```
