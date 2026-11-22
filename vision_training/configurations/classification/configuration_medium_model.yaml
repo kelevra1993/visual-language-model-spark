@@ -23,7 +23,7 @@ ExperimentConfiguration:
   # Checkpoint and test evaluation interval, in iterations.
   weight_saving_iterations: 5000
   # Interval (iterations) of extra checkpoints without test evaluation, below weight_saving_iterations, 0 for none.
-  intermediate_weight_saving_iterations: 2500
+  intermediate_weight_saving_iterations: 0
   # Total training iterations.
   number_iterations: 1e10
   # Validation interval in iterations: 0 never, 1 every iteration, N every Nth.
