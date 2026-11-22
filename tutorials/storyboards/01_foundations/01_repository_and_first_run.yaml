@@ -274,6 +274,7 @@ scenes:
       - "At launch, the trainer prints the run name, then its folders and files as clickable links, and the pre-trained backbone the run starts from."
       - "Then every split with its images and categories, and the length of one epoch in iterations, the only place where epochs appear."
       - "Then the training settings: the batch size, the iterations, how often checkpoints are saved and evaluated, the learning rate and the optimizer."
+      - "Below this panel come the architecture of the model, the parameters of each of its parts, and the Export Sizes panel: the size of every file the model is turned into, from its exports to its checkpoints, estimated without exporting it."
 
   - kind: html
     page: diagram
