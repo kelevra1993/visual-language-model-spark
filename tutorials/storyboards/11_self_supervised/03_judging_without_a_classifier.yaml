@@ -2,9 +2,11 @@
 # among reference training images, the real neighbourhood of a star of the test split among them, and the effective
 # rank), the test metrics of the run across its checkpoints, its sample images and the nearest reference images of the
 # star, Results.txt, the batch normalization pitfall of the first validations, the standalone evaluation, the export of
-# the encoder with its input contract, the transfer of the backbone and the pitfalls of the task. Coordinates of the html scenes are in pixels of the content area (1760 x 740, origin at its top
-# left corner); the figures named figures:self_supervised/... are made by tutorials/figures/self_supervised from the
-# SimCLR run of tutorial_sources.yaml (key self_supervised), the sample images read from the run folder itself.
+# the encoder with its input contract and the parameters its Export Sizes panel counts, the transfer of the backbone and
+# the pitfalls of the task. Coordinates of the html scenes are in pixels of the content area (1760 x 740, origin at
+# its top left corner); the figures named figures:self_supervised/... are made by tutorials/figures/self_supervised
+# from the SimCLR run of tutorial_sources.yaml (key self_supervised), the sample images read from the run folder
+# itself.
 series: self_supervised
 series_title: "Self-Supervised Learning (SSL)"
 chapter: 3
@@ -18,6 +20,7 @@ references:
   - "vision_training/trainers/self_supervised_trainer.py · SelfSupervisedTrainer.compute_nearest_neighbour_results"
   - "vision_training/trainers/self_supervised_trainer.py · SelfSupervisedTrainer.build_sample_image"
   - "vision_training/deployment/export_specifications.py · TASK_MODEL_NAMES"
+  - "vision_training/deployment/export_size_estimates.py · estimate_export_sizes"
   - "vision_training/models/model_transfer.py · load_pretrained_component"
   - "documentation/task workflows/self_supervised_workflow.md"
 scenes:
@@ -200,23 +203,25 @@ scenes:
       - {type: box, box: [1290, 90, 1720, 230], text: "representations\n[B, {{config:tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml#Backbone.convolutions.6[1]}}]\ndot product = cosine", font: diagram_small, outline: blue, highlight: [0]}
       - {type: box, box: [920, 260, 1720, 330], text: "preprocessing.json: the input contract", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
       - {type: box, box: [470, 260, 830, 330], text: "no projection head", font: diagram_small, outline: red, appear: 2, highlight: [2]}
+      - {type: box, box: [40, 260, 380, 330], text: "Export Sizes at launch:\nbackbone parameters only", font: diagram_tiny, outline: magenta, appear: 3, highlight: [3]}
       # The transfer to another task
-      - {type: text, position: [40, 400], text: "transfer: Backbone.pretrained of any task", font: diagram_bold, appear: 3}
+      - {type: text, position: [40, 400], text: "transfer: Backbone.pretrained of any task", font: diagram_bold, appear: 4}
       - type: listing
         box: [40, 450, 1000, 700]
         font: diagram_monospace_small
-        appear: 3
+        appear: 4
         source: {file: vision_training/configurations/classification/configuration_synthetic_shapes.yaml, keys: [Backbone.pretrained.experiment_folder, Backbone.pretrained.iteration, Backbone.pretrained.freeze, Backbone.pretrained.freeze_normalization_parameters, Backbone.pretrained.learning_rate_multiplier], comments: false}
         highlights:
-          - {key: Backbone.pretrained.experiment_folder, sentences: [3]}
-          - {key: Backbone.pretrained.freeze, sentences: [4]}
-          - {key: Backbone.pretrained.freeze_normalization_parameters, sentences: [4]}
-          - {key: Backbone.pretrained.learning_rate_multiplier, sentences: [4]}
-      - {type: box, box: [1060, 450, 1720, 700], text: "same modules and normalization,\nthe same, fewer or more blocks,\nonly the backbone is loaded,\nthe projection head is dropped", font: diagram_small, outline: violet, appear: 3, highlight: [3]}
+          - {key: Backbone.pretrained.experiment_folder, sentences: [4]}
+          - {key: Backbone.pretrained.freeze, sentences: [5]}
+          - {key: Backbone.pretrained.freeze_normalization_parameters, sentences: [5]}
+          - {key: Backbone.pretrained.learning_rate_multiplier, sentences: [5]}
+      - {type: box, box: [1060, 450, 1720, 700], text: "same modules and normalization,\nthe same, fewer or more blocks,\nonly the backbone is loaded,\nthe projection head is dropped", font: diagram_small, outline: violet, appear: 4, highlight: [4]}
     narration:
       - "The export wraps the trained model in the inference encoder, served by Triton as the image encoder: float32 BGR images of {{self_supervised.run.image_size}} pixels in, L2-normalized representations of {{config:tutorials/run_configurations/self_supervised_synthetic_shapes_tutorial.yaml#Backbone.convolutions.6[1]}} values out, so that a dot product is a cosine similarity."
       - "Next to the model, the export also writes the input contract of the run: how a photo is resized, padded and laid out before the encoder takes it."
       - "The projection head is not in the graph: the export serves the representation, for similarity searches and nearest neighbour classifications."
+      - "At launch, the Export Sizes panel counts only the parameters this graph reads, those of the backbone: the ONNX file and the engines leave the head out, while the PyTorch weights and the TorchScript file still carry it."
       - "When the goal is to start another task from this backbone, give the run folder as the experiment folder of its backbone pre-trained settings; its modules and normalization must be those of this run, its blocks the same, the first of them, or them followed by new random blocks, and only the backbone is loaded."
       - "In a deeper backbone, freezing, the fixed normalization parameters and the learning rate multiplier cover only the blocks loaded from this run, the new blocks learning at the learning rate of the new run."
 

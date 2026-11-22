@@ -243,7 +243,8 @@ main()
 │       │       The summary adds a Projection Head panel.
 │       ├── estimate_export_sizes() + print_export_size_summary()
 │       │       The Export Sizes panel: sizes of the PyTorch, TorchScript, ONNX, TensorRT and checkpoint
-│       │       files; its exported parameters leave out the projection head, unused by the exported encoder.
+│       │       files; the exported parameters, the ONNX files and the engines leave out the projection head,
+│       │       unused by the exported encoder, which the PyTorch weights and the TorchScript file still hold.
 │       ├── view_input_batches()  (only with view_input_images, then exits)
 │       │       The two random views of a training image, each next to the augmentations drawn for it, every
 │       │       batch of the GroupedBatchSampler first shown whole (show_input_batch -> build_batch_mosaic).
@@ -689,7 +690,7 @@ get_percent_tracked_metrics(): simclr ['positive_pair_accuracy'], barlow_twins [
 The 3906 iterations per epoch are 500000 / 128 rounded down: the self-supervised trainer sets `DROPS_LAST_TRAINING_BATCH`, since its training loader drops its last incomplete batch, while the other tasks round up, except the classification and sequence tasks whose training loader drops it too, for a batch normalized classification head (see `classification_workflow.md`, Step 2.10).
 
 ### Step 2.20 — `print_summary()` / `print_receptive_field_summary()` / `print_model_size_summary()`
-The backbone panel of Step 2.14, the Projection Head panel of Step 2.15, the receptive field (with `diagnosis_modes.compute_receptive_field`) and the size of every component, always printed. The trainer then prints the Export Sizes panel: the parameters the forward pass of the exported encoder reads, which leave out the projection head, then the size of the PyTorch weights, the TorchScript file, the ONNX files and the TensorRT engines the model is turned into and of the training checkpoint ([Export Sizes](../../README.md#export-sizes)).
+The backbone panel of Step 2.14, the Projection Head panel of Step 2.15, the receptive field (with `diagnosis_modes.compute_receptive_field`) and the size of every component, always printed. The trainer then prints the Export Sizes panel (`print_export_size_summary()` on the sizes of `estimate_export_sizes()`): the parameters the forward pass of the exported encoder (`InferenceEncoder`) reads, as `Exported Parameters : <n> of <total>`, then the size of the PyTorch weights in FP32 and FP16, the TorchScript file, the ONNX files, the TensorRT engines in FP32 and FP16 and the training checkpoint, each with how it was obtained, as in `classification_workflow.md`, Step 2.24 ([Export Sizes](../../README.md#export-sizes)). The projection head serves the training only: the encoder never runs it, so the exported parameters, the ONNX files and the TensorRT engines leave out its 132,736 parameters, while the PyTorch weights and the TorchScript file still hold them, the encoder wrapping the whole model, and the checkpoint keeps them to resume the training.
 
 **Example output** (shortened)
 ```text
@@ -717,6 +718,22 @@ The backbone panel of Step 2.14, the Projection Head panel of Step 2.15, the rec
 │   - Trainable Parameters : 571,104                       │
 │   - Estimated Size       : 2.29 MB                       │
 ╰──────────────────────────────────────────────────────────╯
+```
+
+**Example output: the Export Sizes panel** (estimated on the CPU on 2026-11-22 for the same model, Adam without moving average, after the panel was added: the 438,368 exported parameters are those of the backbone, the 132,736 of the projection head being left out)
+```text
+╭────────────────────── Export Sizes ──────────────────────╮
+│ Exported Parameters : 438,368 of 571,104                 │
+│                                                          │
+│    Format                          Size  Method          │
+│    PyTorch FP32 Weights         2.33 MB  ± 1 %           │
+│    PyTorch FP16 Weights         1.19 MB  ± 1 %           │
+│    TorchScript                  2.47 MB  traced          │
+│    ONNX                         1.78 MB  ± 3 %           │
+│    TensorRT FP32 Engine  2.23 - 2.47 MB  range           │
+│    TensorRT FP16 Engine  1.36 - 1.60 MB  range           │
+│    Training Checkpoint          6.96 MB  ± 1 %           │
+╰────────────────────── 0.2 seconds ───────────────────────╯
 ```
 
 ### Step 2.21 — `view_input_batches()`

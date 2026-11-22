@@ -1220,6 +1220,22 @@ iterations_per_epoch     = 4966
 ╰──────────────────────────────────────────────────────────╯
 ```
 
+**Example output: the Export Sizes panel** (the panels above, of the ImageNet-1k file, were recorded before it existed: this one is the model of `configuration_synthetic_shapes.yaml`, 35 classes, Adam without moving average, estimated on the CPU on 2026-11-22; every parameter is exported, the classifier having no part used by the training only)
+```text
+╭────────────────────── Export Sizes ──────────────────────╮
+│ Exported Parameters : 4,637,571 of 4,637,571             │
+│                                                          │
+│    Format                            Size  Method        │
+│    PyTorch FP32 Weights          18.60 MB  ± 1 %         │
+│    PyTorch FP16 Weights           9.32 MB  ± 1 %         │
+│    TorchScript                   18.74 MB  traced        │
+│    ONNX                          18.58 MB  ± 3 %         │
+│    TensorRT FP32 Engine  19.06 - 19.31 MB  range         │
+│    TensorRT FP16 Engine   9.78 - 10.04 MB  range         │
+│    Training Checkpoint           55.76 MB  ± 1 %         │
+╰────────────────────── 0.2 seconds ───────────────────────╯
+```
+
 ### Step 2.25 — `view_input_batches()`
 This only runs with `diagnosis_modes.view_input_images: True`. It shows what the network will really receive: an augmented training image (Step 3.13) next to a validation image, in two windows titled `Training` and `Validation`, centred on the screen, drawn by the hook `build_input_windows()` of the trainer and shown by `show_input_samples()` → `view_input_data()`. Each image is followed by a black information panel (`build_viewer_window()` → `build_information_panel()`) giving its class (`Class : n04456115`) and, for the training image, the augmentations drawn for it with their values, written by `describe_input_augmentations()` from the report of `augment_batch()` (one line per type, such as `random_rotation : <angle> degrees`, the angle within 5 degrees either way (`SUPERVISED_AUGMENTATION_STRENGTHS`), or `brightness_contrast_saturation : brightness +18.0 levels, ...`), the validation image giving `Augmentations : none (validation sample)`. The panels are not printed in the terminal, which only receives the title of the viewer in red, `View Of The Training And Validation Images That Are Fed To The Neural Network`, and its keys in green, `Press SPACE To Navigate, Press ENTER To Stop Viewing And Exit` (and, without a display, `No display available (DISPLAY is not set). Skipping the input image viewer.` in yellow). SPACE shows the next images and ENTER closes the viewer, after which `sys.exit()` ends the program before any training, and no run folder was created (Step 2.6). Without a display, the same windows are written for the first samples of every split at the start of every training launch (`save_input_samples()`, Step 3.1).
 
