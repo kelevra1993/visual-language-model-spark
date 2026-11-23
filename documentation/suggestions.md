@@ -6,7 +6,9 @@
 > a comparison with its Keras / TensorFlow 1 implementation (matterport, commit `3deaec5`) written on 2026-10-12: "Mask
 > R-CNN" means that repository, and "the paper" He et al., 2017. Its file references (`model.py`, `utils.py`,
 > `config.py`, `coco.py`, `nucleus.py`, `visualize.py`) are those of `mrcnn/` and of its samples. An item is removed
-> from this list once it is implemented, or as soon as we decide not to do it.
+> from this list once it is implemented, or as soon as we decide not to do it. Since 2026-11-23 nothing is added to
+> this list: it only shrinks, a new idea going to the report of the work that found it, and the file is deleted once
+> empty.
 
 ## Table Of Content
 - [A. Detector architecture](#a-detector-architecture)
@@ -16,7 +18,6 @@
 - [G. Keypoint detection](#g-keypoint-detection)
 - [H. Classification](#h-classification)
 - [J. Self-supervised counted shapes: tests left to run](#j-self-supervised-counted-shapes-tests-left-to-run)
-- [K. README screenshots and synthetic runs: left to redo](#k-readme-screenshots-and-synthetic-runs-left-to-redo)
 - [Suggested Order](#suggested-order)
 
 ## A. Detector architecture
@@ -168,7 +169,7 @@ average recall by object size and the recall of the anchors and of the proposals
 |---|---|---|
 | Input | Resize so the short side reaches 800 (up only) and the long side stays ≤ 1024, then pad to 1024 × 1024 centred. Modes `crop` (random crops, training) and `pad64` (native size, inference) (`utils.py:388-492`). RGB minus the mean pixel. | Fixed square input, letterboxed centred (`keep_ratio`) or stretched. BGR in [0, 255], then `input_normalization` / `per_sample_normalization`. |
 | Backbone | ResNet-50/101 bottleneck stages C2–C5, pretrained on ImageNet or COCO (`model.py:171-206`). | Stack of `ConvolutionBlock`s (residual, SE, inception options). The detection levels are the outputs of the blocks numbered by the keys of `DetectionLevels`, after their pooling. Pretrained from another run of any task. |
-| Feature pyramid | FPN, P6 for the region proposals only (`model.py:1902-1925`). | `Neck` (items 1 and 37): a feature pyramid in the DET configurations, none in the INS ones (the levels keeping the channels of their blocks), or path aggregation, to `output_channels`, without P6. |
+| Feature pyramid | FPN, P6 for the region proposals only (`model.py:1902-1925`). | `Neck` (item 1): a feature pyramid in the DET configurations, none in the INS ones (the levels keeping the channels of their blocks), or path aggregation, to `output_channels`, without P6. |
 | Anchors | One scale per level (32 on P2 to 512 on P6), ratios 0.5 / 1 / 2, corner-aligned (`utils.py:583-619`). | Several scales and ratios per level (`DetectionLevels.<level>.anchors`), corner-aligned, the cell centres having tied with the corners in stage 8 of the detection benchmark. |
 | Region proposal head | One head shared by every level: 3 × 3 conv of 512, then 1 × 1 convs for a 2-class softmax and the offsets (`model.py:830-871`). | One head per level (`DetectionLevels.<level>.region_proposal`): `ConvolutionBlock`, 3 × 3 conv, then 1 × 1 convs for a sigmoid objectness and the offsets. |
 | Region proposal targets | Positive at IoU ≥ 0.7, plus the best anchor(s) of every ground truth. Negative below 0.3. Anchors touching a crowd are never negatives. 256 sampled, at most half positive (`model.py:1445-1553`). | Positive at IoU ≥ 0.5, plus the best anchor(s). Negative below 0.3, 0 included in INS; from 0.1 in DET (stage 2), the anchors overlapping no object being ignored. 256 sampled, at most 128 positive. |
@@ -176,11 +177,11 @@ average recall by object size and the recall of the anchors and of the proposals
 | RoI sampling | 200 RoIs, 33 % positive (IoU ≥ 0.5). Negatives below 0.5 that touch no crowd, in proportion to the positives, so none without positives (`model.py:486-619`). The ground truth boxes are left out on purpose, a comment citing a sampling study that found no gain (`model.py:1317-1318`). | The ground truth boxes of every image are added to its proposals at the level of their best anchor (`add_ground_truth_proposals`, as in torchvision and Detectron2). 128 RoIs, up to 64 positive (IoU ≥ 0.5), the negatives filling the rest of the budget. |
 | RoI pooling | `PyramidROIAlign`: level `4 + round(log2(√(wh) / 224))`, clamped to P2–P5, then `crop_and_resize`, one bilinear sample per bin (`model.py:344-447`). | `roi_align` with `aligned=True` and adaptive sampling, on the level of the anchor that produced the proposal (item 2). |
 | Box head | Shared: 7 × 7 conv to 1024 + BN, 1 × 1 conv 1024 + BN, then class and per-class box layers (`model.py:900-953`). | Per level (`DetectionLevels.<level>.detector`): `ConvolutionBlock`, flattened, fully connected layers without normalization, then class and per-class box layers. |
-| Box regression | Targets divided by [0.1, 0.1, 0.2, 0.2] on both stages. Smooth L1 with β = 1, averaged over the coordinates of the positives (`model.py:575, 1047-1073, 1112-1140`). | Targets left unscaled, fixed weights (1, 1, 1, 1) on both stages (`BOX_REGRESSION_WEIGHTS`), (10, 10, 5, 5) giving about 2.5 times lower mAP@0.5 on the synthetic shapes. Smooth L1 with β = 1/9, summed per box and divided by the positives, or 1 - CIoU on the detection heads (`Detector.box_loss`, item 36, off). |
+| Box regression | Targets divided by [0.1, 0.1, 0.2, 0.2] on both stages. Smooth L1 with β = 1, averaged over the coordinates of the positives (`model.py:575, 1047-1073, 1112-1140`). | Targets left unscaled, fixed weights (1, 1, 1, 1) on both stages (`BOX_REGRESSION_WEIGHTS`), (10, 10, 5, 5) giving about 2.5 times lower mAP@0.5 on the synthetic shapes. Smooth L1 with β = 1/9, summed per box and divided by the positives, or 1 - CIoU on the detection heads (`Detector.box_loss`, off). |
 | Mask head | Shared: 4 × (3 × 3 conv 256 + BN + ReLU), 2 × 2 transposed conv 256, 1 × 1 conv to one sigmoid per class (`model.py:956-1005`). | Per level (`DetectionLevels.<level>.mask_head`), or one head read by every level with `MaskHead.shared` (item 7): `ConvolutionBlock` of `[layers, channels]` with module options, configurable pool size, mask resolution and upsampling, optional finer inputs (backbone skips, an image branch on the crop of the input image, fusion convolutions), 1 × 1 conv per class. |
 | Mask targets | `crop_and_resize` of the matched mask (full or mini) inside the positive RoI, rounded at 0.5 (`model.py:577-606`). | `roi_align` (aligned) of the matched full-resolution mask inside the positive proposal, thresholded at 0.5. |
 | Mask loss | BCE of the ground truth class channel, mean over the positives (`model.py:1143-1179`). | Same, computed in float32. |
-| Postprocessing | Class = argmax of each RoI. Score ≥ 0.7, per-class NMS 0.3, top 100. Boxes clipped to the image window, padding excluded (`model.py:684-779`). | Every foreground class of every RoI is a candidate. Score ≥ 0.5 (0.05 in evaluation), batched per-class NMS 0.5 (greedy in INS, DIoU-NMS with the exponent 0.6 in DET, item 38), fixed top 100, boxes clamped to the whole input, padding included (item 9). |
+| Postprocessing | Class = argmax of each RoI. Score ≥ 0.7, per-class NMS 0.3, top 100. Boxes clipped to the image window, padding excluded (`model.py:684-779`). | Every foreground class of every RoI is a candidate. Score ≥ 0.5 (0.05 in evaluation), batched per-class NMS 0.5 (greedy in INS, DIoU-NMS with the exponent 0.6 in DET), fixed top 100, boxes clamped to the whole input, padding included (item 9). |
 | Masks at inference | Mask head on the final boxes. Each 28 × 28 mask is resized to its integer box in the original image, then thresholded at 0.5 (`model.py:2417-2480`, `utils.py:560-576`). | Mask head on the final boxes. `paste_instance_masks` samples at pixel centres with sub-pixel boxes. The INS evaluation pastes them at the original resolution with `evaluation.original_resolution` (at the network resolution otherwise), and the clients paste at the original resolution. |
 | Ground truth boxes | Always the tight box of the mask, the dataset boxes being ignored (`model.py:1269`). | The same: the tight box of the mask at the network resolution, the INS annotations needing no `bbox`. |
 | Ground truth masks in memory | Optional 56 × 56 crops in the box (`config.py:103-104`, `utils.py:517-552`). | One `[N, S, S]` uint8 mask per object at the network resolution (item 8), or one `[S, S]` uint8 map of object numbers per image with `Data.instance_index_maps`, expanded on the GPU. |
@@ -329,47 +330,6 @@ an image holds but also which ones.
     others, a random erasing of 2 to 15 % of the image (probability 0.25) and a plasma shadow darkening parts of it
     (probability 0.2), which can also hide a shape of one view and change its count: to compare with
     `random_erasing` and `random_plasma_shadow` off on the same probes.
-
-## K. README screenshots and synthetic runs: left to redo
-The 20 images of `README/` were taken on 2026-10-23 from runs of shortened copies of the
-synthetic configurations in `experiments/readme_screenshots/` (MLflow database `mlflow.db`, console logs `<task>.log`
-kept with their colours). The helpers that made them, kept uncommitted in `experiments/readme_screenshots/helpers/`,
-were deleted on 2026-11-22 with the rest of `experiments/`: an image taken again needs its capture written again.
-
-29. **Sequence labelling that learns** (`README/sequence_labelling_sample.png`): the sample is `test_000001` of the
-    sequence labelling tutorial run of 2026-11-15 (pretrained backbone, bidirectional LSTM 2x96, flatten, balanced class
-    weights, 2000 iterations: accuracy 77.16 %, balanced accuracy 72.17 % on the 10,000 test sequences of that day),
-    enlarged twice: 2 of its 5 labelled frames right (`no_change` and `disappearing_hollow_heptagon`) and 3 marked X,
-    such as `4 X disappearing_kite/disappearing_parallelogram`. The synthetic configuration
-    (`sequence_labelling/configuration_synthetic_sequences.yaml`) keeps a GRU and `class_weighting: "none"`: run as it
-    is for 2000 iterations on 2026-10-23, it predicted `no_change` for every frame (balanced accuracy 0.014, the share of
-    one class out of 71). The sequence labelling experiment plan kept balanced class weights at its learning rate, 1e-3
-    (`configuration_example.yaml`); the synthetic configuration could take them too.
-30. **Synthetic detection runs long enough for their samples**: the detection and instance segmentation configurations
-    stop at 2000 iterations, where their detections rarely reach the 0.50 score threshold of the sample images, the
-    samples showing few predictions: on the datasets generated on 2026-11-18, the README runs of both tasks (the
-    synthetic configurations with a feature pyramid and a level on block 4) read at 2000 a mAP@0.5 of 37.81 % (DET,
-    23,478 objects missed at that score) and a mask mAP@0.5 of 40.96 % (INS), against 75.24 % at 5000 and 82.96 % at
-    6000, the checkpoints of the samples of `README/tasks_overview.png`. Either raise `number_iterations` of both
-    synthetic configurations or say in the README that their samples show detections only after a longer training.
-31. **Flatten pooling on real sequences**: flatten became the default of the sequence classification on 2026-10-23
-    (`12075e7`), checked on the synthetic moving shapes only, at 128 pixels (accuracy 1.000; at 512 pixels its 65536
-    features per frame stayed at chance), and at 256 pixels on the dataset generated on 2026-11-18 (99.00 % at
-    iteration 500). The example configuration for real data keeps 256 pixels, a frame vector of 16384 features and
-    about 26.7 million weights in its two bidirectional GRU layers of 256, and was not trained: to try on a real
-    dataset, with a smaller input or `average` when the class does not depend on where the objects are in the frames.
-33. **Example outputs recorded before the changes**: Stage 3 of `sequence_classification_workflow.md` was recorded with
-    the former `average` pooling (a note says so) and could be recorded again with `flatten` at 128 pixels.
-34. **A frame selection sample with a wrong choice** (`README/frame_selection_sample.png`): its description asks for
-    one wrong choice if possible, but the eight fixed test sequences of the evaluation samples are all chosen right at
-    2000 iterations, the run's 11 wrong picks out of 600 (Hungarian selection accuracy 98.17 %, 191 of the 200 test
-    sequences fully right) falling in other sequences, so the sample,
-    `test_000000` of 12 frames, shows three right choices (star, triangle, circle). The weights of iteration 500
-    (`Weights/Iteration_500` of the run) or one of the 9 test sequences not fully right could show one.
-35. **Parameter columns of the MLflow table** (`README/mlflow_runs.png`): the parameters are logged under the path of
-    their setting (`ExperimentConfiguration.learning_rate`), which the narrow columns of the MLflow interface cut to
-    `ExperimentCon`, so the table shows the learning rate logged with the metrics instead. Logging a few short
-    parameter names (or a run description) would let the table show the settings of the runs.
 
 ## Suggested Order
 1. **The instance segmentation stages of `instance_segmentation_experiment_plan.md`:** the pair of mask scoring
