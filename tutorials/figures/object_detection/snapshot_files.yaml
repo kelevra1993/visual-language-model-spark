@@ -1,5 +1,5 @@
 # Files of the runs the object detection figures read, copied into tutorials/run_snapshots by
-# tutorials/make_run_snapshots.py (tutorials/MAINTAINING.md, section Run Snapshots). The series reads no checkpoint from
+# tutorials/make_run_snapshots.py. The series reads no checkpoint from
 # the snapshots: the architecture facts and the anchors of the proposal selection come from the models built untrained
 # from these configurations, and the inference of the DET run on the test image (proposal filter, anchor labels,
 # detections) is committed under figure_reuse/object_detection/inference by a build from the real runs.

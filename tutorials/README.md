@@ -30,8 +30,7 @@ configurations and code of the repository they quote, and the figures made by `f
 `tutorial_sources.yaml` (or from their committed snapshots, on a machine without the runs), then synthesizes the
 narration offline, draws or captures every frame, encodes every chapter with its subtitles, checks the narration by
 speech recognition, and writes an index page. Everything runs on the CPU at the lowest priority, so that the trainings
-keep the GPU. The rules to follow when creating, updating or rebuilding the tutorials, and how to keep everything a
-rebuild needs in the repository, are in [MAINTAINING.md](MAINTAINING.md).
+keep the GPU.
 
 To find your way in this folder, what each file holds:
 
@@ -47,14 +46,13 @@ To find your way in this folder, what each file holds:
 | `run_configurations/` | Configurations of the runs trained for the tutorials only, and in `pretraining/` those of the shape pretrainers |
 | `run_snapshots/` | Small copies of the runs (at the paths of the experiments folder), of their dataset files and of the figures that need a checkpoint, with one manifest per series; `pretrained/README.md` lists the shape pretrainers |
 | `make_run_snapshots.py` | Writer of `run_snapshots/` from the `snapshot_files.yaml` of every figure package |
-| `MAINTAINING.md` | Rules and checks for creating, updating and rebuilding the tutorials |
 
 ## Prerequisites
 Before the first build, the machine needs:
 - uv, to create the environment of this folder (`uv sync --project tutorials`) and the one of the repository (`uv sync` at its root): the figure scripts need PyTorch and the repository code.
 - SSH access to GitHub for the private builder repository: `uv sync` clones it with `ssh://git@github.com/kelevra1993/tutorial-video-builder.git`.
 - Chrome or Chromium, to capture the HTML scenes. The first `google-chrome`, `google-chrome-stable`, `chromium` or `chromium-browser` of the PATH is used, or the one given by `--chrome-executable` or `TUTORIAL_BUILDER_CHROME`; without any, run `uv run --project tutorials playwright install chromium`.
-- The real runs of `tutorial_sources.yaml` in the experiments folder (`~/Data/tutorial_runs`, outside the repository so that cleaning its `experiments/` keeps them), each with its dataset; or, on a machine without them, the committed snapshots: `--experiments-folder tutorials/run_snapshots` (see [MAINTAINING.md](MAINTAINING.md#building-on-a-new-machine)).
+- The real runs of `tutorial_sources.yaml` in the experiments folder (`~/Data/tutorial_runs`, outside the repository so that cleaning its `experiments/` keeps them), each with its dataset; or, on a machine without them, the committed snapshots: `--experiments-folder tutorials/run_snapshots`.
 - About 6.5 GB for the caches after many builds: the voice and speech recognition models (downloaded on the first build and checked against their SHA-256), the narration of every sentence, the figures, the previews and the scene segments.
 
 ## Rebuilding The Videos
@@ -116,7 +114,7 @@ Every two to four weeks, or after a change of the code they show:
 2. When a run of `tutorial_sources.yaml` was trained again (or must be, after a change of its task), update its folder there. So that such a run converges sooner, start its backbone from the shape pretrainer of the same blocks (`Backbone.pretrained.experiment_folder`): `~/Data/tutorial_runs/pretrained` holds one per architecture, named after its blocks (`SE-RES-BN-B…`), trained on the 35 counted synthetic shapes by the launch files of `run_configurations/pretraining/`, its `README.md` (copied into `run_snapshots/pretrained/README.md`) listing their scores and the configurations each one fits.
 3. Read the narration of the chapters whose code changed: an excerpt follows the file, but the sentence explaining it does not.
 4. `tutorials/build_tutorials.sh --check-drift` lists the scenes the new values change; rebuild (every series, only the changed scenes are drawn again), then read `verification_report.md` and look at the contact sheets of the chapters you edited.
-5. When a run, a file a figure script reads or a figure needing a checkpoint changed, write the snapshots again (`.venv/bin/python -m tutorials.make_run_snapshots`) and check that the series still builds from them alone ([MAINTAINING.md](MAINTAINING.md#keeping-the-repository-self-sufficient)).
+5. When a run, a file a figure script reads or a figure needing a checkpoint changed, write the snapshots again (`.venv/bin/python -m tutorials.make_run_snapshots`) and check that the series still builds from them alone (`tutorials/build_tutorials.sh --experiments-folder tutorials/run_snapshots`).
 
 ## Writing A Chapter
 Suppose a series needs one more chapter:

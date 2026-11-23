@@ -1,5 +1,5 @@
 # Files of the run the frame selection figures read, copied into tutorials/run_snapshots by
-# tutorials/make_run_snapshots.py (tutorials/MAINTAINING.md, section Run Snapshots). No checkpoint is committed: the
+# tutorials/make_run_snapshots.py. No checkpoint is committed: the
 # wrong picks of iteration 1000 and their matrix data, which run the trained weights, are committed from the build
 # cache under figure_reuse.
 runs:

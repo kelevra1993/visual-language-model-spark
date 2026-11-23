@@ -1,5 +1,5 @@
 # Files of the runs and of the synthetic shapes dataset the classification figures and storyboards read, copied into
-# tutorials/run_snapshots by tutorials/make_run_snapshots.py (tutorials/MAINTAINING.md, section Run Snapshots). The
+# tutorials/run_snapshots by tutorials/make_run_snapshots.py. The
 # model figures of the head (logits of the test star, correlation of the hidden features) need the checkpoint of the
 # run, which the snapshots never hold: their outputs are committed under figure_reuse/classification/model and restored
 # when the checkpoint is absent (classification_head.py). Files of the classification run also read by the foundations

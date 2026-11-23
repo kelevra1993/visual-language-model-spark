@@ -128,7 +128,7 @@ repository_files:
   serving_benchmark_nms_fix_test_metrics: documentation/architecture_benchmarking/serving_benchmark_nms_fix_test_metrics.csv
   serving_benchmark_nms_fix_loads: documentation/architecture_benchmarking/serving_benchmark_nms_fix_loads
 
-# Committed snapshots of the runs (tutorials/MAINTAINING.md, section Run Snapshots): the small files the figure scripts
+# Committed snapshots of the runs: the small files the figure scripts
 # and the storyboards read from every run, copied by tutorials/make_run_snapshots.py from the experiments folder into
 # the snapshot folder at the same relative paths (so that `tutorials/build_tutorials.sh --experiments-folder
 # tutorials/run_snapshots` builds every series on a machine without the runs), the dataset files they read under
