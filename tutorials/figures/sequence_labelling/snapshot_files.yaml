@@ -1,5 +1,5 @@
 # Files of the run the sequence labelling figures read, copied into tutorials/run_snapshots by
-# tutorials/make_run_snapshots.py (tutorials/MAINTAINING.md, section Run Snapshots). No checkpoint is committed, nor the
+# tutorials/make_run_snapshots.py. No checkpoint is committed, nor the
 # training labels.json nor the whole predictions.csv (77 megabytes): the families reading them (the class balance and
 # labels listings, the no_change probability figure, the model facts) are committed from the build cache under
 # figure_reuse with the sources and fingerprints of the real files.

@@ -1,5 +1,5 @@
-# Files of the runs the foundations figures read, copied into tutorials/run_snapshots by tutorials/make_run_snapshots.py
-# (tutorials/MAINTAINING.md, section Run Snapshots). The overview series has no figures of its own: it quotes the facts
+# Files of the runs the foundations figures read, copied into tutorials/run_snapshots by tutorials/make_run_snapshots.py.
+# The overview series has no figures of its own: it quotes the facts
 # and figures of this series (repository counts, augmentation examples), so these files serve it too. The series reads
 # two runs, the README classifier, shared with the classification and deployment series, and the detection run of the
 # object detection series, for its evaluation curves (same entries in every series reading a file).

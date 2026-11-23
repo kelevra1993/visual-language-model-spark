@@ -48,8 +48,7 @@ vision_training/deployment/triton/served_models/
 # machine whose datasets they read and out of version control
 vision_training/configurations/classification/imagenet_merged/
 vision_training/configurations/self_supervised/imagenet_merged/
-# Committed run snapshots of the tutorials (tutorials/MAINTAINING.md): copies of small run, dataset and figure files at
+# Committed run snapshots of the tutorials: copies of small run, dataset and figure files at
 # the paths of the experiments folder, whose folder names (hyperparameter_experiments, experiments, datasets) the rules
-# above would otherwise ignore, and the guide of the tutorial maintenance
+# above would otherwise ignore
 !tutorials/run_snapshots/**
-!tutorials/MAINTAINING.md

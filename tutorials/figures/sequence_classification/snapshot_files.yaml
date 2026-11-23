@@ -1,5 +1,5 @@
 # Files of the runs the sequence classification figures read, copied into tutorials/run_snapshots by
-# tutorials/make_run_snapshots.py (tutorials/MAINTAINING.md, section Run Snapshots). No checkpoint is committed: the
+# tutorials/make_run_snapshots.py. No checkpoint is committed: the
 # flatten run is rebuilt from its configuration for the facts of its structure, the checkpoint sizes the narration
 # quotes come from the listings of the Weights folders, and the families that run the trained weights (the similarity
 # and invariance inference, the animated padded batch) are committed from the build cache under figure_reuse.

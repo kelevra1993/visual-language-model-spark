@@ -1,5 +1,5 @@
 # Files of the synthetic keypoint run and of its dataset the keypoint detection figures read, copied into
-# tutorials/run_snapshots by tutorials/make_run_snapshots.py (tutorials/MAINTAINING.md, section Run Snapshots). The
+# tutorials/run_snapshots by tutorials/make_run_snapshots.py. The
 # checkpoint stays out: the outputs of the inference on the test image are committed under figure_reuse/ and the
 # channel table check against the checkpoint is skipped when the run has none.
 runs:
