@@ -15,7 +15,6 @@
 - [F. Reference: Mask R-CNN compared stage by stage](#f-reference-mask-r-cnn-compared-stage-by-stage)
 - [G. Keypoint detection](#g-keypoint-detection)
 - [H. Classification](#h-classification)
-- [I. Selection of training images by embedding clustering](#i-selection-of-training-images-by-embedding-clustering)
 - [J. Self-supervised counted shapes: tests left to run](#j-self-supervised-counted-shapes-tests-left-to-run)
 - [K. README screenshots and synthetic runs: left to redo](#k-readme-screenshots-and-synthetic-runs-left-to-redo)
 - [Suggested Order](#suggested-order)
@@ -301,58 +300,6 @@ pyramid, background IoU minimum 0.1, proposal selection per level, DIoU-NMS 0.6 
     Cost and risk: small to medium. The Medium run underfits (iterations 110000 to 115000: training accuracy 0.599 with
     the augmentation and the dropout, validation accuracy 0.613), and the papers report regularisation-sized gains, so
     the term may lower the top-1 as well as raise it. Decorrelated features also stay dependent in non-linear ways.
-
-## I. Selection of training images by embedding clustering
-The items below follow the first runs of `scripts/embedding/cluster_image_embeddings.py` on 2026-10-19: the ficha
-empty bins run at 512 pixels (`ficha-experiments-empty-bins`, iteration 200) embedding the 43,577 images of its
-training split (11,772 `empty_bin`, 31,805 `not_empty`, 61 videos and 874 single photos), with blocks 5 and 6 on a
-4 x 4 grid and the two hidden layers, clustered with HDBSCAN (`min_cluster_size` 10, `min_samples` 5, `eom`) on
-normalised vectors. The clusters follow the videos (every `not_empty` cluster holds a single video). The runs
-`ficha-experiments-empty-bins` and `ficha-experiments-compactor-to-front`, with their embeddings and their folders of
-kept images, have since been deleted (none on disk on 2026-11-13), so these items first need the embeddings of an
-existing run, such as a 384 pixel run of `ficha-experiments-staged-schedule`; the figures below are those of the deleted
-runs.
-
-19. **Judging the kept images by training the smaller model**: every clustering writes three folders of kept images,
-    of the same number of images per category: the cluster representatives with the isolated images, in no cluster
-    (`kept_images_by_clustering/`), images drawn at random (`kept_images_at_random/`) and images evenly spaced in every
-    video (`kept_images_evenly_spaced_per_group/`).
-    - **Sizes without PCA:** 3,615 images for block 5 (8.3 % of the split), 4,089 for block 6, 5,530 for the first
-      hidden layer and 6,579 for the second, the isolated images being 49 % (block 5) to 78 % (second hidden layer) of
-      the images kept by the clustering. The images kept by the clustering of block 5 hold 1.5 % of training images
-      misclassified by the run, against 0.7 % for the images kept at random and 1.4 % for the evenly spaced ones.
-    - **DBSCAN of 2026-10-20** (block 6, PCA 200, `eps` 0.16, `min_samples` 5, 5 representatives per cluster): 6,196
-      of the 43,577 training images kept (2,049 `empty_bin`, 4,147 `not_empty`, 67 % of them isolated images), and
-      5,831 of the 18,702 validation images, the validation images being isolated 2 to 3 times more often, `eps`
-      being measured on the training images.
-    - **Experiment:** the smaller model trained on the three folders of kept images of one clustering with the same
-      settings and number of iterations, evaluated on the whole validation split (balanced accuracy, recall of every
-      class), with a few seeds, the kept images being few.
-    - **Comparing the layers:** the layers keep different numbers of images, so they are compared at the same number
-      (fewer representatives per cluster, or a number of isolated images drawn), or by the accuracy against the number
-      of kept images.
-    - Cost and risk: one training per folder of kept images; the result may depend on the clustering settings as much
-      as on the layer.
-20. **The same selection on the compactor dataset**: the compactor dataset, whose errors gathered in a few videos with
-    the deleted 512 pixel run (iteration 800, `ficha-experiments-compactor-to-front`), embedded with the 384 pixel
-    compactor run of `ficha-experiments-staged-schedule` and clustered the same way, then judged as in item 19.
-21. **Representatives of the large clusters**: the largest `not_empty` cluster of block 5 is the whole video
-    `video_t0180_2026-09-30_08-50-49` (2,666 frames). Its frames closest to the centre show the same full bin, while
-    its farthest frame shows a bin being tipped in, which the 5 representatives closest to the centre miss.
-    - **Options:** `cluster_selection_method: "leaf"`, already accepted by the script (smaller clusters, the moments of
-      a video in clusters of their own), representatives spread over the ranks of a cluster (the closest one, then
-      images evenly spaced in distance up to the farthest), or a number of representatives growing with the size of
-      the cluster (e.g. its square root).
-    - Cost and risk: small for the script; each option is judged by the trainings of item 19.
-22. **Mosaics of the spread of a cluster**: the mosaic shows the images closest to the centre, which all look alike in
-    a large cluster. A second mosaic of images taken at evenly spaced ranks, from the closest to the farthest, would
-    show what a cluster gathers. Cost and risk: small.
-23. **Corrupted frames**: the isolated images of a trial on 3,000 training images showed frames with decoding
-    artefacts (grey images, green and cyan areas). They are isolated, so kept by the clustering with
-    `isolated_image_selection = "all"`, and in the training split. Reviewing the isolated image folders lists them, to
-    remove them from the `labels.json` of the dataset with a data script rather than with a filter in the framework,
-    which stays independent of the datasets. Cost and risk: small, a manual review of the isolated image mosaics and
-    folders.
 
 ## J. Self-supervised counted shapes: tests left to run
 The synthetic counted shapes dataset (`/home/robert_kelevra/Data/self_supervised_data/synthetic_counted_shapes`,
