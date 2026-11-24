@@ -59,6 +59,12 @@ stay between 0 and 1.
                  min-width: 130px; }
   .metric-name { color: var(--text-muted); font-size: 12px; }
   .metric-value { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .metric-detail { color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
+  .best-tile { border-style: dashed; }
+  .performance-run { color: var(--text-secondary); font-size: 13px; margin: 4px 0 8px; padding-left: 20px;
+                     max-width: 900px; overflow-wrap: anywhere; }
+  .performance-run li { margin: 2px 0; }
+  .run-label { color: var(--text-muted); }
   .performance-line { font-size: 13px; overflow-wrap: anywhere; }
   .controls { position: sticky; top: 0; z-index: 2; background: var(--page); padding: 10px 0;
               border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 10px 18px;
@@ -114,8 +120,8 @@ stay between 0 and 1.
   <h1>Temperature Explorer</h1>
   <p class="subtitle" id="subtitle"></p>
   <div class="performance" id="performance" hidden></div>
-  <p class="performance-line" id="performance-run" hidden></p>
-  <p class="performance-line" id="performance-best" hidden></p>
+  <ul class="performance-run" id="performance-run" hidden></ul>
+  <p class="performance-line" id="performance-missing" hidden></p>
   <p>Scores are the softmax (sigmoid in multi-label mode) of the logits divided by T. T only changes their spread:
      predictions, metrics and confusion matrix stay the same, the thresholds move.</p>
   <p id="deploy-served" hidden>To deploy: choose T, press <b>Save Thresholds At This Temperature</b>, then
@@ -660,36 +666,40 @@ stay between 0 and 1.
     return element.innerHTML;
   }
 
-  // Global metrics of the checkpoint, read by the serve script from the evaluation summary of its folder, with the best
+  // Global metrics of the checkpoint, read by the serve script from the evaluation summary of its folder, then the best
   // evaluation of that summary, so that the checkpoint about to be exported is known by its performance
   function renderPerformance() {
     if (DATA.model_performance === undefined) return;
     const performance = DATA.model_performance;
-    const runLine = document.getElementById("performance-run");
-    runLine.hidden = false;
     if (performance === null) {
-      runLine.textContent =
+      const missingLine = document.getElementById("performance-missing");
+      missingLine.textContent =
         "No global metrics: the evaluation_summary.csv of this folder has no row for this checkpoint.";
+      missingLine.hidden = false;
       return;
     }
-    const tiles = document.getElementById("performance");
-    tiles.innerHTML = performance.metrics.map(metric => `<div class="metric-tile"><div class="metric-name">` +
-      `${escapeHtml(metric.name)}</div><div class="metric-value">${formatPercent(metric.value)}</div></div>`).join("");
-    tiles.hidden = false;
-    runLine.textContent = `Run ${performance.run}`;
+    const tiles = performance.metrics.map(metric => `<div class="metric-tile"><div class="metric-name">` +
+      `${escapeHtml(metric.name)}</div><div class="metric-value">${formatPercent(metric.value)}</div></div>`);
 
-    // Best evaluation of the summary, linked to its page when it holds one
+    // Tile of the best evaluation of the summary, trained and EMA weights together, linked to its page if it has one
     const best = performance.best;
     const bestName = `Iteration ${best.iteration}${best.use_averaged_weights ? " EMA" : ""}`;
-    const bestLink = best.evaluation === null ? escapeHtml(bestName)
+    const bestPlace = best.reached ? "<b>This checkpoint</b>" : best.evaluation === null ? escapeHtml(bestName)
       : `<a href="/explorer?evaluation=${encodeURIComponent(best.evaluation)}">${escapeHtml(bestName)}</a>`;
-    const bestLine = document.getElementById("performance-best");
     const numberIterations = performance.number_iterations;
     const iterationsText = `${numberIterations} iteration${numberIterations === 1 ? "" : "s"}`;
-    bestLine.innerHTML = `Best ${escapeHtml(best.metric)} of the ${iterationsText} in ` +
-      `${escapeHtml(performance.summary_folder)}/ (trained and EMA): ` +
-      (best.reached ? "<b>this checkpoint</b>." : `${formatPercent(best.value)} at ${bestLink}.`);
-    bestLine.hidden = false;
+    tiles.push(`<div class="metric-tile best-tile"><div class="metric-name">Best ${escapeHtml(best.metric)}</div>` +
+      `<div class="metric-value">${formatPercent(best.value)}</div><div class="metric-detail">${bestPlace}</div>` +
+      `<div class="metric-detail">of ${iterationsText} in ${escapeHtml(performance.summary_folder)}/</div></div>`);
+    const tileRow = document.getElementById("performance");
+    tileRow.innerHTML = tiles.join("");
+    tileRow.hidden = false;
+
+    // Experiment folder and run name, one per line
+    const runList = document.getElementById("performance-run");
+    runList.innerHTML = [["Experiment folder", performance.experiment_folder], ["Run", performance.run_name]].map(
+      ([label, value]) => `<li><span class="run-label">${label}:</span> ${escapeHtml(value)}</li>`).join("");
+    runList.hidden = false;
   }
 
   // Card of every drawn class, built once, its histogram drawn again at every temperature

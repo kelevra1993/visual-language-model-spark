@@ -241,9 +241,9 @@ def test_score_ranges_are_counted_from_the_logits(served_experiments: Tuple[Dict
 def test_pages_show_the_global_metrics_of_their_checkpoint(served_experiments: Tuple[Dict[str, Any], str]) -> None:
     """
     Verifies that the page of an evaluation carries the global metrics of its checkpoint read from the evaluation
-    summary of its folder (the 'ema_' columns for the averaged weights), with the best evaluation of that summary by
-    balanced accuracy over the trained and averaged weights, linked when it holds a page, and no metric while the
-    summary lacks the row of its iteration.
+    summary of its folder (the 'ema_' columns for the averaged weights), its experiments folder and run name, and the
+    best evaluation of that summary by balanced accuracy over the trained and averaged weights, linked when it holds a
+    page, and no metric while the summary lacks the row of its iteration.
 
     Args:
         served_experiments (Tuple[Dict[str, Any], str]): The served evaluations and the address of the server.
@@ -260,7 +260,8 @@ def test_pages_show_the_global_metrics_of_their_checkpoint(served_experiments: T
                                  6: {"Accuracy": 0.93, "Balanced Accuracy": 0.92, "Macro F1": 0.91,
                                      "ema_Accuracy": 0.92, "ema_Balanced Accuracy": 0.91, "ema_Macro F1": 0.9}})
     assert request_page_data(address=address, identifier=LIVE_EVALUATION)["model_performance"] == {
-        "run": "experiments/CLS_LIVE_MC3", "summary_folder": "Evaluation", "number_iterations": 2,
+        "experiment_folder": "experiments", "run_name": "CLS_LIVE_MC3", "summary_folder": "Evaluation",
+        "number_iterations": 2,
         "metrics": [{"name": "Balanced Accuracy", "value": 0.92}, {"name": "Accuracy", "value": 0.93},
                     {"name": "Macro F1", "value": 0.91}],
         "best": {"metric": "Balanced Accuracy", "value": 0.95, "iteration": 3, "use_averaged_weights": True,
@@ -272,7 +273,8 @@ def test_pages_show_the_global_metrics_of_their_checkpoint(served_experiments: T
                                  3: {"Accuracy": 0.81, "Balanced Accuracy": 0.8, "Macro F1": 0.79, "ema_Accuracy": 0.86,
                                      "ema_Balanced Accuracy": 0.85, "ema_Macro F1": 0.84}})
     assert request_page_data(address=address, identifier=GRID_EVALUATION)["model_performance"] == {
-        "run": "experiments/CLS_GRID_MC3", "summary_folder": "Checkpoint_Evaluation", "number_iterations": 1,
+        "experiment_folder": "experiments", "run_name": "CLS_GRID_MC3", "summary_folder": "Checkpoint_Evaluation",
+        "number_iterations": 1,
         "metrics": [{"name": "Balanced Accuracy", "value": 0.85}, {"name": "Accuracy", "value": 0.86},
                     {"name": "Macro F1", "value": 0.84}],
         "best": {"metric": "Balanced Accuracy", "value": 0.85, "iteration": 3, "use_averaged_weights": True,
