@@ -53,7 +53,8 @@ UPSAMPLING_CODES = {"transposed": "UTC", "bilinear": "UBL"}
 
 # Prefix of the tokens of a component initialised by the one of another run: '<prefix>PT' when it is transferred,
 # followed by '<prefix>FRZ' when it is frozen, i.e. PT and FRZ for the backbone, TPT and TFRZ for the temporal module,
-# HPT and HFRZ for the classification head, DPT and DFRZ for the segmentation decoder, RPT and RFRZ for the region
+# HPT and HFRZ for the classification head (HRCL between them when its class layer stays random), DPT and DFRZ for the
+# segmentation decoder (DCL between them when its class layers are loaded), RPT and RFRZ for the region
 # proposal heads, DPT and DFRZ for the detection heads, MPT and MFRZ for the mask heads, HRPT and HRFRZ for the high
 # resolution network of the keypoint detector, and KHPT and KHFRZ for its keypoint head. The learning rate multiplier
 # of the component gives no token, so that it can change between two resumptions of a run
@@ -107,8 +108,10 @@ def build_pretrained_tokens(model_configuration: Dict[str, Any], section_name: s
     """
     Builds the tokens of a component initialised by the trained one of another run, placed at the end of the section of
     the component in the run name (see PRETRAINED_TOKEN_PREFIXES): e.g. PT, then DCL when the segmentation decoder also
-    loads the class layers of the source run, then FRZ when it is frozen, then FBN when the scale and shift of the
-    normalization layers of the backbone are kept fixed. A component trained from random weights gives no token. The
+    loads the class layers of the source run, or HRCL when the classification head is loaded without its class layer
+    (a token for False, the heads of the runs written before 'class_layer' existed having loaded it, so that their run
+    names stay), then FRZ when it is frozen, then FBN when the scale and shift of the normalization layers of the
+    backbone are kept fixed. A component trained from random weights gives no token. The
     learning rate multiplier gives no token, the optimizer giving every transferred component that learns its own
     parameter group whatever its multiplier, so that it can change between two resumptions of a run.
 
@@ -130,6 +133,11 @@ def build_pretrained_tokens(model_configuration: Dict[str, Any], section_name: s
     # Segmentation head and deep supervision heads loaded with the decoder, which changes what the run starts from
     if section_name == "SegmentationDecoder" and pretrained_configuration["load_class_layers"]:
         pretrained_tokens.append("DCL")
+
+    # Classification head loaded without its class layer, which starts random and learns at the learning rate of the
+    # run, changing what the run starts from and the layout of its parameter groups
+    if section_name == "ClassificationHead" and not pretrained_configuration["class_layer"]:
+        pretrained_tokens.append("HRCL")
     if pretrained_configuration["freeze"]:
         pretrained_tokens.append(f"{token_prefix}FRZ")
 
@@ -415,7 +423,8 @@ def build_classification_sections(model_configuration: Dict[str, Any]) -> List[L
     Builds the sections of the run name describing the classification head, shared by the classification-like tasks:
     the head H<global pooling AVG, MAX or FLAT>.<fully connected sizes>, HBN or HLN when its hidden layers are batch
     or layer normalized, LS<label smoothing> when smoothing, CWB when the classes are balanced in the loss and HPT,
-    followed by HFRZ when frozen, when the head is initialised by the one of another run (see build_pretrained_tokens),
+    followed by HRCL when its class layer stays random and HFRZ when frozen, when the head is initialised by the one of
+    another run (see build_pretrained_tokens),
     then the classes MC<classes> (one class per sample) or ML<classes> (several classes per sample), e.g.
     'HAVG.256-LS0.1_MC4', 'HFLAT.256-HBN_MC4', 'HFLAT.256-HLN_MC4' or 'HFLAT.256_MC4'. The dropout gives no token, so
     that it can change between two resumptions of a run, and the batch normalization momentum is fixed

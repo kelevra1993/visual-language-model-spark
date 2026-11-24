@@ -62,7 +62,7 @@ from vision_training.models.model_transfer import (LOADED_BACKBONE_BLOCKS_METADA
                                                    freeze_batch_normalization_statistics, freeze_component,
                                                    freeze_normalization_parameters, get_component_name,
                                                    load_pretrained_component, load_segmentation_class_layers,
-                                                   select_transferred_part)
+                                                   select_transferred_part, transfers_class_layers)
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.checkpointing import (EXPONENTIAL_MOVING_AVERAGE_STATE_KEY, get_last_checkpoint_iteration,
                                                     load_checkpoint, read_checkpoint_value, save_checkpoint)
@@ -778,7 +778,9 @@ class BaseTrainer(ABC):
         every parameter shares this single group, the layout of the checkpoints of the runs without transfer, and a
         transferred backbone comes second, the layout of the runs that only transferred their backbone. A backbone
         deeper than its source backbone puts only its loaded blocks in its group (see get_transferred_part), its next
-        blocks learning at the learning rate of the run in the first group, as the other new layers.
+        blocks learning at the learning rate of the run in the first group, as the other new layers, and so does a
+        classification head loaded without its class layer ('ClassificationHead.pretrained.class_layer' False), its
+        class layer learning in the first group.
 
         Returns:
             torch.optim.Optimizer: The optimizer at the configured learning rate.
@@ -960,7 +962,9 @@ class BaseTrainer(ABC):
         the components it was training, but keeps them frozen. A backbone deeper than its source backbone loads its
         first blocks only, counted in loaded_backbone_blocks (from the configuration of the source run for a new run,
         from the 'pretrained_backbone_blocks' of its last checkpoint for a resumed run, whose source run may be gone):
-        only these blocks are frozen, their next blocks learning (see get_transferred_part).
+        only these blocks are frozen, their next blocks learning (see get_transferred_part). A classification head
+        loaded without its class layer ('ClassificationHead.pretrained.class_layer' False) freezes its hidden layers
+        only, its random class layer learning.
 
         Returns:
             Dict[str, Optional[Path]]: The checkpoint file every component was loaded from, keyed by the section names
@@ -1019,19 +1023,25 @@ class BaseTrainer(ABC):
     def get_transferred_part(self, section_name: str) -> nn.Module:
         """
         Gives the part of a transferred component holding the weights of its source run, which is frozen, keeps its
-        batch statistics and learns at the learning rate multiplier of the transfer: the whole component, or the
-        loaded blocks of a backbone deeper than its source backbone (loaded_backbone_blocks), whose next blocks start
-        random and learn at the learning rate of the run as the other new layers.
+        batch statistics and learns at the learning rate multiplier of the transfer: the whole component, the loaded
+        blocks of a backbone deeper than its source backbone (loaded_backbone_blocks), whose next blocks start random
+        and learn at the learning rate of the run as the other new layers, or the layers of a classification head
+        loaded without its class layer ('ClassificationHead.pretrained.class_layer' False), whose class layer does the
+        same.
 
         Args:
             section_name (str): The configuration section of the component, a key of TRANSFERABLE_COMPONENTS.
 
         Returns:
-            nn.Module: The component, or a module list of the loaded blocks of the backbone.
+            nn.Module: The component, or a module list of the loaded blocks of the backbone or of the layers of the
+                head outside its class layer.
         """
         number_loaded_blocks = self.loaded_backbone_blocks if section_name == "Backbone" else None
+        with_class_layers = transfers_class_layers(section_name=section_name,
+                                                   pretrained_configuration=self.pretrained_configurations[section_name])
         return select_transferred_part(component=getattr(self.model, TRANSFERABLE_COMPONENTS[section_name]),
-                                       number_loaded_blocks=number_loaded_blocks)
+                                       section_name=section_name, number_loaded_blocks=number_loaded_blocks,
+                                       with_class_layers=with_class_layers)
 
     def setup_training_paths(self, initial_configuration_path: Path, create_run_folder: bool
                              ) -> Tuple[Path, Path, Path, Optional[ConfigurationChanges]]:
@@ -1401,8 +1411,9 @@ class BaseTrainer(ABC):
         (backbone, temporal module, classification head, segmentation decoder, region proposal heads, detection
         heads, mask heads): its source run folder, then the checkpoint iteration it comes from, whether it is frozen,
         whether the normalization layers of the backbone are frozen, the loaded blocks of a backbone deeper than its
-        source backbone (the others starting random), whether the class layers of the semantic segmentation are loaded
-        with its decoder, and the learning rate it learns at with its multiplier, which gives no token in the run name.
+        source backbone (the others starting random), whether the class layer of the classification head is loaded
+        with it, whether the class layers of the semantic segmentation are loaded with its decoder, and the learning
+        rate it learns at with its multiplier, which gives no token in the run name.
         A frozen component does not learn, so it has no learning rate line. Components trained from random weights
         print nothing; the classes kept, added or moved by name are printed by the transfer itself
         (prepare_class_layers).
@@ -1435,7 +1446,11 @@ class BaseTrainer(ABC):
                 print_color(color="blue", output=f"    - Loaded Blocks       : {self.loaded_backbone_blocks} Of "
                                                  f"{number_blocks}, {random_blocks} Random At The Run Learning Rate")
 
-            # Class layers of the semantic segmentation loaded with the decoder, a setting of the decoder only
+            # Class layer of the classification head, loaded with the head or left random, and class layers of the
+            # semantic segmentation loaded with the decoder
+            if section_name == "ClassificationHead":
+                print_color(color="blue", output=f"    - Class Layer Loaded  : "
+                                                 f"{pretrained_configuration['class_layer']}")
             if section_name == "SegmentationDecoder":
                 print_color(color="blue", output=f"    - Class Layers Loaded : "
                                                  f"{pretrained_configuration['load_class_layers']}")

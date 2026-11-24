@@ -7,7 +7,8 @@ left as it is), the final NMS settings added to their detector section, the prop
 proposal section, the anchors centred on the cell corners removed (a file centring them on the cell centres left as
 it is), the instance index maps (one mask per object) added to the data section of the instance segmentation files,
 the finer inputs of the mask heads (none) added to their mask heads section, the speed benchmark diagnosis mode (off)
-added to the diagnosis modes of every task (a partial draft without them left as it is), and the refusals of a
+added to the diagnosis modes of every task (a partial draft without them left as it is), the class layer flag added to
+the classification heads (True for a head transferred from another run, False otherwise), and the refusals of a
 conversion changing another setting or the backbone.
 """
 
@@ -986,3 +987,82 @@ def test_conversion_adds_the_speed_benchmark_to_the_diagnosis_modes(tmp_path: Pa
     assert (configuration_folder / "run-1.yaml").read_text(encoding="utf-8") == CONVERTED_DIAGNOSIS_MODES_TEXT
     assert (configuration_folder / "previous_configurations" / "run-1_before_benchmark_speed.yaml").read_text(
         encoding="utf-8") == DIAGNOSIS_MODES_TEXT
+
+
+# Classification head of a task given by its placeholder, written before the class layer flag, trained from random
+# weights (experiment folder null) or transferred from another run, and the lines of the flag the conversion adds
+CLASSIFICATION_HEAD_TEXT = """ExperimentConfiguration:
+  task: {task}
+ClassificationHead:
+  fully_connected: [128]
+  pretrained:
+    experiment_folder: {experiment_folder}
+    iteration: null
+    freeze: False
+    learning_rate_multiplier: 1.0
+"""
+CLASS_LAYER_TEXT = (
+    "    # True also loads the class layer: source classes (its data.json) first in order or by name, others random;"
+    " needs\n    # experiment_folder. False loads the hidden layers only, the class layer random for any classes (HRCL"
+    " token).\n    class_layer: {class_layer}\n")
+
+
+def write_class_layer_text(configuration_text: str, class_layer: str) -> str:
+    """
+    Writes the class layer flag into a classification head text as the conversion does, right after 'freeze'.
+
+    Args:
+        configuration_text (str): A text of CLASSIFICATION_HEAD_TEXT.
+        class_layer (str): "True" or "False".
+
+    Returns:
+        str: The text holding the flag.
+    """
+    return configuration_text.replace("    freeze: False\n",
+                                      "    freeze: False\n" + CLASS_LAYER_TEXT.format(class_layer=class_layer))
+
+
+def test_conversion_adds_the_class_layer_flag_to_the_classification_heads(tmp_path: Path) -> None:
+    """
+    Verifies that the conversion writes the class layer flag of the classification head, with its comment lines, right
+    after 'freeze' in its 'pretrained' block, for the classification-like tasks: False for a head trained from random
+    weights, True for a head transferred from another run, which loaded its class layer, so that the run names and the
+    parameter groups of the saved runs stay; the check refuses a transferred head written False, the files of the
+    other tasks are left as they are, and convert_fixed_settings converts a run configuration with its backup.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = tmp_path / "configuration.yaml"
+
+    # The flag of every head, False without source run and True with one
+    for task in ["classification", "sequence_labelling", "frame_selection"]:
+        for experiment_folder, class_layer in [("null", "False"), ('"/runs/source"', "True")]:
+            original_text = CLASSIFICATION_HEAD_TEXT.format(task=task, experiment_folder=experiment_folder)
+            converted_text = add_required_settings(configuration_text=original_text, task=task,
+                                                   configuration_path=configuration_path)
+            assert converted_text == write_class_layer_text(configuration_text=original_text, class_layer=class_layer)
+            assert check_conversion(original_text=original_text, converted_text=converted_text, task=task,
+                                    configuration_path=configuration_path) == []
+
+    # A transferred head written False would change its runs, and a task without classification head gets nothing
+    transferred_text = CLASSIFICATION_HEAD_TEXT.format(task="classification", experiment_folder='"/runs/source"')
+    with pytest.raises(expected_exception=ValueError,
+                       match=r"than the fixed ones: ClassificationHead\.pretrained\.class_layer\.$"):
+        check_conversion(original_text=transferred_text, task="classification", configuration_path=configuration_path,
+                         converted_text=write_class_layer_text(configuration_text=transferred_text, class_layer="False"))
+    detection_text = CLASSIFICATION_HEAD_TEXT.format(task="object_detection", experiment_folder="null")
+    assert add_required_settings(configuration_text=detection_text, task="object_detection",
+                                 configuration_path=configuration_path) == detection_text
+
+    # A run configuration converted with its backup next to it
+    run_folder = tmp_path / "runs" / "CLS_run"
+    run_folder.mkdir(parents=True)
+    (run_folder / "training_configuration.yaml").write_text(data=transferred_text, encoding="utf-8")
+    converted_paths = convert_fixed_settings(run_roots=[tmp_path / "runs"], configuration_folders=[], write_files=True,
+                                             backup_suffix="_before_class_layer")
+    assert converted_paths == [run_folder / "training_configuration.yaml"]
+    assert (run_folder / "training_configuration.yaml").read_text(encoding="utf-8") == write_class_layer_text(
+        configuration_text=transferred_text, class_layer="True")
+    assert (run_folder / "training_configuration_before_class_layer.yaml").read_text(
+        encoding="utf-8") == transferred_text

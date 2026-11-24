@@ -191,4 +191,7 @@ ClassificationHead:
     experiment_folder: null
     iteration: null
     freeze: false
+    # True also loads the class layer: source classes (its data.json) first in order or by name, others random; needs
+    # experiment_folder. False loads the hidden layers only, the class layer random for any classes (HRCL token).
+    class_layer: False
     learning_rate_multiplier: 1.0

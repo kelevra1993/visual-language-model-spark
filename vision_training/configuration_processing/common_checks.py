@@ -454,6 +454,8 @@ def check_pretrained_configuration(model_configuration: Dict[str, Any], section_
     the 'freeze_normalization_parameters' flag keeps the scale and shift of its normalization layers fixed, which needs
     a source run that is not frozen anyway and a backbone with normalization layers. For the segmentation decoder, the
     'load_class_layers' flag also loads the segmentation head and the deep supervision heads, which needs a source run.
+    For the classification head, the 'class_layer' flag also loads its class layer, which needs a source run, False
+    loading its hidden layers only, which needs a head with hidden layers ('fully_connected' not empty).
     The source run itself is only read when a new training starts, so that a trained run can still be evaluated and
     exported once its source run is gone.
 
@@ -504,6 +506,22 @@ def check_pretrained_configuration(model_configuration: Dict[str, Any], section_
         if not class_layers_errors and experiment_folder is None and load_class_layers:
             errors.append(f"'{key_prefix}.load_class_layers' must be False when '{key_prefix}.experiment_folder' is "
                           f"null: the class layers are loaded from the source run of the decoder.")
+
+    # The class layer of the classification head is only loaded from a source run, and a head loaded without it must
+    # hold hidden layers, the only other layers it has
+    if section_name == "ClassificationHead":
+        class_layer_errors = check_boolean_flags(configuration=model_configuration,
+                                                 key_paths=[f"{key_prefix}.class_layer"])
+        errors += class_layer_errors
+        class_layer = get_configuration_value(configuration=model_configuration, key_path=f"{key_prefix}.class_layer")
+        fully_connected = get_configuration_value(configuration=model_configuration,
+                                                  key_path="ClassificationHead.fully_connected")
+        if not class_layer_errors and experiment_folder is None and class_layer:
+            errors.append(f"'{key_prefix}.class_layer' must be False when '{key_prefix}.experiment_folder' is null: "
+                          f"the class layer is loaded from the source run of the head.")
+        elif not class_layer_errors and experiment_folder is not None and not class_layer and fully_connected == []:
+            errors.append(f"'{key_prefix}.class_layer' must be True when 'ClassificationHead.fully_connected' is []: "
+                          f"a head without hidden layer has nothing to load but its class layer.")
     if section_name != "Backbone":
         return errors
 

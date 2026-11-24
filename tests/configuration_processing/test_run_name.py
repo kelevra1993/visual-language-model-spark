@@ -29,8 +29,10 @@ CLASSIFICATION_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_trainin
 # Run name of the classification reference settings set by get_classification_reference_configurations
 CLASSIFICATION_REFERENCE_RUN_NAME = "CLS_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128_MC4"
 
-# Pretrained settings of a temporal module or classification head trained from random weights
+# Pretrained settings of a temporal module trained from random weights, and of a classification head, whose class
+# layer flag is False without source run
 NO_TRANSFER_SETTINGS = {"experiment_folder": None, "iteration": None, "freeze": False, "learning_rate_multiplier": 1.0}
+NO_HEAD_TRANSFER_SETTINGS = {**NO_TRANSFER_SETTINGS, "class_layer": False}
 
 
 def get_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -270,7 +272,7 @@ def get_classification_reference_configurations() -> Tuple[Dict[str, Any], Dict[
                                                  "batch_normalization_momentum": 0.1,
                                                  "dropout_rate": 0.2, "output_mode": "multi_class",
                                                  "label_smoothing": 0.0, "class_weighting": "none",
-                                                 "pretrained": dict(NO_TRANSFER_SETTINGS)}
+                                                 "pretrained": dict(NO_HEAD_TRANSFER_SETTINGS)}
     model_configuration["Data"]["label_dictionary"] = {1: 0, 2: 1, 3: 2, 4: 3}
 
     # Augmentation, batch size and learning rate
@@ -355,7 +357,7 @@ def get_sequence_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, A
                                                  "batch_normalization_momentum": 0.1,
                                                  "dropout_rate": 0.2, "output_mode": "multi_class",
                                                  "label_smoothing": 0.0, "class_weighting": "none",
-                                                 "pretrained": dict(NO_TRANSFER_SETTINGS)}
+                                                 "pretrained": dict(NO_HEAD_TRANSFER_SETTINGS)}
     model_configuration["Data"]["label_dictionary"] = {1: 0, 2: 1, 3: 2, 4: 3}
 
     # Augmentation, batch size and learning rate
@@ -520,6 +522,30 @@ def test_pretrained_temporal_module_and_head_run_names(section_name: str, freeze
     assert build_run_name(experiment_configuration=experiment_configuration,
                           model_configuration=model_configuration) == SEQUENCE_REFERENCE_RUN_NAME.replace(
         original_section, expected_section)
+
+
+@pytest.mark.parametrize(argnames=("class_layer", "freeze", "expected_section"),
+                         argvalues=[(True, False, "_HAVG.64-HPT_"), (False, False, "_HAVG.64-HPT-HRCL_"),
+                                    (False, True, "_HAVG.64-HPT-HRCL-HFRZ_")])
+def test_pretrained_classification_head_run_names(class_layer: bool, freeze: bool, expected_section: str) -> None:
+    """
+    Verifies the tokens of a transferred classification head at the end of its section: HPT, then HRCL when it is
+    loaded without its class layer, which starts random, then HFRZ when it is frozen. A head loaded with its class
+    layer keeps the name of the runs written before 'class_layer' existed, which loaded it. The rest of the name is
+    unchanged.
+
+    Args:
+        class_layer (bool): Whether the class layer is loaded with the head.
+        freeze (bool): Whether the transferred head is frozen.
+        expected_section (str): The expected section of the head in the run name.
+    """
+    experiment_configuration, model_configuration = get_sequence_reference_configurations()
+    model_configuration["ClassificationHead"]["pretrained"] = {**NO_HEAD_TRANSFER_SETTINGS,
+                                                               "experiment_folder": "/runs/source",
+                                                               "freeze": freeze, "class_layer": class_layer}
+    assert build_run_name(experiment_configuration=experiment_configuration,
+                          model_configuration=model_configuration) == SEQUENCE_REFERENCE_RUN_NAME.replace(
+        "_HAVG.64_", expected_section)
 
 
 @pytest.mark.parametrize(argnames=("head_dropout_rate", "temporal_dropout_rate", "fusion_dropout_rate"),

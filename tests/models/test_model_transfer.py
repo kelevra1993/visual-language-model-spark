@@ -42,9 +42,11 @@ from tests.fixtures.configuration_fixtures import (get_classification_model_conf
                                                    get_segmentation_model_configuration,
                                                    get_sequence_model_configuration)
 
-# Pretrained settings of a component trained from random weights, and the normalization flag of the backbone
+# Pretrained settings of a component trained from random weights, with the normalization flag of the backbone and the
+# class layer flag of the classification head
 NO_TRANSFER = {"experiment_folder": None, "iteration": None, "freeze": False, "learning_rate_multiplier": 1.0}
 NO_BACKBONE_TRANSFER = {**NO_TRANSFER, "freeze_normalization_parameters": False}
+NO_HEAD_TRANSFER = {**NO_TRANSFER, "class_layer": False}
 
 # Blocks of the shorter source backbone of the transfers into a deeper backbone, the first 7 of the 9 blocks of the
 # detection fixture
@@ -118,22 +120,29 @@ def write_source_run(run_folder: Path, configuration: Dict[str, Any], model: tor
         (run_folder / DATA_RECORD_FILE_NAME).write_text(data=json.dumps(obj={CLASSES_RECORD_KEY: class_records}))
 
 
-def point_to_source_run(configuration: Dict[str, Any], section_name: str, source_folder: Path) -> Dict[str, Any]:
+def point_to_source_run(configuration: Dict[str, Any], section_name: str, source_folder: Path,
+                        class_layer: bool = True) -> Dict[str, Any]:
     """
     Copies a configuration with the pretrained settings of one section pointing to a source run, the component of
-    that section being then initialised by the one of the source run.
+    that section being then initialised by the one of the source run, a classification head with or without its class
+    layer.
 
     Args:
         configuration (Dict[str, Any]): The configuration of the run receiving the component.
         section_name (str): The section of the transferred component.
         source_folder (Path): The run folder of the source component.
+        class_layer (bool): The 'class_layer' flag of a transferred classification head, ignored for the other
+            sections. Defaults to True, the head being loaded with its class layer.
 
     Returns:
         Dict[str, Any]: The configuration with the pretrained settings of the section.
     """
     target_configuration = copy.deepcopy(configuration)
-    no_transfer = NO_BACKBONE_TRANSFER if section_name == "Backbone" else NO_TRANSFER
+    no_transfer = {"Backbone": NO_BACKBONE_TRANSFER, "ClassificationHead": NO_HEAD_TRANSFER}.get(section_name,
+                                                                                               NO_TRANSFER)
     target_configuration[section_name]["pretrained"] = {**no_transfer, "experiment_folder": str(source_folder)}
+    if section_name == "ClassificationHead":
+        target_configuration[section_name]["pretrained"]["class_layer"] = class_layer
     return target_configuration
 
 
@@ -464,8 +473,10 @@ def test_only_the_loaded_blocks_of_a_deeper_backbone_are_frozen() -> None:
     device, dtype = torch.device("cpu"), torch.float32
     torch.manual_seed(seed=0)
     classifier = ImageClassifier(configuration=target_configuration, device=device, dtype=dtype)
-    assert select_transferred_part(component=classifier.backbone, number_loaded_blocks=None) is classifier.backbone
-    loaded_blocks = select_transferred_part(component=classifier.backbone, number_loaded_blocks=SHORTER_SOURCE_BLOCKS)
+    assert select_transferred_part(component=classifier.backbone, section_name="Backbone", number_loaded_blocks=None,
+                                   with_class_layers=True) is classifier.backbone
+    loaded_blocks = select_transferred_part(component=classifier.backbone, section_name="Backbone",
+                                            number_loaded_blocks=SHORTER_SOURCE_BLOCKS, with_class_layers=True)
     freeze_component(component=loaded_blocks)
     backbone_state_before = copy.deepcopy(classifier.backbone.state_dict())
 
@@ -494,7 +505,9 @@ def test_only_the_loaded_blocks_of_a_deeper_backbone_are_frozen() -> None:
     torch.manual_seed(seed=0)
     classifier = ImageClassifier(configuration=target_configuration, device=device, dtype=dtype)
     freeze_normalization_parameters(component=select_transferred_part(component=classifier.backbone,
-                                                                      number_loaded_blocks=SHORTER_SOURCE_BLOCKS))
+                                                                      section_name="Backbone",
+                                                                      number_loaded_blocks=SHORTER_SOURCE_BLOCKS,
+                                                                      with_class_layers=True))
     normalization_names = [module_name for module_name, module in classifier.backbone.named_modules()
                            if isinstance(module, NORMALIZATION_LAYER_TYPES)]
     for parameter_name, parameter_value in classifier.backbone.named_parameters():
@@ -514,13 +527,14 @@ def test_pretrained_settings_are_disabled() -> None:
                                                "learning_rate_multiplier": 0.5}
     configuration["TemporalModel"]["pretrained"] = {**NO_TRANSFER, "experiment_folder": "/runs/source",
                                                     "freeze": True, "iteration": 4}
-    configuration["ClassificationHead"]["pretrained"] = {**NO_TRANSFER, "experiment_folder": "/runs/source"}
+    configuration["ClassificationHead"]["pretrained"] = {**NO_HEAD_TRANSFER, "experiment_folder": "/runs/source",
+                                                         "class_layer": True}
 
     disable_pretrained_settings(model_configuration=configuration)
 
     assert configuration["Backbone"]["pretrained"] == {**NO_BACKBONE_TRANSFER, "learning_rate_multiplier": 0.5}
     assert configuration["TemporalModel"]["pretrained"] == {**NO_TRANSFER, "iteration": 4}
-    assert configuration["ClassificationHead"]["pretrained"] == NO_TRANSFER
+    assert configuration["ClassificationHead"]["pretrained"] == NO_HEAD_TRANSFER
 
 
 def test_classification_backbone_initialises_a_segmenter_and_back(tmp_path: Path) -> None:
@@ -913,6 +927,124 @@ def test_classification_head_refuses_a_run_without_every_source_class(tmp_path: 
                                   device=torch.device("cpu"), class_names=target_class_names)
     for tensor_name, tensor_value in target_model.classification_head.state_dict().items():
         assert torch.equal(input=tensor_value, other=initial_target_state[tensor_name]), tensor_name
+
+
+@pytest.mark.parametrize(argnames="task", argvalues=["classification", "sequence_labelling"])
+def test_classification_head_without_class_layer_initialises_a_run_of_other_classes(
+        tmp_path: Path, task: str, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the classification head of a run of 3 classes, loaded without its class layer
+    ('ClassificationHead.pretrained.class_layer' False), initialises the head of a run of 4 unrelated classes, which
+    the transfer with the class layer refuses, for an image classifier and a sequence labeller: the hidden layers are
+    copied exactly, the class layer keeps the random weights and biases the head of the new run was built with, and
+    the console says so.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        task (str): The task of both runs.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the transfer.
+    """
+    source_configuration = get_class_configuration(task=task, number_classes=3)
+    source_model = build_task_model(task=task, configuration=source_configuration, seed=0)
+    write_source_run(run_folder=tmp_path / "source_run", configuration=source_configuration, model=source_model,
+                     class_names=SOURCE_CLASS_NAMES)
+    target_class_names = ["cat", "dog", "parcel", "bicycle"]
+    target_configuration = get_class_configuration(task=task, number_classes=len(target_class_names))
+    target_model = build_task_model(task=task, configuration=target_configuration, seed=1)
+    initial_target_state = copy.deepcopy(target_model.classification_head.state_dict())
+
+    # Refused with its class layer, none of the source classes being a class of this run
+    with pytest.raises(expected_exception=ValueError, match="Their Classes Differ"):
+        load_pretrained_component(component=target_model.classification_head, section_name="ClassificationHead",
+                                  model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                          section_name="ClassificationHead",
+                                                                          source_folder=tmp_path / "source_run",
+                                                                          class_layer=True),
+                                  device=torch.device("cpu"), class_names=target_class_names)
+
+    # Loaded without it: hidden layers of the source run, class layer of the new run
+    load_pretrained_component(component=target_model.classification_head, section_name="ClassificationHead",
+                              model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                      section_name="ClassificationHead",
+                                                                      source_folder=tmp_path / "source_run",
+                                                                      class_layer=False),
+                              device=torch.device("cpu"), class_names=target_class_names)
+    source_state = source_model.classification_head.state_dict()
+    target_state = target_model.classification_head.state_dict()
+    assert any(not tensor_name.startswith("classifier.") for tensor_name in source_state)
+    for tensor_name, tensor_value in source_state.items():
+        expected_value = initial_target_state[tensor_name] if tensor_name.startswith("classifier.") else tensor_value
+        assert torch.equal(input=target_state[tensor_name], other=expected_value), tensor_name
+    assert ("Classification Head : Loaded Without Its Class Layer, Which Keeps The Random Initialisation Of This Run "
+            "For Its 4 Classes (The Source Run Predicts 3 Classes).") in capsys.readouterr().out
+
+
+def test_classification_head_without_hidden_layer_is_refused_without_its_class_layer(tmp_path: Path) -> None:
+    """
+    Verifies that a classification head without hidden layer ('fully_connected' []) is refused when loaded without its
+    class layer, which is all it holds, and that the head of the new run keeps its own weights.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    source_configuration = get_class_configuration(task="classification", number_classes=3)
+    source_configuration["ClassificationHead"]["fully_connected"] = []
+    source_model = build_task_model(task="classification", configuration=source_configuration, seed=0)
+    write_source_run(run_folder=tmp_path / "source_run", configuration=source_configuration, model=source_model,
+                     class_names=SOURCE_CLASS_NAMES)
+    target_configuration = copy.deepcopy(source_configuration)
+    target_model = build_task_model(task="classification", configuration=target_configuration, seed=1)
+    initial_target_state = copy.deepcopy(target_model.classification_head.state_dict())
+
+    with pytest.raises(expected_exception=ValueError, match="Has No Layer Besides Its Class Layers"):
+        load_pretrained_component(component=target_model.classification_head, section_name="ClassificationHead",
+                                  model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                          section_name="ClassificationHead",
+                                                                          source_folder=tmp_path / "source_run",
+                                                                          class_layer=False),
+                                  device=torch.device("cpu"), class_names=SOURCE_CLASS_NAMES)
+    for tensor_name, tensor_value in target_model.classification_head.state_dict().items():
+        assert torch.equal(input=tensor_value, other=initial_target_state[tensor_name]), tensor_name
+
+
+def test_head_loaded_without_its_class_layer_freezes_its_hidden_layers_only() -> None:
+    """
+    Verifies the transferred part of a classification head loaded without its class layer, which the trainer freezes
+    and fine-tunes at the learning rate multiplier of the transfer: its hidden layers and their batch normalization,
+    without the class layer, so that a training step of the frozen part changes the class layer only, the hidden
+    layers keeping their weights and batch statistics, while a head loaded with its class layer is its own
+    transferred part.
+    """
+    configuration = get_class_configuration(task="classification", number_classes=3)
+    configuration["ClassificationHead"]["fully_connected_normalization"] = "batch"
+    classifier = build_task_model(task="classification", configuration=configuration, seed=0)
+    head = classifier.classification_head
+    assert select_transferred_part(component=head, section_name="ClassificationHead", number_loaded_blocks=None,
+                                   with_class_layers=True) is head
+
+    # Parameters of the hidden layers only, the class layer staying out of the transferred part
+    transferred_part = select_transferred_part(component=head, section_name="ClassificationHead",
+                                               number_loaded_blocks=None, with_class_layers=False)
+    transferred_identifiers = {id(parameter) for parameter in transferred_part.parameters()}
+    assert transferred_identifiers == {id(parameter) for parameter in head.fully_connected_block.parameters()}
+    assert not transferred_identifiers & {id(parameter) for parameter in head.classifier.parameters()}
+
+    # Frozen part in evaluation mode during a training step, as BaseTrainer.set_training_mode applies it
+    freeze_component(component=transferred_part)
+    head_state_before = copy.deepcopy(head.state_dict())
+    classifier.train()
+    freeze_batch_normalization_statistics(component=transferred_part)
+    optimizer = torch.optim.Adam(params=[parameter for parameter in classifier.parameters()
+                                         if parameter.requires_grad], lr=0.1)
+    loss = classifier(input_tensor=torch.rand(size=(2, 3, 64, 64)) * 255.0,
+                      labels=torch.tensor(data=[0, 1]))["classification_loss"]
+    loss.backward()
+    optimizer.step()
+
+    # Class layer learning, hidden layers and their statistics unchanged
+    for tensor_name, tensor_value in head.state_dict().items():
+        unchanged = torch.equal(input=tensor_value, other=head_state_before[tensor_name])
+        assert unchanged == (not tensor_name.startswith("classifier.")), tensor_name
 
 
 # Source class names, class names of the new run, expected index of every source class in the new run, and a text of

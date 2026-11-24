@@ -269,7 +269,7 @@ ClassificationHead:
     # Decorrelated hidden layer, from 1 to the number of hidden layers.
     hidden_layer: 2
   # Classification head of another run initialising this one: fully_connected, its normalization and the input size must
-  # match; every source class must be in this run, first in order or by name (rows moved), others staying random.
+  # match; its class layer is loaded with class_layer True only, which needs every source class in this run.
   pretrained:
     # Run folder of the loaded head, null for random weights; not reloaded when the run resumes.
     experiment_folder: null
@@ -277,5 +277,8 @@ ClassificationHead:
     iteration: null
     # Freezes the loaded head (no gradient). Requires experiment_folder.
     freeze: False
+    # True also loads the class layer: source classes (its data.json) first in order or by name, others random; needs
+    # experiment_folder. False loads the hidden layers only, the class layer random for any classes (HRCL token).
+    class_layer: False
     # Learning rate factor of the loaded head, e.g. 0.1 to train it 10x slower.
     learning_rate_multiplier: 1.0

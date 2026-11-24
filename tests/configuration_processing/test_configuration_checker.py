@@ -1561,13 +1561,55 @@ def set_invalid_temporal_and_head_transfers(configuration: Dict[str, Any]) -> No
     configuration["ClassificationHead"]["pretrained"].update({"experiment_folder": 5, "iteration": 0})
 
 
+def set_class_layer_without_source_run(configuration: Dict[str, Any]) -> None:
+    """
+    Asks for the class layer of a classification head that is not transferred, there being no source run to load it
+    from.
+
+    Args:
+        configuration (Dict[str, Any]): The raw sequence configuration, modified in place.
+    """
+    configuration["ClassificationHead"]["pretrained"].update({"experiment_folder": None, "class_layer": True})
+
+
+def set_head_without_hidden_layer_loaded_without_class_layer(configuration: Dict[str, Any]) -> None:
+    """
+    Transfers a classification head without hidden layer without its class layer, which leaves nothing to load.
+
+    Args:
+        configuration (Dict[str, Any]): The raw sequence configuration, modified in place.
+    """
+    configuration["ClassificationHead"].update({"fully_connected": [], "fully_connected_normalization": "none"})
+    configuration["ClassificationHead"]["pretrained"].update({"experiment_folder": "/runs/source",
+                                                              "class_layer": False})
+
+
+def set_non_boolean_class_layer(configuration: Dict[str, Any]) -> None:
+    """
+    Writes the class layer flag of a transferred classification head as a text instead of a boolean.
+
+    Args:
+        configuration (Dict[str, Any]): The raw sequence configuration, modified in place.
+    """
+    configuration["ClassificationHead"]["pretrained"].update({"experiment_folder": "/runs/source",
+                                                              "class_layer": "no"})
+
+
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
     (set_invalid_temporal_and_head_transfers, [
         "'TemporalModel.pretrained.freeze' must be False when 'TemporalModel.pretrained.experiment_folder' is null: "
         "only a transferred temporal module can be frozen.",
         "'TemporalModel.pretrained.learning_rate_multiplier' must be > 0, got 0.",
         "'ClassificationHead.pretrained.experiment_folder' must be null or the path of a run folder, got 5.",
-        "'ClassificationHead.pretrained.iteration' must be an integer >= 1, got 0."])])
+        "'ClassificationHead.pretrained.iteration' must be an integer >= 1, got 0."]),
+    (set_class_layer_without_source_run, [
+        "'ClassificationHead.pretrained.class_layer' must be False when "
+        "'ClassificationHead.pretrained.experiment_folder' is null: the class layer is loaded from the source run of "
+        "the head."]),
+    (set_head_without_hidden_layer_loaded_without_class_layer, [
+        "'ClassificationHead.pretrained.class_layer' must be True when 'ClassificationHead.fully_connected' is []: a "
+        "head without hidden layer has nothing to load but its class layer."]),
+    (set_non_boolean_class_layer, ["'ClassificationHead.pretrained.class_layer' must be True or False, got 'no'."])])
 def test_inconsistent_temporal_and_head_transfers_are_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                                modify_function: Callable[[Dict[str, Any]], None],
                                                                expected_messages: List[str]) -> None:
@@ -1844,6 +1886,49 @@ def test_instance_segmentation_configurations_are_consistent(tmp_path: Path, con
     assert model_configuration["MaskHead"]["mask_resolution"] == 28
     assert model_configuration["DetectionLevels"]["5"]["mask_head"]["roi_align_pool_size"] == 14
     assert model_configuration["Data"]["instance_index_maps"] is False
+
+
+def transfer_classification_head_with_class_layer(configuration: Dict[str, Any]) -> None:
+    """
+    Initialises the classification head of a classifier with the one of another run, its class layer included.
+
+    Args:
+        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
+    """
+    configuration["ClassificationHead"]["pretrained"].update({"experiment_folder": "/runs/source", "class_layer": True})
+
+
+def transfer_classification_head_without_class_layer(configuration: Dict[str, Any]) -> None:
+    """
+    Initialises the hidden layers of the classification head of a classifier with those of another run, frozen, its
+    class layer staying random.
+
+    Args:
+        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
+    """
+    configuration["ClassificationHead"]["pretrained"].update({"experiment_folder": "/runs/source",
+                                                              "class_layer": False, "freeze": True})
+
+
+@pytest.mark.parametrize(argnames=("modify_function", "expected_class_layer"),
+                         argvalues=[(transfer_classification_head_with_class_layer, True),
+                                    (transfer_classification_head_without_class_layer, False)])
+def test_transferred_classification_head_is_accepted_with_or_without_its_class_layer(
+        tmp_path: Path, modify_function: Callable[[Dict[str, Any]], None], expected_class_layer: bool) -> None:
+    """
+    Verifies that a classification head with hidden layers transferred from another run passes the checks with its
+    class layer or without it (frozen), the source run being only read when the training starts.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        modify_function (Callable[[Dict[str, Any]], None]): Function setting the transfer of the head.
+        expected_class_layer (bool): The class layer flag the loaded configuration must hold.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="classification",
+                                                  configuration_name="configuration_synthetic_shapes.yaml",
+                                                  modify_function=modify_function)
+    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
+    assert model_configuration["ClassificationHead"]["pretrained"]["class_layer"] is expected_class_layer
 
 
 def transfer_mask_heads_and_class_layers(configuration: Dict[str, Any]) -> None:

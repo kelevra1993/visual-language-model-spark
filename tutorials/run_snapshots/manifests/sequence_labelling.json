@@ -589,13 +589,13 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 20682,
+      "snapshot_bytes": 20937,
       "snapshot_path": "tutorials/M2M_IN-KAR-256_SE-RES-BN-B1x16.2x16.2x16.4x32.5x32.5x32-PT_T50_LSTM2x96-BI_HFLAT.96.96-HLN-CWB_MC71/Checkpoint_Evaluation/training_configuration.yaml",
-      "snapshot_sha256": "86a09d8287ecdb764d91884f19f322b7424d8d0a1bb55fd237b4e9505cce7ada",
-      "source_bytes": 20682,
+      "snapshot_sha256": "031c13bdd3d675a38190d81f7d423c2885aedac5c1527e5cd7e56aba4f2ec947",
+      "source_bytes": 20937,
       "source_kind": "run",
       "source_path": "tutorials/M2M_IN-KAR-256_SE-RES-BN-B1x16.2x16.2x16.4x32.5x32.5x32-PT_T50_LSTM2x96-BI_HFLAT.96.96-HLN-CWB_MC71/Checkpoint_Evaluation/training_configuration.yaml",
-      "source_sha256": "86a09d8287ecdb764d91884f19f322b7424d8d0a1bb55fd237b4e9505cce7ada"
+      "source_sha256": "031c13bdd3d675a38190d81f7d423c2885aedac5c1527e5cd7e56aba4f2ec947"
     },
     {
       "options": {},
@@ -622,15 +622,15 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 20682,
+      "snapshot_bytes": 20937,
       "snapshot_path": "tutorials/M2M_IN-KAR-256_SE-RES-BN-B1x16.2x16.2x16.4x32.5x32.5x32-PT_T50_LSTM2x96-BI_HFLAT.96.96-HLN-CWB_MC71/training_configuration.yaml",
-      "snapshot_sha256": "86a09d8287ecdb764d91884f19f322b7424d8d0a1bb55fd237b4e9505cce7ada",
-      "source_bytes": 20682,
+      "snapshot_sha256": "031c13bdd3d675a38190d81f7d423c2885aedac5c1527e5cd7e56aba4f2ec947",
+      "source_bytes": 20937,
       "source_kind": "run",
       "source_path": "tutorials/M2M_IN-KAR-256_SE-RES-BN-B1x16.2x16.2x16.4x32.5x32.5x32-PT_T50_LSTM2x96-BI_HFLAT.96.96-HLN-CWB_MC71/training_configuration.yaml",
-      "source_sha256": "86a09d8287ecdb764d91884f19f322b7424d8d0a1bb55fd237b4e9505cce7ada"
+      "source_sha256": "031c13bdd3d675a38190d81f7d423c2885aedac5c1527e5cd7e56aba4f2ec947"
     }
   ],
   "series": "sequence_labelling",
-  "snapshot_bytes": 5118913
+  "snapshot_bytes": 5119423
 }
