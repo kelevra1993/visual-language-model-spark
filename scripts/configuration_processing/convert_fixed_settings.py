@@ -11,8 +11,9 @@ the greedy NMS, the 'proposal_selection' of their 'RegionProposal' section, over
 'instance_index_maps' of the 'Data' section of the instance segmentation, one mask per object, and the finer inputs and
 fusion convolutions of its 'MaskHead' section, none; the 'benchmark_speed' diagnosis mode of every task, off; the
 'shared' setting of the 'MaskHead' section of the instance segmentation, one mask head per level; its 'mask_scoring'
-section, off), so
-that the training_configuration.yaml of the saved runs, reloaded to resume a run, by
+section, off; the 'class_layer' flag of the 'pretrained' block of the 'ClassificationHead' section of the
+classification-like tasks, True for a head transferred from another run, which loaded its class layer, False
+otherwise), so that the training_configuration.yaml of the saved runs, reloaded to resume a run, by
 scripts/evaluation/evaluate_checkpoint.py and by the export, and the launch files of vision_training/main.py load
 again.
 The files are edited as text: their comments stay, the comment lines directly above a removed setting go with it, the
@@ -35,6 +36,7 @@ from typing import Any, Dict, List, Optional, Set
 
 from vision_training.configuration_processing.common_checks import FIXED_MOMENTUM_COMPONENTS, REMOVED_SETTINGS
 from vision_training.configuration_processing.configuration_checker import TASK_CONFIGURATION_CHECKS
+from vision_training.configuration_processing.configuration_keys import CLASSIFICATION_LIKE_TASKS
 from vision_training.data.loaders import NUMBER_LOADER_WORKERS, PREFETCH_BATCHES
 from vision_training.evaluation.classification.classification_metrics import TOP_K_ACCURACY_CLASSES
 from vision_training.models.backbones.backbone import INCEPTION_STARTING_BLOCK
@@ -170,6 +172,15 @@ MASK_HEAD_MASK_SCORING_LINES = [
     '  # Sizes of its hidden fully connected layers, then one IoU per class; [1024, 1024] in the paper.',
     '  fully_connected: [256, 256]']
 
+# Comment lines of the class layer flag added to the 'pretrained' block of the 'ClassificationHead' section of the runs
+# of the classification-like tasks written before it, then the setting: False for the heads trained from random
+# weights, True for the heads transferred from another run, which loaded their class layer
+CLASSIFICATION_HEAD_CLASS_LAYER_COMMENT_LINES = [
+    '# True also loads the class layer: source classes (its data.json) first in order or by name, others random; needs',
+    '# experiment_folder. False loads the hidden layers only, the class layer random for any classes (HRCL token).']
+CLASSIFICATION_HEAD_CLASS_LAYER_LINES = CLASSIFICATION_HEAD_CLASS_LAYER_COMMENT_LINES + ['class_layer: False']
+TRANSFERRED_CLASSIFICATION_HEAD_CLASS_LAYER_LINES = CLASSIFICATION_HEAD_CLASS_LAYER_COMMENT_LINES + ['class_layer: True']
+
 # Lines of the speed benchmark diagnosis mode added to the 'diagnosis_modes' of the runs of every task written before
 # it, off: the comment lines, then the setting
 DIAGNOSIS_BENCHMARK_SPEED_LINES = [
@@ -179,7 +190,8 @@ DIAGNOSIS_BENCHMARK_SPEED_LINES = [
 
 # Settings a task now requires inside sections its files hold, added to the files of its runs written before them: the
 # tasks holding the setting, the setting it is written after (at its indentation), and its lines, whose value
-# reproduces those runs. They are added in this order, so that a setting can follow one added before it
+# reproduces those runs, or the lines of 'lines_when_set' for a file setting its 'key_path' to another value than null
+# (see select_added_lines). They are added in this order, so that a setting can follow one added before it
 ADDED_SETTINGS = {"Detector.box_loss": {"tasks": ["object_detection", "instance_segmentation"],
                                         "after": "Detector.total_training_samples", "lines": DETECTOR_BOX_LOSS_LINES},
                   "Detector.nms_criterion": {"tasks": ["object_detection", "instance_segmentation"],
@@ -212,7 +224,12 @@ ADDED_SETTINGS = {"Detector.box_loss": {"tasks": ["object_detection", "instance_
                   "MaskHead.shared": {"tasks": ["instance_segmentation"], "after": "MaskHead.fusion_convolutions",
                                       "lines": MASK_HEAD_SHARED_LINES},
                   "MaskHead.mask_scoring": {"tasks": ["instance_segmentation"], "after": "MaskHead.shared",
-                                            "lines": MASK_HEAD_MASK_SCORING_LINES}}
+                                            "lines": MASK_HEAD_MASK_SCORING_LINES},
+                  "ClassificationHead.pretrained.class_layer": {
+                      "tasks": list(CLASSIFICATION_LIKE_TASKS), "after": "ClassificationHead.pretrained.freeze",
+                      "lines": CLASSIFICATION_HEAD_CLASS_LAYER_LINES,
+                      "lines_when_set": {"key_path": "ClassificationHead.pretrained.experiment_folder",
+                                         "lines": TRANSFERRED_CLASSIFICATION_HEAD_CLASS_LAYER_LINES}}}
 
 # Name of the configuration saved in every run folder
 RUN_CONFIGURATION_NAME = "training_configuration.yaml"
@@ -431,6 +448,32 @@ def holds_parent_section(key_paths: List[str], key_path: str) -> bool:
     return any(path == section_path or path.startswith(f"{section_path}.") for path in key_paths)
 
 
+def select_added_lines(added_setting: Dict[str, Any], settings: Dict[str, Any]) -> List[str]:
+    """
+    Gives the lines of a setting of ADDED_SETTINGS for one configuration file, so that a setting whose value
+    reproducing the runs written before it depends on another setting of the file is added with the right value: its
+    'lines', or the 'lines' of its 'lines_when_set' when the file sets the setting named there to another value than
+    null, e.g. 'class_layer: True' for a classification head transferred from another run, which loaded its class
+    layer, and 'class_layer: False' for a head trained from random weights.
+
+    Args:
+        added_setting (Dict[str, Any]): A value of ADDED_SETTINGS.
+        settings (Dict[str, Any]): The loaded configuration file, before the setting is added.
+
+    Returns:
+        List[str]: The comment lines and the setting to add.
+    """
+    if "lines_when_set" not in added_setting:
+        return added_setting["lines"]
+
+    # Setting deciding the value, set when the file holds it with another value than null
+    deciding_path = added_setting["lines_when_set"]["key_path"]
+    flattened_settings = flatten_settings(settings=settings)
+    if deciding_path in flattened_settings and flattened_settings[deciding_path] is not None:
+        return added_setting["lines_when_set"]["lines"]
+    return added_setting["lines"]
+
+
 def add_required_settings(configuration_text: str, task: str, configuration_path: Path) -> str:
     """
     Adds to the text of a configuration file the settings of ADDED_SETTINGS its task requires and it does not hold,
@@ -451,6 +494,7 @@ def add_required_settings(configuration_text: str, task: str, configuration_path
         ValueError: If the file holds the section of an added setting but lacks the setting it is written after.
     """
     lines = configuration_text.split("\n")
+    settings = yaml.safe_load(configuration_text)
     for key_path, added_setting in ADDED_SETTINGS.items():
         # Settings of other tasks, settings the file already holds, and settings of a section the file does not hold
         key_paths = find_key_paths(lines=lines)
@@ -462,11 +506,12 @@ def add_required_settings(configuration_text: str, task: str, configuration_path
             raise ValueError(f"{format_path_link(path=configuration_path)} has no '{added_setting['after']}' setting "
                              f"to write the '{key_path}' setting after.")
 
-        # Lines written after the block of the preceding setting, at its indentation
+        # Lines written after the block of the preceding setting, at its indentation, with the value of the file
         after_index = key_paths.index(added_setting["after"])
         insertion_index = find_block_end(lines=lines, start_index=after_index)
         indentation = " " * get_indentation(line=lines[after_index])
-        lines[insertion_index:insertion_index] = [indentation + line for line in added_setting["lines"]]
+        lines[insertion_index:insertion_index] = [
+            indentation + line for line in select_added_lines(added_setting=added_setting, settings=settings)]
     return "\n".join(lines)
 
 
@@ -542,14 +587,15 @@ def check_conversion(original_text: str, converted_text: str, task: str, configu
             expected_settings.update(flatten_settings(settings=yaml.safe_load(added_section["text"])))
 
     # Settings the task requires inside its sections and the original file lacked, with the values of ADDED_SETTINGS
-    # (every setting of an added section, such as 'MaskHead.mask_scoring'), a file without the section of a setting (a
-    # partial draft) staying without it
+    # (every setting of an added section, such as 'MaskHead.mask_scoring') chosen for the original file, a file without
+    # the section of a setting (a partial draft) staying without it
     for key_path, added_setting in ADDED_SETTINGS.items():
         holds_setting = any(path == key_path or path.startswith(f"{key_path}.") for path in original_settings)
         if task in added_setting["tasks"] and not holds_setting and \
                 holds_parent_section(key_paths=list(expected_settings), key_path=key_path):
             parent_path, setting_name = key_path.rsplit(".", 1)
-            added_values = yaml.safe_load(stream="\n".join(added_setting["lines"]))
+            added_lines = select_added_lines(added_setting=added_setting, settings=yaml.safe_load(original_text))
+            added_values = yaml.safe_load(stream="\n".join(added_lines))
             expected_settings.update(flatten_settings(settings={setting_name: added_values[setting_name]},
                                                       prefix=parent_path))
     if converted_settings != expected_settings:
@@ -708,12 +754,16 @@ if __name__ == "__main__":
     # launches); the copies of the configurations in the MLflow artifacts folder are left as they were logged
     run_roots = [repository_folder / "experiments", repository_folder / "ficha-experiments-staged-schedule",
                  repository_folder / "ficha_previous_experiments", repository_folder / "hyperparameter_experiments",
+                 repository_folder / "ficha_experiments", repository_folder / "imagenet_experiments",
                  Path.home() / "Data" / "tutorial_runs"]
     # Folders of launch files, converted with their subfolders, their backups going to 'previous_configurations'; the
-    # tracked files of the detection folders already hold the settings, only their untracked launch files are converted
+    # tracked files of the detection and classification-like folders already hold the settings, only their untracked
+    # launch files (e.g. the imagenet_merged copies of the classification folder) are converted
     configuration_folders = [repository_folder / "vision_training/configurations/ficha_configuration_files",
                              repository_folder / "vision_training/configurations/instance_segmentation",
-                             repository_folder / "vision_training/configurations/object_detection"]
+                             repository_folder / "vision_training/configurations/object_detection",
+                             *[repository_folder / "vision_training/configurations" / task_folder
+                               for task_folder in CLASSIFICATION_LIKE_TASKS]]
     # False to only list the files holding fixed settings or lacking an added section or setting, True to convert them
     write_files = False
     # Suffix of the backups of this conversion: '_before_fixed_settings' (2026-10-29), '_before_fixed_head_settings'
@@ -727,8 +777,9 @@ if __name__ == "__main__":
     # 'Data.instance_index_maps' added on 2026-11-13, '_before_mask_fine_inputs' for the finer inputs and fusion
     # convolutions of the 'MaskHead' section added on 2026-11-15, '_before_benchmark_speed' for the
     # 'diagnosis_modes.benchmark_speed' added on 2026-11-16, '_before_shared_mask_head' for the 'MaskHead.shared'
-    # added on 2026-11-20, then '_before_mask_scoring' for the 'MaskHead.mask_scoring' added on 2026-11-21
-    backup_suffix = "_before_mask_scoring"
+    # added on 2026-11-20, '_before_mask_scoring' for the 'MaskHead.mask_scoring' added on 2026-11-21, then
+    # '_before_class_layer' for the 'ClassificationHead.pretrained.class_layer' added on 2026-11-24
+    backup_suffix = "_before_class_layer"
 
     files_to_convert = convert_fixed_settings(run_roots=run_roots, configuration_folders=configuration_folders,
                                               write_files=write_files, backup_suffix=backup_suffix)

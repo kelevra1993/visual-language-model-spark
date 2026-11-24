@@ -2,10 +2,12 @@
 Tests of the model transfers through the trainers of vision_training/trainers on a synthetic dataset: the backbone of a
 classification run, frozen or fine-tuned at its own learning rate, initialises a new run that trains, saves and resumes
 correctly, and a shorter backbone initialises the first blocks of a deeper run, only its loaded blocks being frozen or
-fine-tuned at the multiplier, which a resume without the source run keeps.
+fine-tuned at the multiplier, which a resume without the source run keeps. A classification head loaded without its
+class layer initialises a run of other classes, only its hidden layers being frozen or fine-tuned at the multiplier.
 """
 
 import copy
+import json
 import pytest
 import torch
 import yaml
@@ -341,3 +343,94 @@ def test_shorter_backbone_initialises_a_deeper_run(tmp_path: Path, capsys: pytes
     assert [len(parameter_group["params"]) for parameter_group in resumed_parameter_groups] == [
         len(parameter_group["params"]) for parameter_group in parameter_groups]
     resumed_fine_tuning_trainer.run_training_loop()
+
+
+def test_head_without_class_layer_initialises_a_run_of_other_classes(tmp_path: Path,
+                                                                     capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies the transfer of a classification head without its class layer ('ClassificationHead.pretrained.class_layer'
+    False) through the trainers: a run trained on 2 of the classes of its source run, which the head with its class
+    layer cannot initialise, starts with the hidden layers of the source head in its own folder (named with HPT and
+    HRCL), its class layer keeping its own initialisation; fine-tuned at the multiplier, the hidden layers form the
+    second optimizer group and the class layer learns in the first one at the learning rate of the run, a layout its
+    resume keeps; frozen (HFRZ), its hidden layers keep their weights while its class layer learns.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainers.
+    """
+    dataset_folder = tmp_path / "synthetic_shapes"
+    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=TRANSFER_IMAGE_SIZE,
+                             split_sizes={"train": 8, "validation": 4, "test": 4}, maximum_objects=1,
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
+
+    # Source run trained from random weights on every class of the dataset, saved at iterations 2 and 3
+    source_trainer = build_transfer_trainer(temporary_directory=tmp_path, dataset_folder=dataset_folder,
+                                            number_iterations=3, pretrained_settings={},
+                                            configuration_name="source.yaml", task="classification")
+    source_trainer.run_training_loop()
+    source_head_state = {parameter_name[len("classification_head."):]: parameter_value
+                         for parameter_name, parameter_value in
+                         torch.load(f=source_trainer.weights_directory / "Iteration_3" / "model_000003.pt",
+                                    map_location="cpu", weights_only=True)["model_state"].items()
+                         if parameter_name.startswith("classification_head.")}
+
+    # Label mapping merging the categories of the dataset into 2 classes, fewer than the source run predicts, so that
+    # every training image keeps a class
+    label_mapping = json.loads(s=(dataset_folder / "label_mapping.json").read_text())
+    kept_label_mapping = {category: class_index % 2 for category, class_index in label_mapping.items()}
+    kept_label_mapping_path = tmp_path / "two_class_label_mapping.json"
+    kept_label_mapping_path.write_text(data=json.dumps(obj=kept_label_mapping))
+    assert len(source_trainer.list_class_names()) > len(set(kept_label_mapping.values())) == 2
+
+    # Fine-tuning run: hidden layers of the source head ten times slower, class layer at the learning rate of the run
+    head_settings = {"experiment_folder": str(source_trainer.experiment_folder), "class_layer": False,
+                     "learning_rate_multiplier": 0.1}
+    fine_tuning_trainer = build_transfer_trainer(temporary_directory=tmp_path, dataset_folder=dataset_folder,
+                                                 number_iterations=2,
+                                                 pretrained_settings={"ClassificationHead": head_settings},
+                                                 configuration_name="head_fine_tuning.yaml", task="classification",
+                                                 label_mapping_path=kept_label_mapping_path)
+    assert "-HPT-HRCL_MC2" in fine_tuning_trainer.run_name
+    assert "Classification Head : Loaded Without Its Class Layer" in capsys.readouterr().out
+    head = fine_tuning_trainer.model.classification_head
+    for parameter_name, parameter_value in head.state_dict().items():
+        if not parameter_name.startswith("classifier."):
+            assert torch.equal(input=parameter_value.cpu(), other=source_head_state[parameter_name]), parameter_name
+    assert head.classifier.out_features == 2
+    parameter_groups = fine_tuning_trainer.optimizer.param_groups
+    assert [parameter_group["lr"] for parameter_group in parameter_groups] == pytest.approx(expected=[1e-3, 1e-4])
+    assert {id(parameter) for parameter in parameter_groups[1]["params"]} == {
+        id(parameter) for parameter in head.fully_connected_block.parameters()}
+    assert {id(parameter) for parameter in head.classifier.parameters()} <= {
+        id(parameter) for parameter in parameter_groups[0]["params"]}
+    fine_tuning_trainer.run_training_loop()
+
+    # Resuming it keeps its folder and the layout of its optimizer groups
+    resumed_trainer = build_transfer_trainer(temporary_directory=tmp_path, dataset_folder=dataset_folder,
+                                             number_iterations=3,
+                                             pretrained_settings={"ClassificationHead": head_settings},
+                                             configuration_name="head_fine_tuning.yaml", task="classification",
+                                             label_mapping_path=kept_label_mapping_path)
+    assert resumed_trainer.run_name == fine_tuning_trainer.run_name and resumed_trainer.start_iteration == 3
+    assert [len(parameter_group["params"]) for parameter_group in resumed_trainer.optimizer.param_groups] == [
+        len(parameter_group["params"]) for parameter_group in parameter_groups]
+    resumed_trainer.run_training_loop()
+
+    # Frozen run: the hidden layers keep the source weights, the class layer learns
+    frozen_trainer = build_transfer_trainer(temporary_directory=tmp_path, dataset_folder=dataset_folder,
+                                            number_iterations=2,
+                                            pretrained_settings={"ClassificationHead": {**head_settings,
+                                                                                        "freeze": True}},
+                                            configuration_name="head_frozen.yaml", task="classification",
+                                            label_mapping_path=kept_label_mapping_path)
+    assert "-HPT-HRCL-HFRZ_MC2" in frozen_trainer.run_name
+    assert len(frozen_trainer.optimizer.param_groups) == 1
+    frozen_head = frozen_trainer.model.classification_head
+    classifier_state_before = copy.deepcopy(frozen_head.classifier.state_dict())
+    frozen_trainer.run_training_loop()
+    for parameter_name, parameter_value in frozen_head.state_dict().items():
+        if not parameter_name.startswith("classifier."):
+            assert torch.equal(input=parameter_value.cpu(), other=source_head_state[parameter_name]), parameter_name
+    assert all(not torch.equal(input=parameter_value, other=classifier_state_before[parameter_name])
+               for parameter_name, parameter_value in frozen_head.classifier.state_dict().items())

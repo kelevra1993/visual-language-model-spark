@@ -107,6 +107,7 @@ Predicts the class of an image (`ClassificationHead.output_mode: "multi_class"`,
 - `global_pooling`: `average`, `max` or `flatten`.
 - `fully_connected`: the hidden layers. With `fully_connected_normalization` set to `"batch"` or `"layer"`, every hidden layer is linear, normalization, ReLU, and at least one hidden layer is needed. The batch normalization needs a `batch_size` of at least 2 and drops the last incomplete training batch of every epoch.
 - `output_mode`, `label_smoothing`, `class_weighting`.
+- `pretrained.class_layer`: with a source run in `pretrained.experiment_folder`, False (the default) loads the hidden layers of its head only, the class layer starting random, so that a head trained on other classes (ImageNet) serves any classes; True also loads the class layer, every source class having to be a class of this run ([transfer](training_reference.md#transfer-between-runs)). The sequence tasks share it.
 - `decorrelation`: adds the DeCov penalty ([Cogswell et al., 2016](https://arxiv.org/abs/1511.06068)) to the loss, `weight` times the sum of the squared correlations between the different units of layer `hidden_layer` (counted from 1, before its ReLU) over the batch, so the units carry different information. It is tracked as `Decorrelation Loss` and `Hidden Feature Correlation`, and cannot reach 0 with more units than images in a batch. It gives no run name token and never runs at inference.
 
 **Evaluation**

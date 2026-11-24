@@ -242,7 +242,7 @@ The `pretrained` block of a section initialises its component from a trained run
 |---|---|---|
 | `Backbone` | backbone | any task |
 | `TemporalModel` | temporal module | M2O, M2M, CMP, SEL |
-| `ClassificationHead` | classification head, with its class layer | CLS, M2O, M2M, CMP, SEL |
+| `ClassificationHead` | classification head, with its class layer when `class_layer` is True | CLS, M2O, M2M, CMP, SEL |
 | `SegmentationDecoder` | U-Net decoder, with its class layers when `load_class_layers` is True | SEG |
 | `RegionProposal` | region proposal heads of every detection level | DET, INS |
 | `Detector` | detection heads of every detection level | DET, INS |
@@ -267,7 +267,8 @@ The settings defining the layers must match, which is checked at launch. The ima
 - A backbone deeper than its source backbone starts with the source blocks; its next blocks keep their random weights and learn at the learning rate of the run, in the parameter group of the new layers. `freeze` (with the batch statistics), `freeze_normalization_parameters` and `learning_rate_multiplier` apply to the loaded blocks only. The console prints `Starts With The <n> Blocks Of The Pretrained Backbone` and a `Loaded Blocks` line, and every checkpoint stores the number of loaded blocks (`pretrained_backbone_blocks`), so that a resumed run freezes and groups the same blocks even once its source run is gone.
 - A resumed run does not load the pretrained component again.
 - The averaged weights of the source are loaded when the source kept a [moving average](#moving-average-of-the-weights) and the new run has one on. The console says which weights were loaded.
-- In the run name, `PT` marks a pretrained component and `FRZ` a frozen one, prefixed by the letter of the section (`RPT`, `RFRZ`); `load_class_layers` adds `DCL`. The `learning_rate_multiplier` gives no token.
+- A classification head with `class_layer: False` (the default) loads its hidden layers only, whatever the classes of both runs: its class layer keeps its random weights and learns at the learning rate of the run, in the parameter group of the new layers, `freeze` and `learning_rate_multiplier` applying to the hidden layers only. The console prints `Loaded Without Its Class Layer` and a `Class Layer Loaded` line. A head without hidden layer (`fully_connected: []`) needs `class_layer: True`, and `class_layer: True` needs `experiment_folder`.
+- In the run name, `PT` marks a pretrained component and `FRZ` a frozen one, prefixed by the letter of the section (`RPT`, `RFRZ`); `load_class_layers` adds `DCL`, and a head loaded without its class layer adds `HRCL` (a head loaded with it keeps the name of the runs written before `class_layer` existed). The `learning_rate_multiplier` gives no token.
 
 ### Adding Classes
 Should a new run need more classes than its source, or hold the same classes in another order, a component with class layers can still initialise it:
@@ -280,7 +281,7 @@ Should a new run need more classes than its source, or hold the same classes in 
 
 | Layer | Section |
 |---|---|
-| Class layer of the classification head | `ClassificationHead` |
+| Class layer of the classification head | `ClassificationHead` with `class_layer` |
 | Classification and box regression layers of the detection heads | `Detector` |
 | Mask prediction layer of the mask heads | `MaskHead` |
 | Final class layer and deep supervision layers of the decoder | `SegmentationDecoder` with `load_class_layers` |

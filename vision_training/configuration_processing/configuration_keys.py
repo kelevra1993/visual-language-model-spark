@@ -101,10 +101,11 @@ KNOWN_KEY_PATHS: Dict[str, Tuple[str, ...]] = {
     **{f"{section_name}.pretrained.{key_name}": section_tasks
        for section_name, section_tasks in PRETRAINED_SECTION_TASKS.items() for key_name in PRETRAINED_KEYS},
 
-    # Classification head of the image classifier and of the sequence tasks, the decorrelation being the classifier's
+    # Classification head of the image classifier and of the sequence tasks, with the class layer flag of its transfer,
+    # the decorrelation being the classifier's
     **{f"ClassificationHead.{key_name}": CLASSIFICATION_LIKE_TASKS for key_name in [
         "global_pooling", "fully_connected", "fully_connected_normalization", "dropout_rate", "output_mode",
-        "label_smoothing", "class_weighting"]},
+        "label_smoothing", "class_weighting", "pretrained.class_layer"]},
     **{f"ClassificationHead.decorrelation.{key_name}": ("classification",) for key_name in [
         "activated", "weight", "hidden_layer"]},
 

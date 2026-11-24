@@ -296,6 +296,9 @@ ClassificationHead:
     # Keeps the loaded classification head fixed (no gradient) so that only the other components learn.
     # Requires an experiment_folder.
     freeze: False
+    # True also loads the class layer: source classes (its data.json) first in order or by name, others random; needs
+    # experiment_folder. False loads the hidden layers only, the class layer random for any classes (HRCL token).
+    class_layer: False
     # Multiplies the learning rate of the loaded classification head, e.g. 0.1 to fine-tune it ten times slower
     # than the new layers.
     learning_rate_multiplier: 1.0

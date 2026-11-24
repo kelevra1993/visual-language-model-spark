@@ -491,13 +491,13 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 16110,
+      "snapshot_bytes": 16365,
       "snapshot_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35/training_configuration.yaml",
-      "snapshot_sha256": "3d6ea64d7e69c0601c589d7b70c52cad180cf3cf50bf1abd9fb1f50629cc5a4f",
-      "source_bytes": 16110,
+      "snapshot_sha256": "8b6790b0682a0fcbeabe157098f7f9d0a2c247c86b8aadf5b29113d94bdf314a",
+      "source_bytes": 16365,
       "source_kind": "run",
       "source_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35/training_configuration.yaml",
-      "source_sha256": "3d6ea64d7e69c0601c589d7b70c52cad180cf3cf50bf1abd9fb1f50629cc5a4f"
+      "source_sha256": "8b6790b0682a0fcbeabe157098f7f9d0a2c247c86b8aadf5b29113d94bdf314a"
     },
     {
       "options": {},
@@ -535,13 +535,13 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 4961,
+      "snapshot_bytes": 5216,
       "snapshot_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/training_configuration.yaml",
-      "snapshot_sha256": "66c96aaa8f9bdfa032d9aad30e2c28b4436403f574b1a263137f3480e73598e4",
-      "source_bytes": 4961,
+      "snapshot_sha256": "3b80c4b9d9513a983d3c1b824de13cbd04cbc406b954075d337adeb75b4d07d9",
+      "source_bytes": 5216,
       "source_kind": "run",
       "source_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9/training_configuration.yaml",
-      "source_sha256": "66c96aaa8f9bdfa032d9aad30e2c28b4436403f574b1a263137f3480e73598e4"
+      "source_sha256": "3b80c4b9d9513a983d3c1b824de13cbd04cbc406b954075d337adeb75b4d07d9"
     },
     {
       "options": {},
@@ -579,13 +579,13 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 4965,
+      "snapshot_bytes": 5220,
       "snapshot_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9_lr-0.0001/training_configuration.yaml",
-      "snapshot_sha256": "a1099725bf191a2b59ad85ae535b05deef2532323aa1ae028c7ef522ad2e52c2",
-      "source_bytes": 4965,
+      "snapshot_sha256": "966694532ecff7b97eaf9bfa9e4e77043c61d80ef0eaa17f2070426dc10716d3",
+      "source_bytes": 5220,
       "source_kind": "run",
       "source_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9_lr-0.0001/training_configuration.yaml",
-      "source_sha256": "a1099725bf191a2b59ad85ae535b05deef2532323aa1ae028c7ef522ad2e52c2"
+      "source_sha256": "966694532ecff7b97eaf9bfa9e4e77043c61d80ef0eaa17f2070426dc10716d3"
     },
     {
       "options": {},
@@ -623,13 +623,13 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 4965,
+      "snapshot_bytes": 5220,
       "snapshot_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9_lr-0.0005/training_configuration.yaml",
-      "snapshot_sha256": "f9c135b1fe68797ea1bcaffcfbe89915174d31aaf587ce1657e6503412095c6b",
-      "source_bytes": 4965,
+      "snapshot_sha256": "feb4ceb3f2b75d98872b3ee69dab572938d43bc75f4681fad086587732ed3c5b",
+      "source_bytes": 5220,
       "source_kind": "run",
       "source_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9_lr-0.0005/training_configuration.yaml",
-      "source_sha256": "f9c135b1fe68797ea1bcaffcfbe89915174d31aaf587ce1657e6503412095c6b"
+      "source_sha256": "feb4ceb3f2b75d98872b3ee69dab572938d43bc75f4681fad086587732ed3c5b"
     },
     {
       "options": {},
@@ -667,15 +667,15 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 4963,
+      "snapshot_bytes": 5218,
       "snapshot_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9_lr-0.001/training_configuration.yaml",
-      "snapshot_sha256": "768bf725f2779a701f18ab2291b00727f7da63701e94610c4ff6651ad84dcc27",
-      "source_bytes": 4963,
+      "snapshot_sha256": "42e29699e7169bc4820341544bf7c5dec4637d5ca7439cec1a776345d278c237",
+      "source_bytes": 5218,
       "source_kind": "run",
       "source_path": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9_lr-0.001/training_configuration.yaml",
-      "source_sha256": "768bf725f2779a701f18ab2291b00727f7da63701e94610c4ff6651ad84dcc27"
+      "source_sha256": "42e29699e7169bc4820341544bf7c5dec4637d5ca7439cec1a776345d278c237"
     }
   ],
   "series": "classification",
-  "snapshot_bytes": 4347820
+  "snapshot_bytes": 4349095
 }
