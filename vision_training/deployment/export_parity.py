@@ -332,7 +332,7 @@ def encode_named_reference_images(trainer: SelfSupervisedTrainer,
     comparison["split"] = REFERENCE_SPLIT_NAME
     comparison["name_sample"] = trainer.reference_dataloader.dataset.get_sample_name
     try:
-        return SelfSupervisedTrainer.encode_reference_images(trainer)
+        return SelfSupervisedTrainer.encode_reference_images(self=trainer)
     finally:
         comparison["split"], comparison["name_sample"] = TEST_SPLIT_NAME, trainer.get_test_sample_name
 
