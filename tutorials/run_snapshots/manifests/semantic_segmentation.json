@@ -279,13 +279,13 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 5289,
+      "snapshot_bytes": 5284,
       "snapshot_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/training_configuration.yaml",
-      "snapshot_sha256": "9638d760bcc2d03d49757786820ef823b2d5ae5a7f23c12327f1ac34ce254d13",
-      "source_bytes": 5289,
+      "snapshot_sha256": "2b0394b87a3dfdadac71340ccef9443752faa8c23e17c47becdfe98379c8a3e0",
+      "source_bytes": 5284,
       "source_kind": "run",
       "source_path": "readme_screenshots/SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/training_configuration.yaml",
-      "source_sha256": "9638d760bcc2d03d49757786820ef823b2d5ae5a7f23c12327f1ac34ce254d13"
+      "source_sha256": "2b0394b87a3dfdadac71340ccef9443752faa8c23e17c47becdfe98379c8a3e0"
     },
     {
       "options": {
@@ -302,5 +302,5 @@
     }
   ],
   "series": "semantic_segmentation",
-  "snapshot_bytes": 3889316
+  "snapshot_bytes": 3889311
 }

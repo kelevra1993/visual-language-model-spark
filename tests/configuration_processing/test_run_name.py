@@ -671,7 +671,7 @@ def get_segmentation_reference_configurations() -> Tuple[Dict[str, Any], Dict[st
                                                   "modules": {"squeeze_and_excite": False, "residual_nets": False},
                                                   "feature_map_normalization": "batch", "dropout_rate": 0.0,
                                                   "deep_supervision_weights": {},
-                                                  "pretrained": {**NO_TRANSFER_SETTINGS, "load_class_layers": False}}
+                                                  "pretrained": {**NO_TRANSFER_SETTINGS, "class_layers": False}}
     model_configuration["SegmentationLoss"] = {"cross_entropy_weight": 1.0, "focal_gamma": 0.0,
                                                "label_smoothing": 0.0, "class_weighting": "none", "dice_weight": 1.0,
                                                "lovasz_weight": 0.0, "boundary_weight": 0.0, "boundary_distance": 3}
@@ -713,9 +713,9 @@ def test_segmentation_run_names(modify_function: Callable[[Dict[str, Any], Dict[
                           model_configuration=model_configuration) == expected_run_name
 
 
-@pytest.mark.parametrize(argnames=("freeze", "load_class_layers", "learning_rate_multiplier", "expected_tokens"),
-                         argvalues=[(True, True, 1.0, "-DPT-DCL-DFRZ_")])
-def test_pretrained_segmentation_decoder_run_names(freeze: bool, load_class_layers: bool,
+@pytest.mark.parametrize(argnames=("freeze", "class_layers", "learning_rate_multiplier", "expected_tokens"),
+                         argvalues=[(True, True, 1.0, "-DPT-DCL-DFRZ_"), (False, False, 0.5, "-DPT_")])
+def test_pretrained_segmentation_decoder_run_names(freeze: bool, class_layers: bool,
                                                    learning_rate_multiplier: float, expected_tokens: str) -> None:
     """
     Verifies the tokens of a transferred segmentation decoder at the end of the decoder section: DPT, then DCL when
@@ -724,7 +724,7 @@ def test_pretrained_segmentation_decoder_run_names(freeze: bool, load_class_laye
 
     Args:
         freeze (bool): Whether the transferred decoder is frozen.
-        load_class_layers (bool): Whether the segmentation head and deep supervision heads are loaded with the decoder.
+        class_layers (bool): Whether the segmentation head and deep supervision heads are loaded with the decoder.
         learning_rate_multiplier (float): The learning rate multiplier of the transferred decoder.
         expected_tokens (str): The expected end of the decoder section.
     """
@@ -732,7 +732,7 @@ def test_pretrained_segmentation_decoder_run_names(freeze: bool, load_class_laye
     model_configuration["SegmentationDecoder"].update({"dropout_rate": 0.3,
                                                        "pretrained": {"experiment_folder": "/runs/source",
                                                                       "iteration": None, "freeze": freeze,
-                                                                      "load_class_layers": load_class_layers,
+                                                                      "class_layers": class_layers,
                                                                       "learning_rate_multiplier":
                                                                           learning_rate_multiplier}})
     assert build_run_name(experiment_configuration=experiment_configuration,
@@ -875,20 +875,25 @@ def test_instance_segmentation_run_names(modify_function: Callable[[Dict[str, An
                           model_configuration=model_configuration) == expected_run_name
 
 
-@pytest.mark.parametrize(argnames=("region_proposal_freeze", "detector_freeze", "expected_sections"), argvalues=[
-    (True, True, "_RBN-R2x64-RPT-RFRZ_DSE-DRES-DBN-D7.2x64.256.128-DPT-DFRZ_MRES")])
+@pytest.mark.parametrize(argnames=("region_proposal_freeze", "detector_freeze", "detector_class_layers",
+                                   "expected_sections"), argvalues=[
+    (True, True, True, "_RBN-R2x64-RPT-RFRZ_DSE-DRES-DBN-D7.2x64.256.128-DPT-DFRZ_MRES"),
+    (False, False, False, "_RBN-R2x64-RPT_DSE-DRES-DBN-D7.2x64.256.128-DPT-DRCL_MRES"),
+    (None, True, False, "_RBN-R2x64_DSE-DRES-DBN-D7.2x64.256.128-DPT-DRCL-DFRZ_MRES")])
 def test_pretrained_detection_head_run_names(region_proposal_freeze: bool | None, detector_freeze: bool | None,
-                                             expected_sections: str) -> None:
+                                             detector_class_layers: bool, expected_sections: str) -> None:
     """
     Verifies the tokens of transferred region proposal and detection heads at the end of their sections, before the
-    mask heads of an instance segmentation run: RPT and DPT, then RFRZ and DFRZ when they are frozen, the learning
-    rate multiplier giving no token.
+    mask heads of an instance segmentation run: RPT and DPT, then DRCL when the detection heads are loaded without
+    their class layers, then RFRZ and DFRZ when they are frozen, the learning rate multiplier giving no token. Heads
+    loaded with their class layers keep the name of the runs written before 'class_layers' existed, which loaded them.
 
     Args:
         region_proposal_freeze (bool | None): Whether the transferred region proposal heads are frozen, None when they
             are not transferred.
         detector_freeze (bool | None): Whether the transferred detection heads are frozen, None when they are not
             transferred.
+        detector_class_layers (bool): Whether the class layers are loaded with the detection heads.
         expected_sections (str): The expected region proposal and detector sections of the run name.
     """
     experiment_configuration, model_configuration = get_instance_segmentation_reference_configurations()
@@ -896,24 +901,29 @@ def test_pretrained_detection_head_run_names(region_proposal_freeze: bool | None
         if freeze is not None:
             model_configuration[section_name]["pretrained"] = {"experiment_folder": "/runs/source", "iteration": None,
                                                                "freeze": freeze, "learning_rate_multiplier": 0.1}
+    model_configuration["Detector"]["pretrained"]["class_layers"] = detector_class_layers
     assert build_run_name(experiment_configuration=experiment_configuration,
                           model_configuration=model_configuration) == INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME.replace(
         "_RBN-R2x64_DSE-DRES-DBN-D7.2x64.256.128_MRES", expected_sections)
 
 
-@pytest.mark.parametrize(argnames=("freeze", "expected_tokens"), argvalues=[(True, "-MR28-MPT-MFRZ_")])
-def test_pretrained_mask_head_run_names(freeze: bool, expected_tokens: str) -> None:
+@pytest.mark.parametrize(argnames=("freeze", "class_layers", "expected_tokens"),
+                         argvalues=[(True, True, "-MR28-MPT-MFRZ_"), (False, False, "-MR28-MPT-MRCL_")])
+def test_pretrained_mask_head_run_names(freeze: bool, class_layers: bool, expected_tokens: str) -> None:
     """
     Verifies the tokens of transferred mask heads at the end of the mask heads section of an instance segmentation
-    run: MPT, then MFRZ when they are frozen, the learning rate multiplier giving no token.
+    run: MPT, then MRCL when they are loaded without their class layers, then MFRZ when they are frozen, the learning
+    rate multiplier giving no token.
 
     Args:
         freeze (bool): Whether the transferred mask heads are frozen.
+        class_layers (bool): Whether the class layers are loaded with the mask heads.
         expected_tokens (str): The expected end of the mask heads section.
     """
     experiment_configuration, model_configuration = get_instance_segmentation_reference_configurations()
     model_configuration["MaskHead"]["pretrained"] = {"experiment_folder": "/runs/source", "iteration": None,
-                                                     "freeze": freeze, "learning_rate_multiplier": 0.1}
+                                                     "freeze": freeze, "class_layers": class_layers,
+                                                     "learning_rate_multiplier": 0.1}
     assert build_run_name(experiment_configuration=experiment_configuration,
                           model_configuration=model_configuration) == INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME.replace(
         "-MR28_", expected_tokens)
@@ -1041,3 +1051,24 @@ def test_keypoint_run_names(modify_function: Callable[[Dict[str, Any], Dict[str,
         modify_function(experiment_configuration=experiment_configuration, model_configuration=model_configuration)
     assert build_run_name(experiment_configuration=experiment_configuration,
                           model_configuration=model_configuration) == expected_run_name
+
+
+@pytest.mark.parametrize(argnames=("freeze", "class_layers", "expected_section"),
+                         argvalues=[(False, True, "_K17-HH-KHPT_"), (True, False, "_K17-HH-KHPT-KHRCL-KHFRZ_")])
+def test_pretrained_keypoint_head_run_names(freeze: bool, class_layers: bool, expected_section: str) -> None:
+    """
+    Verifies the tokens of a transferred keypoint head at the end of its section: KHPT, then KHRCL when it is loaded
+    without its keypoint channel layers, which start random, then KHFRZ when it is frozen. A head loaded with them
+    keeps the name of the runs written before 'class_layers' existed, which loaded them.
+
+    Args:
+        freeze (bool): Whether the transferred keypoint head is frozen.
+        class_layers (bool): Whether the keypoint channel layers are loaded with the head.
+        expected_section (str): The expected section of the keypoint head in the run name.
+    """
+    experiment_configuration, model_configuration = get_keypoint_reference_configurations()
+    model_configuration["KeypointHead"]["pretrained"].update({"experiment_folder": "/runs/source", "freeze": freeze,
+                                                              "class_layers": class_layers})
+    assert build_run_name(experiment_configuration=experiment_configuration,
+                          model_configuration=model_configuration) == KEYPOINT_REFERENCE_RUN_NAME.replace(
+        "_K17-HH_", expected_section)

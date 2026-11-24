@@ -84,10 +84,10 @@ These settings were removed from the configuration files, the code always using 
 | `RegionProposal.anchor_centres` | The anchors are centred on the cell corners (column x stride, as the `AnchorGenerator` of torchvision), the cell centres having tied with them in stage 8 of the detection benchmark. |
 | `Data.data_augmentation.independent_frames`, `shuffle_frames` | Kept in M2O, M2M, CMP and SEL only, off for the other tasks. |
 
-The sections `Data.view_augmentation` and `ClassificationHead.view_losses`, removed earlier, are refused the same way.
+The sections `Data.view_augmentation` and `ClassificationHead.view_losses`, removed earlier, are refused the same way, and so is `SegmentationDecoder.pretrained.load_class_layers`, renamed `class_layers` like the flags of the detection, mask and keypoint heads.
 
-`scripts/configuration_processing/convert_fixed_settings.py` removes the fixed settings from the files written before, the `training_configuration.yaml` of the run folders and the launch files set in its main block, keeping their comments. It also adds what a task now requires with the values its runs trained with: the `Neck` section (`type: "none"`), the `box_loss` (`"smooth_l1"`) of `Detector`, the `nms_criterion` (`"iou"`) and `nms_distance_exponent` (`1.0`) of `Detector`, the `proposal_selection` (`"joint"`) of `RegionProposal` in the DET and INS files, the `instance_index_maps` (`False`, one mask per object) of `Data` in the INS files, the finer inputs of their `MaskHead` after its `upsampling` (`skip_blocks_at_pool_size: []`, `image_branch_convolutions: [0, 0]`, `skip_blocks_at_mask_resolution: []`, `fusion_convolutions: [0, 0]`, none), the `shared` of their `MaskHead` after its `fusion_convolutions` (`False`, one mask head per level) and its `mask_scoring` section after it (off), the `benchmark_speed` (`False`) of `ExperimentConfiguration.diagnosis_modes` in the files of every task, and the `class_layer` of `ClassificationHead.pretrained` after its `freeze` in the CLS, M2O, M2M, CMP and SEL files, `True` for a head transferred from another run, which loaded its class layer, and `False` otherwise, so that the run names stay (`ADDED_SECTIONS`, `ADDED_SETTINGS`):
-- Every converted file is first copied to a backup named with the `backup_suffix` of the main block, one per conversion (`_before_fixed_settings`, `_before_fixed_head_settings`, `_before_neck`, `_before_box_loss`, `_before_nms_criterion`, `_before_region_proposal_box_loss`, `_before_gradient_clipping_norm`, `_before_proposal_selection`, `_before_anchor_centres`, `_before_anchor_centres_removal`, `_before_instance_index_maps`, `_before_mask_fine_inputs`, `_before_benchmark_speed`, `_before_shared_mask_head`, `_before_mask_scoring`, `_before_class_layer`): `training_configuration<suffix>.yaml` next to a run configuration, `previous_configurations/<subfolder>/<name><suffix>.yaml` for a launch file. The copies of MLflow (`mlartifacts`) are left as logged.
+`scripts/configuration_processing/convert_fixed_settings.py` removes the fixed settings from the files written before, the `training_configuration.yaml` of the run folders and the launch files set in its main block, keeping their comments. It also adds what a task now requires with the values its runs trained with: the `Neck` section (`type: "none"`), the `box_loss` (`"smooth_l1"`) of `Detector`, the `nms_criterion` (`"iou"`) and `nms_distance_exponent` (`1.0`) of `Detector`, the `proposal_selection` (`"joint"`) of `RegionProposal` in the DET and INS files, the `instance_index_maps` (`False`, one mask per object) of `Data` in the INS files, the finer inputs of their `MaskHead` after its `upsampling` (`skip_blocks_at_pool_size: []`, `image_branch_convolutions: [0, 0]`, `skip_blocks_at_mask_resolution: []`, `fusion_convolutions: [0, 0]`, none), the `shared` of their `MaskHead` after its `fusion_convolutions` (`False`, one mask head per level) and its `mask_scoring` section after it (off), the `benchmark_speed` (`False`) of `ExperimentConfiguration.diagnosis_modes` in the files of every task, the `class_layer` of `ClassificationHead.pretrained` after its `freeze` in the CLS, M2O, M2M, CMP and SEL files, and the `class_layers` of `Detector.pretrained` (DET, INS), `MaskHead.pretrained` (INS) and `KeypointHead.pretrained` (KPT) after their `freeze`, `True` for heads transferred from another run, which loaded their class layers, and `False` otherwise, so that the run names stay (`ADDED_SECTIONS`, `ADDED_SETTINGS`). It renames `SegmentationDecoder.pretrained.load_class_layers` to `class_layers` in the SEG files, with its value and the mentions in the comments of the section (`RENAMED_SETTINGS`):
+- Every converted file is first copied to a backup named with the `backup_suffix` of the main block, one per conversion (`_before_fixed_settings`, `_before_fixed_head_settings`, `_before_neck`, `_before_box_loss`, `_before_nms_criterion`, `_before_region_proposal_box_loss`, `_before_gradient_clipping_norm`, `_before_proposal_selection`, `_before_anchor_centres`, `_before_anchor_centres_removal`, `_before_instance_index_maps`, `_before_mask_fine_inputs`, `_before_benchmark_speed`, `_before_shared_mask_head`, `_before_mask_scoring`, `_before_class_layer`, `_before_class_layers`): `training_configuration<suffix>.yaml` next to a run configuration, `previous_configurations/<subfolder>/<name><suffix>.yaml` for a launch file. The copies of MLflow (`mlartifacts`) are left as logged.
 - A file holding another value than the fixed one is listed with the values its runs change to (e.g. `ExperimentConfiguration.resume_training False -> True`), and a backbone whose inception modules start at another block than 3 is refused, the code no longer building its layers.
 - A file holding another value than the fixed one of a setting the code no longer trains (`RECORD_ONLY_SETTINGS`: `RegionProposal.box_loss` `"complete_iou"`, run_13 to run_16 of the detection benchmark, an `Optimization.gradient_clipping_norm` other than `null`, held by no saved run, and `RegionProposal.anchor_centres` `"cell_centres"`, run_23 and run_24) is reported and left as it is, its runs staying as records, the other files being converted.
 - `write_files = False` only lists the files to convert.
@@ -193,7 +193,7 @@ The optimizer keeps its token, as the state of one optimizer cannot be resumed b
 | Detector | `DBN`, `DLN`, `DNN` | `Detector.normalization.feature_map_normalization` | DET, INS |
 | Detector | `D<pool>.<layers>x<filters>.<fully connected>` | `DetectionLevels.<level>.detector` | DET, INS |
 | Detector | `DCIOU` | `Detector.box_loss` `complete_iou` (no token for `smooth_l1`) | DET, INS |
-| Detector | `DPT`, `DFRZ` | `Detector.pretrained`, frozen | DET, INS |
+| Detector | `DPT`, `DRCL`, `DFRZ` | `Detector.pretrained`, loaded without their class layers (`class_layers` False), frozen | DET, INS |
 | Mask heads | `MSE`, `MRES`, `MINC` | `MaskHead.modules` | INS |
 | Mask heads | `MBN`, `MLN`, `MNN` | `MaskHead.normalization.feature_map_normalization` | INS |
 | Mask heads | `MUTC`, `MUBL` | `MaskHead.upsampling`: transposed, bilinear | INS |
@@ -205,14 +205,14 @@ The optimizer keeps its token, as the state of one optimizer cannot be resumed b
 | Mask heads | `MSM<blocks>` | `MaskHead.skip_blocks_at_mask_resolution`, blocks joined with `.` (no token for `[]`) | INS |
 | Mask heads | `MF<layers>x<channels>` | `MaskHead.fusion_convolutions` (no token for `[0, 0]`) | INS |
 | Mask heads | `MIOU<layers>x<channels>.<fully connected>` | `MaskHead.mask_scoring`, the mask IoU heads of Mask Scoring R-CNN (no token when not activated) | INS |
-| Mask heads | `MPT`, `MFRZ` | `MaskHead.pretrained`, frozen | INS |
+| Mask heads | `MPT`, `MRCL`, `MFRZ` | `MaskHead.pretrained`, loaded without their class layers (`class_layers` False), frozen | INS |
 | Tiling | `TL<scale>` | `Data.tiling.activated`, `Data.tiling.scale` | SEG |
 | Decoder | `UTC`, `UBL` | `SegmentationDecoder.upsampling`: transposed, bilinear | SEG |
 | Decoder | `DSE`, `DRES` | `SegmentationDecoder.modules` | SEG |
 | Decoder | `DBN`, `DLN`, `DNN` | `SegmentationDecoder.feature_map_normalization` | SEG |
 | Decoder | `D<layers>x<channels>.…` | `SegmentationDecoder.convolutions`, deepest level first | SEG |
 | Decoder | `AUX<level>.…` | the levels of `SegmentationDecoder.deep_supervision_weights`, deepest first | SEG |
-| Decoder | `DPT`, `DCL`, `DFRZ` | `SegmentationDecoder.pretrained`, `load_class_layers`, frozen | SEG |
+| Decoder | `DPT`, `DCL`, `DFRZ` | `SegmentationDecoder.pretrained`, loaded with its class layers (`class_layers` True), frozen | SEG |
 | Classes | `BIN` or `MC<classes>` | `Data.label_mapping.mode` | DET, INS, SEG |
 | Sequence length | `T<frames>` | `Data.sequence_settings.maximum_sequence_length` (of a member for CMP) | M2O, M2M, CMP, SEL |
 | Temporal module | `MEAN`, `MAX`, `ATT<hidden size>` | `TemporalModel.type`: mean, max, attention pooling | M2O, CMP |
@@ -243,7 +243,7 @@ The optimizer keeps its token, as the state of one optimizer cannot be resumed b
 | Keypoint head | `K<channels>` | the heatmap channels | KPT |
 | Keypoint head | `KH<width>` | `KeypointHead.hidden_width` above 0 | KPT |
 | Keypoint head | `HH` | `KeypointHead.higher_resolution` | KPT |
-| Keypoint head | `KHPT`, `KHFRZ` | `KeypointHead.pretrained`, frozen | KPT |
+| Keypoint head | `KHPT`, `KHRCL`, `KHFRZ` | `KeypointHead.pretrained`, loaded without its keypoint channel layers (`class_layers` False), frozen | KPT |
 | Classes | `MC<classes>` | the foreground classes | KPT |
 | Optimizer | `ADAMW`, `SGD` | `Optimization.optimizer` other than adam | all |
 | Optimizer | `WD<decay>` | `Optimization.weight_decay` above 0 | all |

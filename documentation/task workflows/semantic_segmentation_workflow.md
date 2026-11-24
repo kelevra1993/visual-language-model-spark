@@ -628,13 +628,13 @@ model.class_weights = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 ```
 
 ### Step 2.19 — `initialise_pretrained_components()`
-The segmentation can transfer the backbone and the decoder of other runs. The segmentation head and the deep supervision heads stay outside the decoder, so that a decoder serves runs of other classes; with `SegmentationDecoder.pretrained.load_class_layers` they are loaded too (`load_segmentation_class_layers()`), every class of the source run being a class of this run, first in the same order or under the same name, the other classes keeping the random rows the layers of this run were built with, and the deep supervision levels the source run does not have keeping their random weights. A backbone deeper than its source backbone loads its first blocks only, as for every task (`loaded_backbone_blocks`, see `classification_workflow.md`, Step 2.19).
+The segmentation can transfer the backbone and the decoder of other runs. The segmentation head and the deep supervision heads stay outside the decoder, so that a decoder serves runs of other classes; with `SegmentationDecoder.pretrained.class_layers` (named `load_class_layers` before 2026-11-24) they are loaded too (`load_segmentation_class_layers()`), every class of the source run being a class of this run, first in the same order or under the same name, the other classes keeping the random rows the layers of this run were built with, and the deep supervision levels the source run does not have keeping their random weights. A backbone deeper than its source backbone loads its first blocks only, as for every task (`loaded_backbone_blocks`, see `classification_workflow.md`, Step 2.19).
 
 **Example: a run from scratch**
 ```text
 pretrained_configurations['Backbone']            = {'experiment_folder': None, 'iteration': None, 'freeze': False, ...}
 pretrained_configurations['SegmentationDecoder'] = {'experiment_folder': None, 'iteration': None, 'freeze': False,
-                                                    'load_class_layers': False, 'learning_rate_multiplier': 1.0}
+                                                    'class_layers': False, 'learning_rate_multiplier': 1.0}
 pretrained_checkpoint_paths                      = {'Backbone': None, 'SegmentationDecoder': None}
 ```
 

@@ -301,8 +301,8 @@ KeypointHead:
     # Lowest object score (sum of its keypoint scores over its class keypoints) kept by deployment and sample images;
     # the evaluation keeps every object for the precision-recall curves.
     object_score_threshold: 0.2
-  # Keypoint head of another KPT run initialising this one; the classes, their keypoints in the same order (read from
-  # the data.json of that run) and HRNet.base_width must match.
+  # Keypoint head of another KPT run initialising this one; HRNet.base_width must match, and with class_layers True
+  # the classes and their keypoints in the same order (read from the data.json of that run).
   pretrained:
     # Run folder of the loaded keypoint head, null for random weights; not reloaded when the run resumes.
     experiment_folder: null
@@ -310,5 +310,8 @@ KeypointHead:
     iteration: null
     # Freezes the loaded head (no gradient). Requires experiment_folder.
     freeze: False
+    # True also loads the heatmap and tag convolutions: same classes and keypoints in the same order (its data.json);
+    # needs experiment_folder. False leaves them random for any keypoints, as their HH branch inputs (KHRCL token).
+    class_layers: False
     # Learning rate factor of the loaded head, e.g. 0.1 to train it 10x slower.
     learning_rate_multiplier: 1.0

@@ -9,6 +9,8 @@ import json
 
 from typing import Any, Callable, Dict, List
 
+from vision_training.configuration_processing.common_checks import (CLASS_LAYER_OPTION_SECTIONS,
+                                                                   PRETRAINED_CLASS_LAYER_KEYS)
 from vision_training.models.backbones.backbone import INCEPTION_STARTING_BLOCK
 
 # Run name code of every feature map normalization strategy, also giving the HBN and HLN tokens of the normalized
@@ -53,11 +55,12 @@ UPSAMPLING_CODES = {"transposed": "UTC", "bilinear": "UBL"}
 
 # Prefix of the tokens of a component initialised by the one of another run: '<prefix>PT' when it is transferred,
 # followed by '<prefix>FRZ' when it is frozen, i.e. PT and FRZ for the backbone, TPT and TFRZ for the temporal module,
-# HPT and HFRZ for the classification head (HRCL between them when its class layer stays random), DPT and DFRZ for the
-# segmentation decoder (DCL between them when its class layers are loaded), RPT and RFRZ for the region
-# proposal heads, DPT and DFRZ for the detection heads, MPT and MFRZ for the mask heads, HRPT and HRFRZ for the high
-# resolution network of the keypoint detector, and KHPT and KHFRZ for its keypoint head. The learning rate multiplier
-# of the component gives no token, so that it can change between two resumptions of a run
+# HPT and HFRZ for the classification head, DPT and DFRZ for the segmentation decoder (DCL between them when its class
+# layers are loaded), RPT and RFRZ for the region proposal heads, DPT and DFRZ for the detection heads, MPT and MFRZ for
+# the mask heads, HRPT and HRFRZ for the high resolution network of the keypoint detector, and KHPT and KHFRZ for its
+# keypoint head, the classification, detection, mask and keypoint heads adding '<prefix>RCL' between them (HRCL, DRCL,
+# MRCL, KHRCL) when their class layers stay random (CLASS_LAYER_OPTION_SECTIONS). The learning rate multiplier of the
+# component gives no token, so that it can change between two resumptions of a run
 PRETRAINED_TOKEN_PREFIXES = {"Backbone": "", "TemporalModel": "T", "ClassificationHead": "H",
                              "SegmentationDecoder": "D", "RegionProposal": "R", "Detector": "D", "MaskHead": "M",
                              "HRNet": "HR", "KeypointHead": "KH"}
@@ -108,12 +111,13 @@ def build_pretrained_tokens(model_configuration: Dict[str, Any], section_name: s
     """
     Builds the tokens of a component initialised by the trained one of another run, placed at the end of the section of
     the component in the run name (see PRETRAINED_TOKEN_PREFIXES): e.g. PT, then DCL when the segmentation decoder also
-    loads the class layers of the source run, or HRCL when the classification head is loaded without its class layer
-    (a token for False, the heads of the runs written before 'class_layer' existed having loaded it, so that their run
-    names stay), then FRZ when it is frozen, then FBN when the scale and shift of the normalization layers of the
-    backbone are kept fixed. A component trained from random weights gives no token. The
-    learning rate multiplier gives no token, the optimizer giving every transferred component that learns its own
-    parameter group whatever its multiplier, so that it can change between two resumptions of a run.
+    loads the class layers of the source run, or HRCL, DRCL, MRCL or KHRCL when the classification, detection, mask or
+    keypoint head is loaded without its class layers (a token for False, the heads of the runs written before
+    'class_layer' and 'class_layers' existed having loaded them, so that their run names stay), then FRZ when it is
+    frozen, then FBN when the scale and shift of the normalization layers of the backbone are kept fixed. A component
+    trained from random weights gives no token. The learning rate multiplier gives no token, the optimizer giving every
+    transferred component that learns its own parameter group whatever its multiplier, so that it can change between
+    two resumptions of a run.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration.
@@ -131,13 +135,14 @@ def build_pretrained_tokens(model_configuration: Dict[str, Any], section_name: s
     pretrained_tokens = [f"{token_prefix}PT"]
 
     # Segmentation head and deep supervision heads loaded with the decoder, which changes what the run starts from
-    if section_name == "SegmentationDecoder" and pretrained_configuration["load_class_layers"]:
+    if section_name == "SegmentationDecoder" and pretrained_configuration["class_layers"]:
         pretrained_tokens.append("DCL")
 
-    # Classification head loaded without its class layer, which starts random and learns at the learning rate of the
-    # run, changing what the run starts from and the layout of its parameter groups
-    if section_name == "ClassificationHead" and not pretrained_configuration["class_layer"]:
-        pretrained_tokens.append("HRCL")
+    # Classification, detection, mask or keypoint head loaded without its class layers, which start random and learn
+    # at the learning rate of the run, changing what the run starts from and the layout of its parameter groups
+    if section_name in CLASS_LAYER_OPTION_SECTIONS and \
+            not pretrained_configuration[PRETRAINED_CLASS_LAYER_KEYS[section_name]]:
+        pretrained_tokens.append(f"{token_prefix}RCL")
     if pretrained_configuration["freeze"]:
         pretrained_tokens.append(f"{token_prefix}FRZ")
 
@@ -259,11 +264,11 @@ def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[s
     (R<normalization>, R<layers>x<filters>, RPL with the selection of the proposals level by level, then RPT and RFRZ
     when they are transferred and frozen), the detector
     heads (modules DSE, DRES, DINC, D<normalization>,
-    D<RoIAlign pool size>.<layers>x<filters>.<fully connected sizes>, DCIOU with the CIoU box loss, then DPT and DFRZ
-    when they are transferred and frozen) and the classes (BIN or MC<foreground classes>, the categories
-    merged into one class counting once). The levels are the keys of 'DetectionLevels', whose anchor counts, region
-    proposal and detector settings are written once when identical on every level, otherwise joined with '+' in level
-    order.
+    D<RoIAlign pool size>.<layers>x<filters>.<fully connected sizes>, DCIOU with the CIoU box loss, then DPT, DRCL
+    when their class layers stay random, and DFRZ when they are transferred and frozen) and the classes (BIN or
+    MC<foreground classes>, the categories merged into one class counting once). The levels are the keys of
+    'DetectionLevels', whose anchor counts, region proposal and detector settings are written once when identical on
+    every level, otherwise joined with '+' in level order.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
@@ -349,9 +354,10 @@ def build_instance_segmentation_sections(model_configuration: Dict[str, Any]) ->
     MIB<layers>x<channels> for the image branch, MSM<blocks> for the backbone skips at the mask resolution and
     MF<layers>x<channels> for the fusion convolutions (blocks joined with '.', 0 being the normalized input image),
     MIOU<layers>x<channels>.<fully connected sizes joined with '.'> when the masks are scored by mask IoU heads
-    ('MaskHead.mask_scoring'), and MPT, followed by MFRZ when frozen, when the mask heads are initialised by those of
-    another run (see build_pretrained_tokens), e.g. 'MRES-MBN-MUTC-M14.4x64-MR28',
-    'MRES-MBN-MUTC-M14.4x64-MR28-MIB5x32-MF1x64', 'MRES-MBN-MUBL-M14.4x64-MSH-MR28-MIB5x32-MF1x64' or
+    ('MaskHead.mask_scoring'), and MPT, followed by MRCL when their class layers stay random and MFRZ when frozen,
+    when the mask heads are initialised by those of another run (see build_pretrained_tokens), e.g.
+    'MRES-MBN-MUTC-M14.4x64-MR28', 'MRES-MBN-MUTC-M14.4x64-MR28-MIB5x32-MF1x64',
+    'MRES-MBN-MUBL-M14.4x64-MSH-MR28-MIB5x32-MF1x64' or
     'MRES-MBN-MUBL-M14.4x64-MSH-MR28-MIB5x32-MF1x64-MIOU4x64.256.256'. The mask threshold gives no token, so that it
     can change between two resumptions of a run.
 
@@ -690,7 +696,8 @@ def build_keypoint_sections(model_configuration: Dict[str, Any]) -> List[List[st
     and HRRES, HR<normalization>, then HR<base width>.<modules of every stage>x<blocks per branch>, then HRPT and
     HRFRZ when it is transferred and frozen), the keypoint head K<heatmap channels> (the keypoints of every class, each
     with its heatmap and its tag map, then KH<hidden width> with a hidden convolution, HH with the higher resolution
-    branch, then KHPT and KHFRZ when it is transferred and frozen) and the classes MC<foreground classes>, e.g.
+    branch, then KHPT, KHRCL when its keypoint channel layers stay random, and KHFRZ when it is transferred and
+    frozen) and the classes MC<foreground classes>, e.g.
     'HRSE-HRRES-HRBN-HR32.1.4.3x4_K107-KH256-HH_MC22'.
     The heatmap sigma, the tag loss weights and the grouping settings give no token, so that they can change between
     two resumptions of a run.

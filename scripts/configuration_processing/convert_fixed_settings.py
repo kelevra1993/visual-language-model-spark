@@ -12,15 +12,19 @@ the greedy NMS, the 'proposal_selection' of their 'RegionProposal' section, over
 fusion convolutions of its 'MaskHead' section, none; the 'benchmark_speed' diagnosis mode of every task, off; the
 'shared' setting of the 'MaskHead' section of the instance segmentation, one mask head per level; its 'mask_scoring'
 section, off; the 'class_layer' flag of the 'pretrained' block of the 'ClassificationHead' section of the
-classification-like tasks, True for a head transferred from another run, which loaded its class layer, False
-otherwise), so that the training_configuration.yaml of the saved runs, reloaded to resume a run, by
+classification-like tasks and the 'class_layers' flag of the 'pretrained' block of the 'Detector' section of the
+detection tasks, of the 'MaskHead' section of the instance segmentation and of the 'KeypointHead' section of the
+keypoint detection, True for heads transferred from another run, which loaded their class layers, False otherwise),
+and renames the settings of RENAMED_SETTINGS ('SegmentationDecoder.pretrained.load_class_layers', now 'class_layers'),
+so that the training_configuration.yaml of the saved runs, reloaded to resume a run, by
 scripts/evaluation/evaluate_checkpoint.py and by the export, and the launch files of vision_training/main.py load
 again.
 The files are edited as text: their comments stay, the comment lines directly above a removed setting go with it, the
-sections left empty are removed, and the settings still held by some tasks are kept in their files (the sequence
-settings of the sequence tasks, the number of candidate frames of the frame selection). Every converted file is first
-copied to a backup, and a conversion changing anything else than the removed settings and the added sections and
-settings stops the script. A file holding another value than the fixed one is listed with the values its runs change
+sections left empty are removed, a renamed setting keeps its value and the comments of its section name it under its
+new name, and the settings still held by some tasks are kept in their files (the sequence settings of the sequence
+tasks, the number of candidate frames of the frame selection). Every converted file is first copied to a backup, and a
+conversion changing anything else than the removed, added and renamed settings and the added sections stops the
+script. A file holding another value than the fixed one is listed with the values its runs change
 to, except for the settings of RECORD_ONLY_SETTINGS, whose other values the code no longer trains (the CIoU box loss of
 the region proposal network, a gradient clipping norm, the anchors centred on the cell centres): such a file is
 reported and left as it is, its runs staying as records. A file whose backbone would change (inception modules starting
@@ -46,7 +50,7 @@ from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Removed settings whose value is fixed in the code, the code taking the value of FIXED_VALUES instead of the one of the
 # file. The other removed settings of REMOVED_SETTINGS (the views of the self-supervised task, the view losses) moved
-# to other settings, which a deletion would lose
+# to other settings, which a deletion would lose, or were renamed (RENAMED_SETTINGS)
 FIXED_SETTINGS = ["ExperimentConfiguration.evaluation.top_k", "ExperimentConfiguration.tracking.log_artifacts",
                   "ExperimentConfiguration.resume_training",
                   "ExperimentConfiguration.diagnosis_modes.compute_model_size",
@@ -181,6 +185,30 @@ CLASSIFICATION_HEAD_CLASS_LAYER_COMMENT_LINES = [
 CLASSIFICATION_HEAD_CLASS_LAYER_LINES = CLASSIFICATION_HEAD_CLASS_LAYER_COMMENT_LINES + ['class_layer: False']
 TRANSFERRED_CLASSIFICATION_HEAD_CLASS_LAYER_LINES = CLASSIFICATION_HEAD_CLASS_LAYER_COMMENT_LINES + ['class_layer: True']
 
+# Comment lines of the class layer flag added to the 'pretrained' block of the 'Detector' section of the detection
+# tasks, of the 'MaskHead' section of the instance segmentation and of the 'KeypointHead' section of the keypoint
+# detection, written before it, by section; the setting follows, False for the heads trained from random weights, True
+# for the heads transferred from another run, which loaded their class layers
+HEAD_CLASS_LAYERS_COMMENT_LINES = {
+    "Detector": [
+        ('# True also loads the class layers (classifier, box regressor): source classes (its data.json) first in '
+         'order or by'),
+        '# name, others random; needs experiment_folder. False leaves them random for any classes (DRCL token).'],
+    "MaskHead": [
+        ('# True also loads the class layers (mask predictor, mask IoU predictor): source classes (its data.json) '
+         'first in'),
+        ('# order or by name, others random; needs experiment_folder. False leaves them random for any classes '
+         '(MRCL token).')],
+    "KeypointHead": [
+        ('# True also loads the heatmap and tag convolutions: same classes and keypoints in the same order (its '
+         'data.json);'),
+        ('# needs experiment_folder. False leaves them random for any keypoints, as their HH branch inputs (KHRCL '
+         'token).')]}
+
+# Tasks of the sections of HEAD_CLASS_LAYERS_COMMENT_LINES
+HEAD_CLASS_LAYERS_TASKS = {"Detector": ["object_detection", "instance_segmentation"],
+                           "MaskHead": ["instance_segmentation"], "KeypointHead": ["keypoint_detection"]}
+
 # Lines of the speed benchmark diagnosis mode added to the 'diagnosis_modes' of the runs of every task written before
 # it, off: the comment lines, then the setting
 DIAGNOSIS_BENCHMARK_SPEED_LINES = [
@@ -229,7 +257,19 @@ ADDED_SETTINGS = {"Detector.box_loss": {"tasks": ["object_detection", "instance_
                       "tasks": list(CLASSIFICATION_LIKE_TASKS), "after": "ClassificationHead.pretrained.freeze",
                       "lines": CLASSIFICATION_HEAD_CLASS_LAYER_LINES,
                       "lines_when_set": {"key_path": "ClassificationHead.pretrained.experiment_folder",
-                                         "lines": TRANSFERRED_CLASSIFICATION_HEAD_CLASS_LAYER_LINES}}}
+                                         "lines": TRANSFERRED_CLASSIFICATION_HEAD_CLASS_LAYER_LINES}},
+                  **{f"{section_name}.pretrained.class_layers": {
+                      "tasks": HEAD_CLASS_LAYERS_TASKS[section_name], "after": f"{section_name}.pretrained.freeze",
+                      "lines": comment_lines + ["class_layers: False"],
+                      "lines_when_set": {"key_path": f"{section_name}.pretrained.experiment_folder",
+                                         "lines": comment_lines + ["class_layers: True"]}}
+                     for section_name, comment_lines in HEAD_CLASS_LAYERS_COMMENT_LINES.items()}}
+
+# Settings renamed in the files of some tasks, by their path before the renaming: the tasks holding the setting and its
+# new name, the setting keeping its value and its place, and the mentions of the old name in the comments of its
+# top-level section taking the new name
+RENAMED_SETTINGS = {"SegmentationDecoder.pretrained.load_class_layers": {"tasks": ["semantic_segmentation"],
+                                                                         "new_name": "class_layers"}}
 
 # Name of the configuration saved in every run folder
 RUN_CONFIGURATION_NAME = "training_configuration.yaml"
@@ -394,6 +434,40 @@ def remove_fixed_settings(configuration_text: str, task: str) -> str:
     return "\n".join(kept_lines)
 
 
+def rename_settings(configuration_text: str, task: str) -> str:
+    """
+    Renames in the text of a configuration file the settings of RENAMED_SETTINGS its task holds, keeping their value,
+    their indentation and their place, and gives the new name to the mentions of the old name in the comment lines of
+    their top-level section (e.g. 'Its class convolution and supervision heads need load_class_layers.'), so that the
+    runs written before the renaming load again.
+
+    Args:
+        configuration_text (str): The text of the configuration file.
+        task (str): The 'ExperimentConfiguration.task' of the file.
+
+    Returns:
+        str: The text with the renamed settings, identical when the file holds none.
+    """
+    lines = configuration_text.split("\n")
+    for key_path, renamed_setting in RENAMED_SETTINGS.items():
+        key_paths = find_key_paths(lines=lines)
+        if task not in renamed_setting["tasks"] or key_path not in key_paths:
+            continue
+
+        # Key of the setting, its indentation and value kept
+        setting_index = key_paths.index(key_path)
+        old_name, new_name = key_path.rsplit(".", 1)[1], renamed_setting["new_name"]
+        key_match = KEY_LINE_PATTERN.match(lines[setting_index])
+        lines[setting_index] = f"{key_match.group(1)}{new_name}:{key_match.group(3)}"
+
+        # Mentions of the old name in the comments of the top-level section holding the setting
+        section_index = key_paths.index(key_path.split(".", 1)[0])
+        for line_index in range(section_index, find_block_end(lines=lines, start_index=section_index)):
+            if lines[line_index].strip().startswith("#"):
+                lines[line_index] = re.sub(pattern=rf"\b{old_name}\b", repl=new_name, string=lines[line_index])
+    return "\n".join(lines)
+
+
 def add_required_sections(configuration_text: str, task: str, configuration_path: Path) -> str:
     """
     Adds to the text of a configuration file the sections of ADDED_SECTIONS its task requires and it does not hold,
@@ -539,9 +613,10 @@ def flatten_settings(settings: Dict[str, Any], prefix: str = "") -> Dict[str, An
 
 def check_conversion(original_text: str, converted_text: str, task: str, configuration_path: Path) -> List[str]:
     """
-    Checks that a conversion only removed the fixed settings the task no longer holds and added the sections of
-    ADDED_SECTIONS and the settings of ADDED_SETTINGS the task requires and the file lacked, with their values, every
-    other setting keeping its value so that a mistake of the text edition never changes a run, and that the backbone
+    Checks that a conversion only removed the fixed settings the task no longer holds, renamed the settings of
+    RENAMED_SETTINGS with their values and added the sections of ADDED_SECTIONS and the settings of ADDED_SETTINGS the
+    task requires and the file lacked, with their values, every other setting keeping its value so that a mistake of
+    the text edition never changes a run, and that the backbone
     of the file keeps its layers. Lists the removed settings whose value differs from the one the code now uses, which
     change the runs of the file once converted (e.g. a launch file with 'resume_training: false' resuming its run).
 
@@ -555,8 +630,8 @@ def check_conversion(original_text: str, converted_text: str, task: str, configu
         List[str]: Every removed setting holding another value than the fixed one, as '<path> <value> -> <fixed>'.
 
     Raises:
-        ValueError: If the converted file loses or changes another setting, keeps a removed one or lacks an added one,
-            or if the inception modules of its backbone start at another block than the fixed one.
+        ValueError: If the converted file loses or changes another setting, keeps a removed or renamed one or lacks an
+            added one, or if the inception modules of its backbone start at another block than the fixed one.
     """
     removed_paths = [key_path for key_path in FIXED_SETTINGS if task not in REMOVED_SETTINGS[key_path][1]]
     original_settings = flatten_settings(settings=yaml.safe_load(original_text))
@@ -578,6 +653,12 @@ def check_conversion(original_text: str, converted_text: str, task: str, configu
                                     for removed_path in removed_paths)}
     expected_settings = {key_path: value for key_path, value in expected_settings.items()
                          if value != {} or key_path in converted_settings}
+
+    # Renamed settings, under their new name with their value
+    for key_path, renamed_setting in RENAMED_SETTINGS.items():
+        if task in renamed_setting["tasks"] and key_path in expected_settings:
+            new_path = f"{key_path.rsplit('.', 1)[0]}.{renamed_setting['new_name']}"
+            expected_settings[new_path] = expected_settings.pop(key_path)
 
     # Settings of the sections the task requires and the original file lacked, with the values of ADDED_SECTIONS
     for section_name, added_section in ADDED_SECTIONS.items():
@@ -668,10 +749,10 @@ def list_configuration_files(run_roots: List[Path], configuration_folders: List[
 def convert_fixed_settings(run_roots: List[Path], configuration_folders: List[Path], write_files: bool,
                            backup_suffix: str) -> List[Path]:
     """
-    Converts the configuration files of the saved runs and of the launch folders to the fixed settings and the added
-    sections and settings, each checked by check_conversion and copied to its backup before being written, or only
-    lists them without writing anything. A file holding a setting of RECORD_ONLY_SETTINGS with another value than the
-    fixed one is reported and left as it is, whatever write_files.
+    Converts the configuration files of the saved runs and of the launch folders to the fixed settings, the added
+    sections and settings and the renamed settings, each checked by check_conversion and copied to its backup before
+    being written, or only lists them without writing anything. A file holding a setting of RECORD_ONLY_SETTINGS with
+    another value than the fixed one is reported and left as it is, whatever write_files.
 
     Args:
         run_roots (List[Path]): The folders searched for the training_configuration.yaml of run folders.
@@ -681,8 +762,8 @@ def convert_fixed_settings(run_roots: List[Path], configuration_folders: List[Pa
             earlier one are never overwritten.
 
     Returns:
-        List[Path]: The files holding fixed settings or lacking an added section or setting, converted when
-            write_files is True.
+        List[Path]: The files holding fixed settings or settings to rename, or lacking an added section or setting,
+            converted when write_files is True.
 
     Raises:
         FileExistsError: If the backup of a file to convert already exists, which would be overwritten.
@@ -713,7 +794,8 @@ def convert_fixed_settings(run_roots: List[Path], configuration_folders: List[Pa
         # or settings left as they are
         task = settings["ExperimentConfiguration"]["task"]
         text_without_fixed_settings = remove_fixed_settings(configuration_text=original_text, task=task)
-        text_with_sections = add_required_sections(configuration_text=text_without_fixed_settings, task=task,
+        renamed_text = rename_settings(configuration_text=text_without_fixed_settings, task=task)
+        text_with_sections = add_required_sections(configuration_text=renamed_text, task=task,
                                                    configuration_path=configuration_path)
         converted_text = add_required_settings(configuration_text=text_with_sections, task=task,
                                                configuration_path=configuration_path)
@@ -724,7 +806,9 @@ def convert_fixed_settings(run_roots: List[Path], configuration_folders: List[Pa
         converted_paths.append(configuration_path)
         removed_lines = len(original_text.split("\n")) - len(text_without_fixed_settings.split("\n"))
         added_lines = len(converted_text.split("\n")) - len(text_without_fixed_settings.split("\n"))
-        line_counts = f"{removed_lines} lines removed, {added_lines} added"
+        renamed_settings = [key_path for key_path, renamed_setting in RENAMED_SETTINGS.items()
+                            if task in renamed_setting["tasks"] and key_path in flattened_settings]
+        line_counts = f"{removed_lines} lines removed, {added_lines} added, {len(renamed_settings)} settings renamed"
 
         # The values the runs of the file change to once converted, listed before anything is written
         if changed_values:
@@ -757,14 +841,14 @@ if __name__ == "__main__":
                  repository_folder / "ficha_experiments", repository_folder / "imagenet_experiments",
                  Path.home() / "Data" / "tutorial_runs"]
     # Folders of launch files, converted with their subfolders, their backups going to 'previous_configurations'; the
-    # tracked files of the detection and classification-like folders already hold the settings, only their untracked
-    # launch files (e.g. the imagenet_merged copies of the classification folder) are converted
+    # tracked files of the detection, segmentation, keypoint and classification-like folders already hold the settings,
+    # only their untracked launch files (e.g. the imagenet_merged copies of the classification folder) are converted
     configuration_folders = [repository_folder / "vision_training/configurations/ficha_configuration_files",
-                             repository_folder / "vision_training/configurations/instance_segmentation",
-                             repository_folder / "vision_training/configurations/object_detection",
                              *[repository_folder / "vision_training/configurations" / task_folder
-                               for task_folder in CLASSIFICATION_LIKE_TASKS]]
-    # False to only list the files holding fixed settings or lacking an added section or setting, True to convert them
+                               for task_folder in ["instance_segmentation", "object_detection", "keypoint_detection",
+                                                   "semantic_segmentation", *CLASSIFICATION_LIKE_TASKS]]]
+    # False to only list the files holding fixed settings or settings to rename, or lacking an added section or
+    # setting, True to convert them
     write_files = False
     # Suffix of the backups of this conversion: '_before_fixed_settings' (2026-10-29), '_before_fixed_head_settings'
     # (2026-11-05), '_before_neck' for the 'Neck' section added on 2026-11-07, '_before_box_loss' for the 'box_loss'
@@ -777,9 +861,11 @@ if __name__ == "__main__":
     # 'Data.instance_index_maps' added on 2026-11-13, '_before_mask_fine_inputs' for the finer inputs and fusion
     # convolutions of the 'MaskHead' section added on 2026-11-15, '_before_benchmark_speed' for the
     # 'diagnosis_modes.benchmark_speed' added on 2026-11-16, '_before_shared_mask_head' for the 'MaskHead.shared'
-    # added on 2026-11-20, '_before_mask_scoring' for the 'MaskHead.mask_scoring' added on 2026-11-21, then
-    # '_before_class_layer' for the 'ClassificationHead.pretrained.class_layer' added on 2026-11-24
-    backup_suffix = "_before_class_layer"
+    # added on 2026-11-20, '_before_mask_scoring' for the 'MaskHead.mask_scoring' added on 2026-11-21,
+    # '_before_class_layer' for the 'ClassificationHead.pretrained.class_layer' added on 2026-11-24, then
+    # '_before_class_layers' for the 'pretrained.class_layers' of the detection, mask and keypoint heads added and the
+    # 'SegmentationDecoder.pretrained.load_class_layers' renamed on 2026-11-24
+    backup_suffix = "_before_class_layers"
 
     files_to_convert = convert_fixed_settings(run_roots=run_roots, configuration_folders=configuration_folders,
                                               write_files=write_files, backup_suffix=backup_suffix)

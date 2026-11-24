@@ -5,9 +5,12 @@ rejected, source runs still holding the fixed settings, frozen backbones and the
 classes after those of their source run are covered too: the class layers of the classification, detection and mask
 heads and of the semantic segmentation grown to the new classes, which keep the random initialisation of the new run,
 the source runs without class names, and the runs holding the source classes at other indices, whose rows land at the
-index of their name, a run lacking a source class being refused. The keypoint head only moves between runs predicting
-the same keypoints on the same channels, read from the record of the data of the source run, and the mask heads between
-runs sharing them by the levels or not alike, and scoring their masks with the same mask IoU heads or not at all.
+index of their name, a run lacking a source class being refused. The keypoint head loaded with its keypoint channel
+layers only moves between runs predicting the same keypoints on the same channels, read from the record of the data of
+the source run, and the mask heads between runs sharing them by the levels or not alike, and scoring their masks with
+the same mask IoU heads or not at all. The classification, detection, mask and keypoint heads loaded without their
+class layers initialise runs of unrelated classes or keypoints, only their other layers being transferred, frozen and
+fine-tuned, and the class layer flags are turned off with the transfers.
 """
 
 import copy
@@ -19,6 +22,8 @@ import yaml
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from vision_training.configuration_processing.common_checks import (CLASS_LAYER_OPTION_SECTIONS,
+                                                                   PRETRAINED_CLASS_LAYER_KEYS)
 from vision_training.data.data_record import CLASSES_RECORD_KEY, DATA_RECORD_FILE_NAME, KEYPOINTS_RECORD_KEY
 from vision_training.models.backbones.backbone import INCEPTION_STARTING_BLOCK
 from vision_training.models.classification.image_classifier import ImageClassifier
@@ -42,11 +47,13 @@ from tests.fixtures.configuration_fixtures import (get_classification_model_conf
                                                    get_segmentation_model_configuration,
                                                    get_sequence_model_configuration)
 
-# Pretrained settings of a component trained from random weights, with the normalization flag of the backbone and the
-# class layer flag of the classification head
+# Pretrained settings of a component trained from random weights, with the normalization flag of the backbone, the
+# class layer flag of the classification head and the class layer flag of the detection, mask and keypoint heads and of
+# the segmentation decoder
 NO_TRANSFER = {"experiment_folder": None, "iteration": None, "freeze": False, "learning_rate_multiplier": 1.0}
 NO_BACKBONE_TRANSFER = {**NO_TRANSFER, "freeze_normalization_parameters": False}
 NO_HEAD_TRANSFER = {**NO_TRANSFER, "class_layer": False}
+NO_CLASS_LAYERS_TRANSFER = {**NO_TRANSFER, "class_layers": False}
 
 # Blocks of the shorter source backbone of the transfers into a deeper backbone, the first 7 of the 9 blocks of the
 # detection fixture
@@ -121,28 +128,31 @@ def write_source_run(run_folder: Path, configuration: Dict[str, Any], model: tor
 
 
 def point_to_source_run(configuration: Dict[str, Any], section_name: str, source_folder: Path,
-                        class_layer: bool = True) -> Dict[str, Any]:
+                        class_layers: bool = True) -> Dict[str, Any]:
     """
     Copies a configuration with the pretrained settings of one section pointing to a source run, the component of
-    that section being then initialised by the one of the source run, a classification head with or without its class
-    layer.
+    that section being then initialised by the one of the source run, a classification, detection, mask or keypoint
+    head with or without its class layers, a segmentation decoder without its class layers.
 
     Args:
         configuration (Dict[str, Any]): The configuration of the run receiving the component.
         section_name (str): The section of the transferred component.
         source_folder (Path): The run folder of the source component.
-        class_layer (bool): The 'class_layer' flag of a transferred classification head, ignored for the other
-            sections. Defaults to True, the head being loaded with its class layer.
+        class_layers (bool): The class layer flag of a transferred head of CLASS_LAYER_OPTION_SECTIONS ('class_layer'
+            or 'class_layers'), ignored for the other sections. Defaults to True, the head being loaded with its class
+            layers.
 
     Returns:
         Dict[str, Any]: The configuration with the pretrained settings of the section.
     """
     target_configuration = copy.deepcopy(configuration)
-    no_transfer = {"Backbone": NO_BACKBONE_TRANSFER, "ClassificationHead": NO_HEAD_TRANSFER}.get(section_name,
-                                                                                               NO_TRANSFER)
+    no_transfer = NO_BACKBONE_TRANSFER if section_name == "Backbone" else NO_TRANSFER
     target_configuration[section_name]["pretrained"] = {**no_transfer, "experiment_folder": str(source_folder)}
-    if section_name == "ClassificationHead":
-        target_configuration[section_name]["pretrained"]["class_layer"] = class_layer
+
+    # Class layer flag of the sections holding one, False for the segmentation decoder, whose class layers lie outside
+    if section_name in PRETRAINED_CLASS_LAYER_KEYS:
+        target_configuration[section_name]["pretrained"][PRETRAINED_CLASS_LAYER_KEYS[section_name]] = \
+            class_layers and section_name in CLASS_LAYER_OPTION_SECTIONS
     return target_configuration
 
 
@@ -959,7 +969,7 @@ def test_classification_head_without_class_layer_initialises_a_run_of_other_clas
                                   model_configuration=point_to_source_run(configuration=target_configuration,
                                                                           section_name="ClassificationHead",
                                                                           source_folder=tmp_path / "source_run",
-                                                                          class_layer=True),
+                                                                          class_layers=True),
                                   device=torch.device("cpu"), class_names=target_class_names)
 
     # Loaded without it: hidden layers of the source run, class layer of the new run
@@ -967,7 +977,7 @@ def test_classification_head_without_class_layer_initialises_a_run_of_other_clas
                               model_configuration=point_to_source_run(configuration=target_configuration,
                                                                       section_name="ClassificationHead",
                                                                       source_folder=tmp_path / "source_run",
-                                                                      class_layer=False),
+                                                                      class_layers=False),
                               device=torch.device("cpu"), class_names=target_class_names)
     source_state = source_model.classification_head.state_dict()
     target_state = target_model.classification_head.state_dict()
@@ -1001,7 +1011,7 @@ def test_classification_head_without_hidden_layer_is_refused_without_its_class_l
                                   model_configuration=point_to_source_run(configuration=target_configuration,
                                                                           section_name="ClassificationHead",
                                                                           source_folder=tmp_path / "source_run",
-                                                                          class_layer=False),
+                                                                          class_layers=False),
                                   device=torch.device("cpu"), class_names=SOURCE_CLASS_NAMES)
     for tensor_name, tensor_value in target_model.classification_head.state_dict().items():
         assert torch.equal(input=tensor_value, other=initial_target_state[tensor_name]), tensor_name
@@ -1345,7 +1355,7 @@ def test_mask_heads_move_only_between_runs_of_the_same_mask_scoring(tmp_path: Pa
 def test_segmentation_class_layers_follow_the_decoder(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
     Verifies the loading of the class layers of a semantic segmenter with its decoder
-    ('SegmentationDecoder.pretrained.load_class_layers'), the run receiving them adding 2 classes and a deep
+    ('SegmentationDecoder.pretrained.class_layers'), the run receiving them adding 2 classes and a deep
     supervision head: the segmentation head and the deep supervision head of level 3, supervised by both runs, keep the
     channels of the background and of the source classes, the new classes keeping the random weights the new run was
     built with, while the deep supervision head of level 2, supervised by this run only, keeps its random weights,
@@ -1367,7 +1377,7 @@ def test_segmentation_class_layers_follow_the_decoder(tmp_path: Path, capsys: py
     target_configuration["SegmentationDecoder"]["deep_supervision_weights"] = {"3": 0.2, "2": 0.3}
     target_configuration = point_to_source_run(configuration=target_configuration, section_name="SegmentationDecoder",
                                                source_folder=tmp_path / "segmentation_run")
-    target_configuration["SegmentationDecoder"]["pretrained"]["load_class_layers"] = True
+    target_configuration["SegmentationDecoder"]["pretrained"]["class_layers"] = True
     target_segmenter = build_task_model(task="semantic_segmentation", configuration=target_configuration, seed=1)
     initial_target_state = copy.deepcopy(target_segmenter.state_dict())
     level_2_state_before = copy.deepcopy(target_segmenter.deep_supervision_heads["2"].state_dict())
@@ -1449,3 +1459,215 @@ def test_keypoint_head_moves_between_runs_of_the_same_keypoint_channels(
                                       class_names=KEYPOINT_CLASS_NAMES)
         assert all(torch.equal(input=initial_state[key], other=tensor)
                    for key, tensor in target_model.keypoint_head.state_dict().items())
+
+
+# Layers of the heads left out of a transfer without their class layers, by section, as fragments of their tensor
+# names: the classifier and per-class box regressor of the detection heads, the mask predictor and mask IoU predictor
+# of the mask heads, and the last convolutions of the keypoint head (hidden width 16, so index 1), whose transposed
+# convolution of the higher resolution branch is partly random
+LEFT_OUT_LAYER_FRAGMENTS = {"Detector": [".classifier.", ".bounding_box_regressor."],
+                            "MaskHead": [".mask_predictor.", ".iou_predictor."],
+                            "KeypointHead": ["prediction_convolution.1.", "higher_resolution_branch.heatmap_head.1.",
+                                             "higher_resolution_branch.transposed_convolution."]}
+
+
+def is_left_out_tensor(section_name: str, tensor_name: str) -> bool:
+    """
+    Tells whether a tensor of a head belongs to the layers its transfer without class layers leaves out
+    (LEFT_OUT_LAYER_FRAGMENTS), for the checks of the tests below.
+
+    Args:
+        section_name (str): A key of LEFT_OUT_LAYER_FRAGMENTS.
+        tensor_name (str): The name of the tensor in the state of the head, e.g. '5.classifier.weight'.
+
+    Returns:
+        bool: True for a tensor of a left out layer.
+    """
+    return any(fragment in f".{tensor_name}" for fragment in LEFT_OUT_LAYER_FRAGMENTS[section_name])
+
+
+def test_detection_and_mask_heads_without_class_layers_initialise_a_run_of_other_classes(
+        tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the detection heads and the mask heads, mask IoU heads included, of an instance segmentation run of 5
+    foreground classes, loaded without their class layers ('Detector.pretrained.class_layers' and
+    'MaskHead.pretrained.class_layers' False), initialise the heads of a run of 2 unrelated classes, which the transfer
+    with the class layers refuses: every other tensor is copied exactly, the classifier, box regressor, mask predictor
+    and mask IoU predictor keep the random weights the new run was built with, and the console says so.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the transfers.
+    """
+    source_configuration, _, _ = get_detection_model_configuration(mask_head=True)
+    source_configuration["MaskHead"]["mask_scoring"]["activated"] = True
+    source_segmenter = build_task_model(task="instance_segmentation", configuration=source_configuration, seed=0)
+    write_source_run(run_folder=tmp_path / "instance_run", configuration=source_configuration, model=source_segmenter,
+                     class_names=list_detection_class_names(configuration=source_configuration))
+    target_configuration = copy.deepcopy(source_configuration)
+    target_configuration["Data"]["label_dictionary"] = {"background": 0, "cat": 1, "dog": 2}
+    target_class_names = list_detection_class_names(configuration=target_configuration)
+    target_segmenter = build_task_model(task="instance_segmentation", configuration=target_configuration, seed=1)
+
+    for section_name, component_name in [("Detector", "Detection Heads"), ("MaskHead", "Mask Heads")]:
+        component = getattr(target_segmenter, TRANSFERABLE_COMPONENTS[section_name])
+        initial_target_state = copy.deepcopy(component.state_dict())
+
+        # Refused with the class layers, none of the source classes being a class of this run
+        with pytest.raises(expected_exception=ValueError, match="Their Classes Differ"):
+            load_pretrained_component(component=component, section_name=section_name, device=torch.device("cpu"),
+                                      model_configuration=point_to_source_run(
+                                          configuration=target_configuration, section_name=section_name,
+                                          source_folder=tmp_path / "instance_run", class_layers=True),
+                                      class_names=target_class_names)
+
+        # Loaded without them: other layers of the source run, class layers of the new run
+        load_pretrained_component(component=component, section_name=section_name, device=torch.device("cpu"),
+                                  model_configuration=point_to_source_run(
+                                      configuration=target_configuration, section_name=section_name,
+                                      source_folder=tmp_path / "instance_run", class_layers=False),
+                                  class_names=target_class_names)
+        source_state = getattr(source_segmenter, TRANSFERABLE_COMPONENTS[section_name]).state_dict()
+        target_state = component.state_dict()
+        assert any(is_left_out_tensor(section_name=section_name, tensor_name=name) for name in target_state)
+        for tensor_name, tensor_value in target_state.items():
+            left_out = is_left_out_tensor(section_name=section_name, tensor_name=tensor_name)
+            expected_value = initial_target_state[tensor_name] if left_out else source_state[tensor_name]
+            assert torch.equal(input=tensor_value, other=expected_value), tensor_name
+        assert (f"{component_name} : Loaded Without Their Class Layers, Which Keep The Random Initialisation Of This "
+                f"Run For Their 3 Classes (The Source Run Predicts 6 Classes).") in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(argnames=("higher_resolution", "hidden_width", "expected_error"),
+                         argvalues=[(True, 16, None), (True, 0, None), (False, 16, None),
+                                    (False, 0, "Has No Layer Besides Its Class Layers")])
+def test_keypoint_head_without_class_layers_initialises_a_run_of_other_keypoints(
+        tmp_path: Path, higher_resolution: bool, hidden_width: int, expected_error: Optional[str],
+        capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the keypoint head of a run predicting 7 keypoint channels (a triangle and a rectangle), loaded without
+    its keypoint channel layers ('KeypointHead.pretrained.class_layers' False), initialises the head of a run of one
+    pentagon of 5 keypoints, which the transfer with them refuses: the hidden convolution and the higher resolution
+    branch are copied exactly, the last convolutions of both heads keep the random weights the new run was built with,
+    and the transposed convolution of the branch takes the source rows of the features and keeps its random rows of
+    the predictions. A head without hidden convolution nor higher resolution branch, holding nothing else, is refused.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        higher_resolution (bool): Whether both runs have the higher resolution branch.
+        hidden_width (int): The hidden width of both heads, 0 for none.
+        expected_error (Optional[str]): A fragment of the refusal, None when the head must be loaded.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the transfer.
+    """
+    source_configuration, _, _ = get_keypoint_model_configuration(higher_resolution=higher_resolution,
+                                                                   hidden_width=hidden_width)
+    source_model = build_task_model(task="keypoint_detection", configuration=source_configuration, seed=0)
+    write_source_run(run_folder=tmp_path / "source_run", configuration=source_configuration, model=source_model,
+                     class_names=KEYPOINT_CLASS_NAMES, class_keypoints=FIXTURE_CLASS_KEYPOINTS)
+    target_configuration = copy.deepcopy(source_configuration)
+    target_configuration["Data"]["label_dictionary"] = {"background": 0, 1: 1}
+    target_configuration["Data"]["keypoint_categories"] = {1: {
+        "name": "pentagon", "keypoints": [f"corner_{index}" for index in range(5)],
+        "skeleton": [[index, (index + 1) % 5] for index in range(5)]}}
+    target_model = build_task_model(task="keypoint_detection", configuration=target_configuration, seed=1)
+    initial_target_state = copy.deepcopy(target_model.keypoint_head.state_dict())
+    target_class_names = ["background", "pentagon"]
+
+    # Refused with the keypoint channel layers, the channels of both runs differing
+    with pytest.raises(expected_exception=ValueError):
+        load_pretrained_component(component=target_model.keypoint_head, section_name="KeypointHead",
+                                  model_configuration=point_to_source_run(
+                                      configuration=target_configuration, section_name="KeypointHead",
+                                      source_folder=tmp_path / "source_run", class_layers=True),
+                                  device=torch.device("cpu"), class_names=target_class_names)
+    transfer_configuration = point_to_source_run(configuration=target_configuration, section_name="KeypointHead",
+                                                 source_folder=tmp_path / "source_run", class_layers=False)
+    if expected_error is not None:
+        with pytest.raises(expected_exception=ValueError, match=expected_error):
+            load_pretrained_component(component=target_model.keypoint_head, section_name="KeypointHead",
+                                      model_configuration=transfer_configuration, device=torch.device("cpu"),
+                                      class_names=target_class_names)
+        return
+
+    # Loaded without them: the last convolutions as the new run built them, the other layers from the source run
+    load_pretrained_component(component=target_model.keypoint_head, section_name="KeypointHead",
+                              model_configuration=transfer_configuration, device=torch.device("cpu"),
+                              class_names=target_class_names)
+    last_index = 1 if hidden_width else 0
+    left_out_prefixes = [f"prediction_convolution.{last_index}.",
+                         f"higher_resolution_branch.heatmap_head.{last_index}."]
+    source_state = source_model.keypoint_head.state_dict()
+    target_state = target_model.keypoint_head.state_dict()
+    for tensor_name, tensor_value in target_state.items():
+        if any(tensor_name.startswith(prefix) for prefix in left_out_prefixes):
+            assert torch.equal(input=tensor_value, other=initial_target_state[tensor_name]), tensor_name
+        elif tensor_name == "higher_resolution_branch.transposed_convolution.weight":
+            # Input rows of the features from the source run, rows of the predictions as the new run built them
+            feature_width = tensor_value.shape[1]
+            assert torch.equal(input=tensor_value[:feature_width], other=source_state[tensor_name][:feature_width])
+            assert torch.equal(input=tensor_value[feature_width:],
+                               other=initial_target_state[tensor_name][feature_width:])
+        else:
+            assert torch.equal(input=tensor_value, other=source_state[tensor_name]), tensor_name
+    assert ("Keypoint Head : Loaded Without Its Keypoint Channel Layers, Which Keep The Random Initialisation Of This "
+            "Run For Its 5 Keypoint Channels (The Source Run Predicts 7 Keypoint Channels).") in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(argnames="section_name", argvalues=["Detector", "MaskHead", "KeypointHead"])
+def test_heads_loaded_without_their_class_layers_transfer_their_other_layers_only(section_name: str) -> None:
+    """
+    Verifies the transferred part of the detection, mask and keypoint heads loaded without their class layers, which
+    the trainer freezes and fine-tunes at the learning rate multiplier of the transfer: every parameter of the heads
+    but those of their class layers (and of the partly random transposed convolution of the keypoint head), which learn
+    at the learning rate of the run, while heads loaded with their class layers are their own transferred part.
+
+    Args:
+        section_name (str): The section of the heads.
+    """
+    if section_name == "KeypointHead":
+        configuration, _, _ = get_keypoint_model_configuration(higher_resolution=True, hidden_width=16)
+        model = build_task_model(task="keypoint_detection", configuration=configuration, seed=0)
+    else:
+        configuration, _, _ = get_detection_model_configuration(mask_head=True)
+        configuration["MaskHead"]["mask_scoring"]["activated"] = True
+        model = build_task_model(task="instance_segmentation", configuration=configuration, seed=0)
+    component = getattr(model, TRANSFERABLE_COMPONENTS[section_name])
+    assert select_transferred_part(component=component, section_name=section_name, number_loaded_blocks=None,
+                                   with_class_layers=True) is component
+
+    # Parameters of every layer but the left out ones
+    transferred_part = select_transferred_part(component=component, section_name=section_name,
+                                               number_loaded_blocks=None, with_class_layers=False)
+    transferred_identifiers = [id(parameter) for parameter in transferred_part.parameters()]
+    expected_identifiers = [id(parameter) for parameter_name, parameter in component.named_parameters()
+                            if not is_left_out_tensor(section_name=section_name, tensor_name=parameter_name)]
+    assert sorted(transferred_identifiers) == sorted(expected_identifiers)
+    assert len(expected_identifiers) < len(list(component.parameters()))
+
+
+def test_class_layer_flags_are_disabled() -> None:
+    """
+    Verifies that turning off the transfers of a configuration sets the class layer flags of the detection heads, the
+    mask heads, the keypoint head and the segmentation decoder back to False, with their source runs and freezing.
+    """
+    instance_configuration, _, _ = get_detection_model_configuration(mask_head=True)
+    keypoint_configuration, _, _ = get_keypoint_model_configuration()
+    segmentation_configuration, _, _ = get_segmentation_model_configuration(upsampling="transposed")
+    for configuration in [instance_configuration, keypoint_configuration, segmentation_configuration]:
+        # Every transferable section pointing to a source run, with its class layers and frozen
+        transferred_sections = [section_name for section_name in TRANSFERABLE_COMPONENTS
+                                if section_name in configuration]
+        for section_name in transferred_sections:
+            configuration.update(point_to_source_run(configuration=configuration, section_name=section_name,
+                                                     source_folder=Path("/runs/source")))
+            configuration[section_name]["pretrained"]["freeze"] = True
+            if section_name in PRETRAINED_CLASS_LAYER_KEYS:
+                configuration[section_name]["pretrained"][PRETRAINED_CLASS_LAYER_KEYS[section_name]] = True
+
+        disable_pretrained_settings(model_configuration=configuration)
+
+        for section_name in transferred_sections:
+            expected_settings = NO_BACKBONE_TRANSFER if section_name == "Backbone" else NO_TRANSFER
+            if section_name in PRETRAINED_CLASS_LAYER_KEYS:
+                expected_settings = {**NO_TRANSFER, PRETRAINED_CLASS_LAYER_KEYS[section_name]: False}
+            assert configuration[section_name]["pretrained"] == expected_settings, section_name

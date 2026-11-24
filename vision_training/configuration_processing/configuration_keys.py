@@ -12,7 +12,7 @@ import difflib
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from vision_training.configuration_processing.common_checks import SEQUENCE_TASKS
+from vision_training.configuration_processing.common_checks import PRETRAINED_CLASS_LAYER_KEYS, SEQUENCE_TASKS
 from vision_training.data.augmentations import AUGMENTATION_TYPES
 
 # Groups of the tasks of 'ExperimentConfiguration.task' sharing sections: the two-stage detectors, the tasks with a
@@ -97,15 +97,16 @@ KNOWN_KEY_PATHS: Dict[str, Tuple[str, ...]] = {
         "modules.residual_nets_v2", "modules.inception", "modules.squeeze_and_excite",
         "pretrained.freeze_normalization_parameters"]},
 
-    # 'pretrained' settings of every transferable section
+    # 'pretrained' settings of every transferable section, with the class layer flag of the sections with class layers
     **{f"{section_name}.pretrained.{key_name}": section_tasks
        for section_name, section_tasks in PRETRAINED_SECTION_TASKS.items() for key_name in PRETRAINED_KEYS},
+    **{f"{section_name}.pretrained.{key_name}": PRETRAINED_SECTION_TASKS[section_name]
+       for section_name, key_name in PRETRAINED_CLASS_LAYER_KEYS.items()},
 
-    # Classification head of the image classifier and of the sequence tasks, with the class layer flag of its transfer,
-    # the decorrelation being the classifier's
+    # Classification head of the image classifier and of the sequence tasks, the decorrelation being the classifier's
     **{f"ClassificationHead.{key_name}": CLASSIFICATION_LIKE_TASKS for key_name in [
         "global_pooling", "fully_connected", "fully_connected_normalization", "dropout_rate", "output_mode",
-        "label_smoothing", "class_weighting", "pretrained.class_layer"]},
+        "label_smoothing", "class_weighting"]},
     **{f"ClassificationHead.decorrelation.{key_name}": ("classification",) for key_name in [
         "activated", "weight", "hidden_layer"]},
 
@@ -138,7 +139,7 @@ KNOWN_KEY_PATHS: Dict[str, Tuple[str, ...]] = {
     # Decoder and losses of the semantic segmentation, the decoder levels and deep supervision keyed by block numbers
     **{f"SegmentationDecoder.{key_name}": ("semantic_segmentation",) for key_name in [
         "upsampling", "convolutions", "modules.residual_nets", "modules.squeeze_and_excite",
-        "feature_map_normalization", "dropout_rate", "deep_supervision_weights", "pretrained.load_class_layers"]},
+        "feature_map_normalization", "dropout_rate", "deep_supervision_weights"]},
     **{f"SegmentationLoss.{key_name}": ("semantic_segmentation",) for key_name in [
         "cross_entropy_weight", "focal_gamma", "label_smoothing", "class_weighting", "dice_weight", "lovasz_weight",
         "boundary_weight", "boundary_distance"]},

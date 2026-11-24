@@ -4,13 +4,15 @@ dataset, on the CPU: training on the whole images saves checkpoints, evaluates t
 with the object keypoint similarity (the average precision tables, the matched objects, PCK and mean OKS, the
 per-class and per-keypoint tables, their CSV files and the sample images), its rates written as percentages in the
 report, and resumes from its last checkpoint, with the keypoint tables of its own classes when the mapping file
-changed since.
+changed since. A keypoint head loaded without its keypoint channel layers initialises a run whose channels predict
+other keypoints, only its other layers being fine-tuned at the multiplier.
 """
 
 import csv
 import json
 import numpy as np
 import pytest
+import re
 import torch
 import yaml
 
@@ -277,3 +279,116 @@ def test_resumed_run_builds_the_keypoint_tables_of_its_own_classes(tmp_path: Pat
     assert np.array_equal(resumed_trainer.channel_table, restored_channel_table.numpy())
     assert np.array_equal(resumed_trainer.channel_table, trainer.channel_table)
     assert resumed_trainer.maximum_keypoints == trainer.maximum_keypoints
+
+
+# Learning rate multiplier of the keypoint head transferred without its keypoint channel layers
+KEYPOINT_HEAD_LEARNING_RATE_MULTIPLIER = 0.1
+
+# Layers of the synthetic keypoint head (hidden width, higher resolution branch) left out of a transfer without its
+# keypoint channel layers, as prefixes of their parameter names in the head
+LEFT_OUT_KEYPOINT_LAYER_PREFIXES = ("prediction_convolution.1.", "higher_resolution_branch.heatmap_head.1.",
+                                    "higher_resolution_branch.transposed_convolution.")
+
+
+def write_keypoint_transfer_configuration(temporary_directory: Path, dataset_folder: Path, source_folder: Path,
+                                          label_mapping_path: Path, class_layers: bool) -> Path:
+    """
+    Writes the smoke configuration of a 2 iteration run whose keypoint head is initialised by the one of a source run,
+    with or without its keypoint channel layers, fine-tuned at KEYPOINT_HEAD_LEARNING_RATE_MULTIPLIER, on the classes
+    of another mapping file.
+
+    Args:
+        temporary_directory (Path): The pytest temporary directory receiving the configuration and the experiments.
+        dataset_folder (Path): The root folder of the generated synthetic dataset.
+        source_folder (Path): The run folder of the source run.
+        label_mapping_path (Path): The mapping file of the run.
+        class_layers (bool): The 'KeypointHead.pretrained.class_layers' flag of the run.
+
+    Returns:
+        Path: The path of the written configuration file.
+    """
+    configuration_path = write_smoke_configuration(temporary_directory=temporary_directory,
+                                                   dataset_folder=dataset_folder, number_iterations=2)
+    configuration = yaml.safe_load(stream=configuration_path.read_text())
+    configuration["Data"]["label_mapping"]["mapping_file_path"] = str(label_mapping_path)
+    configuration["KeypointHead"]["pretrained"].update({
+        "experiment_folder": str(source_folder), "class_layers": class_layers,
+        "learning_rate_multiplier": KEYPOINT_HEAD_LEARNING_RATE_MULTIPLIER})
+    transfer_configuration_path = temporary_directory / f"keypoint_transfer_class_layers_{class_layers}.yaml"
+    transfer_configuration_path.write_text(data=yaml.safe_dump(data=configuration))
+    return transfer_configuration_path
+
+
+def test_keypoint_head_without_class_layers_initialises_a_run_of_other_keypoints(
+        tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies the transfer of a keypoint head without its keypoint channel layers ('KeypointHead.pretrained.class_layers'
+    False) through the trainer: a run whose mapping file swaps two classes of different keypoint counts, so that its
+    channels predict other keypoints, which the head with its keypoint channel layers cannot initialise, starts in its
+    own folder (named with KHPT and KHRCL) with the hidden convolutions and higher resolution branch of the source head,
+    its last convolutions keeping their own initialisation; the experiment information names the transfer, the loaded
+    layers form the second optimizer group at the multiplier, the left out ones learn in the first one, and the run
+    trains.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainers.
+    """
+    dataset_folder = tmp_path / "synthetic_keypoints"
+    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
+                             split_sizes={"train": 4, "validation": 2, "test": 2}, maximum_objects=2,
+                             minimum_frames=1, maximum_frames=1, number_workers=1, task="keypoint_detection")
+    source_trainer = build_trainer(configuration_path=write_smoke_configuration(
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=2))
+    source_trainer.run_training_loop()
+    source_head_state = {parameter_name[len("keypoint_head."):]: parameter_value for parameter_name, parameter_value in
+                         torch.load(f=source_trainer.weights_directory / "Iteration_2" / "model_000002.pt",
+                                    map_location="cpu", weights_only=True)["model_state"].items()
+                         if parameter_name.startswith("keypoint_head.")}
+
+    # Mapping file swapping two classes of different keypoint counts, whose channels then predict other keypoints
+    label_mapping = json.loads(s=(dataset_folder / "label_mapping.json").read_text())
+    category_by_class = {class_index: category for category, class_index in label_mapping.items()}
+    keypoint_categories = source_trainer.keypoint_categories
+    first_class, second_class = next(
+        (first_index, second_index) for first_index in sorted(keypoint_categories)
+        for second_index in sorted(keypoint_categories)
+        if len(keypoint_categories[first_index]["keypoints"]) != len(keypoint_categories[second_index]["keypoints"]))
+    label_mapping[category_by_class[first_class]] = second_class
+    label_mapping[category_by_class[second_class]] = first_class
+    swapped_mapping_path = tmp_path / "swapped_label_mapping.json"
+    swapped_mapping_path.write_text(data=json.dumps(obj=label_mapping))
+
+    # Refused with the keypoint channel layers, the channels of both runs predicting other keypoints
+    with pytest.raises(expected_exception=ValueError, match="Predicts"):
+        build_trainer(configuration_path=write_keypoint_transfer_configuration(
+            temporary_directory=tmp_path, dataset_folder=dataset_folder, source_folder=source_trainer.experiment_folder,
+            label_mapping_path=swapped_mapping_path, class_layers=True))
+    capsys.readouterr()
+
+    # Loaded without them: the run name, the console and the weights of the head
+    transfer_trainer = build_trainer(configuration_path=write_keypoint_transfer_configuration(
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, source_folder=source_trainer.experiment_folder,
+        label_mapping_path=swapped_mapping_path, class_layers=False))
+    assert transfer_trainer.run_name == source_trainer.run_name.replace("-HH_", "-HH-KHPT-KHRCL_")
+    console_output = re.sub(pattern=r"\x1b\[[0-9;]*m", repl="", string=capsys.readouterr().out)
+    assert "Keypoint Head : Loaded Without Its Keypoint Channel Layers" in console_output
+    assert "- Pretrained Kpt. Head" in console_output and "    - Class Layers Loaded : False" in console_output
+    head = transfer_trainer.model.keypoint_head
+    for parameter_name, parameter_value in head.state_dict().items():
+        if not parameter_name.startswith(LEFT_OUT_KEYPOINT_LAYER_PREFIXES):
+            assert torch.equal(input=parameter_value.cpu(), other=source_head_state[parameter_name]), parameter_name
+
+    # Loaded layers in the second optimizer group at the multiplier, left out layers in the first one
+    parameter_groups = transfer_trainer.optimizer.param_groups
+    learning_rate = transfer_trainer.learning_rate
+    assert [parameter_group["lr"] for parameter_group in parameter_groups] == pytest.approx(
+        expected=[learning_rate, learning_rate * KEYPOINT_HEAD_LEARNING_RATE_MULTIPLIER])
+    assert {id(parameter) for parameter in parameter_groups[1]["params"]} == {
+        id(parameter) for parameter_name, parameter in head.named_parameters()
+        if not parameter_name.startswith(LEFT_OUT_KEYPOINT_LAYER_PREFIXES)}
+    assert {id(parameter) for parameter_name, parameter in head.named_parameters()
+            if parameter_name.startswith(LEFT_OUT_KEYPOINT_LAYER_PREFIXES)} <= {
+        id(parameter) for parameter in parameter_groups[0]["params"]}
+    transfer_trainer.run_training_loop()
+    assert (transfer_trainer.weights_directory / "Iteration_2" / "model_000002.pt").exists()

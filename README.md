@@ -718,11 +718,11 @@ To be able to start from a trained component, such as a backbone trained on Imag
 | `Backbone` | backbone | any task |
 | `TemporalModel` | temporal module | M2O, M2M, CMP, SEL |
 | `ClassificationHead` | classification head, with its class layer when `class_layer` is True | CLS, M2O, M2M, CMP, SEL |
-| `SegmentationDecoder` | U-Net decoder, with its class layers when `load_class_layers` is True | SEG |
+| `SegmentationDecoder` | U-Net decoder, with its class layers when `class_layers` is True | SEG |
 | `RegionProposal` | region proposal heads of every detection level | DET, INS |
-| `Detector` | detection heads of every detection level, with their classification and box regression layers | DET, INS |
-| `MaskHead` | mask heads of every detection level, with their mask prediction layers and, with `MaskHead.mask_scoring`, their mask IoU heads | INS |
-| `HRNet`, `KeypointHead` | high resolution network, heatmap and tag head | KPT |
+| `Detector` | detection heads of every detection level, with their classification and box regression layers when `class_layers` is True | DET, INS |
+| `MaskHead` | mask heads of every detection level and, with `MaskHead.mask_scoring`, their mask IoU heads, with their mask and IoU prediction layers when `class_layers` is True | INS |
+| `HRNet`, `KeypointHead` | high resolution network, heatmap and tag head, with its last heatmap and tag convolutions when `class_layers` is True | KPT |
 
 <p align="center">
   <img src="README/transfer_between_runs.png" width="100%" />
@@ -743,7 +743,7 @@ Backbone:
     learning_rate_multiplier: 0.1
 ```
 
-The settings defining the layers of the component must be identical in both runs (checked before the training; the image size may differ), and the averaged weights of the source are loaded when both runs keep a moving average. A backbone may also be shorter than its source backbone, loading its first blocks (the stem of a keypoint detector), or deeper, its first blocks loaded from a shorter source backbone of the same blocks: the blocks after them start random and learn at the learning rate of the run, `freeze`, `freeze_normalization_parameters` and `learning_rate_multiplier` applying to the loaded blocks only. A component with class layers can initialise a run with more classes: every source class must be a class of the new run, either first in the same order or anywhere under the same name, its rows moving to the index of that name. A classification head with `class_layer: False` (the default) loads its hidden layers only, its class layer starting random, so that the hidden layers of an ImageNet head serve a run of unrelated classes; `freeze` and `learning_rate_multiplier` then apply to the hidden layers only. The detection heads read the levels after the neck, which is not transferable, so they only move between runs whose `Neck.type` is `none`. Details: [training reference](documentation/reference/training_reference.md#transfer-between-runs).
+The settings defining the layers of the component must be identical in both runs (checked before the training; the image size may differ), and the averaged weights of the source are loaded when both runs keep a moving average. A backbone may also be shorter than its source backbone, loading its first blocks (the stem of a keypoint detector), or deeper, its first blocks loaded from a shorter source backbone of the same blocks: the blocks after them start random and learn at the learning rate of the run, `freeze`, `freeze_normalization_parameters` and `learning_rate_multiplier` applying to the loaded blocks only. A component with class layers can initialise a run with more classes: every source class must be a class of the new run, either first in the same order or anywhere under the same name, its rows moving to the index of that name. A classification head with `class_layer: False` (the default) loads its hidden layers only, its class layer starting random, so that the hidden layers of an ImageNet head serve a run of unrelated classes; `freeze` and `learning_rate_multiplier` then apply to the hidden layers only. The detection, mask and keypoint heads do the same with `class_layers: False` (the default), their class layers (keypoint channel layers) starting random, so that heads trained on other classes or keypoints serve any run of the task. The detection heads read the levels after the neck, which is not transferable, so they only move between runs whose `Neck.type` is `none`. Details: [training reference](documentation/reference/training_reference.md#transfer-between-runs).
 
 ## Evaluating Checkpoints
 Each time the checkpoints of a trained run must be scored again (another labelled split, another batch size, or for DET and INS another final NMS), set the variables of the main block of `scripts/evaluation/evaluate_checkpoint.py` (`run_name`, `experiment_folder`, `iteration` as `None` for the last checkpoint, a number or `"all"`, `test_data_folder`, ...), then run:
