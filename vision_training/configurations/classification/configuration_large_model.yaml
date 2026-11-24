@@ -258,7 +258,7 @@ ClassificationHead:
   # Label smoothing, in [0, 1), 0 to disable.
   label_smoothing: 0.0
   # Loss class weights: "none" or "balanced" (inverse to the training samples of each class).
-  class_weighting: "balanced"
+  class_weighting: "none"
   # DeCov loss on one hidden head layer (before ReLU): weighted sum of the squared off-diagonal correlations of its
   # batch-normalized features (floor about units x (units - 1) / (N - 1) above N images); no run name token.
   decorrelation:
