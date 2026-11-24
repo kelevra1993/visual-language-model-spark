@@ -204,7 +204,7 @@ SegmentationDecoder:
     experiment_folder: null
     iteration: null
     freeze: false
-    load_class_layers: false
+    class_layers: false
     learning_rate_multiplier: 1.0
 SegmentationLoss:
   cross_entropy_weight: 1.0

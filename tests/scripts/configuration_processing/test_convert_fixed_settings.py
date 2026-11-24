@@ -8,8 +8,9 @@ proposal section, the anchors centred on the cell corners removed (a file centri
 it is), the instance index maps (one mask per object) added to the data section of the instance segmentation files,
 the finer inputs of the mask heads (none) added to their mask heads section, the speed benchmark diagnosis mode (off)
 added to the diagnosis modes of every task (a partial draft without them left as it is), the class layer flag added to
-the classification heads (True for a head transferred from another run, False otherwise), and the refusals of a
-conversion changing another setting or the backbone.
+the classification heads and to the detection, mask and keypoint heads (True for heads transferred from another run,
+False otherwise), the class layer flag of the segmentation decoder renamed, and the refusals of a conversion changing
+another setting or the backbone.
 """
 
 import pytest
@@ -18,7 +19,8 @@ from pathlib import Path
 
 from scripts.configuration_processing.convert_fixed_settings import (NECK_SECTION_TEXT, add_required_sections,
                                                                       add_required_settings, check_conversion,
-                                                                      convert_fixed_settings, remove_fixed_settings)
+                                                                      convert_fixed_settings, remove_fixed_settings,
+                                                                      rename_settings)
 from vision_training.data.loaders import NUMBER_LOADER_WORKERS
 from vision_training.evaluation.classification.classification_metrics import TOP_K_ACCURACY_CLASSES
 
@@ -1066,3 +1068,159 @@ def test_conversion_adds_the_class_layer_flag_to_the_classification_heads(tmp_pa
         configuration_text=transferred_text, class_layer="True")
     assert (run_folder / "training_configuration_before_class_layer.yaml").read_text(
         encoding="utf-8") == transferred_text
+
+
+# Transferable heads of the detection tasks and of the keypoint detection written before their class layer flag, with
+# the settings and the neck added before it, the detection and keypoint heads trained from random weights or
+# transferred (placeholder), the mask heads transferred, then the texts of the flags the conversion adds after 'freeze'
+HEADS_TEXT = """ExperimentConfiguration:
+  task: {task}
+Neck:
+  type: "none"
+Detector:
+  total_training_samples: 256
+  box_loss: "smooth_l1"
+  nms_iou_threshold: 0.5
+  nms_criterion: "iou"
+  nms_distance_exponent: 1.0
+  pretrained:
+    experiment_folder: {experiment_folder}
+    iteration: null
+    freeze: False
+    learning_rate_multiplier: 1.0
+MaskHead:
+  upsampling: "transposed"
+  skip_blocks_at_pool_size: []
+  image_branch_convolutions: [0, 0]
+  skip_blocks_at_mask_resolution: []
+  fusion_convolutions: [0, 0]
+  shared: False
+  mask_scoring:
+    activated: False
+  pretrained:
+    experiment_folder: "/runs/source"
+    iteration: null
+    freeze: True
+    learning_rate_multiplier: 1.0
+KeypointHead:
+  pretrained:
+    experiment_folder: {experiment_folder}
+    iteration: null
+    freeze: False
+    learning_rate_multiplier: 1.0
+"""
+DETECTOR_CLASS_LAYERS_TEXT = (
+    "    # True also loads the class layers (classifier, box regressor): source classes (its data.json) first in order"
+    " or by\n    # name, others random; needs experiment_folder. False leaves them random for any classes (DRCL"
+    " token).\n    class_layers: {class_layers}\n")
+MASK_HEAD_CLASS_LAYERS_TEXT = (
+    "    # True also loads the class layers (mask predictor, mask IoU predictor): source classes (its data.json) first"
+    " in\n    # order or by name, others random; needs experiment_folder. False leaves them random for any classes"
+    " (MRCL token).\n    class_layers: True\n")
+KEYPOINT_HEAD_CLASS_LAYERS_TEXT = (
+    "    # True also loads the heatmap and tag convolutions: same classes and keypoints in the same order (its"
+    " data.json);\n    # needs experiment_folder. False leaves them random for any keypoints, as their HH branch inputs"
+    " (KHRCL token).\n    class_layers: {class_layers}\n")
+
+
+def test_conversion_adds_the_class_layers_flag_to_the_detection_mask_and_keypoint_heads(tmp_path: Path) -> None:
+    """
+    Verifies that the conversion writes the class layer flag of the detection heads (object detection and instance
+    segmentation), of the mask heads (instance segmentation) and of the keypoint head (keypoint detection), with its
+    comment lines, right after 'freeze' in their 'pretrained' block: False for heads trained from random weights, True
+    for heads transferred from another run, which loaded their class layers, so that the run names and the parameter
+    groups of the saved runs stay; the heads of the other tasks are left as they are, and the check refuses transferred
+    heads written False.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = tmp_path / "configuration.yaml"
+    for experiment_folder, class_layers in [("null", "False"), ('"/runs/source"', "True")]:
+        # Flags of the sections of every task, the mask heads being transferred in every text
+        expected_insertions = {"object_detection": [("Detector", DETECTOR_CLASS_LAYERS_TEXT)],
+                               "instance_segmentation": [("Detector", DETECTOR_CLASS_LAYERS_TEXT),
+                                                         ("MaskHead", MASK_HEAD_CLASS_LAYERS_TEXT)],
+                               "keypoint_detection": [("KeypointHead", KEYPOINT_HEAD_CLASS_LAYERS_TEXT)]}
+        for task, insertions in expected_insertions.items():
+            original_text = HEADS_TEXT.format(task=task, experiment_folder=experiment_folder)
+            expected_text = original_text
+            for section_name, flag_text in insertions:
+                freeze_line = "    freeze: True\n" if section_name == "MaskHead" else "    freeze: False\n"
+                section_start = expected_text.index(f"{section_name}:\n")
+                freeze_index = expected_text.index(freeze_line, section_start) + len(freeze_line)
+                expected_text = (expected_text[:freeze_index] + flag_text.format(class_layers=class_layers) +
+                                 expected_text[freeze_index:])
+            converted_text = add_required_settings(configuration_text=original_text, task=task,
+                                                   configuration_path=configuration_path)
+            assert converted_text == expected_text, task
+            assert check_conversion(original_text=original_text, converted_text=converted_text, task=task,
+                                    configuration_path=configuration_path) == []
+
+    # Heads of another task left as they are, and transferred detection heads written False refused
+    classification_text = HEADS_TEXT.format(task="classification", experiment_folder="null")
+    assert add_required_settings(configuration_text=classification_text, task="classification",
+                                 configuration_path=configuration_path) == classification_text
+    transferred_text = HEADS_TEXT.format(task="object_detection", experiment_folder='"/runs/source"')
+    written_false_text = transferred_text.replace(
+        "    freeze: False\n", "    freeze: False\n" + DETECTOR_CLASS_LAYERS_TEXT.format(class_layers="False"), 1)
+    with pytest.raises(expected_exception=ValueError,
+                       match=r"than the fixed ones: Detector\.pretrained\.class_layers\.$"):
+        check_conversion(original_text=transferred_text, converted_text=written_false_text, task="object_detection",
+                         configuration_path=configuration_path)
+
+
+# Segmentation decoder written before the renaming of its class layer flag, its section comment naming it
+SEGMENTATION_DECODER_TEXT = """ExperimentConfiguration:
+  task: {task}
+  # Keeps load_class_layers of the decoder as written.
+  run_name_suffix: ""
+SegmentationDecoder:
+  # Decoder of another run; its class convolution and supervision heads need load_class_layers.
+  pretrained:
+    experiment_folder: "/runs/source"
+    freeze: False
+    # Also loads the segmentation head and deep supervision heads.
+    load_class_layers: True # loaded
+    learning_rate_multiplier: 1.0
+"""
+
+
+def test_conversion_renames_the_class_layers_flag_of_the_segmentation_decoder(tmp_path: Path) -> None:
+    """
+    Verifies that the conversion renames 'SegmentationDecoder.pretrained.load_class_layers' to 'class_layers' in the
+    files of the semantic segmentation, keeping its value, its place and its comment, and names it under its new name
+    in the comments of the 'SegmentationDecoder' section only; the check refuses a file still holding the former name,
+    a file of another task is left as it is, and convert_fixed_settings converts a run configuration with its backup.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = tmp_path / "configuration.yaml"
+    original_text = SEGMENTATION_DECODER_TEXT.format(task="semantic_segmentation")
+    expected_text = original_text.replace(
+        "    load_class_layers: True # loaded", "    class_layers: True # loaded").replace(
+        "supervision heads need load_class_layers.", "supervision heads need class_layers.")
+    converted_text = rename_settings(configuration_text=original_text, task="semantic_segmentation")
+    assert converted_text == expected_text
+    assert "  # Keeps load_class_layers of the decoder as written." in converted_text
+    assert check_conversion(original_text=original_text, converted_text=converted_text, task="semantic_segmentation",
+                            configuration_path=configuration_path) == []
+
+    # The former name kept refused, and another task left as it is
+    with pytest.raises(expected_exception=ValueError, match="SegmentationDecoder.pretrained.class_layers"):
+        check_conversion(original_text=original_text, converted_text=original_text, task="semantic_segmentation",
+                         configuration_path=configuration_path)
+    other_text = SEGMENTATION_DECODER_TEXT.format(task="classification")
+    assert rename_settings(configuration_text=other_text, task="classification") == other_text
+
+    # A run configuration converted with its backup next to it
+    run_folder = tmp_path / "runs" / "SEG_run"
+    run_folder.mkdir(parents=True)
+    (run_folder / "training_configuration.yaml").write_text(data=original_text, encoding="utf-8")
+    converted_paths = convert_fixed_settings(run_roots=[tmp_path / "runs"], configuration_folders=[], write_files=True,
+                                             backup_suffix="_before_class_layers")
+    assert converted_paths == [run_folder / "training_configuration.yaml"]
+    assert (run_folder / "training_configuration.yaml").read_text(encoding="utf-8") == expected_text
+    assert (run_folder / "training_configuration_before_class_layers.yaml").read_text(
+        encoding="utf-8") == original_text

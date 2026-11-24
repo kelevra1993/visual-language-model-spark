@@ -118,7 +118,7 @@ class SegmentationTrainer(BaseTrainer):
         """
         Gives the class names taken from the training manifest by build_dataloaders, the background first, for the
         record of the data of the run and the transfer of the class layers of the segmenter to a run adding classes
-        after them ('SegmentationDecoder.pretrained.load_class_layers').
+        after them ('SegmentationDecoder.pretrained.class_layers').
 
         Returns:
             Optional[List[str]]: The class names, in class index order.

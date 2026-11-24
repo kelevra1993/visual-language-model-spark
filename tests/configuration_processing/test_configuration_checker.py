@@ -822,6 +822,19 @@ def keep_the_fixed_head_settings(configuration: Dict[str, Any]) -> None:
     configuration["Optimization"]["optimizer"] = "lion"
 
 
+def keep_the_former_class_layers_name(configuration: Dict[str, Any]) -> None:
+    """
+    Writes the class layer flag of the segmentation decoder under its former name 'load_class_layers', as the files
+    written before its renaming, next to an unknown optimizer.
+
+    Args:
+        configuration (Dict[str, Any]): The raw semantic segmentation configuration, modified in place.
+    """
+    pretrained_configuration = configuration["SegmentationDecoder"]["pretrained"]
+    pretrained_configuration["load_class_layers"] = pretrained_configuration.pop("class_layers")
+    configuration["Optimization"]["optimizer"] = "lion"
+
+
 @pytest.mark.parametrize(argnames=("task_folder", "modify_function", "removed_settings", "hidden_message"), argvalues=[
     ("classification", keep_the_fixed_settings,
      ["ExperimentConfiguration.evaluation.top_k", "ExperimentConfiguration.tracking.log_artifacts",
@@ -837,6 +850,8 @@ def keep_the_fixed_head_settings(configuration: Dict[str, Any]) -> None:
       "Detector.localisation_loss_beta", "RegionProposal.box_loss", "RegionProposal.anchor_centres"],
      "'Optimization.optimizer' must be one of"),
     ("semantic_segmentation", keep_the_fixed_head_settings, ["SegmentationDecoder.batch_normalization_momentum"],
+     "'Optimization.optimizer' must be one of"),
+    ("semantic_segmentation", keep_the_former_class_layers_name, ["SegmentationDecoder.pretrained.load_class_layers"],
      "'Optimization.optimizer' must be one of"),
     ("self_supervised", keep_the_fixed_head_settings, ["ProjectionHead.batch_normalization_momentum"],
      "'Optimization.optimizer' must be one of")])
@@ -1605,7 +1620,7 @@ def set_non_boolean_class_layer(configuration: Dict[str, Any]) -> None:
     (set_class_layer_without_source_run, [
         "'ClassificationHead.pretrained.class_layer' must be False when "
         "'ClassificationHead.pretrained.experiment_folder' is null: the class layer is loaded from the source run of "
-        "the head."]),
+        "the classification head."]),
     (set_head_without_hidden_layer_loaded_without_class_layer, [
         "'ClassificationHead.pretrained.class_layer' must be True when 'ClassificationHead.fully_connected' is []: a "
         "head without hidden layer has nothing to load but its class layer."]),
@@ -1933,24 +1948,28 @@ def test_transferred_classification_head_is_accepted_with_or_without_its_class_l
 
 def transfer_mask_heads_and_class_layers(configuration: Dict[str, Any]) -> None:
     """
-    Initialises the frozen mask heads of an instance segmenter with those of another run, or the decoder of a semantic
-    segmenter and its class layers, depending on the sections of the configuration.
+    Initialises the frozen mask heads of an instance segmenter with those of another run, with their class layers, and
+    its detection heads without their class layers, or the decoder of a semantic segmenter and its class layers,
+    depending on the sections of the configuration.
 
     Args:
         configuration (Dict[str, Any]): The raw instance or semantic segmentation configuration, modified in place.
     """
     if "MaskHead" in configuration:
-        configuration["MaskHead"]["pretrained"].update({"experiment_folder": "/runs/source", "freeze": True})
+        configuration["MaskHead"]["pretrained"].update({"experiment_folder": "/runs/source", "freeze": True,
+                                                        "class_layers": True})
+        configuration["Detector"]["pretrained"].update({"experiment_folder": "/runs/source", "class_layers": False})
     else:
         configuration["SegmentationDecoder"]["pretrained"].update({"experiment_folder": "/runs/source",
-                                                                   "load_class_layers": True})
+                                                                   "class_layers": True})
 
 
-@pytest.mark.parametrize(argnames="task_folder", argvalues=["instance_segmentation"])
+@pytest.mark.parametrize(argnames="task_folder", argvalues=["instance_segmentation", "semantic_segmentation"])
 def test_transferred_mask_heads_and_class_layers_are_accepted(tmp_path: Path, task_folder: str) -> None:
     """
-    Verifies that consistent pretrained settings of the mask heads of an instance segmenter pass the checks, the source
-    run being only read when the training starts.
+    Verifies that consistent pretrained settings of the mask heads and detection heads of an instance segmenter, with
+    and without their class layers, and of the decoder of a semantic segmenter with its class layers pass the checks,
+    the source run being only read when the training starts.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -1962,8 +1981,45 @@ def test_transferred_mask_heads_and_class_layers_are_accepted(tmp_path: Path, ta
     _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
     if task_folder == "instance_segmentation":
         assert model_configuration["MaskHead"]["pretrained"]["freeze"] is True
+        assert model_configuration["MaskHead"]["pretrained"]["class_layers"] is True
+        assert model_configuration["Detector"]["pretrained"]["class_layers"] is False
     else:
-        assert model_configuration["SegmentationDecoder"]["pretrained"]["load_class_layers"] is True
+        assert model_configuration["SegmentationDecoder"]["pretrained"]["class_layers"] is True
+
+
+def set_head_class_layers_without_source_run(configuration: Dict[str, Any]) -> None:
+    """
+    Asks for the class layers of the detection heads and of the mask heads of an instance segmenter while neither is
+    transferred, there being no source run to load them from, and writes the flag of the mask heads as a text.
+
+    Args:
+        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
+    """
+    configuration["Detector"]["pretrained"].update({"experiment_folder": None, "class_layers": True})
+    configuration["MaskHead"]["pretrained"].update({"experiment_folder": "/runs/source", "class_layers": "no"})
+
+
+def test_head_class_layers_need_a_source_run(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the class layer flag of the detection heads, True without a source run, and that of the mask heads,
+    not a boolean, stop the loading with a short message naming the faulty key.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="instance_segmentation",
+                                                  configuration_name="configuration_synthetic_shapes.yaml",
+                                                  modify_function=set_head_class_layers_without_source_run)
+
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+
+    printed_output = capsys.readouterr().out
+    assert ("'Detector.pretrained.class_layers' must be False when 'Detector.pretrained.experiment_folder' is null: "
+            "the class layers are loaded from the source run of the detection heads.") in printed_output
+    assert "'MaskHead.pretrained.class_layers' must be True or False, got 'no'." in printed_output
+    assert "Traceback" not in printed_output
 
 
 def remove_level_mask_head(configuration: Dict[str, Any]) -> None:
@@ -2560,7 +2616,22 @@ def set_unknown_keypoint_sigmas(configuration: Dict[str, Any]) -> None:
                                                                                  "dragon": {"tail": 0.1}}
 
 
+def set_keypoint_head_without_other_layers_loaded_without_channels(configuration: Dict[str, Any]) -> None:
+    """
+    Transfers a keypoint head without hidden convolution nor higher resolution branch without its keypoint channel
+    layers, which leaves nothing to load.
+
+    Args:
+        configuration (Dict[str, Any]): The raw keypoint detection configuration, modified in place.
+    """
+    configuration["KeypointHead"].update({"hidden_width": 0, "higher_resolution": False})
+    configuration["KeypointHead"]["pretrained"].update({"experiment_folder": "/runs/source", "class_layers": False})
+
+
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
+    (set_keypoint_head_without_other_layers_loaded_without_channels, [
+        "'KeypointHead.pretrained.class_layers' must be True when 'KeypointHead.hidden_width' is 0 and "
+        "'KeypointHead.higher_resolution' is False: the head has nothing to load but its keypoint channel layers."]),
     (set_image_size_not_matching_the_branches, ["'Data.image_settings.size' (500) must be a multiple of 32, the "
                                                 "stride of the lowest resolution branch of the 3 stages of "
                                                 "'HRNet.modules_per_stage'."]),

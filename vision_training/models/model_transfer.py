@@ -7,9 +7,10 @@ it kept a moving average and the new run keeps one), the first blocks of a deepe
 a deeper one (its next blocks staying random, and only its loaded blocks frozen or fine-tuned at the multiplier of the
 transfer), the class layers of a run adding classes after those of its source run or holding them in another order
 (the source classes keeping their trained rows, at the index of the same class name, the new classes the random rows
-of the new run), the classification head loaded without its class layer for a run of other classes (its class layer
-keeping the random initialisation of the new run and learning at its learning rate), the class layers of the semantic
-segmentation loaded with its decoder, and the freezing of components, normalization parameters and batch statistics.
+of the new run), the classification, detection, mask and keypoint heads loaded without their class layers for a run of
+other classes (their class layers keeping the random initialisation of the new run and learning at its learning rate),
+the class layers of the semantic segmentation loaded with its decoder, and the freezing of components, normalization
+parameters and batch statistics.
 Used by the base trainer and by scripts/evaluation/evaluate_checkpoint.py.
 """
 
@@ -20,6 +21,8 @@ from pathlib import Path
 from torch import nn
 from typing import Any, Dict, List, Optional, Tuple
 
+from vision_training.configuration_processing.common_checks import (CLASS_LAYER_OPTION_SECTIONS,
+                                                                   PRETRAINED_CLASS_LAYER_KEYS)
 from vision_training.configuration_processing.configuration_loader import load_configuration
 from vision_training.data.data_record import (CLASS_NAMES_RECORD_KEY, CLASSES_RECORD_KEY, DATA_RECORD_FILE_NAME,
                                               KEYPOINTS_RECORD_KEY)
@@ -49,7 +52,7 @@ COMPONENT_NAMES = {"RegionProposal": "region proposal heads", "Detector": "detec
 MAXIMUM_LISTED_DIFFERENCES = 5
 
 # Attributes of the semantic segmenter holding its class layers, outside the decoder so that a decoder serves runs of
-# other classes, loaded with the decoder when 'SegmentationDecoder.pretrained.load_class_layers' is True: the 1x1
+# other classes, loaded with the decoder when 'SegmentationDecoder.pretrained.class_layers' is True: the 1x1
 # convolution of the segmentation head and the 1x1 convolutions of the deep supervision heads
 SEGMENTATION_CLASS_LAYER_ATTRIBUTES = ["segmentation_head", "deep_supervision_heads"]
 
@@ -154,12 +157,16 @@ CLASS_LAYERS = {"ClassificationHead": [[r"classifier", 1]],
                 "MaskHead": [[r"\w+\.mask_predictor", 1], [r"\w+\.mask_iou_head\.iou_predictor", 1]],
                 "SegmentationDecoder": [[r"segmentation_head\.\d+", 1], [r"deep_supervision_heads\.\w+", 1]]}
 
-# Sections whose 'pretrained' block holds 'class_layer': False loads every layer of the component but its class layers
-# (see CLASS_LAYERS), which keep the random initialisation of the new run whatever the classes of both runs and learn
-# at its learning rate, e.g. the hidden layers of an ImageNet head for a run of unrelated classes; True also loads the
-# class layers, the source classes having to be classes of the new run (see prepare_class_layers). The other sections
-# with class layers always load them
-CLASS_LAYER_OPTION_SECTIONS = ["ClassificationHead"]
+# Layers of the keypoint head whose output channels follow the keypoints of the classes, left out with its class
+# layers: the last convolution of the quarter resolution head (heatmaps then tags, after the hidden convolution of a
+# hidden width) and of the heatmap head of the higher resolution branch. They are not CLASS_LAYERS, whose rows move to
+# the classes of the new run, a keypoint head loaded with them needing the same keypoint channels
+KEYPOINT_CHANNEL_LAYERS = [r"prediction_convolution\.\d+", r"higher_resolution_branch\.heatmap_head\.\d+"]
+
+# Transposed convolution of the higher resolution branch, reading the features of the network then the predictions of
+# the quarter resolution head: its first input rows, as many as its output channels (the feature width), are loaded
+# without the class layers, its rows of the predictions keeping the random initialisation of the new run
+KEYPOINT_PREDICTION_INPUT_LAYER = r"higher_resolution_branch\.transposed_convolution"
 
 
 def get_component_name(section_name: str) -> str:
@@ -384,7 +391,7 @@ def compare_classification_heads(source_configuration: Dict[str, Any],
     The other sizes of the input vectors (e.g. the channels of the last backbone block) are compared on the weights
     themselves, and the classes by load_pretrained_component, the run receiving the head being allowed to add classes
     after those of the source run or to hold them at other indices under the same names, or to have unrelated classes
-    when the head is loaded without its class layer ('ClassificationHead.pretrained.class_layer' False).
+    when the head is loaded without its class layer ('ClassificationHead.pretrained.class_layer' False, the default).
 
     Args:
         source_configuration (Dict[str, Any]): The whole configuration of the source run, as saved in its folder.
@@ -430,7 +437,7 @@ def compare_segmentation_decoders(source_configuration: Dict[str, Any],
     upsampling, the convolutions of its levels (and therefore its levels), its modules and its normalization, and the
     channels of the backbone blocks it reads, through its skip connections and its deepest level. The segmentation
     head is not part of the decoder, so that the runs may segment other classes; it is loaded with the decoder by
-    load_segmentation_class_layers when 'SegmentationDecoder.pretrained.load_class_layers' is True.
+    load_segmentation_class_layers when 'SegmentationDecoder.pretrained.class_layers' is True.
 
     Args:
         source_configuration (Dict[str, Any]): The whole configuration of the source run, as saved in its folder.
@@ -494,7 +501,8 @@ def compare_detection_heads(section_name: str, source_configuration: Dict[str, A
     The channels of the backbone blocks they read are compared on the weights themselves, and the classes of the
     detection and mask heads (classifier, per-class box regressor, per-class mask predictor and mask IoU predictor) by
     load_pretrained_component, the run receiving the heads being allowed to add classes after those of the source run
-    or to hold them at other indices under the same names.
+    or to hold them at other indices under the same names, or to have unrelated classes when the heads are loaded
+    without their class layers ('pretrained.class_layers' False).
 
     Args:
         section_name (str): "RegionProposal", "Detector" or "MaskHead".
@@ -601,7 +609,8 @@ def compare_keypoint_heads(source_configuration: Dict[str, Any], target_configur
     and, with the higher resolution branch, the residual pairs, modules and normalization of its refinement. A run of
     the top-down keypoint detector, saved before the bottom-up one, has no tag channels and cannot initialise the head.
     The heatmap and tag channels follow the keypoints of the classes, which load_pretrained_component checks on the
-    channel names of the runs (compare_keypoint_channels) and on the weights themselves.
+    channel names of the runs (compare_keypoint_channels) and on the weights themselves when the head is loaded with
+    its keypoint channel layers ('KeypointHead.pretrained.class_layers' True), and leaves out otherwise.
 
     Args:
         source_configuration (Dict[str, Any]): The whole configuration of the source run, as saved in its folder.
@@ -1061,11 +1070,12 @@ def prepare_class_layers(component_state: Dict[str, torch.Tensor], target_state:
 def transfers_class_layers(section_name: str, pretrained_configuration: Dict[str, Any]) -> bool:
     """
     Tells whether the transfer of a component loads its class layers, which decides whether the classes of the source
-    run are checked against those of the new run (prepare_class_layers) or left out (keep_target_class_layers), and
-    whether the class layers belong to the transferred part that the trainer freezes and fine-tunes at the learning rate
-    multiplier of the transfer (select_transferred_part): 'pretrained.class_layer' for the sections holding it
-    (CLASS_LAYER_OPTION_SECTIONS), always True for the other sections, whose class layers are loaded with them (or,
-    for the segmentation decoder, outside it with 'load_class_layers').
+    run are checked against those of the new run (prepare_class_layers, or the keypoint channels for the keypoint head)
+    or left out (keep_target_class_layers), and whether the class layers belong to the transferred part that the trainer
+    freezes and fine-tunes at the learning rate multiplier of the transfer (select_transferred_part): the flag of
+    PRETRAINED_CLASS_LAYER_KEYS ('class_layer' of the classification head, 'class_layers' of the detection, mask and
+    keypoint heads) for the sections of CLASS_LAYER_OPTION_SECTIONS, always True for the other sections, whose
+    components hold no class layer (the class layers of the segmentation decoder lying outside it).
 
     Args:
         section_name (str): The configuration section of the component, a key of TRANSFERABLE_COMPONENTS.
@@ -1076,23 +1086,47 @@ def transfers_class_layers(section_name: str, pretrained_configuration: Dict[str
     """
     if section_name not in CLASS_LAYER_OPTION_SECTIONS:
         return True
-    return pretrained_configuration["class_layer"]
+    return pretrained_configuration[PRETRAINED_CLASS_LAYER_KEYS[section_name]]
+
+
+def find_left_out_layer(section_name: str, module_name: str) -> bool:
+    """
+    Tells whether a module of a component is one of the layers its transfer leaves out with the class layers
+    ('pretrained.class_layer' or 'class_layers' False): a class layer of CLASS_LAYERS, or a layer of the keypoint head
+    whose output channels follow the keypoints (KEYPOINT_CHANNEL_LAYERS). The transposed convolution of the higher
+    resolution branch, only partly left out, is not one of them (see KEYPOINT_PREDICTION_INPUT_LAYER).
+
+    Args:
+        section_name (str): A section of CLASS_LAYER_OPTION_SECTIONS.
+        module_name (str): The name of the module in the component state, e.g. '5.classifier' or
+            'prediction_convolution.1'.
+
+    Returns:
+        bool: True for a layer left out with the class layers.
+    """
+    if section_name == "KeypointHead":
+        return any(re.fullmatch(pattern=module_pattern, string=module_name) is not None
+                   for module_pattern in KEYPOINT_CHANNEL_LAYERS)
+    return find_class_layer(section_name=section_name, module_name=module_name) is not None
 
 
 def keep_target_class_layers(component_state: Dict[str, torch.Tensor], target_state: Dict[str, torch.Tensor],
                              section_name: str, source_folder: Path) -> Dict[str, torch.Tensor]:
     """
-    Leaves the class layers of a source component out of its transfer ('pretrained.class_layer' False), so that a
-    head trained on other classes (e.g. the 1,000 ImageNet-1k classes) still gives its hidden layers to a run of
-    unrelated classes: the tensors of every class layer (see CLASS_LAYERS) take the random initialisation the layer of
-    the new run was built with, whatever the classes of both runs, which are not compared, and the other tensors are
-    kept as they are, so that compare_state_dictionaries still reports their mismatches.
+    Leaves the class layers of a source component out of its transfer ('pretrained.class_layer' or 'class_layers'
+    False), so that a head trained on other classes (e.g. the 1,000 ImageNet-1k classes, or the shapes of a detection
+    run) still gives its other layers to a run of unrelated classes: the tensors of every class layer (see
+    find_left_out_layer) take the random initialisation the layer of the new run was built with, whatever the classes
+    or keypoint channels of both runs, which are not compared, and the other tensors are kept as they are, so that
+    compare_state_dictionaries still reports their mismatches. The transposed convolution of the higher resolution
+    branch of the keypoint head keeps its input rows of the features from the source run and its rows of the
+    predictions from the new run (KEYPOINT_PREDICTION_INPUT_LAYER).
 
     Args:
         component_state (Dict[str, torch.Tensor]): The tensors of the source component, without prefix.
         target_state (Dict[str, torch.Tensor]): The state dictionary of the component of the new run, holding the
             random initialisation of its layers.
-        section_name (str): A key of CLASS_LAYERS.
+        section_name (str): A section of CLASS_LAYER_OPTION_SECTIONS.
         source_folder (Path): The run folder of the source run, named in the messages.
 
     Returns:
@@ -1105,26 +1139,66 @@ def keep_target_class_layers(component_state: Dict[str, torch.Tensor], target_st
     # Tensors of the source component outside its class layers
     component_name = get_component_name(section_name=section_name)
     kept_state = {tensor_name: tensor_value for tensor_name, tensor_value in component_state.items()
-                  if find_class_layer(section_name=section_name, module_name=tensor_name.rsplit(".", 1)[0]) is None}
+                  if not find_left_out_layer(section_name=section_name, module_name=tensor_name.rsplit(".", 1)[0])}
     if not kept_state:
         raise ValueError(f"The {component_name.title()} Of The Source Run {format_path_link(path=source_folder)} Has "
                          f"No Layer Besides Its Class Layers: Loaded Without Them, It Would Initialise Nothing.")
 
     # Class layers of the new run, as it built them
     class_layer_names = {tensor_name.rsplit(".", 1)[0] for tensor_name in target_state
-                         if find_class_layer(section_name=section_name,
-                                             module_name=tensor_name.rsplit(".", 1)[0]) is not None}
+                         if find_left_out_layer(section_name=section_name, module_name=tensor_name.rsplit(".", 1)[0])}
     kept_state.update({tensor_name: tensor_value.detach().clone() for tensor_name, tensor_value in target_state.items()
                        if tensor_name.rsplit(".", 1)[0] in class_layer_names})
 
-    # Tell that the class layers start random, for the classes of both runs
-    number_source_classes = count_state_classes(state=component_state, section_name=section_name)
-    number_target_classes = count_state_classes(state=target_state, section_name=section_name)
-    layer_words = "Class Layer, Which Keeps" if len(class_layer_names) == 1 else "Class Layers, Which Keep"
-    print_color(color="green", output=f"{component_name.title()} : Loaded Without Its {layer_words} The Random "
-                                      f"Initialisation Of This Run For Its {number_target_classes} Classes (The "
-                                      f"Source Run Predicts {number_source_classes} Classes).")
+    # Input rows of the features of the transposed convolution of the higher resolution branch loaded, its rows of the
+    # predictions as the new run built them, when both runs read features of the same width
+    for tensor_name, target_value in target_state.items():
+        if section_name != "KeypointHead" or tensor_name not in component_state or \
+                not re.fullmatch(pattern=f"{KEYPOINT_PREDICTION_INPUT_LAYER}\\.weight", string=tensor_name):
+            continue
+        source_value = component_state[tensor_name]
+        feature_width = target_value.shape[1]
+        if source_value.shape[1:] == target_value.shape[1:] and source_value.shape[0] >= feature_width:
+            partial_value = target_value.detach().clone().to(device=source_value.device, dtype=source_value.dtype)
+            partial_value[:feature_width] = source_value[:feature_width]
+            kept_state[tensor_name] = partial_value
+
+    # Tell that the class layers start random, for the classes (keypoint channels) of both runs
+    possessive = "Their" if component_name.endswith("heads") else "Its"
+    if section_name == "KeypointHead":
+        number_source_outputs = count_keypoint_channels(state=component_state)
+        number_target_outputs = count_keypoint_channels(state=target_state)
+        layer_words, output_words = f"{possessive} Keypoint Channel Layers, Which Keep", "Keypoint Channels"
+    else:
+        number_source_outputs = count_state_classes(state=component_state, section_name=section_name)
+        number_target_outputs = count_state_classes(state=target_state, section_name=section_name)
+        layer_words = f"{possessive} Class Layer, Which Keeps" if len(class_layer_names) == 1 else \
+            f"{possessive} Class Layers, Which Keep"
+        output_words = "Classes"
+    print_color(color="green", output=f"{component_name.title()} : Loaded Without {layer_words} The Random "
+                                      f"Initialisation Of This Run For {possessive} {number_target_outputs} "
+                                      f"{output_words} (The Source Run Predicts {number_source_outputs} "
+                                      f"{output_words}).")
     return kept_state
+
+
+def count_keypoint_channels(state: Dict[str, torch.Tensor]) -> Optional[int]:
+    """
+    Counts the keypoint channels of a keypoint head from the output channels of its last quarter resolution
+    convolution, which predicts a heatmap then a tag per channel, for the message of a keypoint head loaded without its
+    keypoint channel layers (keep_target_class_layers).
+
+    Args:
+        state (Dict[str, torch.Tensor]): The tensors of the keypoint head, without prefix.
+
+    Returns:
+        Optional[int]: The number of keypoint channels, None when the state holds no prediction convolution.
+    """
+    for tensor_name, tensor_value in state.items():
+        if tensor_name.endswith(".weight") and re.fullmatch(pattern=KEYPOINT_CHANNEL_LAYERS[0],
+                                                            string=tensor_name[:-len(".weight")]):
+            return tensor_value.shape[0] // 2
+    return None
 
 
 def read_checkpoint_model_state(checkpoint_path: Path, device: torch.device,
@@ -1271,8 +1345,10 @@ def select_transferred_part(component: nn.Module, section_name: str, number_load
     ('freeze_normalization_parameters') and fine-tunes at the learning rate multiplier of the transfer: the whole
     component, the first blocks of a backbone deeper than its source backbone (see count_loaded_backbone_blocks),
     whose blocks after them start random and learn at the learning rate of the run as the other new layers, or the
-    layers of a component loaded without its class layers ('ClassificationHead.pretrained.class_layer' False, see
-    transfers_class_layers), whose class layers start random and learn at the learning rate of the run too.
+    layers of a component loaded without its class layers ('pretrained.class_layer' or 'class_layers' False, see
+    transfers_class_layers), whose class layers start random and learn at the learning rate of the run too, as does the
+    transposed convolution of the higher resolution branch of a keypoint head, whose input rows of the predictions
+    start random (KEYPOINT_PREDICTION_INPUT_LAYER).
 
     Args:
         component (nn.Module): The transferred component of the model.
@@ -1289,14 +1365,16 @@ def select_transferred_part(component: nn.Module, section_name: str, number_load
     """
     if number_loaded_blocks is not None:
         return nn.ModuleList(modules=list(component.convolution_blocks)[:number_loaded_blocks])
-    if with_class_layers or section_name not in CLASS_LAYERS:
+    if with_class_layers or section_name not in CLASS_LAYER_OPTION_SECTIONS:
         return component
 
-    # Every module holding its own parameters or buffers (layers, normalizations) but the class layers, which start
-    # random, so that the part holds every loaded tensor once
+    # Every module holding its own parameters or buffers (layers, normalizations) but the class layers and the partly
+    # random transposed convolution of the keypoint head, so that the part holds every loaded tensor once
     return nn.ModuleList(modules=[
         module for module_name, module in component.named_modules()
-        if module_name and find_class_layer(section_name=section_name, module_name=module_name) is None and
+        if module_name and not find_left_out_layer(section_name=section_name, module_name=module_name) and
+        not (section_name == "KeypointHead" and re.fullmatch(pattern=KEYPOINT_PREDICTION_INPUT_LAYER,
+                                                             string=module_name) is not None) and
         (next(module.parameters(recurse=False), None) is not None or
          next(module.buffers(recurse=False), None) is not None)])
 
@@ -1321,11 +1399,13 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
     keeps one, from its trained weights otherwise (see read_checkpoint_model_state). The new run may add classes after
     those of the source run or hold them at other indices under the same names: the class layers of the classification
     head, detection heads and mask heads keep the rows of the source classes, moved to the index of their name, the rows
-    of the other classes keeping their random initialisation (see prepare_class_layers). A classification head loaded
-    without its class layer ('ClassificationHead.pretrained.class_layer' False) serves a run of any classes, its class
-    layer keeping the random initialisation of the new run (see keep_target_class_layers).
-    The keypoint head needs the keypoint channels of its source run, read from the record of its data, every heatmap
-    and tag channel having to predict the same keypoint of the same class in both runs.
+    of the other classes keeping their random initialisation (see prepare_class_layers). A classification, detection,
+    mask or keypoint head loaded without its class layers ('pretrained.class_layer' or 'class_layers' False, the
+    default) serves a run of any classes, its class layers keeping the random initialisation of the new run (see
+    keep_target_class_layers).
+    The keypoint head loaded with its keypoint channel layers needs the keypoint channels of its source run, read from
+    the record of its data, every heatmap and tag channel having to predict the same keypoint of the same class in both
+    runs.
 
     Args:
         component (nn.Module): The component of the new run, loaded in place.
@@ -1391,8 +1471,11 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
                                                f"{source_anchors}, This Run Uses The Anchors {target_anchors}.")
 
     # The heatmap and tag channels of the keypoint head follow the keypoints of the classes, which must be the same
-    # keypoints of the same classes in the same order, refused when the source run does not record them
-    if section_name == "KeypointHead":
+    # keypoints of the same classes in the same order, refused when the source run does not record them, unless the
+    # head is loaded without its keypoint channel layers
+    with_class_layers = transfers_class_layers(section_name=section_name,
+                                               pretrained_configuration=pretrained_configuration)
+    if section_name == "KeypointHead" and with_class_layers:
         source_channels = read_source_keypoint_channels(source_folder=source_folder)
         if source_channels is None:
             raise ValueError(f"The Keypoint Head Of The Source Run {format_path_link(path=source_folder)} Cannot "
@@ -1449,8 +1532,7 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
 
     # Class layers left out of the transfer, keeping the random initialisation of this run whatever its classes, or
     # checked against the classes of this run and moved when it adds classes or reorders the source ones
-    if section_name in CLASS_LAYERS and not transfers_class_layers(section_name=section_name,
-                                                                   pretrained_configuration=pretrained_configuration):
+    if section_name in CLASS_LAYER_OPTION_SECTIONS and not with_class_layers:
         component_state = keep_target_class_layers(component_state=component_state, target_state=target_state,
                                                    section_name=section_name, source_folder=source_folder)
     elif section_name in CLASS_LAYERS:
@@ -1478,7 +1560,7 @@ def load_segmentation_class_layers(segmenter: nn.Module, model_configuration: Di
     """
     Initialises the class layers of a semantic segmenter, outside its decoder (SEGMENTATION_CLASS_LAYER_ATTRIBUTES: the
     1x1 convolution of the segmentation head and those of the deep supervision heads), with those of the run its decoder
-    comes from, when 'SegmentationDecoder.pretrained.load_class_layers' is True. Called after load_pretrained_component
+    comes from, when 'SegmentationDecoder.pretrained.class_layers' is True. Called after load_pretrained_component
     has loaded the decoder, whose checks cover the channels these layers read. The same weights are read as for the
     decoder (averaged or trained), every class of the source run must be a class of the new run, first and in the
     same order or under the same name, the new run adding its other classes (see prepare_class_layers), and the deep
@@ -1601,7 +1683,7 @@ def disable_pretrained_settings(model_configuration: Dict[str, Any]) -> None:
     Turns off the transfer of every component of a configuration, for the tools that load the trained weights of a
     run from its own checkpoint (e.g. the evaluation of a checkpoint): the components and the segmentation class layers
     the run started from are then neither loaded nor frozen, and the source runs need not exist anymore. The class
-    layer flag of the classification head goes back to False, the configuration check refusing True without a source
+    layer flags (PRETRAINED_CLASS_LAYER_KEYS) go back to False, the configuration check refusing True without a source
     run.
 
     Args:
@@ -1611,8 +1693,6 @@ def disable_pretrained_settings(model_configuration: Dict[str, Any]) -> None:
         if section_name in model_configuration:
             model_configuration[section_name]["pretrained"].update({"experiment_folder": None, "freeze": False})
     model_configuration["Backbone"]["pretrained"]["freeze_normalization_parameters"] = False
-    if "SegmentationDecoder" in model_configuration:
-        model_configuration["SegmentationDecoder"]["pretrained"]["load_class_layers"] = False
-    for section_name in CLASS_LAYER_OPTION_SECTIONS:
+    for section_name, key_name in PRETRAINED_CLASS_LAYER_KEYS.items():
         if section_name in model_configuration:
-            model_configuration[section_name]["pretrained"]["class_layer"] = False
+            model_configuration[section_name]["pretrained"][key_name] = False

@@ -277,7 +277,7 @@ SegmentationDecoder:
   # weight, training only. E.g. { "5": 0.1, "4": 0.2, "3": 0.3, "2": 0.4 }; {} for none.
   deep_supervision_weights: {}
   # Decoder of another semantic segmentation run initialising this one; upsampling, convolutions, modules, normalization
-  # and skip connection channels must match. Its class convolution and supervision heads need load_class_layers.
+  # and skip connection channels must match. Its class convolution and supervision heads need class_layers.
   pretrained:
     # Run folder of the loaded decoder, null for random weights; not reloaded when the run resumes.
     experiment_folder: null
@@ -287,7 +287,7 @@ SegmentationDecoder:
     freeze: False
     # Also loads the segmentation head and deep supervision heads of levels in both runs; source classes (its data.json)
     # first in order or by name, others random. Requires experiment_folder; gives the DCL token.
-    load_class_layers: False
+    class_layers: False
     # Learning rate factor of the loaded decoder, e.g. 0.1 to train it 10x slower.
     learning_rate_multiplier: 1.0
 

@@ -402,6 +402,9 @@ Detector:
     # Freezes the loaded heads (no gradient, frozen batch statistics), e.g. to train only the mask heads of an instance
     # segmentation run. Requires experiment_folder.
     freeze: False
+    # True also loads the class layers (classifier, box regressor): source classes (its data.json) first in order or by
+    # name, others random; needs experiment_folder. False leaves them random for any classes (DRCL token).
+    class_layers: False
     # Learning rate factor of the loaded heads, e.g. 0.1 to train them 10x slower.
     learning_rate_multiplier: 1.0
 
@@ -461,5 +464,8 @@ MaskHead:
     iteration: null
     # Freezes the loaded heads (no gradient, frozen batch statistics). Requires experiment_folder.
     freeze: False
+    # True also loads the class layers (mask predictor, mask IoU predictor): source classes (its data.json) first in
+    # order or by name, others random; needs experiment_folder. False leaves them random for any classes (MRCL token).
+    class_layers: False
     # Learning rate factor of the loaded heads, e.g. 0.1 to train them 10x slower.
     learning_rate_multiplier: 1.0

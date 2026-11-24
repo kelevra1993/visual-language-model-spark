@@ -310,5 +310,8 @@ KeypointHead:
     iteration: null
     # Freezes the loaded head (no gradient). Requires experiment_folder.
     freeze: False
+    # True also loads the heatmap and tag convolutions: same classes and keypoints in the same order (its data.json);
+    # needs experiment_folder. False leaves them random for any keypoints, as their HH branch inputs (KHRCL token).
+    class_layers: False
     # Learning rate factor of the loaded head, e.g. 0.1 to train it 10x slower.
     learning_rate_multiplier: 1.0

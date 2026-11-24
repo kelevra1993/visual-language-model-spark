@@ -243,12 +243,12 @@ The `pretrained` block of a section initialises its component from a trained run
 | `Backbone` | backbone | any task |
 | `TemporalModel` | temporal module | M2O, M2M, CMP, SEL |
 | `ClassificationHead` | classification head, with its class layer when `class_layer` is True | CLS, M2O, M2M, CMP, SEL |
-| `SegmentationDecoder` | U-Net decoder, with its class layers when `load_class_layers` is True | SEG |
+| `SegmentationDecoder` | U-Net decoder, with its class layers when `class_layers` is True | SEG |
 | `RegionProposal` | region proposal heads of every detection level | DET, INS |
-| `Detector` | detection heads of every detection level | DET, INS |
-| `MaskHead` | mask heads of every detection level | INS |
+| `Detector` | detection heads of every detection level, with their class layers when `class_layers` is True | DET, INS |
+| `MaskHead` | mask heads of every detection level, with their class layers when `class_layers` is True | INS |
 | `HRNet` | high resolution network | KPT |
-| `KeypointHead` | heatmap and tag head, with its higher resolution branch | KPT |
+| `KeypointHead` | heatmap and tag head, with its higher resolution branch, and its keypoint channel layers when `class_layers` is True | KPT |
 
 The settings defining the layers must match, which is checked at launch. The image size may differ, and so may the `batch_normalization_momentum` of a source run written before the momentum was fixed.
 
@@ -261,29 +261,31 @@ The settings defining the layers must match, which is checked at launch. The ima
 | Detection heads | detection levels, `detector` of every level, normalization, modules, `Neck.type` `none` in both runs |
 | Mask heads | detection levels, `mask_head` of every level, `shared` (heads per level and a shared head refusing each other, a source run written before it counting as one head per level), `mask_resolution`, `upsampling`, `skip_blocks_at_pool_size`, `image_branch_convolutions`, `skip_blocks_at_mask_resolution`, `fusion_convolutions` (a source run written before them counting as without), normalization, modules, `Neck.type` `none` in both runs; the image branch is not transferred, so the run receiving the heads keeps it `[0, 0]` |
 | High resolution network | `base_width`, `modules_per_stage`, `blocks_per_branch`, `modules`, `normalization`, and the channels of the last stem block |
-| Keypoint head | `KeypointHead.higher_resolution` and `hidden_width`, the `HRNet.base_width`, and with the higher resolution branch its `blocks_per_branch`, `modules` and `normalization` (the normalization also with a hidden width above 0); every heatmap and tag channel must predict the same keypoint of the same class, `class.keypoint` read from the `keypoints` of the `data.json` classes of the source run, a source run started before 2026-11-20 without them being refused |
+| Keypoint head | `KeypointHead.higher_resolution` and `hidden_width`, the `HRNet.base_width`, and with the higher resolution branch its `blocks_per_branch`, `modules` and `normalization` (the normalization also with a hidden width above 0); with `class_layers: True`, every heatmap and tag channel must predict the same keypoint of the same class, `class.keypoint` read from the `keypoints` of the `data.json` classes of the source run, a source run started before 2026-11-20 without them being refused |
 
 - An object detection run can thus initialise an instance segmentation run, whose mask heads train alone with the other components frozen.
 - A backbone deeper than its source backbone starts with the source blocks; its next blocks keep their random weights and learn at the learning rate of the run, in the parameter group of the new layers. `freeze` (with the batch statistics), `freeze_normalization_parameters` and `learning_rate_multiplier` apply to the loaded blocks only. The console prints `Starts With The <n> Blocks Of The Pretrained Backbone` and a `Loaded Blocks` line, and every checkpoint stores the number of loaded blocks (`pretrained_backbone_blocks`), so that a resumed run freezes and groups the same blocks even once its source run is gone.
 - A resumed run does not load the pretrained component again.
 - The averaged weights of the source are loaded when the source kept a [moving average](#moving-average-of-the-weights) and the new run has one on. The console says which weights were loaded.
 - A classification head with `class_layer: False` (the default) loads its hidden layers only, whatever the classes of both runs: its class layer keeps its random weights and learns at the learning rate of the run, in the parameter group of the new layers, `freeze` and `learning_rate_multiplier` applying to the hidden layers only. The console prints `Loaded Without Its Class Layer` and a `Class Layer Loaded` line. A head without hidden layer (`fully_connected: []`) needs `class_layer: True`, and `class_layer: True` needs `experiment_folder`.
-- In the run name, `PT` marks a pretrained component and `FRZ` a frozen one, prefixed by the letter of the section (`RPT`, `RFRZ`); `load_class_layers` adds `DCL`, and a head loaded without its class layer adds `HRCL` (a head loaded with it keeps the name of the runs written before `class_layer` existed). The `learning_rate_multiplier` gives no token.
+- The detection heads, the mask heads and the keypoint head do the same with `class_layers: False` (the default), so that a detector trained on other classes still gives its convolutions and fully connected layers: the class layers of the table below keep their random weights and learn in the parameter group of the new layers, whatever the classes (or keypoints) of both runs, and the console prints `Loaded Without Their Class Layers` (`Loaded Without Its Keypoint Channel Layers`) and a `Class Layers Loaded` line. The keypoint head leaves out the last convolutions of both heads; the transposed convolution of its higher resolution branch, reading the features then the predictions, takes the source rows of the features and keeps random rows of the predictions. A keypoint head without hidden width nor higher resolution branch needs `class_layers: True`, and `class_layers: True` needs `experiment_folder`.
+- In the run name, `PT` marks a pretrained component and `FRZ` a frozen one, prefixed by the letter of the section (`RPT`, `RFRZ`); the `class_layers` of the decoder adds `DCL`, and heads loaded without their class layers add `HRCL`, `DRCL`, `MRCL` or `KHRCL` (heads loaded with them keep the name of the runs written before `class_layer` and `class_layers` existed). The `learning_rate_multiplier` gives no token.
 
 ### Adding Classes
-Should a new run need more classes than its source, or hold the same classes in another order, a component with class layers can still initialise it:
+Should a new run need more classes than its source, or hold the same classes in another order, a component loaded with its class layers can still initialise it:
 - Every source class must be a class of the new run. The class names are compared from the `data.json` of both runs ([Run Folder](#run-folder)).
 - When the source classes come first in the same order (the background first for DET, INS and SEG), their rows keep their indices: append the new classes at the end of the label mapping file.
 - Otherwise every source class is found by its name, which must name one class in each run, and its rows go to the index of that name, e.g. the 1,000 ImageNet-1k classes of a source run among the 21,842 merged ImageNet classes sorted by WordNet identifier. A missing source class stops the run, the console naming the first five and counting the others.
 - The rows of the other classes keep their random initialisation, which may disturb the source classes for the first iterations. The console prints the kept and added classes.
 - A source run without class names in its `data.json` (written before they were recorded) gives its classes as the first classes of the new run, with a warning.
-- With `load_class_layers`, a deep supervision level missing from the source keeps random weights, with a warning.
+- With the `class_layers` of the decoder, a deep supervision level missing from the source keeps random weights, with a warning.
 
 | Layer | Section |
 |---|---|
 | Class layer of the classification head | `ClassificationHead` with `class_layer` |
-| Classification and box regression layers of the detection heads | `Detector` |
-| Mask prediction layer of the mask heads | `MaskHead` |
-| Final class layer and deep supervision layers of the decoder | `SegmentationDecoder` with `load_class_layers` |
+| Classification and box regression layers of the detection heads | `Detector` with `class_layers` |
+| Mask prediction layer of the mask heads, and the IoU prediction layer of their mask IoU heads | `MaskHead` with `class_layers` |
+| Final class layer and deep supervision layers of the decoder | `SegmentationDecoder` with `class_layers` |
+| Last heatmap and tag convolutions of the keypoint head (same keypoints required, never moved by name) | `KeypointHead` with `class_layers` |
 
 On the synthetic shapes (9 classes extended to 20, stage 14 of `documentation/architecture_benchmarking/experiment_plan.md`), the new classes reached an accuracy of 75.13 % at iteration 250 (trained weights), and the source classes kept 99.86 % (averaged weights).
