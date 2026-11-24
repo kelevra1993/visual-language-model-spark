@@ -225,11 +225,12 @@ def describe_model_performance(identifier: str, evaluation_folder: Path,
         output_mode (str): "multi_class" or "multi_label", choosing the metrics.
 
     Returns:
-        Optional[Dict[str, Any]]: The 'run' identifier, the 'metrics' ([{'name', 'value'}] in PERFORMANCE_METRICS
-            order), the 'summary_folder' name and its 'number_iterations', and the 'best' evaluation ('metric',
-            'value', 'iteration', 'use_averaged_weights', 'evaluation' (its identifier, None when it holds no page),
-            'reached' when this evaluation equals it), or None when the summary holds no metric of this evaluation (an
-            evaluation written before the summary existed).
+        Optional[Dict[str, Any]]: The 'experiment_folder' (the identifier of the folder holding the run) and the
+            'run_name', the 'metrics' ([{'name', 'value'}] in PERFORMANCE_METRICS order), the 'summary_folder' name
+            and its 'number_iterations', and the 'best' evaluation ('metric', 'value', 'iteration',
+            'use_averaged_weights', 'evaluation' (its identifier, None when it holds no page), 'reached' when this
+            evaluation equals it), or None when the summary holds no metric of this evaluation (an evaluation written
+            before the summary existed).
     """
     checkpoint = describe_evaluation_folder(evaluation_folder=evaluation_folder)
     iteration_folder = evaluation_folder.parent if checkpoint["use_averaged_weights"] else evaluation_folder
@@ -267,8 +268,9 @@ def describe_model_performance(identifier: str, evaluation_folder: Path,
     best["evaluation"] = (f"{run_identifier}/{best_relative_path}" if is_explorer_evaluation(
         evaluation_folder=checkpoint["run_folder"] / best_relative_path) else None)
     best["reached"] = metrics[0]["value"] >= best["value"]
-    return {"run": run_identifier, "metrics": metrics, "summary_folder": summary_folder.name,
-            "number_iterations": len(rows_by_iteration), "best": best}
+    return {"experiment_folder": run_identifier.rpartition("/")[0], "run_name": checkpoint["run_folder"].name,
+            "metrics": metrics, "summary_folder": summary_folder.name, "number_iterations": len(rows_by_iteration),
+            "best": best}
 
 
 def describe_export_job(export_job: Dict[str, Any]) -> Dict[str, Any]:
