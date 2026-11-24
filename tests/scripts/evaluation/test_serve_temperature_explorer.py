@@ -2,8 +2,9 @@
 Tests of scripts/evaluation/serve_temperature_explorer.py, the local server of the temperature explorers of the
 experiments folders: the index groups the evaluations holding a page by run folder, then by iteration (newest first,
 trained weights before averaged ones), every page is served with the current template
-and names its evaluation, a typed temperature is described from the class logits, the score ranges are counted from
-them (wrong requests refused), the thresholds saved from a page
+and names its evaluation, with the global metrics of its checkpoint and the best evaluation of its summary, a typed
+temperature is described from the class logits, the score ranges are counted from them, from default cut points before
+any are typed (wrong requests refused), the thresholds saved from a page
 with logits are found by the server for every class whatever was posted, those of a page without logits are checked
 against its class_thresholds.json, the status gives the saved temperature and the export folder, and an export without
 saved thresholds or without its run is refused with the reason, nothing being written by a refused request.
@@ -25,17 +26,25 @@ from scripts.evaluation.serve_temperature_explorer import (TemperatureExplorerSe
                                                            find_explorer_evaluations)
 from tests.evaluation.classification.test_temperature_explorer import (EXPLORER_CLASS_NAMES, list_file_thresholds,
                                                                        write_explorer_evaluation)
-from vision_training.evaluation.classification.temperature_explorer import (EXPLORER_DATA_PATTERN,
+from vision_training.evaluation.classification.temperature_explorer import (DEFAULT_SCORE_CUT_POINTS,
+                                                                            EXPLORER_DATA_PATTERN,
                                                                             SAVED_THRESHOLDS_FILE_NAME,
+                                                                            check_score_cut_points,
                                                                             compute_score_ranges,
                                                                             compute_temperature_thresholds,
                                                                             describe_explorer_temperature,
                                                                             write_saved_thresholds)
+from vision_training.evaluation.evaluation_curves import EVALUATION_SUMMARY_FILE_NAME, write_evaluation_summary
 
 # Evaluations of the tests: one with its class logits, evaluated by the training of its run, one without, evaluated by
 # evaluate_checkpoint.py for the averaged weights, in the Checkpoint_Evaluation folder of a run without configuration
 LIVE_EVALUATION = "experiments/CLS_LIVE_MC3/Evaluation/Iteration_6"
 GRID_EVALUATION = "experiments/CLS_GRID_MC3/Checkpoint_Evaluation/Iteration_3/EMA"
+
+# Columns of the evaluation summaries of the tests, as the classification trainer writes them, the top-5 accuracy left
+# empty (a column the page does not show)
+SUMMARY_COLUMNS = ["iteration", "Accuracy", "Balanced Accuracy", "Macro F1", "Top-5 Accuracy", "ema_Accuracy",
+                   "ema_Balanced Accuracy", "ema_Macro F1", "ema_Top-5 Accuracy"]
 
 
 @pytest.fixture
@@ -83,6 +92,22 @@ def request_server(url: str, content: Optional[Dict[str, Any]]) -> Tuple[int, by
             return response.status, response.read()
     except urllib.error.HTTPError as error:
         return error.code, error.read()
+
+
+def request_page_data(address: str, identifier: str) -> Dict[str, Any]:
+    """
+    Requests the page of an evaluation and reads the data the server built it with, as the page script reads it.
+
+    Args:
+        address (str): The address of the server.
+        identifier (str): The identifier of the evaluation.
+
+    Returns:
+        Dict[str, Any]: The data of the page.
+    """
+    status, page = request_server(url=f"{address}/explorer?evaluation={quote(identifier)}", content=None)
+    assert status == 200
+    return json.loads(s=EXPLORER_DATA_PATTERN.search(string=page.decode(encoding="utf-8")).group(1))
 
 
 def test_index_and_pages_are_served_with_their_evaluation(served_experiments: Tuple[Dict[str, Any], str]) -> None:
@@ -211,6 +236,68 @@ def test_score_ranges_are_counted_from_the_logits(served_experiments: Tuple[Dict
                                                       cut_points=[0.4, 0.8])
     status, page = request_server(url=f"{address}/explorer?evaluation={quote(LIVE_EVALUATION)}", content=None)
     assert status == 200 and b'id="score-ranges"' in page
+
+
+def test_pages_show_the_global_metrics_of_their_checkpoint(served_experiments: Tuple[Dict[str, Any], str]) -> None:
+    """
+    Verifies that the page of an evaluation carries the global metrics of its checkpoint read from the evaluation
+    summary of its folder (the 'ema_' columns for the averaged weights), with the best evaluation of that summary by
+    balanced accuracy over the trained and averaged weights, linked when it holds a page, and no metric while the
+    summary lacks the row of its iteration.
+
+    Args:
+        served_experiments (Tuple[Dict[str, Any], str]): The served evaluations and the address of the server.
+    """
+    evaluations, address = served_experiments
+    assert request_page_data(address=address, identifier=LIVE_EVALUATION)["model_performance"] is None
+
+    # Training evaluations of the live run: its trained weights at iteration 6, the best being the averaged weights of
+    # iteration 3, which hold no page
+    write_evaluation_summary(summary_path=evaluations["live_folder"].parent / EVALUATION_SUMMARY_FILE_NAME,
+                             column_names=SUMMARY_COLUMNS, rows_by_iteration={
+                                 3: {"Accuracy": 0.91, "Balanced Accuracy": 0.9, "Macro F1": 0.89,
+                                     "ema_Accuracy": 0.96, "ema_Balanced Accuracy": 0.95, "ema_Macro F1": 0.94},
+                                 6: {"Accuracy": 0.93, "Balanced Accuracy": 0.92, "Macro F1": 0.91,
+                                     "ema_Accuracy": 0.92, "ema_Balanced Accuracy": 0.91, "ema_Macro F1": 0.9}})
+    assert request_page_data(address=address, identifier=LIVE_EVALUATION)["model_performance"] == {
+        "run": "experiments/CLS_LIVE_MC3", "summary_folder": "Evaluation", "number_iterations": 2,
+        "metrics": [{"name": "Balanced Accuracy", "value": 0.92}, {"name": "Accuracy", "value": 0.93},
+                    {"name": "Macro F1", "value": 0.91}],
+        "best": {"metric": "Balanced Accuracy", "value": 0.95, "iteration": 3, "use_averaged_weights": True,
+                 "evaluation": None, "reached": False}}
+
+    # Checkpoint evaluation of the averaged weights, the best of its own summary, linked to its own page
+    write_evaluation_summary(summary_path=evaluations["grid_folder"].parent.parent / EVALUATION_SUMMARY_FILE_NAME,
+                             column_names=SUMMARY_COLUMNS, rows_by_iteration={
+                                 3: {"Accuracy": 0.81, "Balanced Accuracy": 0.8, "Macro F1": 0.79, "ema_Accuracy": 0.86,
+                                     "ema_Balanced Accuracy": 0.85, "ema_Macro F1": 0.84}})
+    assert request_page_data(address=address, identifier=GRID_EVALUATION)["model_performance"] == {
+        "run": "experiments/CLS_GRID_MC3", "summary_folder": "Checkpoint_Evaluation", "number_iterations": 1,
+        "metrics": [{"name": "Balanced Accuracy", "value": 0.85}, {"name": "Accuracy", "value": 0.86},
+                    {"name": "Macro F1", "value": 0.84}],
+        "best": {"metric": "Balanced Accuracy", "value": 0.85, "iteration": 3, "use_averaged_weights": True,
+                 "evaluation": GRID_EVALUATION, "reached": True}}
+
+
+def test_score_ranges_start_from_the_default_cut_points(served_experiments: Tuple[Dict[str, Any], str]) -> None:
+    """
+    Verifies that the served page gives the cut points its score ranges start from before any are typed, valid cut
+    points that the server counts the score ranges with.
+
+    Args:
+        served_experiments (Tuple[Dict[str, Any], str]): The served evaluations and the address of the server.
+    """
+    evaluations, address = served_experiments
+    page_data = request_page_data(address=address, identifier=LIVE_EVALUATION)
+    assert page_data["default_score_cut_points"] == DEFAULT_SCORE_CUT_POINTS
+    assert check_score_cut_points(cut_points=DEFAULT_SCORE_CUT_POINTS) == DEFAULT_SCORE_CUT_POINTS
+    cut_points_text = ",".join(str(cut_point) for cut_point in DEFAULT_SCORE_CUT_POINTS)
+    status, body = request_server(url=f"{address}/api/score_ranges?evaluation={quote(LIVE_EVALUATION)}"
+                                      f"&temperature=1&cut_points={cut_points_text}", content=None)
+    assert status == 200
+    assert json.loads(s=body) == compute_score_ranges(class_logits_record=evaluations["live_logits"],
+                                                      shown_class_indices=[0, 1, 2], logit_temperature=1,
+                                                      cut_points=DEFAULT_SCORE_CUT_POINTS)
 
 
 @pytest.mark.parametrize(argnames=("query", "expected_message"), argvalues=[

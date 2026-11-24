@@ -58,6 +58,10 @@ SAVED_THRESHOLDS_FILE_NAME = "saved_temperature_thresholds.json"
 # the range of [0, 1] their own class score falls in
 MAXIMUM_SCORE_CUT_POINTS = 10
 
+# Cut points of that table before any are typed (or kept by the browser from a visit), so that it shows at once how the
+# images of every class spread over the upper scores
+DEFAULT_SCORE_CUT_POINTS = [0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99]
+
 
 def compute_temperature_probabilities(class_logits: torch.Tensor, output_mode: str,
                                       logit_temperature: float) -> torch.Tensor:
