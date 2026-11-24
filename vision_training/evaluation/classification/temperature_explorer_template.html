@@ -54,6 +54,12 @@ stay between 0 and 1.
   p { margin: 6px 0; color: var(--text-secondary); max-width: 900px; }
   code { font-size: 13px; }
   .subtitle { color: var(--text-secondary); margin: 0 0 8px; }
+  .performance { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 6px; }
+  .metric-tile { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px;
+                 min-width: 130px; }
+  .metric-name { color: var(--text-muted); font-size: 12px; }
+  .metric-value { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .performance-line { font-size: 13px; overflow-wrap: anywhere; }
   .controls { position: sticky; top: 0; z-index: 2; background: var(--page); padding: 10px 0;
               border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 10px 18px;
               align-items: center; }
@@ -107,17 +113,17 @@ stay between 0 and 1.
   <p id="index-link" hidden><a href="/">All evaluations</a></p>
   <h1>Temperature Explorer</h1>
   <p class="subtitle" id="subtitle"></p>
-  <p>The probabilities are the softmax (sigmoid in multi-label mode) of the class logits divided by the temperature T.
-     The predicted class, the accuracy and the confusion matrix do not change with T: only the spread of the
-     probabilities, so the thresholds move with it. With two classes the recall at a target precision stays the same;
-     with more classes it can move a little.</p>
-  <p>To deploy a temperature, open this page with <code>scripts/evaluation/serve_temperature_explorer.py</code>,
-     press <b>Save Thresholds At This Temperature</b>, then <b>Export</b>: the thresholds of every class at the
-     temperature shown are written next to the evaluation as <code>saved_temperature_thresholds.json</code>, and the
-     export builds that temperature into the classifier with these thresholds, in <code>&lt;run&gt;/Exports/</code>.
-     A temperature can be saved and exported again at any time. Opened as a plain file, the button downloads the file
-     instead, which <code>vision_training/deployment/export_model.py</code> reads with
-     <code>use_saved_temperature</code> once placed next to the page.</p>
+  <div class="performance" id="performance" hidden></div>
+  <p class="performance-line" id="performance-run" hidden></p>
+  <p class="performance-line" id="performance-best" hidden></p>
+  <p>Scores are the softmax (sigmoid in multi-label mode) of the logits divided by T. T only changes their spread:
+     predictions, metrics and confusion matrix stay the same, the thresholds move.</p>
+  <p id="deploy-served" hidden>To deploy: choose T, press <b>Save Thresholds At This Temperature</b>, then
+     <b>Export</b> (into <code>&lt;run&gt;/Exports/</code>).</p>
+  <p id="deploy-file">Opened as a file, <b>Save Thresholds At This Temperature</b> downloads
+     <code>saved_temperature_thresholds.json</code>: put it next to this page for <code>export_model.py</code>
+     (<code>use_saved_temperature</code>), or serve the page with
+     <code>scripts/evaluation/serve_temperature_explorer.py</code> to export from it.</p>
 
   <div class="controls">
     <div class="slider-group">
@@ -155,8 +161,8 @@ stay between 0 and 1.
   </section>
 
   <h2>Score Distribution Per Class</h2>
-  <p>Share of the images of every class by their score for their own class, at the temperature shown: a temperature
-     above 1 moves the scores squeezed against 1 towards the middle, the thresholds moving with them.</p>
+  <p>Images of every class by their score for that class, at the temperature shown; T above 1 spreads the scores
+     packed near 1.</p>
   <p id="classes-note"></p>
   <div class="legend">
     <span><i class="swatch" style="background: var(--series-class)"></i>Images of the class</span>
@@ -169,9 +175,8 @@ stay between 0 and 1.
 
   <section id="score-ranges" hidden>
     <h2 id="score-ranges-title">Score Ranges</h2>
-    <p>Share of the images of every class whose score for their own class falls in each range, at the temperature
-       shown, counted again when the temperature changes. Type the cut points as a list: 0.5, 0.8 gives below 0.5, from
-       0.5 to below 0.8, and from 0.8, a score equal to a cut point counting in the range above it.</p>
+    <p>Share of the images of every class per range of their score for that class, at the temperature shown. Cut
+       points are separated by commas; a score on a cut point counts in the range above.</p>
     <div class="button-row">
       <input type="text" id="score-cut-points" placeholder="0.5, 0.8" aria-label="Cut points of the score ranges">
       <button type="button" id="show-score-ranges">Show Ranges</button>
@@ -655,6 +660,38 @@ stay between 0 and 1.
     return element.innerHTML;
   }
 
+  // Global metrics of the checkpoint, read by the serve script from the evaluation summary of its folder, with the best
+  // evaluation of that summary, so that the checkpoint about to be exported is known by its performance
+  function renderPerformance() {
+    if (DATA.model_performance === undefined) return;
+    const performance = DATA.model_performance;
+    const runLine = document.getElementById("performance-run");
+    runLine.hidden = false;
+    if (performance === null) {
+      runLine.textContent =
+        "No global metrics: the evaluation_summary.csv of this folder has no row for this checkpoint.";
+      return;
+    }
+    const tiles = document.getElementById("performance");
+    tiles.innerHTML = performance.metrics.map(metric => `<div class="metric-tile"><div class="metric-name">` +
+      `${escapeHtml(metric.name)}</div><div class="metric-value">${formatPercent(metric.value)}</div></div>`).join("");
+    tiles.hidden = false;
+    runLine.textContent = `Run ${performance.run}`;
+
+    // Best evaluation of the summary, linked to its page when it holds one
+    const best = performance.best;
+    const bestName = `Iteration ${best.iteration}${best.use_averaged_weights ? " EMA" : ""}`;
+    const bestLink = best.evaluation === null ? escapeHtml(bestName)
+      : `<a href="/explorer?evaluation=${encodeURIComponent(best.evaluation)}">${escapeHtml(bestName)}</a>`;
+    const bestLine = document.getElementById("performance-best");
+    const numberIterations = performance.number_iterations;
+    const iterationsText = `${numberIterations} iteration${numberIterations === 1 ? "" : "s"}`;
+    bestLine.innerHTML = `Best ${escapeHtml(best.metric)} of the ${iterationsText} in ` +
+      `${escapeHtml(performance.summary_folder)}/ (trained and EMA): ` +
+      (best.reached ? "<b>this checkpoint</b>." : `${formatPercent(best.value)} at ${bestLink}.`);
+    bestLine.hidden = false;
+  }
+
   // Card of every drawn class, built once, its histogram drawn again at every temperature
   function buildClassCards() {
     const grid = document.getElementById("class-grid");
@@ -691,6 +728,7 @@ stay between 0 and 1.
     const titleParts = [DATA.title, `${DATA.number_samples} test images`, `${DATA.number_classes} classes`,
                         DATA.output_mode === "multi_class" ? "softmax" : "sigmoid"].filter(Boolean);
     document.getElementById("subtitle").textContent = titleParts.join(" · ");
+    renderPerformance();
 
     // Order of the drawn classes: the class index order, or the lowest F1 first on a page written before it
     const inClassIndexOrder = DATA.class_indices.every((classIndex, shownIndex) =>
@@ -729,18 +767,20 @@ stay between 0 and 1.
     if (SERVED) {
       document.getElementById("index-link").hidden = false;
       document.getElementById("deployment").hidden = false;
+      document.getElementById("deploy-served").hidden = false;
+      document.getElementById("deploy-file").hidden = true;
       if (DATA.live_temperatures) {
         const temperatureInput = document.getElementById("temperature-input");
         document.getElementById("temperature-entry").hidden = false;
         document.getElementById("show-temperature").addEventListener("click", showTemperature);
         temperatureInput.addEventListener("keydown", event => { if (event.key === "Enter") showTemperature(); });
 
-        // Score ranges, counted at the first drawing with the cut points kept from the last visit, if any
+        // Score ranges, counted at the first drawing with the cut points kept from the last visit, or the default ones
         const cutPointsInput = document.getElementById("score-cut-points");
         document.getElementById("score-ranges").hidden = false;
         document.getElementById("show-score-ranges").addEventListener("click", applyCutPoints);
         cutPointsInput.addEventListener("keydown", event => { if (event.key === "Enter") applyCutPoints(); });
-        cutPointsInput.value = readStoredCutPoints();
+        cutPointsInput.value = readStoredCutPoints() || DATA.default_score_cut_points.join(", ");
         scoreRanges.cutPoints = parseCutPoints(cutPointsInput.value);
       }
       buildExportForm();

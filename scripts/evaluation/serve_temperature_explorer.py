@@ -4,10 +4,12 @@ of the repository, to choose the logit temperature of a checkpoint, save its thr
 The index groups the evaluations by run folder, then by iteration, each iteration opening on the pages of its trained
 and averaged (EMA) weights with their saved temperature and exports; every page is built again with
 the current template, from the 'class_logits.npz' of the evaluation (any temperature can be typed in, and the images of
-every class are counted in the score ranges of the cut points typed on the page, at the temperature shown) or from the
-data of its written 'temperature_explorer.html' (the temperatures of its slider). The save button writes
-'saved_temperature_thresholds.json' next to the page, the thresholds being found here from the logits; the export button
-exports the checkpoint at the saved temperature into '<run>/Exports/Iteration_<n>[_EMA]_T<temperature>/'
+every class are counted in the score ranges of the cut points typed on the page, DEFAULT_SCORE_CUT_POINTS until others
+are typed, at the temperature shown) or from the data of its written 'temperature_explorer.html' (the temperatures of
+its slider), and opens on the global metrics of its checkpoint read from the 'evaluation_summary.csv' of its evaluation
+folder, with the best evaluation of that summary, so that the exported checkpoint is known by its performance. The save
+button writes 'saved_temperature_thresholds.json' next to the page, the thresholds being found here from the logits; the
+export button exports the checkpoint at the saved temperature into '<run>/Exports/Iteration_<n>[_EMA]_T<temperature>/'
 (vision_training/deployment/explorer_export.py), in a separate process whose console output the page shows. The pages
 are written by the classification trainer or scripts/evaluation/evaluate_checkpoint.py with the per-class report.
 """
@@ -32,6 +34,7 @@ from vision_training.deployment.explorer_export import (DEFAULT_EXPORT_SETTINGS,
                                                         build_export_folder, describe_evaluation_folder,
                                                         list_checkpoint_exports, prepare_export_job)
 from vision_training.evaluation.classification.temperature_explorer import (CLASS_LOGITS_FILE_NAME,
+                                                                            DEFAULT_SCORE_CUT_POINTS,
                                                                             EXPLORER_FILE_NAME,
                                                                             SAVED_THRESHOLDS_FILE_NAME,
                                                                             build_explorer_data_from_logits,
@@ -45,6 +48,9 @@ from vision_training.evaluation.classification.temperature_explorer import (CLAS
                                                                             render_explorer_page,
                                                                             write_saved_thresholds)
 from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
+from vision_training.evaluation.evaluation_curves import (AVERAGED_WEIGHTS_COLUMN_PREFIX,
+                                                          EVALUATION_SUMMARY_FILE_NAME, ITERATION_COLUMN,
+                                                          read_evaluation_summary)
 from vision_training.trainers.base_trainer import AVERAGED_WEIGHTS_FOLDER_NAME, EVALUATION_FOLDER_NAME
 from vision_training.trainers.checkpointing import get_checkpoint_path
 from vision_training.utilities.os_utilities import format_path_link, print_color
@@ -66,6 +72,11 @@ INDEX_TEMPLATE_PATH = (REPOSITORY_ROOT / "vision_training" / "evaluation" / "cla
 INDEX_RUNS_PLACEHOLDER = "__INDEX_RUNS__"
 ITERATION_TABLE_HEADER = ("<tr><th>Weights</th><th>Evaluation</th><th>Temperatures</th><th>Saved T</th>"
                           "<th>Exports</th></tr>")
+
+# Global metrics shown at the top of a page, read from the evaluation summary next to its iteration folder, the first
+# one also naming the best evaluation of that summary, so that the exported checkpoint can be checked against it
+PERFORMANCE_METRICS = {"multi_class": ["Balanced Accuracy", "Accuracy", "Macro F1"],
+                       "multi_label": ["Subset Accuracy", "Micro F1", "Macro F1"]}
 
 # Last lines of the console output of an export shown on the page, and the escape sequences of the colours and links of
 # print_color and format_path_link, removed from it
@@ -183,6 +194,83 @@ def read_saved_temperature_state(evaluation_folder: Path) -> Optional[Dict[str, 
             "saved_at": datetime.fromtimestamp(saved_path.stat().st_mtime).isoformat(sep=" ", timespec="minutes")}
 
 
+def find_run_identifier(identifier: str, evaluation_folder: Path, run_folder: Path) -> str:
+    """
+    Gives the identifier of the run folder of a served evaluation, its own identifier without the
+    '<evaluation>/Iteration_<n>[/EMA]' parts, naming the run on the index and at the top of its page.
+
+    Args:
+        identifier (str): The identifier of the evaluation, '<experiments folder name>/<relative path>'.
+        evaluation_folder (Path): The evaluation folder.
+        run_folder (Path): The run folder holding the evaluation (describe_evaluation_folder).
+
+    Returns:
+        str: The identifier of the run folder.
+    """
+    evaluation_parts = evaluation_folder.relative_to(run_folder).parts
+    return "/".join(identifier.split("/")[:-len(evaluation_parts)])
+
+
+def describe_model_performance(identifier: str, evaluation_folder: Path,
+                               output_mode: str) -> Optional[Dict[str, Any]]:
+    """
+    Reads the global metrics of a served evaluation from the evaluation summary next to its iteration folder
+    ('<run>/Evaluation/' or '<run>/Checkpoint_Evaluation/', the averaged weights in its 'ema_' columns), shown at the top
+    of its page so that the checkpoint about to be exported is known by its performance, with the best evaluation of
+    that summary (every iteration, trained and averaged weights) by the first metric of PERFORMANCE_METRICS.
+
+    Args:
+        identifier (str): The identifier of the evaluation, '<experiments folder name>/<relative path>'.
+        evaluation_folder (Path): The evaluation folder.
+        output_mode (str): "multi_class" or "multi_label", choosing the metrics.
+
+    Returns:
+        Optional[Dict[str, Any]]: The 'run' identifier, the 'metrics' ([{'name', 'value'}] in PERFORMANCE_METRICS
+            order), the 'summary_folder' name and its 'number_iterations', and the 'best' evaluation ('metric',
+            'value', 'iteration', 'use_averaged_weights', 'evaluation' (its identifier, None when it holds no page),
+            'reached' when this evaluation equals it), or None when the summary holds no metric of this evaluation (an
+            evaluation written before the summary existed).
+    """
+    checkpoint = describe_evaluation_folder(evaluation_folder=evaluation_folder)
+    iteration_folder = evaluation_folder.parent if checkpoint["use_averaged_weights"] else evaluation_folder
+    summary_folder = iteration_folder.parent
+    _, summary_rows = read_evaluation_summary(summary_path=summary_folder / EVALUATION_SUMMARY_FILE_NAME)
+    rows_by_iteration = {int(summary_row[ITERATION_COLUMN]): summary_row for summary_row in summary_rows}
+    if checkpoint["iteration"] not in rows_by_iteration:
+        return None
+
+    # Metrics of this evaluation, in the columns of its weights, an empty cell or a missing column being left out
+    metric_names = PERFORMANCE_METRICS[output_mode]
+    weights_prefix = AVERAGED_WEIGHTS_COLUMN_PREFIX if checkpoint["use_averaged_weights"] else ""
+    summary_row = rows_by_iteration[checkpoint["iteration"]]
+    metrics = [{"name": metric_name, "value": float(summary_row[weights_prefix + metric_name])}
+               for metric_name in metric_names if summary_row.get(weights_prefix + metric_name)]
+    if not metrics:
+        return None
+
+    # Best evaluation of the summary by the first metric, the earliest iteration and the trained weights first on a tie
+    best_metric = metrics[0]["name"]
+    best = None
+    for iteration in sorted(rows_by_iteration):
+        for use_averaged_weights, column_prefix in [(False, ""), (True, AVERAGED_WEIGHTS_COLUMN_PREFIX)]:
+            cell = rows_by_iteration[iteration].get(column_prefix + best_metric)
+            if cell and (best is None or float(cell) > best["value"]):
+                best = {"metric": best_metric, "value": float(cell), "iteration": iteration,
+                        "use_averaged_weights": use_averaged_weights}
+
+    # Page of the best evaluation, linked when it holds one
+    run_identifier = find_run_identifier(identifier=identifier, evaluation_folder=evaluation_folder,
+                                         run_folder=checkpoint["run_folder"])
+    best_relative_path = f"{summary_folder.name}/Iteration_{best['iteration']}"
+    if best["use_averaged_weights"]:
+        best_relative_path += f"/{AVERAGED_WEIGHTS_FOLDER_NAME}"
+    best["evaluation"] = (f"{run_identifier}/{best_relative_path}" if is_explorer_evaluation(
+        evaluation_folder=checkpoint["run_folder"] / best_relative_path) else None)
+    best["reached"] = metrics[0]["value"] >= best["value"]
+    return {"run": run_identifier, "metrics": metrics, "summary_folder": summary_folder.name,
+            "number_iterations": len(rows_by_iteration), "best": best}
+
+
 def describe_export_job(export_job: Dict[str, Any]) -> Dict[str, Any]:
     """
     Describes the export run by the server for the page: its state, its folder and the last lines of its console
@@ -264,10 +352,11 @@ def describe_index_entry(identifier: str, evaluation_folder: Path) -> Dict[str, 
     exports = list_checkpoint_exports(run_folder=checkpoint["run_folder"], iteration=checkpoint["iteration"],
                                       use_averaged_weights=checkpoint["use_averaged_weights"])
 
-    # Identifier of the run: the identifier of the evaluation without its '<evaluation>/Iteration_<n>[/EMA]' parts
-    evaluation_parts = evaluation_folder.relative_to(checkpoint["run_folder"]).parts
-    run_identifier = "/".join(identifier.split("/")[:-len(evaluation_parts)])
-    is_checkpoint_evaluation = evaluation_parts[0] == CHECKPOINT_EVALUATION_FOLDER_NAME
+    # Identifier of the run and evaluation folder (training or checkpoint evaluation) of the evaluation
+    run_identifier = find_run_identifier(identifier=identifier, evaluation_folder=evaluation_folder,
+                                         run_folder=checkpoint["run_folder"])
+    is_checkpoint_evaluation = (evaluation_folder.relative_to(checkpoint["run_folder"]).parts[0]
+                                == CHECKPOINT_EVALUATION_FOLDER_NAME)
 
     # Row of the evaluation, its weights linking to its page
     weights_label = "EMA" if checkpoint["use_averaged_weights"] else "Trained"
@@ -420,8 +509,9 @@ class TemperatureExplorerHandler(BaseHTTPRequestHandler):
     def build_page_data(self, identifier: str, evaluation_folder: Path) -> Dict[str, Any]:
         """
         Builds the data of the page of an evaluation, from its class logits (kept until they change) or from its written
-        page, with what the served page needs: its identifier, whether any temperature can be shown, and the export
-        settings it offers.
+        page, with what the served page needs: its identifier, whether any temperature can be shown, the global metrics
+        of its checkpoint with the best evaluation of its run (describe_model_performance), the cut points of the score
+        ranges before any are typed, and the export settings it offers.
 
         Args:
             identifier (str): The identifier of the evaluation.
@@ -439,7 +529,10 @@ class TemperatureExplorerHandler(BaseHTTPRequestHandler):
             page_data = dict(self.server.page_data_cache[cache_key])
         else:
             page_data = read_explorer_page_data(explorer_path=evaluation_folder / EXPLORER_FILE_NAME)
+        model_performance = describe_model_performance(identifier=identifier, evaluation_folder=evaluation_folder,
+                                                       output_mode=page_data["output_mode"])
         return {**page_data, "evaluation": identifier, "live_temperatures": logits_path.is_file(),
+                "model_performance": model_performance, "default_score_cut_points": DEFAULT_SCORE_CUT_POINTS,
                 "export_formats": EXPORT_FORMATS, "tensorrt_precisions": TENSORRT_PRECISIONS,
                 "export_defaults": DEFAULT_EXPORT_SETTINGS}
 
