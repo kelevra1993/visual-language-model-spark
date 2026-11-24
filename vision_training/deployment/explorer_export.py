@@ -211,7 +211,7 @@ def run_export_job(job_path: Path) -> Path:
                       use_averaged_weights=job["use_averaged_weights"], formats=job["formats"], repository=work_folder,
                       model_version=job["model_version"], maximum_batch_size=job["maximum_batch_size"],
                       tensorrt_precision=job["tensorrt_precision"], use_saved_temperature=True,
-                      saved_thresholds_path=saved_thresholds_path)
+                      saved_thresholds_path=saved_thresholds_path, test_split_parity=False)
 
     # Record of what was exported, then the finished folder in place of an earlier export of the same temperature
     record = {**{key: job[key] for key in ["evaluation_folder", "saved_thresholds_path", "run_folder", "iteration",

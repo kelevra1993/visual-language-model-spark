@@ -17,7 +17,6 @@ import os
 import shutil
 import subprocess
 import time
-import urllib.error
 import urllib.request
 import numpy as np
 import torch
@@ -33,25 +32,23 @@ from vision_training.deployment.deployment_utilities import (load_inference_inpu
 from vision_training.deployment.export_formats import hide_known_export_warnings
 from vision_training.deployment.export_model import export_experiment
 from vision_training.deployment.export_specifications import TASK_MODEL_NAMES
+from vision_training.deployment.triton_server import (build_triton_server, load_served_model, send_server_request,
+                                                      start_triton_server, stop_triton_server, unload_served_model)
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
-# Triton server and SDK images of the benchmark (Triton 2.65.0, ONNX Runtime 1.23.2, TensorRT 10.14.1), and the names
-# of their containers, removed by name when a measurement fails or times out
-TRITON_IMAGE = "nvcr.io/nvidia/tritonserver:26.01-py3"
+# SDK image of the benchmark (perf_analyzer of Triton 2.65.0, the server image being TRITON_IMAGE of
+# deployment/triton_server.py), and the name of its container, removed by name when a measurement fails or times out
 SDK_IMAGE = "nvcr.io/nvidia/tritonserver:26.01-py3-sdk"
-TRITON_CONTAINER_NAME = "serving-benchmark-triton"
 PERF_ANALYZER_CONTAINER_NAME = "serving-benchmark-perf-analyzer"
 
-# Addresses of the server, which shares the network of the machine (HTTP for the repository and health requests, gRPC
-# for the inference requests, metrics for perf_analyzer)
-HTTP_ADDRESS = "localhost:8000"
-GRPC_ADDRESS = "localhost:8001"
-METRICS_ADDRESS = "localhost:8002/metrics"
+# Server of the benchmark, which shares the network of the machine on the default ports of Triton (HTTP for the
+# repository and health requests, gRPC for the inference requests, metrics for perf_analyzer), and its addresses
+BENCHMARK_SERVER = build_triton_server(container_name="serving-benchmark-triton", http_port=8000, grpc_port=8001,
+                                       metrics_port=8002)
+GRPC_ADDRESS = BENCHMARK_SERVER["grpc_address"]
+METRICS_ADDRESS = BENCHMARK_SERVER["metrics_address"]
 
-# Folders of the server and SDK containers: the model repository, the TensorRT engine cache written into the ONNX
-# configurations by deployment/triton_configuration.py, the perf_analyzer input data and its reports
-CONTAINER_REPOSITORY_FOLDER = "/models"
-CONTAINER_ENGINE_CACHE_FOLDER = "/tmp/tensorrt_engine_cache"
+# Folders of the SDK container: the perf_analyzer input data and its reports
 CONTAINER_INPUT_DATA_FOLDER = "/input_data"
 CONTAINER_REPORT_FOLDER = "/reports"
 
@@ -67,10 +64,7 @@ MINIMUM_AVAILABLE_GIGABYTES = 30.0
 IDLE_POLL_SECONDS = 30
 MAXIMUM_IDLE_WAIT_SECONDS = 4 * 3600
 
-# Waits of the server: start, model load and unload, and the memory left to settle after an unload
-SERVER_START_TIMEOUT_SECONDS = 300
-MODEL_LOAD_TIMEOUT_SECONDS = 1800
-MEMORY_SETTLE_SECONDS = 5
+# Time a perf_analyzer run has to write its report
 PERF_ANALYZER_TIMEOUT_SECONDS = 1800
 # Memory limit of the perf_analyzer container: perf_analyzer 2.59.1 keeps about 10 MB per 512-pixel request sent
 # without shared memory (gRPC or HTTP) until the end of its run, which filled the 128 GB of the machine in the pilot,
@@ -375,7 +369,8 @@ def export_precision_setting(experiment_folder: Path, iteration: int, repository
     hide_known_export_warnings()
     export_experiment(experiment_folder=experiment_folder, iteration=iteration, use_averaged_weights=False,
                       formats=formats, repository=repository, model_version=1, maximum_batch_size=maximum_batch_size,
-                      tensorrt_precision=tensorrt_precision, use_saved_temperature=False, saved_thresholds_path=None)
+                      tensorrt_precision=tensorrt_precision, use_saved_temperature=False, saved_thresholds_path=None,
+                      test_split_parity=False)
 
 
 def run_in_child_process(target: Any, keyword_arguments: Dict[str, Any]) -> None:
@@ -481,94 +476,6 @@ def measure_in_process_row(experiment_folder: Path, iteration: int, torchscript_
                                        "allocator_peak_gigabytes": allocator_peak_gigabytes}))
 
 
-def send_server_request(path: str, body: Optional[Dict[str, Any]], timeout_seconds: float) -> Dict[str, Any]:
-    """
-    Sends a request to the HTTP endpoint of the server (health, model configuration, load and unload of the
-    repository extension) and returns its JSON answer.
-
-    Args:
-        path (str): The path after the address, e.g. 'v2/repository/models/image_classifier_onnx/load'.
-        body (Optional[Dict[str, Any]]): The JSON body of a POST request, None for a GET request.
-        timeout_seconds (float): The time the server has to answer.
-
-    Returns:
-        Dict[str, Any]: The JSON answer, empty when the server answers without a body.
-
-    Raises:
-        RuntimeError: If the server answers with an error, its message included.
-    """
-    data = None if body is None else json.dumps(body).encode()
-    request = urllib.request.Request(url=f"http://{HTTP_ADDRESS}/{path}", data=data,
-                                     method="GET" if body is None else "POST",
-                                     headers={"Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-            answer = response.read()
-    except urllib.error.HTTPError as error:
-        raise RuntimeError(f"Triton refused {path}: {error.read().decode(errors='replace')}") from error
-    return json.loads(answer) if answer else {}
-
-
-def is_server_ready() -> bool:
-    """
-    Tells whether the server answers its readiness request, while it starts.
-
-    Returns:
-        bool: True once the server is ready.
-    """
-    try:
-        send_server_request(path="v2/health/ready", body=None, timeout_seconds=5)
-        return True
-    except (urllib.error.URLError, ConnectionError, RuntimeError, TimeoutError):
-        return False
-
-
-def start_triton_server(repository: Path, engine_cache_folder: Path, environment: Dict[str, str]) -> None:
-    """
-    Starts the Triton container of a precision setting with no model loaded (models are loaded one at a time by the
-    sweep), on the network and the shared memory of the machine, as the user of this script so that the engine cache
-    it writes can be emptied from here.
-
-    Args:
-        repository (Path): The model repository of the precision setting.
-        engine_cache_folder (Path): The TensorRT engine cache of the precision setting.
-        environment (Dict[str, str]): The environment variables of the server, empty for every setting measured.
-
-    Raises:
-        RuntimeError: If the server is not ready within SERVER_START_TIMEOUT_SECONDS.
-    """
-    subprocess.run(args=["docker", "rm", "--force", TRITON_CONTAINER_NAME], capture_output=True, check=False)
-    engine_cache_folder.mkdir(parents=True, exist_ok=True)
-    environment_arguments = [argument for name, value in environment.items()
-                             for argument in ["--env", f"{name}={value}"]]
-    subprocess.run(args=["docker", "run", "--detach", "--name", TRITON_CONTAINER_NAME, "--gpus", "all", "--ipc=host",
-                         "--network", "host", "--user", f"{os.getuid()}:{os.getgid()}",
-                         "--volume", f"{repository}:{CONTAINER_REPOSITORY_FOLDER}:ro",
-                         "--volume", f"{engine_cache_folder}:{CONTAINER_ENGINE_CACHE_FOLDER}",
-                         *environment_arguments, TRITON_IMAGE, "tritonserver",
-                         f"--model-repository={CONTAINER_REPOSITORY_FOLDER}", "--model-control-mode=explicit"],
-                   capture_output=True, text=True, check=True)
-    start_time = time.time()
-    while not is_server_ready():
-        if time.time() - start_time > SERVER_START_TIMEOUT_SECONDS:
-            raise RuntimeError(f"Triton not ready after {SERVER_START_TIMEOUT_SECONDS} s, see docker logs "
-                               f"{TRITON_CONTAINER_NAME}.")
-        time.sleep(2)
-
-
-def stop_triton_server(log_path: Path) -> None:
-    """
-    Saves the log of the Triton container and removes it, at the end of a precision setting or when the sweep fails.
-
-    Args:
-        log_path (Path): The file receiving the server log.
-    """
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    logs = subprocess.run(args=["docker", "logs", TRITON_CONTAINER_NAME], capture_output=True, text=True, check=False)
-    log_path.write_text(logs.stdout + logs.stderr)
-    subprocess.run(args=["docker", "rm", "--force", TRITON_CONTAINER_NAME], capture_output=True, check=False)
-
-
 def build_server_configuration(base_configuration: Dict[str, Any], dynamic_batching: bool,
                                instance_count: int) -> Dict[str, Any]:
     """
@@ -597,39 +504,6 @@ def build_server_configuration(base_configuration: Dict[str, Any], dynamic_batch
     if not dynamic_batching:
         del configuration["dynamic_batching"]
     return configuration
-
-
-def load_served_model(model_name: str, configuration: Optional[Dict[str, Any]]) -> None:
-    """
-    Loads a model into the server, replacing it if it is already loaded, with its config.pbtxt or with the
-    configuration of a server setting.
-
-    Args:
-        model_name (str): The Triton model name.
-        configuration (Optional[Dict[str, Any]]): The configuration given at load time, None for config.pbtxt.
-    """
-    body = {} if configuration is None else {"parameters": {"config": json.dumps(configuration)}}
-    send_server_request(path=f"v2/repository/models/{model_name}/load", body=body,
-                        timeout_seconds=MODEL_LOAD_TIMEOUT_SECONDS)
-
-
-def unload_served_model(model_name: str) -> None:
-    """
-    Unloads a model and waits until the server no longer serves it, then leaves the memory time to settle, so that
-    the next model starts from a server holding no model.
-
-    Args:
-        model_name (str): The Triton model name.
-    """
-    send_server_request(path=f"v2/repository/models/{model_name}/unload", body={},
-                        timeout_seconds=MODEL_LOAD_TIMEOUT_SECONDS)
-    while True:
-        try:
-            send_server_request(path=f"v2/models/{model_name}/ready", body=None, timeout_seconds=5)
-        except RuntimeError:
-            break
-        time.sleep(1)
-    time.sleep(MEMORY_SETTLE_SECONDS)
 
 
 def time_first_requests(model_name: str, request: Dict[str, np.ndarray], batch_sizes: List[int]) -> Dict[int, float]:
@@ -832,7 +706,8 @@ def read_inference_statistics(model_name: str) -> Dict[str, Tuple[int, int]]:
     Returns:
         Dict[str, Tuple[int, int]]: The (count, nanoseconds) of 'queue' and of every part of COMPUTE_STATISTICS.
     """
-    statistics = send_server_request(path=f"v2/models/{model_name}/stats", body=None, timeout_seconds=30)
+    statistics = send_server_request(server=BENCHMARK_SERVER, path=f"v2/models/{model_name}/stats", body=None,
+                                     timeout_seconds=30)
     inference_statistics = statistics["model_stats"][0]["inference_stats"]
     return {name: (int(inference_statistics[name]["count"]), int(inference_statistics[name]["ns"]))
             for name in ["queue"] + COMPUTE_STATISTICS}
@@ -1119,7 +994,7 @@ def measure_served_model(model: Dict[str, Any], request: Dict[str, np.ndarray], 
             cached_path.unlink()
     # Memory available before the model loads, so that the memory the served model takes is the difference
     available_without_model_gigabytes = read_available_gigabytes()
-    load_served_model(model_name=model_name, configuration=None)
+    load_served_model(server=BENCHMARK_SERVER, model_name=model_name, configuration=None)
     if not all(build_result_key(result=result) in completed_keys for result in first_request_results):
         other_processes = wait_for_idle_machine()
         first_request_seconds = time_first_requests(model_name=model_name, request=request,
@@ -1132,7 +1007,8 @@ def measure_served_model(model: Dict[str, Any], request: Dict[str, np.ndarray], 
                                          ", ".join(f"batch {batch_size} {seconds:.2f} s"
                                                    for batch_size, seconds in first_request_seconds.items()), indent=1)
     # Configuration exported with the model, the base of every server setting below
-    base_configuration = send_server_request(path=f"v2/models/{model_name}/config", body=None, timeout_seconds=30)
+    base_configuration = send_server_request(server=BENCHMARK_SERVER, path=f"v2/models/{model_name}/config", body=None,
+                                             timeout_seconds=30)
 
     for dynamic_batching, instance_count in server_settings:
         setting_results = [result for result in load_results if result["dynamic_batching"] == dynamic_batching
@@ -1141,7 +1017,7 @@ def measure_served_model(model: Dict[str, Any], request: Dict[str, np.ndarray], 
             continue
 
         # Server setting given at load time, warmed up at the smallest and largest batch sizes, its memory read after
-        load_served_model(model_name=model_name, configuration=build_server_configuration(
+        load_served_model(server=BENCHMARK_SERVER, model_name=model_name, configuration=build_server_configuration(
             base_configuration=base_configuration, dynamic_batching=dynamic_batching, instance_count=instance_count))
         warm_up_served_model(model_name=model_name, request=request, maximum_batch_size=maximum_batch_size)
         memory_gigabytes = available_without_model_gigabytes - read_available_gigabytes()
@@ -1183,7 +1059,7 @@ def measure_served_model(model: Dict[str, Any], request: Dict[str, np.ndarray], 
             print_color(color="green" if measure is not None else "red",
                         output=f"{result['transport']}, batch {result['batch_size']}, concurrency "
                                f"{result['concurrency']} : {measure_text}", indent=2)
-    unload_served_model(model_name=model_name)
+    unload_served_model(server=BENCHMARK_SERVER, model_name=model_name)
 
 
 def run_serving_benchmark(models: List[Dict[str, Any]], benchmark_folder: Path,
@@ -1252,7 +1128,8 @@ def run_serving_benchmark(models: List[Dict[str, Any]], benchmark_folder: Path,
     for precision_setting, precision_values in precision_settings.items():
         log_path = benchmark_folder / "logs" / f"triton_{precision_setting}_{datetime.now():%Y%m%d_%H%M%S}.log"
         print_color(color="blue", output=f"Triton : {precision_setting}", add_separators=True)
-        start_triton_server(repository=benchmark_folder / "model_repositories" / precision_setting,
+        start_triton_server(server=BENCHMARK_SERVER,
+                            repository=benchmark_folder / "model_repositories" / precision_setting,
                             engine_cache_folder=benchmark_folder / "tensorrt_engine_cache" / precision_setting,
                             environment=precision_values["environment"])
         # The server log is kept and the container removed whatever ends the measurements
@@ -1266,7 +1143,7 @@ def run_serving_benchmark(models: List[Dict[str, Any]], benchmark_folder: Path,
                                          completed_keys=read_completed_keys(results_path=results_path),
                                          results_path=results_path)
         finally:
-            stop_triton_server(log_path=log_path)
+            stop_triton_server(server=BENCHMARK_SERVER, log_path=log_path)
 
 
 if __name__ == "__main__":

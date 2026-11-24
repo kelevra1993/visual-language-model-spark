@@ -237,7 +237,23 @@ class KeypointTrainer(CocoSplitTrainer):
             Dict[str, Any]: The detector outputs, with the 'grouped_objects' of every image ('labels', 'keypoints' in
                 network input pixels, 'keypoint_scores' and 'scores', by decreasing score).
         """
-        predictions = self.model(input_tensor=batch["images"])
+        return self.group_candidates(predictions=self.model(input_tensor=batch["images"]))
+
+    def group_candidates(self, predictions: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Groups the keypoint candidates of every image of a batch into objects on the CPU (group_keypoint_candidates),
+        with the grouping settings of 'KeypointHead.inference' and every object kept whatever its score, for the test
+        evaluation of the trained detector (predict_batch) and of its exported models, whose candidates are the same
+        outputs (the test split parity of deployment/export_parity.py).
+
+        Args:
+            predictions (Dict[str, Any]): The outputs of the detector, with its [B, C, N, 2] 'candidate_positions',
+                [B, C, N] 'candidate_scores' and [B, C, N] 'candidate_tags'.
+
+        Returns:
+            Dict[str, Any]: The outputs, with the 'grouped_objects' of every image ('labels', 'keypoints' in network
+                input pixels, 'keypoint_scores' and 'scores', by decreasing score).
+        """
         candidate_positions = predictions["candidate_positions"].detach().float().cpu().numpy()
         candidate_scores = predictions["candidate_scores"].detach().float().cpu().numpy()
         candidate_tags = predictions["candidate_tags"].detach().float().cpu().numpy()

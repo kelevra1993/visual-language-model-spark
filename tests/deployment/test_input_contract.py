@@ -110,7 +110,7 @@ def export_test_run(experiment_folder: Path, repository: Path, formats: List[str
     export_experiment(experiment_folder=experiment_folder, iteration=EXPORTED_ITERATION, use_averaged_weights=False,
                       formats=formats, repository=repository, model_version=1,
                       maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE, tensorrt_precision=None, use_saved_temperature=False,
-                      saved_thresholds_path=None)
+                      saved_thresholds_path=None, test_split_parity=False)
 
 
 def write_test_photo(photo_path: Path, photo_height: int, photo_width: int) -> None:

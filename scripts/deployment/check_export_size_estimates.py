@@ -31,8 +31,7 @@ from torch import nn
 from tritonclient.utils import InferenceServerException
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from scripts.deployment.benchmark_serving_formats import (load_served_model, start_triton_server, stop_triton_server,
-                                                          time_first_requests, unload_served_model)
+from scripts.deployment.benchmark_serving_formats import BENCHMARK_SERVER, time_first_requests
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.deployment.export_formats import export_onnx, hide_known_export_warnings
 from vision_training.deployment.export_size_estimates import (EXPORT_MAXIMUM_BATCH_SIZE, ONNX_GRAPH_BYTES_PER_OPERATOR,
@@ -43,6 +42,8 @@ from vision_training.deployment.export_size_estimates import (EXPORT_MAXIMUM_BAT
 from vision_training.deployment.export_specifications import (TASK_MODEL_NAMES, build_inference_model,
                                                               create_random_inputs, get_export_specification)
 from vision_training.deployment.triton_configuration import write_triton_configuration
+from vision_training.deployment.triton_server import (load_served_model, start_triton_server, stop_triton_server,
+                                                      unload_served_model)
 from vision_training.models.model_loading import load_trained_model
 from vision_training.trainers.checkpointing import get_checkpoint_path
 from vision_training.utilities.os_utilities import format_path_link, print_color
@@ -326,9 +327,9 @@ def serve_model_for_engines(model_name: str, request: Dict[str, np.ndarray], bat
             None, or None and the error of the server.
     """
     try:
-        load_served_model(model_name=model_name, configuration=None)
+        load_served_model(server=BENCHMARK_SERVER, model_name=model_name, configuration=None)
         first_request_seconds = time_first_requests(model_name=model_name, request=request, batch_sizes=batch_sizes)
-        unload_served_model(model_name=model_name)
+        unload_served_model(server=BENCHMARK_SERVER, model_name=model_name)
     except InferenceServerException as error:
         return None, f"{error}".splitlines()[0]
     return first_request_seconds, None
@@ -356,7 +357,8 @@ def measure_tensorrt_engines(results: List[Dict[str, Any]], experiment_folders: 
                                                output_folder=output_folder, tensorrt_precision=tensorrt_precision)
         engine_cache_folder = output_folder / f"tensorrt_engine_cache_{precision_name}"
         shutil.rmtree(path=engine_cache_folder, ignore_errors=True)
-        start_triton_server(repository=repository, engine_cache_folder=engine_cache_folder, environment={})
+        start_triton_server(server=BENCHMARK_SERVER, repository=repository, engine_cache_folder=engine_cache_folder,
+                            environment={})
         try:
             for result, experiment_folder in zip(results, experiment_folders):
                 model_name = f"{TASK_MODEL_NAMES[result['task']]}_onnx"
@@ -382,9 +384,10 @@ def measure_tensorrt_engines(results: List[Dict[str, Any]], experiment_folders: 
                     # Failure log kept and a new server, on the same engine cache, for the next models
                     print_color(color="red", output=f"Serving {model_name} with TensorRT {tensorrt_precision} failed: "
                                                     f"{error_text}", indent=2)
-                    stop_triton_server(log_path=output_folder / f"triton_{precision_name}_{model_name}_failure.log")
-                    start_triton_server(repository=repository, engine_cache_folder=engine_cache_folder,
-                                        environment={})
+                    stop_triton_server(server=BENCHMARK_SERVER,
+                                       log_path=output_folder / f"triton_{precision_name}_{model_name}_failure.log")
+                    start_triton_server(server=BENCHMARK_SERVER, repository=repository,
+                                        engine_cache_folder=engine_cache_folder, environment={})
                     if not set(engine_cache_folder.glob("*.engine")) - engines_before:
                         continue
                 engine_bytes, named_after_prefix = measure_new_engines(
@@ -396,7 +399,7 @@ def measure_tensorrt_engines(results: List[Dict[str, Any]], experiment_folders: 
                     print_color(color="red", output=f"The engines of {model_name} do not start with the "
                                                     f"trt_engine_cache_prefix of its config.pbtxt", indent=2)
         finally:
-            stop_triton_server(log_path=output_folder / f"triton_{precision_name}.log")
+            stop_triton_server(server=BENCHMARK_SERVER, log_path=output_folder / f"triton_{precision_name}.log")
 
 
 def compute_relative_error(estimated_bytes: Optional[int], real_bytes: Optional[int]) -> Optional[float]:

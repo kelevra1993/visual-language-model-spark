@@ -122,8 +122,9 @@ def test_failed_serving_is_returned_as_an_error(monkeypatch: pytest.MonkeyPatch)
         monkeypatch (pytest.MonkeyPatch): Replaces the calls to the Triton server.
     """
     calls = []
-    monkeypatch.setattr(check_module, "load_served_model", lambda model_name, configuration: calls.append("load"))
-    monkeypatch.setattr(check_module, "unload_served_model", lambda model_name: calls.append("unload"))
+    monkeypatch.setattr(check_module, "load_served_model",
+                        lambda server, model_name, configuration: calls.append("load"))
+    monkeypatch.setattr(check_module, "unload_served_model", lambda server, model_name: calls.append("unload"))
     monkeypatch.setattr(check_module, "time_first_requests",
                         lambda model_name, request, batch_sizes: {batch_size: 2.0 for batch_size in batch_sizes})
     assert serve_model_for_engines(model_name="image_classifier_onnx", request={}, batch_sizes=[1, 16]) == (

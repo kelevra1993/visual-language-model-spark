@@ -261,7 +261,7 @@ def test_unknown_export_settings_stop_the_export_before_anything_is_read(tmp_pat
                              "use_averaged_weights": False, "formats": ["torchscript", "onnx"],
                              "repository": repository, "model_version": 1, "maximum_batch_size": 4,
                              "tensorrt_precision": "FP16", "use_saved_temperature": False,
-                             "saved_thresholds_path": None, **export_settings})
+                             "saved_thresholds_path": None, "test_split_parity": False, **export_settings})
     assert not repository.exists()
 
 

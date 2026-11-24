@@ -5,8 +5,10 @@ folder moved into the repository only when every format matches, adding for the 
 ensembles returning the chosen frames, and for the classification the logit temperature and the class thresholds
 saved from the temperature explorer of the exported checkpoint. Every exported model carries the input contract of the
 run (deployment/input_contract.py), in the metadata of the ONNX file and in 'preprocessing.json' next to it, so that a
-server builds the input from a photo as the training did. Run as a script with the experiment, iteration and formats
-set in its main block.
+server builds the input from a photo as the training did. With test_split_parity, every format is also served by a
+temporary Triton container and scored on the whole test split against the eager model (deployment/export_parity.py),
+the summary written to '<run>/Export_Parity/Iteration_<n>[_EMA]/' and next to the installed models. Run as a script
+with the experiment, iteration and formats set in its main block.
 """
 
 import json
@@ -20,6 +22,7 @@ from typing import Any, List, Optional
 
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.deployment.export_formats import export_onnx, export_torchscript, hide_known_export_warnings
+from vision_training.deployment.export_parity import run_test_split_parity, write_parity_summary
 from vision_training.deployment.export_specifications import (build_inference_model, convert_outputs_to_numpy,
                                                               create_random_inputs, get_export_specification)
 from vision_training.deployment.frame_selection_deployment import (build_decoding_settings,
@@ -28,11 +31,12 @@ from vision_training.deployment.input_contract import (build_input_contract, wri
                                                        write_preprocessing_file)
 from vision_training.deployment.triton_configuration import (EXPORT_FORMATS, TENSORRT_PRECISIONS,
                                                              write_triton_configuration)
+from vision_training.deployment.triton_server import check_triton_available
 from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
 from vision_training.evaluation.classification.temperature_explorer import (SAVED_THRESHOLDS_FILE_NAME,
                                                                             check_saved_thresholds)
 from vision_training.trainers.base_trainer import AVERAGED_WEIGHTS_FOLDER_NAME, EVALUATION_FOLDER_NAME
-from vision_training.trainers.checkpointing import get_checkpoint_path
+from vision_training.trainers.checkpointing import get_checkpoint_path, get_last_checkpoint_iteration
 from vision_training.models.model_loading import load_trained_model
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
@@ -45,6 +49,10 @@ DEFAULT_REPOSITORY = Path(__file__).absolute().parent / "triton" / "served_model
 STAGING_FOLDER_PREFIX = ".export_staging_"
 STAGED_MODELS_FOLDER_NAME = "models"
 REPLACED_VERSIONS_FOLDER_NAME = "replaced_versions"
+
+# Folder of the staging folder receiving the TensorRT engines built by the Triton container of the test split parity,
+# removed with it
+PARITY_ENGINE_CACHE_FOLDER_NAME = "parity_tensorrt_engine_cache"
 
 
 def find_saved_thresholds_path(experiment_folder: Path, checkpoint_path: Path, use_averaged_weights: bool) -> Path:
@@ -215,7 +223,7 @@ def check_export_settings(formats: Any, model_version: Any, maximum_batch_size: 
 def export_experiment(experiment_folder: Path, iteration: Optional[int], use_averaged_weights: bool,
                       formats: List[str], repository: Path, model_version: int, maximum_batch_size: int,
                       tensorrt_precision: Optional[str], use_saved_temperature: bool,
-                      saved_thresholds_path: Optional[Path]) -> None:
+                      saved_thresholds_path: Optional[Path], test_split_parity: bool) -> None:
     """
     Exports a trained experiment of any task to the Triton model repository in every requested format, writes the
     Triton configurations, and checks each export against the eager inference model on a random batch of another
@@ -231,7 +239,12 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
     model of every format, the export stopping before any file is written when the contract cannot describe the input
     of the run. Every format is exported and checked in a staging folder next to the repository, and the models
     replace those of the repository (install_staged_models) only once all of them match the eager model, so that a
-    failed check leaves the served models as they were.
+    failed check leaves the served models as they were. With test_split_parity, every format is then served from the
+    staging folder by a temporary Triton container, as it will be served (its TensorRT precision included), and scored
+    on the whole test split of the run with the eager model (run_test_split_parity), even when the random batch check
+    of a format failed; the summary is written to '<run>/Export_Parity/Iteration_<n>[_EMA]/' and copied next to every
+    installed model. The parity only reports: the random batch check alone decides the installation, an expected
+    drop of a reduced precision (TensorRT FP16) never stopping an export.
 
     Args:
         experiment_folder (Path): The experiment folder holding 'Weights' and 'training_configuration.yaml'.
@@ -249,9 +262,13 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
         saved_thresholds_path (Optional[Path]): With use_saved_temperature, the saved thresholds to deploy, checked to
             be those of the evaluation of the exported checkpoint and weights (check_saved_thresholds_location), or
             None to look for them in its evaluation folders (find_saved_thresholds_path).
+        test_split_parity (bool): True to score every exported format, served by Triton, on the whole test split of
+            the run against the eager model and write the parity summary, False for the random batch check only.
 
     Raises:
-        RuntimeError: If an exported model does not reproduce the eager outputs, the repository being left unchanged.
+        RuntimeError: If an exported model does not reproduce the eager outputs, the repository being left unchanged
+            (with test_split_parity, after the parity summary is written), or if test_split_parity is set on a
+            machine where no Triton container can be started (check_triton_available, before anything is read).
         FileNotFoundError: If use_saved_temperature finds no saved thresholds for the exported checkpoint.
         ValueError: If a format, the model version, the maximum batch size or the TensorRT precision is not one the
             export accepts (check_export_settings, before anything is loaded), if use_saved_temperature is set for
@@ -265,6 +282,9 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
                           tensorrt_precision=tensorrt_precision)
     if saved_thresholds_path is not None and not use_saved_temperature:
         raise ValueError(f"saved_thresholds_path {saved_thresholds_path} is only read with use_saved_temperature.")
+    # The parity serves the exports with Triton in Docker: a machine without it stops here, before the export
+    if test_split_parity:
+        check_triton_available()
 
     # PyTorch runs GPU convolutions in reduced-precision TF32 by default (about 3 significant digits instead of 7),
     # while ONNX Runtime computes the exported model in exact FP32, so the two differ even for a correct export, by up
@@ -303,6 +323,7 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
             raise ValueError(f"use_saved_temperature is only read for the classification task, not for the "
                              f"{experiment_configuration['task']} task.")
         deployed_thresholds_path = None
+        logit_temperature = 1.0
         if experiment_configuration["task"] == "classification":
             if not use_saved_temperature:
                 print_color(color="yellow", output="use_saved_temperature off : exported with a logit temperature of 1 "
@@ -339,6 +360,7 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
         staging_folder = Path(tempfile.mkdtemp(prefix=STAGING_FOLDER_PREFIX, dir=repository.parent))
         try:
             (staging_folder / STAGED_MODELS_FOLDER_NAME).mkdir()
+            random_batch_checks = {}
             for export_format in formats:
                 model_name = f"{specification['model_name']}_{export_format}"
                 model_directory = staging_folder / STAGED_MODELS_FOLDER_NAME / model_name
@@ -375,14 +397,53 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
                 if deployed_thresholds_path is not None:
                     shutil.copyfile(src=deployed_thresholds_path, dst=model_path.parent / "class_thresholds.json")
 
+                # A mismatch stops the export at once, or with the parity once every format is exported and scored
                 mismatches = specification["compare_outputs"](reference=reference_outputs, candidate=exported_outputs,
                                                               **specification["comparison_tolerances"])
-                if mismatches:
-                    raise RuntimeError(f"The {export_format} Export Does Not Match The Eager Model, The Served Models "
-                                       f"Left Unchanged:\n" + "\n".join(mismatches))
-                print_color(color="green", output=f"{export_format} Export Matches The Eager Model", indent=1)
+                random_batch_checks[export_format] = mismatches
+                mismatch_message = (f"The {export_format} Export Does Not Match The Eager Model, The Served Models "
+                                    f"Left Unchanged:\n" + "\n".join(mismatches))
+                if mismatches and not test_split_parity:
+                    raise RuntimeError(mismatch_message)
+                print_color(color="red" if mismatches else "green",
+                            output=mismatch_message if mismatches else f"{export_format} Export Matches The Eager "
+                                                                       f"Model", indent=1)
 
-            # Every format matched: the checked models replace the version folders and configurations served before
+            # Test split parity of the staged models, written whatever the random batch check found, the installation
+            # recorded in it before the models are installed or refused
+            mismatching_formats = [export_format for export_format, mismatches in random_batch_checks.items()
+                                   if mismatches]
+            summary_paths = []
+            if test_split_parity:
+                parity_summary, sample_records = run_test_split_parity(
+                    experiment_folder=experiment_folder, checkpoint_path=checkpoint_path,
+                    iteration=iteration if iteration is not None else get_last_checkpoint_iteration(
+                        weights_directory=experiment_folder / "Weights"),
+                    use_averaged_weights=use_averaged_weights, inference_model=inference_model,
+                    specification=specification, staged_repository=staging_folder / STAGED_MODELS_FOLDER_NAME,
+                    engine_cache_folder=staging_folder / PARITY_ENGINE_CACHE_FOLDER_NAME, formats=formats,
+                    tensorrt_precision=tensorrt_precision, maximum_batch_size=maximum_batch_size,
+                    model_version=model_version, logit_temperature=logit_temperature,
+                    random_batch_checks=random_batch_checks)
+                parity_summary["installation"] = (
+                    f"refused, the random batch check of {', '.join(mismatching_formats)} failed" if mismatching_formats
+                    else f"installed into {repository}, version {model_version}")
+                summary_paths = write_parity_summary(parity_folder=Path(parity_summary["parity_folder"]),
+                                                     summary=parity_summary, sample_records=sample_records)
+                print_color(color="blue", output=f"Test Split Parity Summary : "
+                                                 f"{format_path_link(path=summary_paths[0])}", indent=1)
+            if mismatching_formats:
+                raise RuntimeError("\n".join(f"The {export_format} Export Does Not Match The Eager Model, The Served "
+                                             f"Models Left Unchanged:\n" + "\n".join(random_batch_checks[export_format])
+                                             for export_format in mismatching_formats))
+
+            # Every format matched: the parity summary next to every model, then the checked models replace the version
+            # folders and configurations served before
+            for export_format in formats:
+                version_directory = (staging_folder / STAGED_MODELS_FOLDER_NAME /
+                                     f"{specification['model_name']}_{export_format}" / str(model_version))
+                for summary_path in summary_paths:
+                    shutil.copyfile(src=summary_path, dst=version_directory / summary_path.name)
             install_staged_models(staging_folder=staging_folder, repository=repository, model_version=model_version)
 
         # The staging folder is removed whether the export succeeded or raised, with the version folders replaced
@@ -436,6 +497,11 @@ if __name__ == "__main__":
     # With use_saved_temperature, the saved_temperature_thresholds.json to deploy, None to look for it in the two
     # folders above (the export button of the temperature explorer gives the file of its page)
     saved_thresholds_path = None
+    # True serves every exported format with a temporary Triton container (Docker and the image of
+    # deployment/triton/docker-compose.yml needed) and scores it on the whole test split of the run against the eager
+    # model, even when the random batch check fails; the summary goes to '<run>/Export_Parity/Iteration_<n>[_EMA]/' and
+    # next to the installed models. It only reports: the random batch check alone decides the installation
+    test_split_parity = False
 
     if not show_warnings:
         hide_known_export_warnings()
@@ -444,4 +510,4 @@ if __name__ == "__main__":
                       use_averaged_weights=use_averaged_weights, formats=formats, repository=repository,
                       model_version=model_version, maximum_batch_size=maximum_batch_size,
                       tensorrt_precision=tensorrt_precision, use_saved_temperature=use_saved_temperature,
-                      saved_thresholds_path=saved_thresholds_path)
+                      saved_thresholds_path=saved_thresholds_path, test_split_parity=test_split_parity)
