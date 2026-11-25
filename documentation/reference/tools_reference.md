@@ -19,6 +19,7 @@ Settings and outputs of the scripts run after a training, completing the [Evalua
   - [Export](#export)
   - [Input Contract](#input-contract)
   - [Test Split Parity](#test-split-parity)
+  - [FP16 TorchScript Trial](#fp16-torchscript-trial)
   - [Throughput Measurement](#throughput-measurement)
   - [Serving Benchmark](#serving-benchmark)
   - [Export Size Check](#export-size-check)
@@ -263,6 +264,17 @@ Should you need to know what an export costs in test metrics before it is served
 - **Failed rows**: a model Triton refuses to load or fails to run (the TensorRT keypoint detector of the tutorials crashed the server) is recorded with its error, the log of the server up to the failure kept as `triton_server_<format>_failure.log`, and the server is started again for the other rows.
 - **Outputs**: `<run>/Export_Parity/Iteration_<n>[_EMA]/`, replaced by the next parity of the same checkpoint and weights: `parity_summary.md` (installation, random batch check, every metric of every row with its change against the eager row, in points for a rate, the stored evaluation, the agreement of the samples and the 10 samples of largest difference of every row, the failed rows), `parity_summary.json`, `parity_samples.csv` (one line per compared sample of every served row: split, identifier, name, agreement, largest difference, mismatches), `row_evaluations/<row>/` (the `Results.txt`, summary and iteration folder of every row) and `triton_server.log` (with a `triton_server_<format>_failure.log` per failed row). The console prints the headline metric of every row, a change of at least 0.5 points in yellow. Both summaries are copied into the version folder of every installed model, which Triton ignores.
 - **Installation**: decided by the random batch check alone, as without the parity: a failed check raises once the summary is written, and an expected drop of a reduced precision never stops an export.
+
+### FP16 TorchScript Trial
+Before deciding whether a classifier should be served as an FP16 TorchScript file, which the export does not write (its TorchScript stays FP32, FP16 coming through TensorRT), `scripts/deployment/check_half_precision_parity.py` traces it in FP16 and scores it on the whole test split against the eager FP32 model, classification only, without timing it. Its main block sets the run, `iteration`, `use_averaged_weights`, `use_saved_temperature`, `saved_thresholds_path` and `maximum_batch_size`, as in `export_model.py`.
+
+```bash
+uv run python -m scripts.deployment.check_half_precision_parity
+```
+
+- **Model**: the inference classifier of the export, with the temperature of its saved thresholds when `use_saved_temperature` is set, its network converted to FP16 by `HalfPrecisionClassifier`; the input stays the FP32 batch of the input contract and the logits go back to FP32 before the temperature and the softmax, FP16 values near 1 lying about 0.0005 apart.
+- **Rows**: the eager FP32 model, then the traced FP16 file in the process, each scored by `evaluate_parity_row` of the [test split parity](#test-split-parity), every FP16 request also going through the eager model.
+- **Outputs**: `<run>/Half_Precision_Parity/Iteration_<n>[_EMA]/`, replaced by the next trial of the same checkpoint and weights: `model_fp16.pt`, `model_fp32.pt` (the size reference), the evaluation files of both rows, and `half_precision_parity.md` and `.json`: Balanced Accuracy, Accuracy and Macro F1 of both rows with the change in points, the images whose predicted class or deployed threshold decision changed, those within the FP32 tolerances of the export, the largest and mean probability differences and the sizes of both files.
 
 ### Throughput Measurement
 `vision_training/deployment/run_inference.py` times the images of `vision_training/deployment/inference_data/`. The image tasks send one request per image, letterboxed like the loaders of a run trained on whole images; a SEG run trained on tiles is refused, a photo needing many tiles per request. The sequence tasks send the whole folder as one sequence, of 2 to `maximum_sequence_length` images, CMP splitting it into a before and an after half. SEL decodes every sequence locally, and queries Triton through its ensembles.
