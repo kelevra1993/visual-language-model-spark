@@ -855,7 +855,7 @@ The summary counts images.
 **Example output: the summaries of iterations 10 and 60**
 ```text
 ========================================================================================================================
-|    Iteration: 10     |      Total Images: 80     |    Interval Images: 80     |  Throughput: 0.6 Images Per Second   |
+|    Iteration: 10    |      Total Images: 80      |    Interval Images: 80    |   Throughput: 0.6 Images Per Second   |
 ------------------------------------------------------------------------------------------------------------------------
 Moving Average of Train Total Loss                     :     9.8927
 Moving Average of Valid Total Loss                     :    10.0279
@@ -871,7 +871,7 @@ Validation Iterations In This Interval: 1 (Ratio: Every 10 Training Iterations).
 ========================================================================================================================
 ...
 ========================================================================================================================
-|    Iteration: 60     |     Total Images: 480     |    Interval Images: 80     |  Throughput: 0.5 Images Per Second   |
+|    Iteration: 60    |     Total Images: 480      |    Interval Images: 80    |   Throughput: 0.5 Images Per Second   |
 ------------------------------------------------------------------------------------------------------------------------
 Moving Average of Train Total Loss                     :     7.9859    -0.0256 Best
 Moving Average of Valid Total Loss                     :     8.0162    -0.0787 Best

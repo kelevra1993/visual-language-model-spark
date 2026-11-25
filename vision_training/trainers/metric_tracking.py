@@ -2,12 +2,12 @@
 Metric tracking of the general trainer: the averages of the training and validation losses and batch metrics over
 every console interval, divided by the number of batches the interval really ran (fewer than information_dump in the
 first interval of a resumed run), the throughput of the interval, the console summary printed at every information
-dump (with the change of every value since the previous summary) and the TensorBoard curves. The interval averages and
-the throughput are also sent to the MLflow run of the training by the general trainer. The rates listed by every task
-(get_percent_tracked_metrics of its trainer, such as the batch accuracy of the classification-like tasks) are printed
-as the percentages of the reports, "94.03 %", their changes in percentage points written "+0.52 %", the losses and
-other values with 4 decimals, their decimal points and best markers aligned in columns; TensorBoard and MLflow keep
-every value between 0 and 1.
+dump (its counts and speeds with their digits grouped by three, "6 656 000", and the change of every value since the
+previous summary) and the TensorBoard curves. The interval averages and the throughput are also sent to the MLflow run
+of the training by the general trainer. The rates listed by every task (get_percent_tracked_metrics of its trainer,
+such as the batch accuracy of the classification-like tasks) are printed as the percentages of the reports, "94.03 %",
+their changes in percentage points written "+0.52 %", the losses and other values with 4 decimals, their decimal points
+and best markers aligned in columns; TensorBoard and MLflow keep every value between 0 and 1.
 """
 
 import time
@@ -24,12 +24,17 @@ from vision_training.utilities.os_utilities import color_text
 SUMMARY_MINIMUM_WIDTH = 120
 
 # Largest values the header cells of the console summary are sized for, so that the bars between the cells keep their
-# place during the whole run: training iterations, total and interval samples, samples and real frames per second
-SUMMARY_MAXIMUM_ITERATIONS = 10_000_000
-SUMMARY_MAXIMUM_TOTAL_SAMPLES = 1_000_000_000
-SUMMARY_MAXIMUM_INTERVAL_SAMPLES = 10_000_000
+# place during the whole run: training iterations, total and interval samples, samples and real frames per second.
+# With their digits grouped, they keep the header of the image tasks at SUMMARY_MINIMUM_WIDTH characters
+SUMMARY_MAXIMUM_ITERATIONS = 999_999
+SUMMARY_MAXIMUM_TOTAL_SAMPLES = 999_999_999
+SUMMARY_MAXIMUM_INTERVAL_SAMPLES = 999_999
 SUMMARY_MAXIMUM_SAMPLES_PER_SECOND = 9999.9
 SUMMARY_MAXIMUM_FRAMES_PER_SECOND = 999999.9
+
+# Separator of the groups of three digits of the counts and speeds of the console summary ("6 656 000"), so that the
+# thousands and millions read at a glance
+THOUSANDS_SEPARATOR = " "
 
 # Colour of the metric lines of each split in the console summary
 SPLIT_COLORS = {"Train": "blue", "Valid": "yellow"}
@@ -204,6 +209,23 @@ class MetricTracker:
         return f"{hours:02d}:{minutes:02d}:{int(seconds):02d}"
 
     @staticmethod
+    def format_grouped_number(value: float, decimals: int = 0) -> str:
+        """
+        Writes a count or a speed of the console summary with its digits grouped by three (THOUSANDS_SEPARATOR), e.g.
+        "6 656 000" images or "1 234.5" images per second, so that the user reads the thousands and millions of the
+        header and interval lines at a glance. The tutorial figure scripts write the summaries of older logs again
+        with it.
+
+        Args:
+            value (float): The number, an integer count or a speed.
+            decimals (int): The number of decimals written. Defaults to 0.
+
+        Returns:
+            str: The number with its groups of three digits separated.
+        """
+        return f"{value:,.{decimals}f}".replace(",", THOUSANDS_SEPARATOR)
+
+    @staticmethod
     def is_lower_better(metric_key: str) -> bool:
         """
         Gives the direction in which a tracked metric improves, which sets the colour of its changes and the best
@@ -329,7 +351,8 @@ class MetricTracker:
                            samples_per_second: float, frames_per_second: Optional[float]) -> List[str]:
         """
         Writes the texts of the header cells of the console summary, for the values of an interval or for the largest
-        expected values that size the cells (see format_summary_header).
+        expected values that size the cells (see format_summary_header), every number with its digits grouped by three
+        (format_grouped_number).
 
         Args:
             iterations (int): The current global training iteration.
@@ -342,12 +365,45 @@ class MetricTracker:
         Returns:
             List[str]: The text of every header cell, without the bars between them.
         """
-        header_cells = [f"Iteration: {iterations}", f"Total {self.sample_name}: {total_samples}",
-                        f"Interval {self.sample_name}: {interval_samples}",
-                        f"Throughput: {samples_per_second:.1f} {self.sample_name} Per Second"]
+        header_cells = [f"Iteration: {self.format_grouped_number(value=iterations)}",
+                        f"Total {self.sample_name}: {self.format_grouped_number(value=total_samples)}",
+                        f"Interval {self.sample_name}: {self.format_grouped_number(value=interval_samples)}",
+                        f"Throughput: {self.format_grouped_number(value=samples_per_second, decimals=1)} "
+                        f"{self.sample_name} Per Second"]
         if frames_per_second is not None:
-            header_cells.append(f"{frames_per_second:.1f} Frames Per Second")
+            header_cells.append(f"{self.format_grouped_number(value=frames_per_second, decimals=1)} Frames Per Second")
         return header_cells
+
+    def format_interval_duration_line(self, interval_iterations: int, duration_seconds: float) -> str:
+        """
+        Writes the line of the console summary giving the length and duration of the interval, its iteration count
+        with grouped digits (format_grouped_number), e.g. "Interval Of 1 000 Iterations Took 00:16:47.".
+
+        Args:
+            interval_iterations (int): The number of training iterations the interval really ran.
+            duration_seconds (float): The duration of the interval in seconds.
+
+        Returns:
+            str: The line.
+        """
+        return (f"Interval Of {self.format_grouped_number(value=interval_iterations)} Iterations Took "
+                f"{self.format_time_interval(duration_seconds=duration_seconds)}.")
+
+    def format_validation_count_line(self, validation_interval_count: int) -> str:
+        """
+        Writes the line of the console summary giving the number of validation iterations averaged in the interval and
+        the validation ratio of the run, with grouped digits (format_grouped_number). Only printed when the run
+        validates (validation_iteration_ratio above 0).
+
+        Args:
+            validation_interval_count (int): The number of validation iterations that ran in the interval.
+
+        Returns:
+            str: The line.
+        """
+        return (f"Validation Iterations In This Interval: {self.format_grouped_number(value=validation_interval_count)}"
+                f" (Ratio: Every {self.format_grouped_number(value=self.validation_iteration_ratio)} Training "
+                f"Iterations).")
 
     def format_summary_header(self, iterations: int, total_samples: int, interval_samples: int,
                               samples_per_second: float, frames_per_second: Optional[float]) -> str:
@@ -446,13 +502,11 @@ class MetricTracker:
                                               current_value=validation_value))
 
         print("-" * print_length)
-        formatted_duration = self.format_time_interval(duration_seconds=duration)
-        print(f"Interval Of {interval_iterations} Iterations Took {formatted_duration}.")
+        print(self.format_interval_duration_line(interval_iterations=interval_iterations, duration_seconds=duration))
 
         # Show how many validation iterations contributed to the reported averages
         if self.validation_iteration_ratio > 0:
-            print(f"Validation Iterations In This Interval: {validation_interval_count} "
-                  f"(Ratio: Every {self.validation_iteration_ratio} Training Iterations).")
+            print(self.format_validation_count_line(validation_interval_count=validation_interval_count))
 
         print("=" * print_length)
 

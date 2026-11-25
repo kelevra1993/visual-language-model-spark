@@ -910,7 +910,7 @@ MLflow, step 4: {'train/Total Loss': 2.971, 'train/Cross Entropy Loss': 2.0213, 
 **Example output: iterations 8 and 12**
 ```text
 ========================================================================================================================
-|     Iteration: 8     |      Total Images: 32     |    Interval Images: 16     |  Throughput: 1.5 Images Per Second   |
+|     Iteration: 8    |      Total Images: 32      |    Interval Images: 16    |   Throughput: 1.5 Images Per Second   |
 ------------------------------------------------------------------------------------------------------------------------
 Moving Average of Train Total Loss                     :     2.8497    -0.1213 Best
 Moving Average of Train Cross Entropy Loss             :     1.9076    -0.1137 Best
@@ -923,7 +923,7 @@ Validation Iterations In This Interval: 0 (Ratio: Every 10 Training Iterations).
 ========================================================================================================================
 ...
 ========================================================================================================================
-|    Iteration: 12     |      Total Images: 48     |    Interval Images: 16     |  Throughput: 8.1 Images Per Second   |
+|    Iteration: 12    |      Total Images: 48      |    Interval Images: 16    |   Throughput: 8.1 Images Per Second   |
 ------------------------------------------------------------------------------------------------------------------------
 Moving Average of Train Total Loss                     :     2.7779    -0.0718 Best
 Moving Average of Valid Total Loss                     :     2.9886

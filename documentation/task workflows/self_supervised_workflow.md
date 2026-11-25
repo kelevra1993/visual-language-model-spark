@@ -994,7 +994,7 @@ MLflow, step 12: train Total Loss 2.6904, Positive Pair Accuracy 0.0781, Embeddi
 **Example output: iterations 8 and 12**
 ```text
 ========================================================================================================================
-|     Iteration: 8     |      Total Images: 64     |    Interval Images: 32     |  Throughput: 2.8 Images Per Second   |
+|     Iteration: 8    |      Total Images: 64      |    Interval Images: 32    |   Throughput: 2.8 Images Per Second   |
 ------------------------------------------------------------------------------------------------------------------------
 Moving Average of Train Total Loss                     :     2.8289    +0.1261
 Moving Average of Train InfoNCE Loss                   :     2.8289    +0.1261
@@ -1006,7 +1006,7 @@ Validation Iterations In This Interval: 0 (Ratio: Every 10 Training Iterations).
 ========================================================================================================================
 ...
 ========================================================================================================================
-|    Iteration: 12     |      Total Images: 96     |    Interval Images: 32     |  Throughput: 11.3 Images Per Second  |
+|    Iteration: 12    |      Total Images: 96      |    Interval Images: 32    |   Throughput: 11.3 Images Per Second  |
 ------------------------------------------------------------------------------------------------------------------------
 Moving Average of Train Total Loss                     :     2.6904    -0.1385 Best
 Moving Average of Valid Total Loss                     :     2.7081

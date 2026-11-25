@@ -21,10 +21,11 @@ from matplotlib.ticker import FuncFormatter
 from pathlib import Path
 from typing import Any, Dict, List
 
-from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, POINTS_PER_PIXEL,
-                                                REVEAL_MARGIN, SERIES_COLOURS, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR,
-                                                compute_pixel_box, format_thousands, register_fonts, round_fact,
-                                                save_figure, style_chart_panel)
+from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, CONSOLE_NUMBER_PATTERN, DOTS_PER_INCH,
+                                                POINTS_PER_PIXEL, REVEAL_MARGIN, SERIES_COLOURS, SURFACE_COLOUR,
+                                                TEXT_PRIMARY_COLOUR, compute_pixel_box, format_thousands,
+                                                parse_console_number, register_fonts, round_fact, save_figure,
+                                                style_chart_panel)
 from tutorials.figures.keypoint_detection.keypoint_inference import build_sample_targets, split_heatmap_loss
 from tutorials.figures.keypoint_detection.keypoint_sources import OBJECT_COLOURS, write_json
 from tutorials.figures.keypoint_detection.scalar_logs import (SMOOTHING_WEIGHT, draw_smoothed_curve, read_scalars,
@@ -500,8 +501,9 @@ def describe_stem_and_run(configuration: Dict[str, Any], run_folder: Path) -> Di
     log_path = run_folder.parents[1] / "training.log"
     if not log_path.exists():
         raise FileNotFoundError(f"No training log {log_path} of the keypoint run.")
-    throughputs = [float(value) for value in re.findall(pattern=r"Throughput: ([\d.]+) Images Per Second",
-                                                        string=log_path.read_text(encoding="utf-8"))]
+    throughputs = [parse_console_number(text=value) for value in re.findall(
+        pattern=rf"Throughput: ({CONSOLE_NUMBER_PATTERN}) Images Per Second",
+        string=log_path.read_text(encoding="utf-8"))]
     return {"stem_receptive_field": int(receptive_field),
             "stem_shortcuts": [block.count_residual_additions() for block in stem.convolution_blocks],
             "branch_shortcuts": network.stages[0][0].branches[0].count_residual_additions(),

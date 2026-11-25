@@ -28,12 +28,13 @@ from matplotlib.ticker import FuncFormatter
 from pathlib import Path
 from typing import Any, Dict, List
 
-from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, POINTS_PER_PIXEL,
+from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, CONSOLE_INTERVAL_LINE_PATTERN,
+                                                CONSOLE_VALIDATION_LINE_PATTERN, DOTS_PER_INCH, POINTS_PER_PIXEL,
                                                 REVEAL_MARGIN, SERIES_COLOURS, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR,
                                                 TEXT_SECONDARY_COLOUR, build_console_metric_tracker,
-                                                compute_pixel_box, format_thousands, read_run_configuration,
-                                                reformat_console_summary, register_fonts, round_fact, save_figure,
-                                                style_chart_panel)
+                                                compute_pixel_box, format_thousands, parse_console_number,
+                                                read_run_configuration, reformat_console_summary, register_fonts,
+                                                round_fact, save_figure, style_chart_panel)
 from tutorials.figures.foundations.training_curves import smooth_values
 from tutorials.figures.sequence_classification.model_figures import AVERAGE_RUN_NAME, MAIN_RUN_NAME
 from tutorials.figures.sequence_classification.sequence_figure_utilities import (add_probability_axis,
@@ -449,8 +450,8 @@ def make_evaluation_figures(output_folder: Path, run_folders: Dict[str, Path], l
     epoch_line = next(line for line in launch_lines if line.startswith("- Iterations Per Epoch"))
     facts["launch.iterations_per_epoch"] = int(epoch_line.split(":")[-1])
 
-    # Console summary of the first interval of the flatten run, its metric lines written by the current formatter with
-    # their logged values, and the throughputs and losses of every log
+    # Console summary of the first interval of the flatten run, its header, metric and interval lines written by the
+    # current formatter with their logged values, and the throughputs and losses of every log
     logged_lines = extract_interval_block(log_path=log_paths[MAIN_RUN_NAME], iteration=100)
     metric_tracker = build_console_metric_tracker(
         run_folder=run_folders[MAIN_RUN_NAME], trainer_class=SequenceClassificationTrainer,
@@ -465,14 +466,16 @@ def make_evaluation_figures(output_folder: Path, run_folders: Dict[str, Path], l
     facts.update({f"console.{name}": box for name, box in console_boxes.items()})
 
     # Interval length and validation batches of that summary, as its last lines print them
-    validation_match = next(re.search(pattern=r"Validation Iterations In This Interval: (\d+) \(Ratio: Every (\d+)",
-                                      string=line)
-                            for line in console_lines if line.startswith("Validation Iterations"))
-    interval_match = next(re.search(pattern=r"Interval Of (\d+) Iterations", string=line) for line in console_lines
+    validation_match = next(CONSOLE_VALIDATION_LINE_PATTERN.match(string=line) for line in console_lines
+                            if line.startswith("Validation Iterations"))
+    interval_match = next(CONSOLE_INTERVAL_LINE_PATTERN.match(string=line) for line in console_lines
                           if line.startswith("Interval Of"))
-    facts.update({f"console.{MAIN_RUN_NAME}.validation_batches": int(validation_match.group(1)),
-                  f"console.{MAIN_RUN_NAME}.validation_ratio": int(validation_match.group(2)),
-                  f"console.{MAIN_RUN_NAME}.interval_iterations": int(interval_match.group(1))})
+    facts.update({f"console.{MAIN_RUN_NAME}.validation_batches": int(parse_console_number(
+                      text=validation_match.group("validation_count"))),
+                  f"console.{MAIN_RUN_NAME}.validation_ratio": int(parse_console_number(
+                      text=validation_match.group("validation_ratio"))),
+                  f"console.{MAIN_RUN_NAME}.interval_iterations": int(parse_console_number(
+                      text=interval_match.group("interval_iterations")))})
 
     # Throughputs and interval losses of the console log of every run
     for run_name, log_path in log_paths.items():
