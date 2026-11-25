@@ -27,6 +27,8 @@ Before reading a result, find its row: every way of running an exported model th
 | 6 | Triton | ONNX with TensorRT | FP16 where TensorRT picks it | `tensorrt_precision="FP16"` |
 | 7 | Triton | ONNX with TensorRT | BF16 | not measured: the backend refuses the load with `precision_mode` "BF16" ("unsupported precision mode 'BF16' is requested"), takes only the TensorRT parameters of its own list (`trt_bf16_enable` is not one), and passes its options to ONNX Runtime, which then ignores `ORT_TENSORRT_BF16_ENABLE=1` (its log reads `trt_bf16_enable: 0`) |
 | 8 | Triton | Native TensorRT engine `model.plan` | FP16 | not implemented, not measured |
+| 9 | In the process | TorchScript `model_fp16.pt` (`torch.jit.load`), `in_process_torchscript_fp16` | FP16 convolution, linear and attention weights under autocast, FP32 inputs and outputs | `torchscript_precision="FP16"` (`convert_to_half_precision`), the `torchscript_fp16` setting; added 2026-11-25, not measured yet |
+| 10 | Triton | TorchScript `model_fp16.pt` (`pytorch_libtorch`, `default_model_filename`), `triton_torchscript_fp16` | as row 9 | the same file; added 2026-11-25, not measured yet |
 
 ## Models
 To cover the three kinds of graphs TensorRT meets in the repository (a plain classifier, a detector with its NMS inside the model, a recurrent sequence model), the rows run on three trained runs, read from their copies outside the repository (`~/Data/tutorial_runs`, the detector's checkpoint being the same as in `hyperparameter_experiments/`):
@@ -42,14 +44,14 @@ The inputs are real test samples preprocessed by `load_inference_inputs` (the re
 The ONNX file of M2M could not be served as exported: the dynamo export of its bidirectional LSTM writes the 50 frames of its trace into every shape after the recurrent layer (output `class_probabilities` declared [-1, 50, 71] in the file, [-1, -1, 71] in `config.pbtxt`), and Triton refuses the load ("the model expects 3 dimensions (shape [-1,50,71]) but the model configuration specifies ... [-1,-1,71]"); the graph itself computes one row per input frame (ONNX Runtime on the CPU only warns, which is why the export check, on the inputs only, passed). The driver repaired the copies of the benchmark (the output frame dimension made the one of the input, the intermediate shapes dropped), and the test metric checked that the repaired model gives the eager results. Since 2026-11-18 the export makes that change itself (`restore_dynamic_output_frames` of `vision_training/deployment/export_formats.py`, for the sequence labeller and the frame selector), its dimension check covers the outputs, and the drivers no longer repair. Exported again with ONNX Runtime CUDA, the M2M network and the network of the frame selection tutorial run load in Triton as written and answer sequences of 7 and 13 frames (traced with 50), their class probabilities within 6.0e-3 (M2M) and 1.8e-4 (frame selector) of the eager model on random frames; the ensemble of the frame selector was not tried, its export stopping on the two `class_thresholds.json` of that run.
 
 ## Server Settings And Loads
-To keep the sweep to about an hour and a half, every Triton row (3 to 6) is measured with the configuration of its export over the whole grid, and the other server settings only for TensorRT FP16 at batch 1 (focused scope, user decision 2026-11-17, against 864 loads and about 5 hours for the full grid). The server keeps only the measured model loaded (`--model-control-mode=explicit`), its settings changed by a configuration given at load time:
+To keep the sweep to about an hour and a half, every Triton row (3 to 6, and 10 once measured) is measured with the configuration of its export over the whole grid, and the other server settings only for TensorRT FP16 at batch 1 (focused scope, user decision 2026-11-17, against 864 loads and about 5 hours for the full grid). The server keeps only the measured model loaded (`--model-control-mode=explicit`), its settings changed by a configuration given at load time:
 
 | Rows | Server settings (dynamic batching, `instance_group` count) | Transports | Client batch sizes | Concurrencies (requests in flight) | Loads |
 |---|---|---|---|---|---|
 | Every row of every model | on (`max_queue_delay_microseconds` 1000, as exported), 1 | gRPC, system shared memory | 1, 4, 16 | 1, 4, 16 | 216 |
 | TensorRT FP16 of every model | off, 1; on, 2; off, 2 | gRPC, system shared memory | 1 | 1, 4, 16 | 54 |
 
-Every served model keeps the `max_batch_size` 16 of its export. The in-process rows (1 and 2) run one call at a time at the batch sizes 1, 4 and 16.
+Every served model keeps the `max_batch_size` 16 of its export. The in-process rows (1, 2 and 9) run one call at a time at the batch sizes 1, 4 and 16.
 
 ## Protocol
 Whenever a number of a result is read, it was taken as follows:
@@ -66,7 +68,7 @@ Should a result need checking, its raw files are under `~/Data/serving_benchmark
 
 | Folder | Content |
 |---|---|
-| `model_repositories/<setting>/` | the exports of the three models for `onnxruntime_cuda` (TorchScript and ONNX), `tensorrt_fp32` and `tensorrt_fp16` (ONNX); the file list of the README classifier and detector folders of `onnxruntime_cuda` is copied next to this plan as `serving_benchmark_model_repository_files.txt`, drawn by the deployment tutorials |
+| `model_repositories/<setting>/` | the exports of the three models for `onnxruntime_cuda` (TorchScript and ONNX), `tensorrt_fp32` and `tensorrt_fp16` (ONNX), and `torchscript_fp16` (the FP16 TorchScript `model_fp16.pt`, not exported yet); the file list of the README classifier and detector folders of `onnxruntime_cuda` is copied next to this plan as `serving_benchmark_model_repository_files.txt`, drawn by the deployment tutorials |
 | `tensorrt_engine_cache/<setting>/` | the engines built by ONNX Runtime, mounted into the Triton container |
 | `inputs/<model>/` | the preprocessed test sample sent by `perf_analyzer` (one raw float32 file per input) and its source images |
 | `loads/<model>/` | one file per load: the `perf_analyzer` CSV report and the log of its runs for shared memory, the JSON measure and latencies of the client for gRPC |
@@ -262,3 +264,4 @@ In order to follow the benchmark, this section keeps its steps.
 - 2026-11-18: the ONNX export restores the output frames of the sequence labeller and frame selector itself (`restore_dynamic_output_frames`) and checks them, the repair of the drivers removed.
 - 2026-11-18, about 14:25 to 14:45: the ONNX Runtime CUDA row of DET measured again with the NMS without offsets (speed at batch 1 and 16, test metric), and the M2M and frame selector networks exported again and served by Triton without repair.
 - 2026-11-22: `README/run_inference_output.png` captured again on the idle GPU with the default run of `run_inference.py`, the 35-class README classifier exported with TensorRT FP32 (445.79 samples per second in the process, 144.22 through Triton as TorchScript and 195.11 as ONNX with TensorRT, one client sending one image per request).
+- 2026-11-25: the `torchscript_fp16` setting added to both drivers (rows 9 and 10, the FP16 TorchScript export of `torchscript_precision`), not measured: a relaunch of the sweep exports it and measures its rows only, the other rows being in `results.csv`; the README classifier exported once for it to check the file and its `config.pbtxt`, without timing.

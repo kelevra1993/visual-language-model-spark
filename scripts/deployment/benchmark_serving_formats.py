@@ -1,12 +1,13 @@
 """
 Benchmarks the serving formats and precisions of exported models (documentation/architecture_benchmarking/
 serving_benchmark_plan.md): it exports trained runs into one Triton model repository per precision setting with
-vision_training/deployment/export_model.py, times the inference model in the process (eager and TorchScript), then
-serves every exported model alone in a Triton container and times it under several server settings, batch sizes and
-concurrencies, through system shared memory with perf_analyzer of the Triton SDK image and over gRPC with a
+vision_training/deployment/export_model.py (the FP32 TorchScript model with ONNX Runtime CUDA, the FP16 TorchScript
+model alone in the torchscript_fp16 setting), times the inference model in the process (eager, TorchScript FP32 and
+FP16), then serves every exported model alone in a Triton container and times it under several server settings, batch
+sizes and concurrencies, through system shared memory with perf_analyzer of the Triton SDK image and over gRPC with a
 tritonclient client (the client of run_inference.py), with the time of the first requests (TensorRT engine builds)
-and the memory taken by the model. Every output stays outside the repository, under the benchmark
-folder of the main block, and every measurement is one line of its results.csv, read again at a relaunch so that a
+and the memory taken by the model. Every output stays outside the repository, under the benchmark folder of the main
+block, and every measurement is one line of its results.csv, read again at a relaunch so that a
 stopped sweep restarts where it stopped. Run as a script from the repository root, its settings in the main block.
 """
 
@@ -32,6 +33,7 @@ from vision_training.deployment.deployment_utilities import (load_inference_inpu
 from vision_training.deployment.export_formats import hide_known_export_warnings
 from vision_training.deployment.export_model import export_experiment
 from vision_training.deployment.export_specifications import TASK_MODEL_NAMES
+from vision_training.deployment.triton_configuration import TORCHSCRIPT_FILE_NAMES
 from vision_training.deployment.triton_server import (build_triton_server, load_served_model, send_server_request,
                                                       start_triton_server, stop_triton_server, unload_served_model)
 from vision_training.utilities.os_utilities import format_path_link, print_color
@@ -55,6 +57,10 @@ CONTAINER_REPORT_FOLDER = "/reports"
 # Size of the shared memory region perf_analyzer allocates per output, needed for the outputs of variable shape (the
 # frame probabilities of the sequence models), above the largest output of a batch of 16
 OUTPUT_SHARED_MEMORY_BYTES = 1 << 20
+
+# Precision setting of the FP16 TorchScript network (torchscript_precision 'FP16' of export_model.py), served alone in
+# its repository, the FP32 TorchScript model being exported and served once next to the ONNX model of ONNX Runtime CUDA
+TORCHSCRIPT_HALF_PRECISION_SETTING = "torchscript_fp16"
 
 # Processes allowed on the GPU during a measurement: the MPS daemon of the machine and the server being measured
 ALLOWED_GPU_PROCESS_NAMES = ["nvidia-cuda-mps-server", "tritonserver"]
@@ -352,7 +358,8 @@ def count_frames_per_sample(request: Dict[str, np.ndarray]) -> int:
 
 
 def export_precision_setting(experiment_folder: Path, iteration: int, repository: Path, formats: List[str],
-                             tensorrt_precision: Optional[str], maximum_batch_size: int) -> None:
+                             tensorrt_precision: Optional[str], torchscript_precision: str,
+                             maximum_batch_size: int) -> None:
     """
     Exports one run into the model repository of one precision setting, run in a child process so that the CUDA
     context of the export never stays in the process of the sweep.
@@ -364,14 +371,14 @@ def export_precision_setting(experiment_folder: Path, iteration: int, repository
         formats (List[str]): The export formats, among 'torchscript' and 'onnx'.
         tensorrt_precision (Optional[str]): The TensorRT precision written into the ONNX configuration, None for ONNX
             Runtime CUDA.
+        torchscript_precision (str): The precision of the TorchScript network (get_torchscript_precision).
         maximum_batch_size (int): The largest batch size of the exported models.
     """
     hide_known_export_warnings()
-    # TorchScript traced in FP32, the precision settings of the benchmark changing the ONNX configuration only
     export_experiment(experiment_folder=experiment_folder, iteration=iteration, use_averaged_weights=False,
                       formats=formats, repository=repository, model_version=1, maximum_batch_size=maximum_batch_size,
-                      tensorrt_precision=tensorrt_precision, torchscript_precision="FP32", use_saved_temperature=False,
-                      saved_thresholds_path=None, test_split_parity=False)
+                      tensorrt_precision=tensorrt_precision, torchscript_precision=torchscript_precision,
+                      use_saved_temperature=False, saved_thresholds_path=None, test_split_parity=False)
 
 
 def run_in_child_process(target: Any, keyword_arguments: Dict[str, Any]) -> None:
@@ -395,22 +402,39 @@ def run_in_child_process(target: Any, keyword_arguments: Dict[str, Any]) -> None
 
 def get_repository_formats(precision_setting: str) -> List[str]:
     """
-    Gives the formats exported into the repository of a precision setting: the TorchScript model, the same for every
-    setting, is exported and served once, with ONNX Runtime CUDA.
+    Gives the formats exported into the repository of a precision setting: the FP32 TorchScript model, the same for
+    every ONNX setting, is exported and served once, with ONNX Runtime CUDA, and the FP16 TorchScript model alone in
+    TORCHSCRIPT_HALF_PRECISION_SETTING.
 
     Args:
-        precision_setting (str): The precision setting, e.g. 'onnxruntime_cuda' or 'tensorrt_fp16'.
+        precision_setting (str): The precision setting, e.g. 'onnxruntime_cuda', 'tensorrt_fp16' or 'torchscript_fp16'.
 
     Returns:
         List[str]: The export formats of the repository.
     """
+    if precision_setting == TORCHSCRIPT_HALF_PRECISION_SETTING:
+        return ["torchscript"]
     return ["torchscript", "onnx"] if precision_setting == "onnxruntime_cuda" else ["onnx"]
+
+
+def get_torchscript_precision(precision_setting: str) -> str:
+    """
+    Gives the precision of the TorchScript network exported into the repository of a precision setting, so that the
+    FP16 TorchScript file (convert_to_half_precision, 'model_fp16.pt') is served by a setting of its own.
+
+    Args:
+        precision_setting (str): The precision setting.
+
+    Returns:
+        str: 'FP16' for TORCHSCRIPT_HALF_PRECISION_SETTING, 'FP32' for every other setting.
+    """
+    return "FP16" if precision_setting == TORCHSCRIPT_HALF_PRECISION_SETTING else "FP32"
 
 
 def get_row_name(precision_setting: str, export_format: str) -> str:
     """
-    Names the row of a served model in results.csv: 'triton_torchscript' for the TorchScript model, and
-    'triton_<precision setting>' for the ONNX model.
+    Names the row of a served model in results.csv: 'triton_torchscript' for the FP32 TorchScript model, and
+    'triton_<precision setting>' for the ONNX model and the FP16 TorchScript model ('triton_torchscript_fp16').
 
     Args:
         precision_setting (str): The precision setting of the repository.
@@ -419,7 +443,37 @@ def get_row_name(precision_setting: str, export_format: str) -> str:
     Returns:
         str: The row name.
     """
-    return "triton_torchscript" if export_format == "torchscript" else f"triton_{precision_setting}"
+    if export_format == "torchscript" and get_torchscript_precision(precision_setting=precision_setting) == "FP32":
+        return "triton_torchscript"
+    return f"triton_{precision_setting}"
+
+
+def list_in_process_rows(model_repositories: Path, served_model_name: str, precision_settings: List[str]
+                         ) -> List[Tuple[str, Optional[Path]]]:
+    """
+    Lists the in-process rows of a model with the TorchScript file each one loads: the eager model first, then the
+    TorchScript file of every benchmarked setting whose repository holds one, 'in_process_torchscript' for the FP32
+    'model.pt' of ONNX Runtime CUDA and 'in_process_torchscript_fp16' for the 'model_fp16.pt' of
+    TORCHSCRIPT_HALF_PRECISION_SETTING, so that both precisions are also timed without a server.
+
+    Args:
+        model_repositories (Path): The folder of the model repositories of the benchmark, one per setting.
+        served_model_name (str): The Triton name of the model, e.g. 'image_classifier'.
+        precision_settings (List[str]): The benchmarked precision settings.
+
+    Returns:
+        List[Tuple[str, Optional[Path]]]: The row names with their TorchScript file, None for the eager model.
+    """
+    rows = [("in_process_eager", None)]
+    for precision_setting in precision_settings:
+        if "torchscript" not in get_repository_formats(precision_setting=precision_setting):
+            continue
+        # Row and file named after the precision of the TorchScript network of the setting
+        torchscript_precision = get_torchscript_precision(precision_setting=precision_setting)
+        row_name = "in_process_torchscript" if torchscript_precision == "FP32" else "in_process_torchscript_fp16"
+        rows.append((row_name, model_repositories / precision_setting / f"{served_model_name}_torchscript" / "1" /
+                     TORCHSCRIPT_FILE_NAMES[torchscript_precision]))
+    return rows
 
 
 def measure_in_process_row(experiment_folder: Path, iteration: int, torchscript_path: Optional[Path],
@@ -897,16 +951,18 @@ def plan_served_loads(load_groups: List[Dict[str, Any]], precision_setting: str,
 
 
 def measure_in_process_rows(model: Dict[str, Any], request: Dict[str, np.ndarray], benchmark_folder: Path,
-                            batch_sizes: List[int], number_iterations: int, number_warmup_iterations: int,
-                            completed_keys: set, results_path: Path) -> None:
+                            precision_settings: List[str], batch_sizes: List[int], number_iterations: int,
+                            number_warmup_iterations: int, completed_keys: set, results_path: Path) -> None:
     """
-    Times the two in-process rows of a model (rows 1 and 2 of the plan), the eager model and its TorchScript export,
-    each in a child process, and records one line per batch size.
+    Times the in-process rows of a model (rows 1, 2 and 9 of the plan), the eager model and its TorchScript exports in
+    FP32 and FP16 (list_in_process_rows), each in a child process, and records one line per batch size.
 
     Args:
         model (Dict[str, Any]): The benchmarked model.
         request (Dict[str, np.ndarray]): Its batch-1 request.
         benchmark_folder (Path): The folder of the outputs of the benchmark.
+        precision_settings (List[str]): The benchmarked precision settings, whose repositories hold the TorchScript
+            files.
         batch_sizes (List[int]): The batch sizes timed.
         number_iterations (int): The timed calls per batch size.
         number_warmup_iterations (int): The untimed calls made first.
@@ -915,9 +971,9 @@ def measure_in_process_rows(model: Dict[str, Any], request: Dict[str, np.ndarray
     """
     frames_per_sample = count_frames_per_sample(request=request)
     served_model_name = read_served_model_name(experiment_folder=model["experiment_folder"])
-    torchscript_path = (benchmark_folder / "model_repositories" / "onnxruntime_cuda" /
-                        f"{served_model_name}_torchscript" / "1" / "model.pt")
-    for row_name, row_torchscript_path in [("in_process_eager", None), ("in_process_torchscript", torchscript_path)]:
+    in_process_rows = list_in_process_rows(model_repositories=benchmark_folder / "model_repositories",
+                                           served_model_name=served_model_name, precision_settings=precision_settings)
+    for row_name, row_torchscript_path in in_process_rows:
         planned_results = [{"model": model["name"], "row": row_name, "kind": "load", "dynamic_batching": "",
                             "instance_count": "", "transport": "in_process", "batch_size": batch_size,
                             "concurrency": 1} for batch_size in batch_sizes]
@@ -1078,7 +1134,8 @@ def run_serving_benchmark(models: List[Dict[str, Any]], benchmark_folder: Path,
             'test_data_folder' and 'sequence_length'.
         benchmark_folder (Path): The folder of every output, outside the repository.
         precision_settings (Dict[str, Dict[str, Any]]): The 'tensorrt_precision' and server 'environment' of every
-            precision setting, keyed by its name.
+            precision setting, keyed by its name, the precision of its TorchScript network following from its name
+            (get_torchscript_precision).
         load_groups (List[Dict[str, Any]]): The loads of the served rows (plan_served_loads).
         batch_sizes (List[int]): The batch sizes of the in-process rows and of the first requests of the served rows.
         maximum_batch_size (int): The largest batch size of the exported models.
@@ -1113,13 +1170,15 @@ def run_serving_benchmark(models: List[Dict[str, Any]], benchmark_folder: Path,
                     "experiment_folder": model["experiment_folder"], "iteration": model["iteration"],
                     "repository": repository, "formats": formats,
                     "tensorrt_precision": precision_values["tensorrt_precision"],
+                    "torchscript_precision": get_torchscript_precision(precision_setting=precision_setting),
                     "maximum_batch_size": maximum_batch_size})
 
-    # In-process rows of every model (eager and TorchScript), each timed in a child process
+    # In-process rows of every model (eager and TorchScript in FP32 and FP16), each timed in a child process
     if run_in_process:
         for model in models:
             measure_in_process_rows(model=model, request=requests[model["name"]], benchmark_folder=benchmark_folder,
-                                    batch_sizes=batch_sizes, number_iterations=number_in_process_iterations,
+                                    precision_settings=list(precision_settings), batch_sizes=batch_sizes,
+                                    number_iterations=number_in_process_iterations,
                                     number_warmup_iterations=number_in_process_warmup_iterations,
                                     completed_keys=read_completed_keys(results_path=results_path),
                                     results_path=results_path)
@@ -1172,12 +1231,13 @@ if __name__ == "__main__":
                               "M2M_IN-KAR-256_SE-RES-BN-B1x16.2x16.2x16.4x32.5x32.5x32-PT_T50_LSTM2x96-BI_HFLAT.96.96-"
                               "HLN-CWB_MC71",
          "test_data_folder": data_folder / "sequence_data" / "synthetic_changing_shapes" / "test_10000"}]
-    # Precision settings, one model repository and one server each: the TensorRT precision of the export (None for
-    # ONNX Runtime CUDA) and the environment of the server. BF16 is left out: the ONNX Runtime backend of Triton 26.01
-    # refuses the precision_mode "BF16" and the trt_bf16_enable parameter, and ignores ORT_TENSORRT_BF16_ENABLE
+    # Precision settings, one model repository and one server each: the TensorRT precision of the export (None for ONNX
+    # Runtime CUDA and torchscript_fp16, the FP16 TorchScript model alone) and the server environment. BF16 is left out:
+    # the ONNX Runtime backend of Triton 26.01 refuses precision_mode "BF16" and ignores ORT_TENSORRT_BF16_ENABLE
     precision_settings = {"onnxruntime_cuda": {"tensorrt_precision": None, "environment": {}},
                           "tensorrt_fp32": {"tensorrt_precision": "FP32", "environment": {}},
-                          "tensorrt_fp16": {"tensorrt_precision": "FP16", "environment": {}}}
+                          "tensorrt_fp16": {"tensorrt_precision": "FP16", "environment": {}},
+                          "torchscript_fp16": {"tensorrt_precision": None, "environment": {}}}
     # Batch sizes of the in-process rows and of the first requests of the served rows
     batch_sizes = [1, 4, 16]
     # Loads of the served rows (focused scope, user decision 2026-11-17): the exported configuration (dynamic batching
