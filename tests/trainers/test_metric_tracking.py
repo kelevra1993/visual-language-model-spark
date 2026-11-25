@@ -2,8 +2,9 @@
 Tests of MetricTracker of vision_training/trainers/metric_tracking.py: interval averages of the tracked metrics over the
 batches really accumulated, the real frames counted for the frame throughput, the validation changes of the interval
 summary compared with the last interval that ran validation, the off-diagonal correlations improving when they fall,
-the rates of the task printed as percentages with their changes in percent, and the values, changes and best markers
-of a summary aligned in columns.
+the rates of the task printed as percentages with their changes in percent, the values, changes and best markers of a
+summary aligned in columns, and the counts and speeds of the header and interval lines with their digits grouped by
+three within separator lines as wide as the header.
 """
 
 import re
@@ -207,3 +208,63 @@ def test_values_changes_and_best_markers_are_aligned_in_columns() -> None:
     worse_line = tracker.format_metric_line(split_name="Train", metric_key="total_loss", display_name="Total Loss",
                                             current_value=2.5)
     assert worse_line.endswith(color_text(color="red", text="   +0.1544"))
+
+
+def test_summary_counts_group_their_digits_within_the_separator_width(capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the header and interval lines of the console summary write their counts and speeds with the digits
+    grouped by three ("6 656 000"), that the header of the image tasks stays 120 characters wide with its bars in the
+    same place from the first interval to the largest expected values, that the frame throughput of the sequence tasks
+    is grouped too, and that the separator lines printed around the header are exactly as wide as it.
+
+    Args:
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output.
+    """
+    tracker = MetricTracker(tracked_metrics_mapping={"total_loss": "Total Loss"}, batch_size=256,
+                            validation_iteration_ratio=4, sample_name="Images", counts_frames=False,
+                            percent_metric_keys=[])
+
+    # Header of a long run, of a first interval and at the largest expected values, all 120 characters wide
+    header = tracker.format_summary_header(iterations=26000, total_samples=6656000, interval_samples=256000,
+                                           samples_per_second=114.6, frames_per_second=None)
+    assert header == ("|  Iteration: 26 000  |  Total Images: 6 656 000   |  Interval Images: 256 000 |  Throughput: "
+                      "114.6 Images Per Second  |")
+    first_header = tracker.format_summary_header(iterations=4, total_samples=32, interval_samples=32,
+                                                 samples_per_second=8.6, frames_per_second=None)
+    largest_header = tracker.format_summary_header(iterations=999_999, total_samples=999_999_999,
+                                                   interval_samples=999_999, samples_per_second=9999.9,
+                                                   frames_per_second=None)
+    assert "Throughput: 9 999.9 Images Per Second" in largest_header
+    bar_columns = [[column for column, character in enumerate(line) if character == "|"]
+                   for line in [header, first_header, largest_header]]
+    assert len(header) == 120 and bar_columns[0] == bar_columns[1] == bar_columns[2]
+
+    # Interval lines with grouped counts
+    assert tracker.format_interval_duration_line(interval_iterations=1000, duration_seconds=1007.0) == \
+        "Interval Of 1 000 Iterations Took 00:16:47."
+    assert tracker.format_validation_count_line(validation_interval_count=1250) == \
+        "Validation Iterations In This Interval: 1 250 (Ratio: Every 4 Training Iterations)."
+
+    # Frame throughput of the sequence tasks grouped as well
+    sequence_tracker = build_metric_tracker(sample_name="Sequences", counts_frames=True)
+    sequence_header = sequence_tracker.format_summary_header(iterations=26000, total_samples=52000,
+                                                             interval_samples=2000, samples_per_second=1234.5,
+                                                             frames_per_second=5730.0)
+    assert [cell.strip() for cell in sequence_header.split("|")[1:-1]] == [
+        "Iteration: 26 000", "Total Sequences: 52 000", "Interval Sequences: 2 000",
+        "Throughput: 1 234.5 Sequences Per Second", "5 730.0 Frames Per Second"]
+
+    # Printed summary: separator lines as wide as the header, interval lines grouped
+    tracker.print_interval_summary(iterations=26000,
+                                   training_tracker_dictionary={"start_time": 0.0, "total_loss": 1.0,
+                                                                INTERVAL_BATCHES_KEY: 1000},
+                                   validation_tracker_dictionary={"start_time": 0.0, "total_loss": 1.0,
+                                                                  INTERVAL_BATCHES_KEY: 250})
+    console_lines = capsys.readouterr().out.splitlines()
+    header_line = next(line for line in console_lines if line.startswith("|"))
+    assert "Iteration: 26 000" in header_line and "Total Images: 6 656 000" in header_line
+    assert "Interval Images: 256 000" in header_line
+    assert console_lines[0] == console_lines[-1] == "=" * len(header_line) and len(header_line) == 120
+    assert console_lines.count("-" * len(header_line)) == 2
+    assert any(line.startswith("Interval Of 1 000 Iterations Took ") for line in console_lines)
+    assert "Validation Iterations In This Interval: 250 (Ratio: Every 4 Training Iterations)." in console_lines

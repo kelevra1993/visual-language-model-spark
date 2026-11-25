@@ -19,10 +19,11 @@ from matplotlib.ticker import FuncFormatter
 from pathlib import Path
 from typing import Any, Dict
 
-from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, CONSOLE_COLOUR_PATTERN, DOTS_PER_INCH,
-                                                POINTS_PER_PIXEL, REVEAL_MARGIN, SERIES_COLOURS, SURFACE_COLOUR,
-                                                TEXT_PRIMARY_COLOUR, compute_pixel_box, find_snapshot_root,
-                                                format_thousands, is_snapshot_folder, read_tutorial_sources,
+from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, CONSOLE_COLOUR_PATTERN,
+                                                CONSOLE_NUMBER_PATTERN, DOTS_PER_INCH, POINTS_PER_PIXEL,
+                                                REVEAL_MARGIN, SERIES_COLOURS, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR,
+                                                compute_pixel_box, find_snapshot_root, format_thousands,
+                                                is_snapshot_folder, parse_console_number, read_tutorial_sources,
                                                 register_fonts, round_fact, save_figure, style_chart_panel)
 from tutorials.figures.keypoint_detection.scalar_logs import (SMOOTHING_WEIGHT, draw_smoothed_curve, read_scalars,
                                                              smooth_values)
@@ -239,11 +240,12 @@ def read_training_throughput(run_folder: Path) -> Dict[str, Any]:
         Dict[str, Any]: The mean throughput in images per second and the number of summaries.
     """
     log_text = find_training_log(run_folder=run_folder).read_text(encoding="utf-8")
-    throughputs = [float(value) for value in re.findall(pattern=r"Throughput: ([\d.]+) Images Per Second",
-                                                        string=log_text)]
-    durations = re.findall(pattern=r"Interval Of (\d+) Iterations Took (\d+):(\d+):(\d+)", string=log_text)
+    throughputs = [parse_console_number(text=value) for value in re.findall(
+        pattern=rf"Throughput: ({CONSOLE_NUMBER_PATTERN}) Images Per Second", string=log_text)]
+    durations = re.findall(pattern=rf"Interval Of ({CONSOLE_NUMBER_PATTERN}) Iterations Took (\d+):(\d+):(\d+)",
+                           string=log_text)
     seconds = [int(hours) * 3600 + int(minutes) * 60 + int(remaining)
                for interval_iterations, hours, minutes, remaining in durations]
     return {"training_throughput": round_fact(value=sum(throughputs) / len(throughputs)),
-            "training_interval_iterations": int(durations[0][0]) if durations else 0,
+            "training_interval_iterations": int(parse_console_number(text=durations[0][0])) if durations else 0,
             "training_interval_seconds": round_fact(value=float(numpy.median(seconds))) if seconds else 0.0}

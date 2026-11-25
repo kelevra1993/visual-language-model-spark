@@ -5,10 +5,10 @@ images of a test image at several evaluated iterations, the ground truth panel f
 every iteration, cropped from the Samples/ images of the evaluation folders; the losses of the Train folder of the
 TensorBoard logs, every curve smoothed like TensorBoard over its raw values; the headline metrics of every evaluated
 checkpoint with the trained weights (Test) against their moving average (Test_EMA); and the console summary of an
-iteration read from the console log of the run, its metric lines written again by the console formatter of the
-current code with their logged values (reformat_console_summary of figure_utilities.py). Every figure gives the boxes
-of its panels and the values the narration quotes as facts, the headline metrics written on the figures as the
-percentages of the reports of the repository ("72.69 %", ticks "20 %") and kept between 0 and 1 in the facts.
+iteration read from the console log of the run, its header, metric and interval lines written again by the console
+formatter of the current code with their logged values (reformat_console_summary of figure_utilities.py). Every figure
+gives the boxes of its panels and the values the narration quotes as facts, the headline metrics written on the figures
+as the percentages of the reports of the repository ("72.69 %", ticks "20 %") and kept between 0 and 1 in the facts.
 """
 
 import re
@@ -21,10 +21,11 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 from typing import Any, Dict, List, Optional, Tuple
 
-from tutorials.figures.figure_utilities import (DOTS_PER_INCH, POINTS_PER_PIXEL, SERIES_COLOURS,
-                                                TEXT_SECONDARY_COLOUR, compute_pixel_box,
-                                                format_thousands, reformat_console_summary, register_fonts,
-                                                round_fact, save_figure, style_chart_panel)
+from tutorials.figures.figure_utilities import (CONSOLE_NUMBER_PATTERN, DOTS_PER_INCH, POINTS_PER_PIXEL,
+                                                SERIES_COLOURS, TEXT_SECONDARY_COLOUR, compute_pixel_box,
+                                                format_thousands, parse_console_number,
+                                                read_console_header_iteration, reformat_console_summary,
+                                                register_fonts, round_fact, save_figure, style_chart_panel)
 from tutorials.figures.object_detection.detection_sources import (read_scalar_series, strip_terminal_codes,
                                                                   write_listing)
 from tutorial_builder.layout import (CARD_COLOUR, DIM_TEXT_COLOUR, MONOSPACE_FONT_PATH, SANS_BOLD_FONT_PATH,
@@ -269,9 +270,9 @@ def write_console_summary_listing(log_path: Path, iteration: int, output_path: P
                                   metric_tracker: MetricTracker) -> List[str]:
     """
     Writes the console summary of one iteration of a run, read from its console log, as a listing: from the line of
-    the iteration to the duration of the interval, the colours and links of the terminal removed, and the metric lines
-    written again by the console formatter of the current code with their logged values (reformat_console_summary),
-    the header, rules and duration kept as logged.
+    the iteration to the duration of the interval, the colours and links of the terminal removed, and the header,
+    metric and interval lines written again by the console formatter of the current code with their logged values
+    (reformat_console_summary).
 
     Args:
         log_path (Path): The console log of the run.
@@ -288,7 +289,8 @@ def write_console_summary_listing(log_path: Path, iteration: int, output_path: P
             again (reformat_console_metric_line).
     """
     lines = [strip_terminal_codes(text=line).rstrip() for line in log_path.read_text(encoding="utf-8").splitlines()]
-    starts = [line_index for line_index, line in enumerate(lines) if f"Iteration: {iteration} " in line]
+    starts = [line_index for line_index, line in enumerate(lines)
+              if read_console_header_iteration(line=line) == iteration]
     if not starts:
         raise ValueError(f"No console summary of iteration {iteration} in {log_path}.")
     logged_lines = []
@@ -297,7 +299,7 @@ def write_console_summary_listing(log_path: Path, iteration: int, output_path: P
         if line.startswith("Interval Of "):
             break
 
-    # Metric lines in the columns of the current console formatter, the other lines as logged
+    # Header, metric and interval lines as the current console formatter prints them
     summary_lines = reformat_console_summary(lines=logged_lines, metric_tracker=metric_tracker)
     write_listing(lines=summary_lines, output_path=output_path)
     return summary_lines
@@ -317,9 +319,9 @@ def read_console_summary_facts(summary_lines: List[str], fact_prefix: str) -> Di
     """
     facts = {}
     for line in summary_lines:
-        throughput = re.search(pattern=r"Throughput: ([\d.]+) Images Per Second", string=line)
+        throughput = re.search(pattern=rf"Throughput: ({CONSOLE_NUMBER_PATTERN}) Images Per Second", string=line)
         if throughput is not None:
-            facts[f"{fact_prefix}.throughput"] = float(throughput.group(1))
+            facts[f"{fact_prefix}.throughput"] = parse_console_number(text=throughput.group(1))
         duration = re.search(pattern=r"Took (\d\d):(\d\d):(\d\d)", string=line)
         if duration is not None:
             facts[f"{fact_prefix}.minutes"] = int(duration.group(1)) * 60 + int(duration.group(2))

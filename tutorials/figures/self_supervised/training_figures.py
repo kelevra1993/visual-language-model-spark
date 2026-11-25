@@ -5,10 +5,11 @@ training log of the SimCLR run: the InfoNCE loss against ln(2N - 1), the positiv
 1 / (2N - 1) and the embedding standard deviation against 1, for the training batches and the validation batches (an
 empty-axes base image and its overlay, whose curves the scene uncovers); the first iterations of the validation, whose
 running statistics of the batch normalization had not settled yet; and the last console summary of the run, a listing
-whose metric lines are written again with their logged values by the console formatter of the current code
-(reformat_console_summary of figure_utilities.py), so that the scene shows the columns and units a run trained today
-prints. The positive pair accuracy is drawn on an axis of the percentages of the reports of the repository (ticks
-"20 %"), the facts keeping it between 0 and 1, and the labelled iteration ticks are spaced for the length of the run.
+whose header, metric and interval lines are written again with their logged values by the console formatter of the
+current code (reformat_console_summary of figure_utilities.py), so that the scene shows the columns, units and
+grouped digits a run trained today prints. The positive pair accuracy is drawn on an axis of the percentages of the
+reports of the repository (ticks "20 %"), the facts keeping it between 0 and 1, and the labelled iteration ticks are
+spaced for the length of the run.
 """
 
 import math
@@ -25,7 +26,8 @@ from typing import Any, Dict, List, Tuple
 from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, POINTS_PER_PIXEL,
                                                 REVEAL_MARGIN, SERIES_COLOURS, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR,
                                                 TEXT_SECONDARY_COLOUR, CONSOLE_METRIC_LINE_PREFIX,
-                                                build_console_metric_tracker, compute_pixel_box, format_thousands,
+                                                CONSOLE_NUMBER_PATTERN, build_console_metric_tracker,
+                                                compute_pixel_box, format_thousands, parse_console_number,
                                                 read_run_configuration, reformat_console_summary, register_fonts,
                                                 round_fact, save_figure, style_chart_panel)
 from tutorials.figures.self_supervised.ssl_sources import LOG_FILE_NAME
@@ -417,8 +419,8 @@ def read_last_console_summary(output_folder: Path, run_folder: Path) -> Dict[str
     listing_path.write_text(data="\n".join(summary_lines) + "\n", encoding="utf-8")
 
     # Throughputs of the summaries, the first interval holding the start of the loaders and of the views
-    throughputs = [float(value) for value in re.findall(pattern=r"Throughput: ([\d.]+) Images Per Second",
-                                                        string="\n".join(log_lines))]
+    throughputs = [parse_console_number(text=value) for value in re.findall(
+        pattern=rf"Throughput: ({CONSOLE_NUMBER_PATTERN}) Images Per Second", string="\n".join(log_lines))]
     return {"log.summary_count": len(throughputs), "log.first_throughput": round_fact(value=throughputs[0]),
             "log.last_throughput": round_fact(value=throughputs[-1]),
             "log.median_throughput": round_fact(value=float(numpy.median(throughputs)))}

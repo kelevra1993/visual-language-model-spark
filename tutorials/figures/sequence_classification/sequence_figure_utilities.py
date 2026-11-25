@@ -29,8 +29,9 @@ from PIL import Image, ImageDraw, ImageFont
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 from typing import Any, Dict, List, Optional, Tuple
 
-from tutorials.figures.figure_utilities import (POINTS_PER_PIXEL, TEXT_SECONDARY_COLOUR, compute_pixel_box,
-                                                read_tutorial_sources, round_fact)
+from tutorials.figures.figure_utilities import (CONSOLE_HEADER_PATTERN, POINTS_PER_PIXEL, TEXT_SECONDARY_COLOUR,
+                                                compute_pixel_box, parse_console_number,
+                                                read_console_header_iteration, read_tutorial_sources, round_fact)
 from tutorial_builder.layout import (CARD_COLOUR, DIM_TEXT_COLOUR, MONOSPACE_FONT_PATH, NAMED_COLOURS,
                                      SANS_BOLD_FONT_PATH, SANS_FONT_PATH, TERMINAL_COLOUR, TEXT_COLOUR)
 from tutorial_builder.figure_context import find_sources_file, read_thread_count
@@ -481,14 +482,15 @@ def read_interval_summaries(log_path: Path) -> List[Dict[str, float]]:
     if not log_path.exists():
         raise FileNotFoundError(f"No console log {log_path}.")
     summaries = []
-    header_pattern = re.compile(pattern=r"Iteration:\s+(\d+).*Throughput:\s+([\d.]+) \w+ Per Second.*?([\d.]+) Frames "
-                                        r"Per Second")
     loss_pattern = re.compile(pattern=r"^Moving Average of Train Total Loss\s+:\s+([\d.]+)")
     for line in clean_console_text(text=log_path.read_text(encoding="utf-8", errors="replace")).splitlines():
-        header_match = header_pattern.search(string=line)
-        if header_match is not None:
-            summaries.append({"iteration": int(header_match.group(1)), "throughput": float(header_match.group(2)),
-                              "frame_throughput": float(header_match.group(3))})
+        # Summary header with its frame throughput, its digits grouped or not (CONSOLE_HEADER_PATTERN)
+        header_match = CONSOLE_HEADER_PATTERN.match(string=line.rstrip())
+        if header_match is not None and header_match.group("frames_per_second") is not None:
+            summaries.append({"iteration": int(parse_console_number(text=header_match.group("iterations"))),
+                              "throughput": parse_console_number(text=header_match.group("samples_per_second")),
+                              "frame_throughput": parse_console_number(
+                                  text=header_match.group("frames_per_second"))})
         loss_match = loss_pattern.search(string=line)
         if loss_match is not None and summaries:
             summaries[-1]["train_total_loss"] = float(loss_match.group(1))
@@ -514,7 +516,7 @@ def extract_interval_block(log_path: Path, iteration: int) -> List[str]:
     """
     lines = clean_console_text(text=log_path.read_text(encoding="utf-8", errors="replace")).splitlines()
     header_index = next((index for index, line in enumerate(lines)
-                         if re.search(pattern=rf"Iteration:\s+{iteration}\s+\|", string=line)), None)
+                         if read_console_header_iteration(line=line) == iteration), None)
     if header_index is None:
         raise ValueError(f"No interval summary of iteration {iteration} in {log_path}.")
     end_index = next(index for index in range(header_index + 1, len(lines)) if lines[index].startswith("====="))

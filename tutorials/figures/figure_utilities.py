@@ -8,8 +8,9 @@ figure_reuse/ folder); the palette, the chart size and the Inter and Hack fonts 
 path), so that a chart sits on the card of an image scene like the text around it; the PNG files written at their exact
 pixel size and the pixel boxes of their panels, which the storyboards use as highlight boxes and reveal regions through
 the facts; the trained model of the classification run, read on the CPU with its input images, for the model figures
-of the foundations and classification series; the metric lines of a console summary cut from the log of a run written
-again by the console formatter of the current code with their logged values, for the console summary scenes; and the
+of the foundations and classification series; the header, metric and interval lines of a console summary cut from the
+log of a run written again by the console formatter of the current code with their logged values, and the counts of
+those lines read with or without their grouped digits, for the console summary scenes; and the
 reuse of the expensive figures between builds unless forced, their facts kept in a small JSON file next to them.
 """
 
@@ -94,6 +95,26 @@ CONSOLE_METRIC_LINE_PATTERN = re.compile(
 
 # Colour codes of the console, removed from the metric lines the current formatter writes again
 CONSOLE_COLOUR_PATTERN = re.compile(pattern=r"\x1b\[[0-9;]*m")
+
+# A count or speed of the header and interval lines of a console summary, whatever code printed the log: plain digits
+# in the runs trained before 2026-11-25 ("6656000", "1234.5"), digits grouped by three since ("6 656 000", "1 234.5"),
+# read by parse_console_number
+CONSOLE_NUMBER_PATTERN = r"\d+(?: \d{3})*(?:\.\d+)?"
+
+# Header line of a console summary between its bars, its sample name ("Images", "Sequences", "Pairs") and the frame
+# throughput cell of the sequence tasks, and the two interval lines closing the summary, the validation line only
+# printed by a run that validates
+CONSOLE_HEADER_PATTERN = re.compile(
+    pattern=rf"^\| *Iteration: (?P<iterations>{CONSOLE_NUMBER_PATTERN}) *\| *Total (?P<sample_name>\w+): "
+            rf"(?P<total_samples>{CONSOLE_NUMBER_PATTERN}) *\| *Interval \w+: (?P<interval_samples>"
+            rf"{CONSOLE_NUMBER_PATTERN}) *\| *Throughput: (?P<samples_per_second>{CONSOLE_NUMBER_PATTERN}) \w+ Per "
+            rf"Second *\|(?: *(?P<frames_per_second>{CONSOLE_NUMBER_PATTERN}) Frames Per Second *\|)?$")
+CONSOLE_INTERVAL_LINE_PATTERN = re.compile(
+    pattern=rf"^Interval Of (?P<interval_iterations>{CONSOLE_NUMBER_PATTERN}) Iterations Took (?P<hours>\d+):"
+            rf"(?P<minutes>\d\d):(?P<seconds>\d\d)\.$")
+CONSOLE_VALIDATION_LINE_PATTERN = re.compile(
+    pattern=rf"^Validation Iterations In This Interval: (?P<validation_count>{CONSOLE_NUMBER_PATTERN}) \(Ratio: "
+            rf"Every (?P<validation_ratio>{CONSOLE_NUMBER_PATTERN}) Training Iterations\)\.$")
 
 
 def read_tutorial_sources() -> Dict[str, Any]:
@@ -394,21 +415,150 @@ def reformat_console_metric_line(line: str, metric_tracker: MetricTracker) -> st
     return CONSOLE_COLOUR_PATTERN.sub(repl="", string=formatted_line)
 
 
+def parse_console_number(text: str) -> float:
+    """
+    Reads a count or speed of the header and interval lines of a console log (CONSOLE_NUMBER_PATTERN), with or without
+    the spaces grouping its digits by three, for the figure scripts that quote the throughputs, iterations and
+    interval lengths of a run.
+
+    Args:
+        text (str): The number as logged, e.g. "6656000", "6 656 000" or "1 234.5".
+
+    Returns:
+        float: The number.
+
+    Raises:
+        ValueError: If the text is not a number of the console log.
+    """
+    if re.fullmatch(pattern=CONSOLE_NUMBER_PATTERN, string=text) is None:
+        raise ValueError(f"Expected a console number matching {CONSOLE_NUMBER_PATTERN!r}, got {text!r}.")
+    return float(text.replace(" ", ""))
+
+
+def read_console_header_iteration(line: str) -> Optional[int]:
+    """
+    Reads the iteration of a console summary header (CONSOLE_HEADER_PATTERN), with or without its grouped digits, so
+    that the figure scripts find the summary of an iteration in the log of a run.
+
+    Args:
+        line (str): A line of the log, its colours removed.
+
+    Returns:
+        Optional[int]: The iteration of the summary, or None when the line is not a summary header.
+    """
+    header_match = CONSOLE_HEADER_PATTERN.match(string=line.rstrip())
+    return None if header_match is None else int(parse_console_number(text=header_match.group("iterations")))
+
+
+def reformat_console_header(line: str, metric_tracker: MetricTracker) -> str:
+    """
+    Writes the header line of a console summary read from the log of a run again with the console formatter of the
+    current code (MetricTracker.format_summary_header), keeping its logged iteration, sample counts and throughputs,
+    so that a scene shows the cells and grouped digits a run trained today prints even from a log of an older code.
+
+    Args:
+        line (str): The header line of the log, its colours removed.
+        metric_tracker (MetricTracker): The tracker of the run (build_console_metric_tracker).
+
+    Returns:
+        str: The header as the current formatter prints it.
+
+    Raises:
+        ValueError: If the line is not a summary header, names other samples than the trainer of the tracker, or has
+            a frame throughput cell when the trainer counts no frames, or none when it does.
+    """
+    header_match = CONSOLE_HEADER_PATTERN.match(string=line.rstrip())
+    if header_match is None:
+        raise ValueError(f"Expected a console summary header matching {CONSOLE_HEADER_PATTERN.pattern!r}, got "
+                         f"{line!r}.")
+    if header_match.group("sample_name") != metric_tracker.sample_name:
+        raise ValueError(f"Expected {metric_tracker.sample_name} in the console summary header {line!r}.")
+    logged_frames = header_match.group("frames_per_second")
+    if (logged_frames is not None) != metric_tracker.counts_frames:
+        raise ValueError(f"Expected {'a' if metric_tracker.counts_frames else 'no'} frame throughput cell in the "
+                         f"console summary header {line!r}.")
+
+    # Header of the logged values written by the current formatter
+    return metric_tracker.format_summary_header(
+        iterations=int(parse_console_number(text=header_match.group("iterations"))),
+        total_samples=int(parse_console_number(text=header_match.group("total_samples"))),
+        interval_samples=int(parse_console_number(text=header_match.group("interval_samples"))),
+        samples_per_second=parse_console_number(text=header_match.group("samples_per_second")),
+        frames_per_second=None if logged_frames is None else parse_console_number(text=logged_frames))
+
+
+def reformat_console_interval_line(line: str, metric_tracker: MetricTracker) -> str:
+    """
+    Writes an interval line of a console summary read from the log of a run (its duration line or its validation
+    line) again with the console formatter of the current code (MetricTracker.format_interval_duration_line and
+    format_validation_count_line), keeping its logged values, so that a scene shows the grouped digits a run trained
+    today prints.
+
+    Args:
+        line (str): The interval line of the log, its colours removed.
+        metric_tracker (MetricTracker): The tracker of the run (build_console_metric_tracker), whose validation ratio
+            the validation line must log.
+
+    Returns:
+        str: The line as the current formatter prints it.
+
+    Raises:
+        ValueError: If the line is neither interval line, or logs another validation ratio than the run.
+    """
+    duration_match = CONSOLE_INTERVAL_LINE_PATTERN.match(string=line.rstrip())
+    if duration_match is not None:
+        duration_seconds = (int(duration_match.group("hours")) * 3600 + int(duration_match.group("minutes")) * 60 +
+                            int(duration_match.group("seconds")))
+        return metric_tracker.format_interval_duration_line(
+            interval_iterations=int(parse_console_number(text=duration_match.group("interval_iterations"))),
+            duration_seconds=float(duration_seconds))
+
+    # Validation line, whose ratio is the one of the run the tracker was built from
+    validation_match = CONSOLE_VALIDATION_LINE_PATTERN.match(string=line.rstrip())
+    if validation_match is None:
+        raise ValueError(f"Expected a console interval line matching {CONSOLE_INTERVAL_LINE_PATTERN.pattern!r} or "
+                         f"{CONSOLE_VALIDATION_LINE_PATTERN.pattern!r}, got {line!r}.")
+    if int(parse_console_number(text=validation_match.group("validation_ratio"))) != \
+            metric_tracker.validation_iteration_ratio:
+        raise ValueError(f"Expected the validation ratio {metric_tracker.validation_iteration_ratio} of the run in "
+                         f"the console line {line!r}.")
+    return metric_tracker.format_validation_count_line(
+        validation_interval_count=int(parse_console_number(text=validation_match.group("validation_count"))))
+
+
 def reformat_console_summary(lines: List[str], metric_tracker: MetricTracker) -> List[str]:
     """
-    Writes the metric lines of a console summary read from the log of a run again with the console formatter of the
-    current code (reformat_console_metric_line), the header, rules and interval lines kept as logged since the current
-    code prints them the same way, for the console summary scenes of the series.
+    Writes the header, metric and interval lines of a console summary read from the log of a run again with the
+    console formatter of the current code (reformat_console_header, reformat_console_metric_line and
+    reformat_console_interval_line), and its "=" and "-" rules at the width of the header written again, as the
+    current code prints them, for the console summary scenes of the series.
 
     Args:
         lines (List[str]): The lines of the summary, their colours and links removed.
         metric_tracker (MetricTracker): The tracker of the run (build_console_metric_tracker).
 
     Returns:
-        List[str]: The lines of the summary, its metric lines as the current formatter prints them.
+        List[str]: The lines of the summary as the current formatter prints them, a line it does not print kept.
     """
-    return [reformat_console_metric_line(line=line, metric_tracker=metric_tracker)
-            if line.startswith(CONSOLE_METRIC_LINE_PREFIX) else line for line in lines]
+    # Width of the rules: the header written again, or the rules as logged for lines cut without their header
+    header_lines = [reformat_console_header(line=line, metric_tracker=metric_tracker) for line in lines
+                    if line.startswith("|")]
+    rule_width = len(header_lines[0]) if header_lines else None
+
+    summary_lines = []
+    for line in lines:
+        # Every line the current formatter writes is written again, the other lines kept
+        if line.startswith(CONSOLE_METRIC_LINE_PREFIX):
+            summary_lines.append(reformat_console_metric_line(line=line, metric_tracker=metric_tracker))
+        elif line.startswith("|"):
+            summary_lines.append(reformat_console_header(line=line, metric_tracker=metric_tracker))
+        elif line.startswith(("Interval Of ", "Validation Iterations In This Interval")):
+            summary_lines.append(reformat_console_interval_line(line=line, metric_tracker=metric_tracker))
+        elif rule_width is not None and line and set(line) in [{"="}, {"-"}]:
+            summary_lines.append(line[0] * rule_width)
+        else:
+            summary_lines.append(line)
+    return summary_lines
 
 
 @functools.lru_cache(maxsize=1)

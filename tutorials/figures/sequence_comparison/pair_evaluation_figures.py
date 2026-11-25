@@ -1,15 +1,15 @@
 """
 Training and evaluation figures of the sequence comparison tutorials (chapter 3), made by
 tutorials/figures/sequence_comparison/figures.py from the README run of the task: its launch information and the first
-console summary, whose metric lines are written again with their logged values by the console formatter of the current
-code (reformat_console_summary of figure_utilities.py) so that the scene shows the columns and units a run trained
-today prints, its training and validation curves up to its last checkpoint (an empty-axes base and its overlay,
-uncovered one panel at a time), and, from the evaluations of its last checkpoint and of the one closest below its half
-in its Checkpoint_Evaluation folder, its Results.txt, the confusion matrix, ROC and precision-recall curves and the
-precision-recall curves zoomed on the thresholds of its last evaluation side by side, the probability of
-same_number_of_objects of every test pair with the thresholds of the evaluation, and the sample image of a wrong pair,
-drawn by the code of the sample images since none of the fixed test samples is wrong, beside the saved sample image of
-a right pair. Its facts are the metrics, losses, throughputs, thresholds and errors the narration quotes, named by their
+console summary, whose header, metric and interval lines are written again with their logged values by the console
+formatter of the current code (reformat_console_summary of figure_utilities.py) so that the scene shows the columns,
+units and grouped digits a run trained today prints, its training and validation curves up to its last checkpoint (an
+empty-axes base and its overlay, uncovered one panel at a time), and, from the evaluations of its last checkpoint and of
+the one closest below its half in its Checkpoint_Evaluation folder, its Results.txt, the confusion matrix, ROC and
+precision-recall curves and the precision-recall curves zoomed on the thresholds of its last evaluation side by side,
+the probability of same_number_of_objects of every test pair with the thresholds of the evaluation, and the sample image
+of a wrong pair, drawn by the code of the sample images since none of the fixed test samples is wrong, beside the saved
+sample image of a right pair. Its facts are the metrics, losses, throughputs, thresholds and errors the narration quotes, named by their
 role (first and last evaluation, worst class, wrong and right pair) rather than by an iteration or a pair name. The
 accuracies and the target precision drawn are written as the percentages of the reports of the repository ("94.03 %",
 "99 %"), the facts and the probability thresholds keeping their values between 0 and 1.
@@ -47,6 +47,7 @@ from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATI
 from vision_training.evaluation.report_formatting import (format_percentage, format_percentage_label,
                                                           format_percentage_tick)
 from vision_training.evaluation.sample_selection import choose_sample_identifiers
+from vision_training.trainers.metric_tracking import MetricTracker
 from vision_training.trainers.sequence_classification_trainer import FRAME_GRID_COLUMNS
 from vision_training.trainers.sequence_comparison_trainer import SequenceComparisonTrainer
 from vision_training.utilities.visualization import (CORRECT_PREDICTION_COLOUR, WRONG_PREDICTION_COLOUR,
@@ -283,8 +284,8 @@ def make_pair_evaluation_figures(output_folder: Path, run_folder: Path, log_path
     """
     facts = {}
 
-    # Launch information and the console summary of the first interval, its metric lines written by the current
-    # formatter, with the throughputs of every interval
+    # Launch information and the console summary of the first interval, its header, metric and interval lines written
+    # by the current formatter, with the throughputs of every interval
     launch_lines = extract_launch_block(log_path=log_path, last_line_start="- Batch Size")
     launch_boxes = draw_console_figure(lines=launch_lines, output_path=output_folder / "evaluation" /
                                        "launch_console.png", font_size=17,
@@ -295,9 +296,11 @@ def make_pair_evaluation_figures(output_folder: Path, run_folder: Path, log_path
     console_lines = reformat_console_summary(lines=extract_interval_block(log_path=log_path,
                                                                           iteration=information_dump),
                                              metric_tracker=metric_tracker)
+    # Header of the summary found by its iteration, written with grouped digits by the current formatter
+    header_iteration = MetricTracker.format_grouped_number(value=information_dump)
     console_boxes = draw_console_figure(lines=console_lines, output_path=output_folder / "evaluation" /
                                         "training_console.png", font_size=17,
-                                        highlight_patterns={"header": rf"Iteration:\s+{information_dump}\b",
+                                        highlight_patterns={"header": rf"Iteration:\s+{header_iteration}\b",
                                                             "interval": r"Interval Of"})
     facts.update({f"console.{name}": box for name, box in console_boxes.items()})
 
