@@ -67,7 +67,7 @@ scenes:
       start: "^    # Precision settings, one model repository"
       end: "^    number_in_process_warmup_iterations = "
     highlights:
-      - {match: "^    precision_settings = |\"tensorrt_fp32\": |\"tensorrt_fp16\": ", sentences: [0]}
+      - {match: "^    precision_settings = |\"tensorrt_fp32\": |\"tensorrt_fp16\": |\"torchscript_fp16\": ", sentences: [0]}
       - {match: "^    load_groups = |\"server_settings\": \\[\\(False, 1\\)", sentences: [1]}
       - {match: "^    number_in_process_iterations = |^    number_in_process_warmup_iterations = ", sentences: [2]}
     narration:
