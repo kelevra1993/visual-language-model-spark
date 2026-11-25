@@ -136,6 +136,8 @@ def test_index_and_pages_are_served_with_their_evaluation(served_experiments: Tu
         assert status == 200 and b'id="deployment"' in page
         assert (page_data["evaluation"], page_data["live_temperatures"]) == (identifier, live_temperatures)
         assert page_data["export_defaults"]["formats"] == ["torchscript", "onnx"]
+        assert (page_data["torchscript_precisions"], page_data["export_defaults"]["torchscript_precision"]) == (
+            ["FP32", "FP16"], "FP32")
 
 
 def test_index_groups_the_evaluations_by_run_then_iteration(tmp_path: Path) -> None:
@@ -390,7 +392,7 @@ def test_exports_without_saved_thresholds_or_run_are_refused(served_experiments:
         request_server(url=f"{address}/api/save", content={"evaluation": identifier, "temperature": 2.0})
     status, body = request_server(url=f"{address}/api/export", content={
         "evaluation": identifier, "formats": ["onnx"], "model_version": 1, "maximum_batch_size": 4,
-        "tensorrt_precision": None})
+        "tensorrt_precision": None, "torchscript_precision": "FP32"})
     assert status == 400 and expected_message in json.loads(s=body)["error"]
     assert not (evaluations["live_folder"].parents[2] / "Exports").exists()
 
@@ -436,7 +438,7 @@ def test_saves_and_exports_wait_for_the_running_export(served_experiments: Tuple
         "logit_temperature"] == 2.0
     status, body = request_server(url=f"{address}/api/export", content={
         "evaluation": GRID_EVALUATION, "formats": ["onnx"], "model_version": 1, "maximum_batch_size": 4,
-        "tensorrt_precision": None})
+        "tensorrt_precision": None, "torchscript_precision": "FP32"})
     assert status == 409 and "An export is running" in json.loads(s=body)["error"]
 
     # The page of the exported checkpoint shows the running export, its console colours removed, the other one waits

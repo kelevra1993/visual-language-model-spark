@@ -5,8 +5,9 @@ the exported batch size, the real frames of every sequence and of both members o
 segmentation trained on tiles), the outputs become the predictions the trainer of every task scores, every request of a
 served row is compared with the eager model sample by sample, the stored evaluation of the exported iteration is read,
 the summary is written with the changes of every row against the eager row, and an export with the parity writes its
-summary even when its random batch check fails, the check alone deciding the installation. The Triton container is
-described and started with its own name and ports (vision_training/deployment/triton_server.py).
+summary even when its random batch check fails, the check alone deciding the installation. An FP16 TorchScript row is
+named with its precision and its random batch check with its eager FP16 reference. The Triton container is described
+and started with its own name and ports (vision_training/deployment/triton_server.py).
 """
 
 import csv
@@ -29,7 +30,7 @@ from vision_training.deployment.export_parity import (EAGER_ROW_NAME, SAMPLES_FI
                                                       SUMMARY_MARKDOWN_NAME, build_summary_markdown,
                                                       convert_inference_outputs,
                                                       create_output_comparison, encode_named_reference_images,
-                                                      get_parity_folder, measure_sample_difference,
+                                                      get_parity_folder, get_row_label, measure_sample_difference,
                                                       predict_exported_batch, read_reference_scalars,
                                                       summarise_sample_agreement, write_parity_summary)
 from vision_training.deployment.export_specifications import (compare_detections, compare_probabilities,
@@ -331,7 +332,8 @@ def build_test_summary(experiment_folder: Path, checkpoint_path: Path, formats: 
              **common_row, "error": "engine build crashed", "evaluated_samples": None}]
     return {"run": str(experiment_folder), "task": "classification", "checkpoint": str(checkpoint_path),
             "iteration": 1, "weights": "trained weights", "test_data_folder": "test", "formats": formats,
-            "tensorrt_precision": "FP16", "maximum_batch_size": 4, "model_version": 1, "logit_temperature": 1.0,
+            "tensorrt_precision": "FP16", "torchscript_precision": "FP32", "maximum_batch_size": 4, "model_version": 1,
+            "logit_temperature": 1.0,
             "headline_metric": "Accuracy", "random_batch_checks": random_batch_checks,
             "difference_description": "largest difference of a class probability",
             "reference": {"source": "stored.csv", "scalars": {"Accuracy": 0.9}, "comparable": True, "notes": []},
@@ -653,6 +655,29 @@ def test_summary_of_a_detector_leaves_out_its_proposal_scalars(tmp_path: Path) -
     assert "| **Accuracy** | 90.00 % | 88.00 % | -2.00 points |" in markdown
 
 
+def test_summary_names_the_precision_of_an_fp16_torchscript_row(tmp_path: Path) -> None:
+    """
+    Verifies that the summary of an export with an FP16 TorchScript file names its row and its random batch check with
+    the precision and the eager FP16 reference of the check, the ONNX row keeping its own, and that an FP32 TorchScript
+    row keeps the plain label of the summaries written before.
+
+    Args:
+        tmp_path (Path): The temporary folder of the test.
+    """
+    experiment_folder = tmp_path / "CLS_TEST_MC3"
+    summary = build_test_summary(experiment_folder=experiment_folder,
+                                 checkpoint_path=experiment_folder / "Weights" / "Iteration_1" / "model_000001.pt",
+                                 formats=["torchscript", "onnx"], random_batch_checks={"torchscript": [], "onnx": []})
+    summary.update({"torchscript_precision": "FP16", "installation": "installed into served_models, version 1"})
+    markdown = build_summary_markdown(summary=summary)
+    assert "- Formats: TorchScript (FP16), ONNX (TensorRT FP16), maximum batch size 4" in markdown
+    assert "- TorchScript (FP16): matches the eager FP16 copy of the network" in markdown
+    assert "- ONNX (TensorRT FP16): matches the eager model" in markdown
+    assert get_row_label(row_name="torchscript", tensorrt_precision=None, torchscript_precision="FP32") == "TorchScript"
+    assert get_row_label(row_name="torchscript", tensorrt_precision="FP16",
+                         torchscript_precision="FP16") == "TorchScript (FP16)"
+
+
 def test_triton_server_of_the_parity_has_its_own_name_and_ports(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     A server is described by its container name and ports, the parity asks the system for free distinct ports, the
@@ -705,8 +730,8 @@ def test_export_with_parity_writes_its_summary_whatever_the_random_batch_check(t
     export_settings = {"experiment_folder": experiment_folder, "iteration": test_input_contract.EXPORTED_ITERATION,
                        "use_averaged_weights": False, "formats": ["torchscript", "onnx"], "repository": repository,
                        "model_version": 1, "maximum_batch_size": test_input_contract.TEST_MAXIMUM_BATCH_SIZE,
-                       "tensorrt_precision": "FP16", "use_saved_temperature": False, "saved_thresholds_path": None,
-                       "test_split_parity": True}
+                       "tensorrt_precision": "FP16", "torchscript_precision": "FP32", "use_saved_temperature": False,
+                       "saved_thresholds_path": None, "test_split_parity": True}
 
     # Both formats fail their check: both are still scored, the summary records the refused installation
     monkeypatch.setattr(target=export_model, name="get_export_specification", value=get_mismatching_specification)

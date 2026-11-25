@@ -31,8 +31,9 @@ from urllib.parse import parse_qs, quote, urlparse
 
 from vision_training.deployment.explorer_export import (DEFAULT_EXPORT_SETTINGS, EXPORT_FORMATS,
                                                         EXPORT_LOG_FILE_NAME, TENSORRT_PRECISIONS,
-                                                        build_export_folder, describe_evaluation_folder,
-                                                        list_checkpoint_exports, prepare_export_job)
+                                                        TORCHSCRIPT_PRECISIONS, build_export_folder,
+                                                        describe_evaluation_folder, list_checkpoint_exports,
+                                                        prepare_export_job)
 from vision_training.evaluation.classification.temperature_explorer import (CLASS_LOGITS_FILE_NAME,
                                                                             DEFAULT_SCORE_CUT_POINTS,
                                                                             EXPLORER_FILE_NAME,
@@ -536,7 +537,7 @@ class TemperatureExplorerHandler(BaseHTTPRequestHandler):
         return {**page_data, "evaluation": identifier, "live_temperatures": logits_path.is_file(),
                 "model_performance": model_performance, "default_score_cut_points": DEFAULT_SCORE_CUT_POINTS,
                 "export_formats": EXPORT_FORMATS, "tensorrt_precisions": TENSORRT_PRECISIONS,
-                "export_defaults": DEFAULT_EXPORT_SETTINGS}
+                "torchscript_precisions": TORCHSCRIPT_PRECISIONS, "export_defaults": DEFAULT_EXPORT_SETTINGS}
 
     def describe_status(self, identifier: str, evaluation_folder: Path) -> Dict[str, Any]:
         """
@@ -713,8 +714,8 @@ class TemperatureExplorerHandler(BaseHTTPRequestHandler):
         Args:
             identifier (str): The identifier of the evaluation.
             evaluation_folder (Path): The evaluation folder.
-            body (Dict[str, Any]): The posted 'formats', 'model_version', 'maximum_batch_size' and
-                'tensorrt_precision'.
+            body (Dict[str, Any]): The posted 'formats', 'model_version', 'maximum_batch_size',
+                'tensorrt_precision' and 'torchscript_precision'.
         """
         with self.server.export_lock:
             export_job = self.server.export_job
@@ -727,7 +728,8 @@ class TemperatureExplorerHandler(BaseHTTPRequestHandler):
             job = prepare_export_job(evaluation_folder=evaluation_folder, formats=body["formats"],
                                      model_version=body["model_version"],
                                      maximum_batch_size=body["maximum_batch_size"],
-                                     tensorrt_precision=body["tensorrt_precision"])
+                                     tensorrt_precision=body["tensorrt_precision"],
+                                     torchscript_precision=body["torchscript_precision"])
             with open(file=job["log_path"], mode="w", encoding="utf-8") as log_file:
                 process = subprocess.Popen(args=[sys.executable, "-u", "-m", EXPORT_MODULE, str(job["job_path"])],
                                            cwd=REPOSITORY_ROOT, stdout=log_file, stderr=subprocess.STDOUT,

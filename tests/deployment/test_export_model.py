@@ -6,8 +6,10 @@ folder of scripts/evaluation/evaluate_checkpoint.py (its 'EMA' subfolder for the
 when the Evaluation folder of the training holds them too, thresholds given by the export button of the page are
 accepted only from an evaluation of the exported checkpoint and weights in the run folder, and their temperature is
 read after checking them against the classes of the exported model. An export failing its check against the eager
-model leaves the served models of the repository unchanged, a checked one replacing them. A misspelled format or
-TensorRT precision stops export_experiment before anything is read or written.
+model leaves the served models of the repository unchanged, a checked one replacing them. A misspelled format,
+TensorRT or TorchScript precision stops export_experiment before anything is read or written. The random batch check
+of an FP16 TorchScript export loosens the difference tolerances only, and a run exported with an FP16 TorchScript file
+installs an FP16 network with FP32 outputs close to those of the FP32 export.
 """
 
 import json
@@ -20,9 +22,10 @@ from typing import Any, Dict, List
 
 from tests.deployment import test_input_contract
 from vision_training.deployment import export_model
-from vision_training.deployment.export_model import (STAGING_FOLDER_PREFIX, check_saved_thresholds_location,
-                                                     export_experiment, find_saved_thresholds_path,
-                                                     read_saved_temperature)
+from vision_training.deployment.export_model import (HALF_PRECISION_TOLERANCE_FACTOR, STAGING_FOLDER_PREFIX,
+                                                     check_saved_thresholds_location, export_experiment,
+                                                     find_saved_thresholds_path, read_saved_temperature,
+                                                     scale_half_precision_tolerances)
 from vision_training.evaluation.classification.temperature_explorer import SAVED_THRESHOLDS_FILE_NAME
 from vision_training.trainers.checkpointing import get_checkpoint_file
 
@@ -241,7 +244,9 @@ def test_given_saved_thresholds_must_be_those_of_the_exported_checkpoint(tmp_pat
     ({"formats": []}, "Expected distinct export formats"),
     ({"formats": ["onnx", "onnx"]}, "Expected distinct export formats"),
     ({"tensorrt_precision": "fp16"}, "Expected a TensorRT precision"),
-    ({"tensorrt_precision": "INT8"}, "Expected a TensorRT precision")])
+    ({"tensorrt_precision": "INT8"}, "Expected a TensorRT precision"),
+    ({"torchscript_precision": "fp16"}, "Expected a TorchScript precision"),
+    ({"torchscript_precision": "BF16"}, "Expected a TorchScript precision")])
 def test_unknown_export_settings_stop_the_export_before_anything_is_read(tmp_path: Path,
                                                                         export_settings: Dict[str, Any],
                                                                         expected_message: str) -> None:
@@ -260,8 +265,9 @@ def test_unknown_export_settings_stop_the_export_before_anything_is_read(tmp_pat
         export_experiment(**{"experiment_folder": tmp_path / RUN_NAME, "iteration": EXPORTED_ITERATION,
                              "use_averaged_weights": False, "formats": ["torchscript", "onnx"],
                              "repository": repository, "model_version": 1, "maximum_batch_size": 4,
-                             "tensorrt_precision": "FP16", "use_saved_temperature": False,
-                             "saved_thresholds_path": None, "test_split_parity": False, **export_settings})
+                             "tensorrt_precision": "FP16", "torchscript_precision": "FP32",
+                             "use_saved_temperature": False, "saved_thresholds_path": None,
+                             "test_split_parity": False, **export_settings})
     assert not repository.exists()
 
 
@@ -315,3 +321,56 @@ def test_failed_export_check_leaves_the_served_models_unchanged(tmp_path: Path,
         assert exported_files[model_file] != served_files[model_file]
     assert exported_files["image_classifier_torchscript/2/model.pt"] == b"version 2"
     assert not list(tmp_path.glob(pattern=f"{STAGING_FOLDER_PREFIX}*"))
+
+
+def test_half_precision_tolerances_loosen_the_differences_only() -> None:
+    """
+    Verifies that the tolerances of the random batch check of an FP16 TorchScript export multiply every difference
+    tolerance of the export specification and keep the smallest share of equal outputs.
+    """
+    keypoint_tolerances = {"position_tolerance": 1e-2, "score_tolerance": 1e-4, "tag_tolerance": 1e-3,
+                           "minimum_equal_share": 0.95}
+    assert scale_half_precision_tolerances(comparison_tolerances=keypoint_tolerances) == {
+        "position_tolerance": 1e-2 * HALF_PRECISION_TOLERANCE_FACTOR,
+        "score_tolerance": 1e-4 * HALF_PRECISION_TOLERANCE_FACTOR,
+        "tag_tolerance": 1e-3 * HALF_PRECISION_TOLERANCE_FACTOR, "minimum_equal_share": 0.95}
+
+
+@pytest.mark.skipif(condition=not torch.cuda.is_available(), reason="The export runs the model on the GPU.")
+def test_half_precision_torchscript_export_installs_an_fp16_network(tmp_path: Path) -> None:
+    """
+    Verifies that a run exported with torchscript_precision 'FP16' installs a TorchScript file whose convolution
+    kernels are FP16 and whose normalization statistics stay FP32, taking FP32 images and returning FP32
+    probabilities within 1e-2 of those of the FP32 export of the same checkpoint.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    experiment_folder = tmp_path / RUN_NAME
+    test_input_contract.write_trained_model(experiment_folder=experiment_folder, task="classification",
+                                            keep_ratio=True, tiling_configuration=None)
+
+    # The same checkpoint exported with both TorchScript precisions, each into its own repository
+    traced_models = {}
+    for torchscript_precision in ["FP32", "FP16"]:
+        repository = tmp_path / f"served_models_{torchscript_precision.lower()}"
+        export_experiment(experiment_folder=experiment_folder, iteration=test_input_contract.EXPORTED_ITERATION,
+                          use_averaged_weights=False, formats=["torchscript"], repository=repository, model_version=1,
+                          maximum_batch_size=test_input_contract.TEST_MAXIMUM_BATCH_SIZE,
+                          tensorrt_precision=None, torchscript_precision=torchscript_precision,
+                          use_saved_temperature=False, saved_thresholds_path=None, test_split_parity=False)
+        traced_models[torchscript_precision] = torch.jit.load(
+            str(repository / "image_classifier_torchscript" / "1" / "model.pt"), map_location="cuda")
+
+    # FP16 convolution kernels (the 4-dimensional weights), FP32 normalization statistics
+    state_dictionary = traced_models["FP16"].state_dict()
+    assert {tensor.dtype for tensor in state_dictionary.values() if tensor.ndim == 4} == {torch.float16}
+    assert {tensor.dtype for name, tensor in state_dictionary.items() if name.endswith("running_mean")} == {
+        torch.float32}
+
+    # FP32 probabilities of the same FP32 images, close to those of the FP32 export
+    images = torch.rand(size=(3, 3, 32, 32), generator=torch.Generator().manual_seed(0)).cuda() * 255
+    with torch.no_grad():
+        probabilities = {precision: traced_model(images=images) for precision, traced_model in traced_models.items()}
+    assert probabilities["FP16"].dtype == torch.float32
+    assert torch.allclose(input=probabilities["FP16"], other=probabilities["FP32"], atol=1e-2)

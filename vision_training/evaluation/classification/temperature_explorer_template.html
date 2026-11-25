@@ -155,6 +155,7 @@ stay between 0 and 1.
         <span class="button-row" id="export-formats" role="group" aria-label="Export formats"></span>
         <label>Version <input type="number" id="model-version" min="1" step="1"></label>
         <label>Maximum batch size <input type="number" id="maximum-batch-size" min="1" step="1"></label>
+        <label>TorchScript <select id="torchscript-precision"></select></label>
         <label>TensorRT <select id="tensorrt-precision"></select></label>
         <button type="button" id="export-button">Export</button>
       </div>
@@ -502,15 +503,15 @@ stay between 0 and 1.
       log.hidden = true;
     }
 
-    // Exports of the checkpoint, newest first
-    const headers = ["Folder", "T", "Exported", "Formats", "Version", "Batch", "TensorRT"];
+    // Exports of the checkpoint, newest first, a record written before the FP16 TorchScript export holding FP32
+    const headers = ["Folder", "T", "Exported", "Formats", "Version", "Batch", "TorchScript", "TensorRT"];
     const rows = [`<tr>${headers.map(header => `<th>${header}</th>`).join("")}</tr>`];
     status.exports.forEach(exportEntry => {
       const record = exportEntry.record;
-      const cells = record === null ? [escapeHtml(exportEntry.name), "—", "—", "—", "—", "—", "—"]
+      const cells = record === null ? [escapeHtml(exportEntry.name), "—", "—", "—", "—", "—", "—", "—"]
         : [escapeHtml(exportEntry.name), formatTemperature(record.logit_temperature), escapeHtml(record.exported_at),
            escapeHtml(record.formats.join(", ")), String(record.model_version), String(record.maximum_batch_size),
-           escapeHtml(String(record.tensorrt_precision))];
+           escapeHtml(String(record.torchscript_precision ?? "FP32")), escapeHtml(String(record.tensorrt_precision))];
       rows.push(`<tr>${cells.map(cell => `<td>${cell}</td>`).join("")}</tr>`);
     });
     document.getElementById("exports-table").innerHTML = rows.join("");
@@ -624,7 +625,8 @@ stay between 0 and 1.
                   formats: [...document.querySelectorAll("#export-formats input:checked")].map(input => input.value),
                   model_version: Number(document.getElementById("model-version").value),
                   maximum_batch_size: Number(document.getElementById("maximum-batch-size").value),
-                  tensorrt_precision: precision === "none" ? null : precision};
+                  tensorrt_precision: precision === "none" ? null : precision,
+                  torchscript_precision: document.getElementById("torchscript-precision").value};
     document.getElementById("export-button").disabled = true;
     try {
       await fetchJson("/api/export", {method: "POST", headers: {"Content-Type": "application/json"},
@@ -649,6 +651,15 @@ stay between 0 and 1.
     });
     document.getElementById("model-version").value = defaults.model_version;
     document.getElementById("maximum-batch-size").value = defaults.maximum_batch_size;
+    // Precision of the network of the TorchScript file, its inputs and outputs staying FP32
+    const torchscriptSelect = document.getElementById("torchscript-precision");
+    DATA.torchscript_precisions.forEach(precision => {
+      const option = document.createElement("option");
+      option.value = precision;
+      option.textContent = precision;
+      option.selected = precision === defaults.torchscript_precision;
+      torchscriptSelect.appendChild(option);
+    });
     const precisionSelect = document.getElementById("tensorrt-precision");
     DATA.tensorrt_precisions.forEach(precision => {
       const option = document.createElement("option");

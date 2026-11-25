@@ -1,13 +1,14 @@
 """
 Writes an inference model to the files of the export formats served by Triton: a traced TorchScript file for the
-PyTorch (libtorch) backend and an ONNX file with dynamic batch (and frame) dimensions for the ONNX Runtime backend,
-optionally accelerated by TensorRT, without the debugging metadata of the exporter, with the warnings of the libraries
-hidden during the export. Used by deployment/export_model.py, which checks the exported files and installs them in the
-Triton model repository, by the speed benchmark of the trainers (trainers/speed_benchmark.py), which times every format
-in the training process, and by the Export Sizes panel of the launch (deployment/export_size_estimates.py), which
-measures the TorchScript file.
+PyTorch (libtorch) backend, in FP32 or with its network in FP16 (convert_to_half_precision), and an ONNX file with
+dynamic batch (and frame) dimensions for the ONNX Runtime backend, optionally accelerated by TensorRT, without the
+debugging metadata of the exporter, with the warnings of the libraries hidden during the export. Used by
+deployment/export_model.py, which checks the exported files and installs them in the Triton model repository, by the
+speed benchmark of the trainers (trainers/speed_benchmark.py), which times every format in the training process, and by
+the Export Sizes panel of the launch (deployment/export_size_estimates.py), which measures the TorchScript file.
 """
 
+import copy
 import logging
 import warnings
 import onnx
@@ -17,7 +18,7 @@ from onnxscript import opset18
 from onnxscript.onnx_types import FLOAT, INT64
 from pathlib import Path
 from torch import nn
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from vision_training.models.detection.postprocessing import STACKED_GROUP_SUPPRESSION_OPERATOR
 from vision_training.utilities.os_utilities import format_path_link
@@ -25,6 +26,202 @@ from vision_training.utilities.os_utilities import format_path_link
 # Largest number of boxes NonMaxSuppression keeps per batch and class, no limit, as in the translation of the
 # torchvision nms by onnxscript
 MAXIMUM_SUPPRESSION_OUTPUTS = 2 ** 63 - 1
+
+# Modules whose weights the FP16 TorchScript export holds in FP16, run on the tensor cores of the GPU; the normalization
+# layers, the recurrent layers, the other parameters and every buffer (running statistics, anchors, logit temperature)
+# stay FP32
+HALF_PRECISION_MODULE_TYPES = (nn.Conv1d, nn.Conv2d, nn.Conv3d, nn.ConvTranspose1d, nn.ConvTranspose2d,
+                               nn.ConvTranspose3d, nn.Linear, nn.MultiheadAttention)
+
+# Recurrent layers of the FP16 TorchScript export, kept FP32 and run without autocast (FullPrecisionRecurrentLayer)
+RECURRENT_MODULE_TYPES = (nn.LSTM, nn.GRU, nn.RNN)
+
+# Inputs of the comparison model, the only inference model of two inputs (TASK_INPUT_NAMES of export_specifications.py)
+PAIR_INPUT_NAMES = ["before_images", "after_images"]
+
+
+def cast_to_full_precision(value: Any) -> Any:
+    """
+    Casts a value given to a recurrent layer of the FP16 TorchScript export to FP32: a floating tensor, the data of a
+    PackedSequence (its batch sizes and indices left as integers), every member of a tuple (the hidden and cell states
+    of an LSTM), any other value being returned as it is.
+
+    Args:
+        value (Any): The argument of the recurrent layer.
+
+    Returns:
+        Any: The value with its floating tensors in FP32.
+    """
+    # A PackedSequence is a tuple, told apart first so that only its data is cast
+    if isinstance(value, nn.utils.rnn.PackedSequence):
+        return value._replace(data=value.data.float())
+    if isinstance(value, torch.Tensor):
+        return value.float() if value.is_floating_point() else value
+    if isinstance(value, tuple):
+        return tuple(cast_to_full_precision(value=item) for item in value)
+    return value
+
+
+class FullPrecisionRecurrentLayer(nn.Module):
+    """
+    Recurrent layer of the FP16 TorchScript export (convert_to_half_precision), run in FP32 with autocast turned off
+    around it: the tracer does not record the casts autocast makes around an LSTM or GRU, so that the traced graph
+    would replay it in FP32 while the layers after it were traced on its FP16 outputs. Its inputs are cast to FP32,
+    the precision of its weights, and its FP32 outputs are cast by autocast again in the layers after it, every cast
+    being written into the graph.
+    """
+
+    def __init__(self, recurrent_layer: nn.Module) -> None:
+        """
+        Wraps an FP32 recurrent layer of the copied inference model.
+
+        Args:
+            recurrent_layer (nn.Module): The LSTM, GRU or RNN layer.
+        """
+        super(FullPrecisionRecurrentLayer, self).__init__()
+        self.recurrent_layer = recurrent_layer
+
+    def forward(self, *arguments: Any, **keyword_arguments: Any) -> Any:
+        """
+        Runs the recurrent layer in FP32 with the arguments of its own forward.
+
+        Args:
+            *arguments (Any): The positional arguments of the recurrent layer (the sequence, the initial state).
+            **keyword_arguments (Any): Its keyword arguments ('input', 'hx').
+
+        Returns:
+            Any: The outputs of the recurrent layer, in FP32.
+        """
+        with torch.autocast(device_type="cuda", enabled=False):
+            return self.recurrent_layer(*[cast_to_full_precision(value=argument) for argument in arguments],
+                                        **{name: cast_to_full_precision(value=value)
+                                           for name, value in keyword_arguments.items()})
+
+
+def restore_full_precision_outputs(outputs: torch.Tensor | Tuple[torch.Tensor, ...]) -> torch.Tensor | Tuple[
+        torch.Tensor, ...]:
+    """
+    Casts the floating outputs of the FP16 network of a TorchScript export back to FP32, the type of the outputs of
+    its Triton configuration and of the eager model, the integer outputs (labels, counts, class maps) being left as
+    they are.
+
+    Args:
+        outputs (torch.Tensor | Tuple[torch.Tensor, ...]): The output, or the tuple of outputs, of the inference model.
+
+    Returns:
+        torch.Tensor | Tuple[torch.Tensor, ...]: The outputs, floating ones in FP32, in the same structure.
+    """
+    if isinstance(outputs, torch.Tensor):
+        return outputs.float() if outputs.is_floating_point() else outputs
+    return tuple(output.float() if output.is_floating_point() else output for output in outputs)
+
+
+class HalfPrecisionImageModel(nn.Module):
+    """
+    FP16 TorchScript version of the inference model of an image or sequence task, traced by export_torchscript: its
+    forward runs the inference model under the automatic mixed precision of PyTorch (FP16 autocast on the GPU), whose
+    casts the tracer writes into the graph, so that the served file computes the convolutions, linear and attention
+    layers in FP16 while the operators autocast keeps in FP32 (softmax, normalizations, exponentials, sums) and the
+    operations meeting an FP32 buffer (anchors, logit temperature) run in FP32, then returns FP32 outputs. Its forward
+    argument keeps the input name of the task, which the Triton PyTorch backend matches with the model configuration.
+    """
+
+    def __init__(self, inference_model: nn.Module) -> None:
+        """
+        Wraps the inference model whose weights convert_to_half_precision converted.
+
+        Args:
+            inference_model (nn.Module): The inference model, its HALF_PRECISION_MODULE_TYPES modules in FP16.
+        """
+        super(HalfPrecisionImageModel, self).__init__()
+        self.inference_model = inference_model
+
+    def forward(self, images: torch.Tensor) -> torch.Tensor | Tuple[torch.Tensor, ...]:
+        """
+        Runs the inference model in mixed precision on FP32 images or frames.
+
+        Args:
+            images (torch.Tensor): The FP32 input of the task, as the FP32 export takes it.
+
+        Returns:
+            torch.Tensor | Tuple[torch.Tensor, ...]: The outputs of the inference model, floating ones in FP32.
+        """
+        with torch.autocast(device_type="cuda", dtype=torch.float16, cache_enabled=False):
+            outputs = self.inference_model(images=images)
+        return restore_full_precision_outputs(outputs=outputs)
+
+
+class HalfPrecisionPairModel(nn.Module):
+    """
+    FP16 TorchScript version of the inference model of the sequence comparison, the two-input counterpart of
+    HalfPrecisionImageModel, its forward arguments keeping the names of the before and after members.
+    """
+
+    def __init__(self, inference_model: nn.Module) -> None:
+        """
+        Wraps the inference comparator whose weights convert_to_half_precision converted.
+
+        Args:
+            inference_model (nn.Module): The inference comparator, its HALF_PRECISION_MODULE_TYPES modules in FP16.
+        """
+        super(HalfPrecisionPairModel, self).__init__()
+        self.inference_model = inference_model
+
+    def forward(self, before_images: torch.Tensor, after_images: torch.Tensor) -> torch.Tensor:
+        """
+        Runs the inference comparator in mixed precision on the FP32 frames of both members.
+
+        Args:
+            before_images (torch.Tensor): The FP32 frames of the before member.
+            after_images (torch.Tensor): The FP32 frames of the after member.
+
+        Returns:
+            torch.Tensor: The FP32 class probabilities of every pair.
+        """
+        with torch.autocast(device_type="cuda", dtype=torch.float16, cache_enabled=False):
+            outputs = self.inference_model(before_images=before_images, after_images=after_images)
+        return restore_full_precision_outputs(outputs=outputs)
+
+
+def convert_to_half_precision(inference_model: nn.Module, input_names: List[str]) -> nn.Module:
+    """
+    Builds the FP16 version of an inference model of any task for the FP16 TorchScript export
+    (export_model.py with torchscript_precision 'FP16'): a copy whose convolution, linear and attention weights are
+    converted to FP16, about halving the file, the normalization layers and the buffers staying FP32 as in the automatic
+    mixed precision of PyTorch and the recurrent layers running in FP32 without autocast
+    (FullPrecisionRecurrentLayer), wrapped so that it runs under FP16 autocast and returns FP32 outputs. The
+    inputs stay the FP32 batches of the input contract, so that a client sends the same requests to both precisions.
+    The eager model of the export is left untouched; the copy runs on the GPU only, as Triton serves it.
+
+    Args:
+        inference_model (nn.Module): The FP32 inference model of the export, on the GPU, with its logit temperature.
+        input_names (List[str]): The input names of the task, in the order of the forward arguments.
+
+    Returns:
+        nn.Module: The FP16 version, in evaluation mode, with the forward arguments of the inference model.
+
+    Raises:
+        ValueError: If a weight of the inference model is not on the GPU, where the FP16 autocast of the copy runs.
+    """
+    # The autocast of the copy runs on CUDA only: a CPU model would reach FP16 weights with FP32 inputs
+    if any(parameter.device.type != "cuda" for parameter in inference_model.parameters()):
+        raise ValueError("Expected the inference model on the GPU for its FP16 TorchScript export: the FP16 autocast "
+                         "of its copy runs on CUDA only.")
+    half_precision_model = copy.deepcopy(inference_model)
+    # Weights of the layers computed on the tensor cores in FP16, their own buffers following (none for these types)
+    for module in half_precision_model.modules():
+        if isinstance(module, HALF_PRECISION_MODULE_TYPES):
+            module.half()
+
+    # Recurrent layers replaced in their parent by their FP32 wrapper, the list of children read before any change,
+    # their weights gathered again into the single block cuDNN reads, which the copy splits
+    recurrent_children = [(parent, child_name, child) for parent in half_precision_model.modules()
+                          for child_name, child in parent.named_children() if isinstance(child, RECURRENT_MODULE_TYPES)]
+    for parent, child_name, child in recurrent_children:
+        child.flatten_parameters()
+        setattr(parent, child_name, FullPrecisionRecurrentLayer(recurrent_layer=child))
+    wrapper_class = HalfPrecisionPairModel if input_names == PAIR_INPUT_NAMES else HalfPrecisionImageModel
+    return wrapper_class(inference_model=half_precision_model).eval()
 
 
 def translate_stacked_group_suppression(boxes: FLOAT, scores: FLOAT, iou_threshold: float) -> INT64:

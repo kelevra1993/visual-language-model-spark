@@ -97,7 +97,8 @@ def test_exports_of_a_checkpoint_get_their_own_folders(tmp_path: Path) -> None:
     ({"model_version": 0}, "Expected model_version"),
     ({"maximum_batch_size": 1.5}, "Expected maximum_batch_size"),
     ({"maximum_batch_size": True}, "Expected maximum_batch_size"),
-    ({"tensorrt_precision": "INT8"}, "Expected a TensorRT precision")])
+    ({"tensorrt_precision": "INT8"}, "Expected a TensorRT precision"),
+    ({"torchscript_precision": None}, "Expected a TorchScript precision")])
 def test_export_settings_of_the_page_are_checked(settings: Dict[str, Any], expected_message: str) -> None:
     """
     Verifies that every wrong setting of the export form is refused with its reason before any export starts.
@@ -108,7 +109,7 @@ def test_export_settings_of_the_page_are_checked(settings: Dict[str, Any], expec
     """
     with pytest.raises(expected_exception=ValueError, match=expected_message):
         check_export_settings(**{"formats": ["torchscript"], "model_version": 1, "maximum_batch_size": 4,
-                                 "tensorrt_precision": None, **settings})
+                                 "tensorrt_precision": None, "torchscript_precision": "FP32", **settings})
 
 
 def write_saved_evaluation(evaluation_folder: Path, logit_temperature: float) -> Dict[str, Any]:
@@ -150,7 +151,7 @@ def test_exports_at_two_temperatures_keep_their_own_folders(tmp_path: Path) -> N
                         tiling_configuration=None)
     evaluation_folder = run_folder / "Checkpoint_Evaluation" / f"Iteration_{EXPORTED_ITERATION}"
     export_settings = {"evaluation_folder": evaluation_folder, "formats": ["onnx"], "model_version": 1,
-                       "maximum_batch_size": 4, "tensorrt_precision": None}
+                       "maximum_batch_size": 4, "tensorrt_precision": None, "torchscript_precision": "FP32"}
 
     # Export at every saved temperature, the console output written where the serve script writes it
     exported_records = {}
@@ -169,8 +170,8 @@ def test_exports_at_two_temperatures_keep_their_own_folders(tmp_path: Path) -> N
         deployed_thresholds = export_folder / "image_classifier_onnx" / "1" / "class_thresholds.json"
         assert json.loads(s=deployed_thresholds.read_text()) == saved_thresholds
         record = json.loads(s=(export_folder / EXPORT_RECORD_FILE_NAME).read_text())
-        assert (record["logit_temperature"], record["iteration"], record["formats"]) == (
-            logit_temperature, EXPORTED_ITERATION, ["onnx"])
+        assert (record["logit_temperature"], record["iteration"], record["formats"],
+                record["torchscript_precision"]) == (logit_temperature, EXPORTED_ITERATION, ["onnx"], "FP32")
         exported_records[export_folder.name] = record
 
     # Both temperatures listed, the export of 2.5 being the second one
