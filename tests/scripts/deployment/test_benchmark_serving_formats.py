@@ -2,8 +2,9 @@
 Tests of scripts/deployment/benchmark_serving_formats.py, the serving benchmark of the exported models: the settings
 of the server given at load time (dynamic batching and instances) leave the exported configuration unchanged, the
 perf_analyzer report is read in milliseconds, the test sample is linked in its frame order, results.csv keeps every
-measurement so that a relaunch skips the recorded ones, every row gets the loads of its groups, and the gRPC loads
-read the metrics and statistics of the server.
+measurement so that a relaunch skips the recorded ones, every row gets the loads of its groups, the FP16 TorchScript
+model has a setting, a served row and an in-process row of its own, and the gRPC loads read the metrics and statistics
+of the server.
 """
 
 import json
@@ -16,6 +17,7 @@ from scripts.deployment.benchmark_serving_formats import (RESULT_COLUMNS, append
                                                           average_server_microseconds, build_result_key,
                                                           build_server_configuration, count_frames_per_sample,
                                                           get_repository_formats, get_row_name,
+                                                          get_torchscript_precision, list_in_process_rows,
                                                           parse_perf_analyzer_report, parse_triton_gpu_metrics,
                                                           plan_served_loads, read_completed_keys, repeat_request,
                                                           select_test_sample)
@@ -174,13 +176,37 @@ def test_requests_count_frames_and_repeat_to_the_batch_size() -> None:
 
 def test_rows_of_the_precision_settings() -> None:
     """
-    The TorchScript model is served once, from the ONNX Runtime CUDA repository, and every ONNX model is the row of its
-    precision setting.
+    The FP32 TorchScript model is served once, from the ONNX Runtime CUDA repository, every ONNX model is the row of its
+    precision setting, and the FP16 TorchScript model is exported alone in its own setting and row.
     """
     assert get_repository_formats(precision_setting="onnxruntime_cuda") == ["torchscript", "onnx"]
     assert get_repository_formats(precision_setting="tensorrt_fp16") == ["onnx"]
+    assert get_repository_formats(precision_setting="torchscript_fp16") == ["torchscript"]
     assert get_row_name(precision_setting="onnxruntime_cuda", export_format="torchscript") == "triton_torchscript"
     assert get_row_name(precision_setting="tensorrt_fp16", export_format="onnx") == "triton_tensorrt_fp16"
+    assert get_row_name(precision_setting="torchscript_fp16", export_format="torchscript") == "triton_torchscript_fp16"
+    assert [get_torchscript_precision(precision_setting=precision_setting) for precision_setting in
+            ["onnxruntime_cuda", "tensorrt_fp16", "torchscript_fp16"]] == ["FP32", "FP32", "FP16"]
+
+
+def test_in_process_rows_load_the_torchscript_file_of_their_precision() -> None:
+    """
+    The in-process rows are the eager model, then the TorchScript file of every benchmarked setting holding one: the
+    'model.pt' of ONNX Runtime CUDA and the 'model_fp16.pt' of the FP16 setting, none for the TensorRT settings, so that
+    a sweep without the FP16 setting times the same rows as before.
+    """
+    model_repositories = Path("/benchmark/model_repositories")
+    rows = list_in_process_rows(model_repositories=model_repositories, served_model_name="image_classifier",
+                                precision_settings=["onnxruntime_cuda", "tensorrt_fp32", "tensorrt_fp16",
+                                                    "torchscript_fp16"])
+    assert rows == [("in_process_eager", None),
+                    ("in_process_torchscript", model_repositories / "onnxruntime_cuda" /
+                     "image_classifier_torchscript" / "1" / "model.pt"),
+                    ("in_process_torchscript_fp16", model_repositories / "torchscript_fp16" /
+                     "image_classifier_torchscript" / "1" / "model_fp16.pt")]
+    assert [row_name for row_name, _ in list_in_process_rows(
+        model_repositories=model_repositories, served_model_name="image_classifier",
+        precision_settings=["onnxruntime_cuda", "tensorrt_fp16"])] == ["in_process_eager", "in_process_torchscript"]
 
 
 def test_loads_of_a_row_follow_its_load_groups() -> None:

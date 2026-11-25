@@ -2,7 +2,8 @@
 Measures the test metric of every served format of the serving benchmark (documentation/architecture_benchmarking/
 serving_benchmark_plan.md) against the eager FP32 model: the test split of each benchmarked model goes through the
 eager inference model in this process, then through every model of the Triton repositories written by
-scripts/deployment/benchmark_serving_formats.py (TorchScript, ONNX Runtime CUDA, TensorRT FP32 and FP16), each scored
+scripts/deployment/benchmark_serving_formats.py (TorchScript FP32, ONNX Runtime CUDA, TensorRT FP32 and FP16,
+TorchScript FP16), each scored
 by the test evaluation of the trainer of its task, whose predict_batch is replaced by the requests to the model (the
 functions of the test split parity of vision_training/deployment/export_parity.py, for every task). Every row sends
 the same requests (the real frames of each sequence alone for a sequence model) and keeps the detections the deployed
@@ -220,8 +221,9 @@ if __name__ == "__main__":
                               "M2M_IN-KAR-256_SE-RES-BN-B1x16.2x16.2x16.4x32.5x32.5x32-PT_T50_LSTM2x96-BI_HFLAT.96.96-"
                               "HLN-CWB_MC71",
          "test_data_folder": data_folder / "sequence_data" / "synthetic_changing_shapes" / "test_10000"}]
-    # Precision settings of the served rows, one model repository and one server each
-    precision_settings = ["onnxruntime_cuda", "tensorrt_fp32", "tensorrt_fp16"]
+    # Precision settings of the served rows, one model repository and one server each (torchscript_fp16 added
+    # 2026-11-25, not measured yet)
+    precision_settings = ["onnxruntime_cuda", "tensorrt_fp32", "tensorrt_fp16", "torchscript_fp16"]
     # Largest batch size of the served models, also the batch size of the test loaders
     maximum_request_size = 16
 
