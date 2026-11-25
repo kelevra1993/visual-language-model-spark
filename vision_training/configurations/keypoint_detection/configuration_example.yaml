@@ -227,8 +227,8 @@ Backbone:
   # Backbone of another run (any task) loaded into the stem, the blocks both have (extra stem blocks starting random);
   # input_channels, first convolutions, modules and normalization must match, the image size may differ.
   pretrained:
-    # Run folder of the loaded backbone, null for random weights, not reloaded on resume; e.g. an ImageNet run:
-    # experiments/CLS_IN-KAR-256_SE-RES-BN-B1x64.2x64.2x64.16x128.20x128.20x128_HFLAT.512.256-HLN-CWB_MC1000
+    # Run folder of the loaded backbone, null for random weights, not reloaded on resume; e.g. the ImageNet-1k run
+    # in imagenet_experiments/medium_initial_imagenet_1k_training/ (CLS_IN-KAR-256_..._HLN-CWB_MC1000).
     experiment_folder: null
     # Checkpoint iteration, null for the last one.
     iteration: null
