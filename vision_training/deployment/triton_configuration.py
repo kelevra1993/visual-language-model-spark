@@ -1,11 +1,11 @@
 """
 Writes the 'config.pbtxt' Triton model configuration of an exported model of any task (platform, inputs, outputs,
 batching, TensorRT acceleration with an engine cache named after the exported files) from its export specification,
-and names its outputs as Triton serves them, refusing any export format or TensorRT precision other than those of
-EXPORT_FORMATS and TENSORRT_PRECISIONS. TORCHSCRIPT_PRECISIONS, the precisions of the network traced into the
-TorchScript file, is checked by the export and leaves the configuration unchanged, the served inputs and outputs
-staying FP32 in both. Called by deployment/export_model.py once the model files are written, and by the frame selection
-ensembles of deployment/frame_selection_deployment.py.
+and names its outputs as Triton serves them, refusing any export format, TensorRT or TorchScript precision other
+than those of EXPORT_FORMATS, TENSORRT_PRECISIONS and TORCHSCRIPT_PRECISIONS. The precision of the network traced into
+the TorchScript file only changes the name of the file the configuration serves (TORCHSCRIPT_FILE_NAMES), the served
+inputs and outputs staying FP32 in both. Called by deployment/export_model.py once the model files are written, and by
+the frame selection ensembles of deployment/frame_selection_deployment.py.
 """
 
 import hashlib
@@ -15,12 +15,14 @@ from typing import Any, Dict, List, Optional
 
 # Export formats served by Triton with the platform of the backend reading each, the TensorRT precisions of an ONNX
 # model (None running it with ONNX Runtime CUDA only) and the precisions of the network traced into the TorchScript file
-# (FP16 holding its convolution, linear and attention weights in FP16, deployment/export_formats.py); any other value
-# is refused before a model is exported
+# (FP16 holding its convolution, linear and attention weights in FP16, deployment/export_formats.py) with the name of
+# its file, 'model.pt' being the default of the PyTorch backend and 'model_fp16.pt' named by 'default_model_filename',
+# so that both precisions can sit in one version folder; any other value is refused before a model is exported
 EXPORT_PLATFORMS = {"torchscript": "pytorch_libtorch", "onnx": "onnxruntime_onnx"}
 EXPORT_FORMATS = list(EXPORT_PLATFORMS)
 TENSORRT_PRECISIONS = ["FP32", "FP16", None]
-TORCHSCRIPT_PRECISIONS = ["FP32", "FP16"]
+TORCHSCRIPT_FILE_NAMES = {"FP32": "model.pt", "FP16": "model_fp16.pt"}
+TORCHSCRIPT_PRECISIONS = list(TORCHSCRIPT_FILE_NAMES)
 
 # Folder of the Triton container where ONNX Runtime caches the TensorRT engines it builds at the first requests, not
 # mounted by deployment/triton/docker-compose.yml, and the hexadecimal characters of the SHA-256 of the exported files
@@ -123,12 +125,14 @@ def build_tensorrt_engine_cache_prefix(model_name: str, model_version: int, tens
 
 def write_triton_configuration(model_directory: Path, model_name: str, model_version: int, export_format: str,
                                specification: Dict[str, Any], maximum_batch_size: int,
-                               tensorrt_precision: Optional[str]) -> None:
+                               tensorrt_precision: Optional[str], torchscript_precision: str) -> None:
     """
     Writes the 'config.pbtxt' describing an exported model to Triton, for every task: platform, inputs ('images', or
     'before_images' and 'after_images' for the comparison) and outputs of the export specification, dynamic
     batching, GPU execution and, for ONNX, the optional TensorRT accelerator, whose cached engines are named after the
-    files of the export (build_tensorrt_engine_cache_prefix), so that the model files must be written first.
+    files of the export (build_tensorrt_engine_cache_prefix), so that the model files must be written first. An FP16
+    TorchScript model is served from 'model_fp16.pt' ('default_model_filename'), which can sit next to the 'model.pt'
+    of the FP32 export, the configuration naming the file Triton loads.
 
     Args:
         model_directory (Path): The model folder of the Triton repository (holding the version folder).
@@ -139,10 +143,12 @@ def write_triton_configuration(model_directory: Path, model_name: str, model_ver
             get_export_specification).
         maximum_batch_size (int): The largest batch size Triton may send to the model.
         tensorrt_precision (Optional[str]): 'FP16' or 'FP32' to accelerate the ONNX model with TensorRT, or None.
+        torchscript_precision (str): The precision of the network of the TorchScript file, 'FP32' or 'FP16', which
+            names the file a TorchScript configuration serves (TORCHSCRIPT_FILE_NAMES); not read for ONNX.
 
     Raises:
-        ValueError: If the format is not one of EXPORT_FORMATS or the precision not one of TENSORRT_PRECISIONS, no
-            configuration being written.
+        ValueError: If the format is not one of EXPORT_FORMATS or a precision not one of TENSORRT_PRECISIONS and
+            TORCHSCRIPT_PRECISIONS, no configuration being written.
         FileNotFoundError: If an ONNX model accelerated by TensorRT has no 'model.onnx' in its version folder yet, no
             configuration being written.
     """
@@ -150,6 +156,9 @@ def write_triton_configuration(model_directory: Path, model_name: str, model_ver
     check_export_format(export_format=export_format)
     if tensorrt_precision not in TENSORRT_PRECISIONS:
         raise ValueError(f"Expected a TensorRT precision among {TENSORRT_PRECISIONS}, got {tensorrt_precision!r}.")
+    if torchscript_precision not in TORCHSCRIPT_PRECISIONS:
+        raise ValueError(f"Expected a TorchScript precision among {TORCHSCRIPT_PRECISIONS}, got "
+                         f"{torchscript_precision!r}.")
 
     # Backend of the format, the TorchScript outputs following the '<name>__<index>' naming convention of the Triton
     # PyTorch backend
@@ -168,8 +177,14 @@ def write_triton_configuration(model_directory: Path, model_name: str, model_ver
         outputs.append(f'  {{ name: "{output_name}" data_type: {output["data_type"]} '
                        f'dims: {format_dimensions(dimensions=output["dimensions"])}{reshape} }}')
 
+    # File of an FP16 TorchScript model, named in the configuration since it is not the default 'model.pt'
+    model_file_line = ""
+    if export_format == "torchscript" and torchscript_precision != "FP32":
+        model_file_line = f'default_model_filename: "{TORCHSCRIPT_FILE_NAMES[torchscript_precision]}"\n'
+
     configuration = (f'name: "{model_name}"\n'
                      f'platform: "{platform}"\n'
+                     f'{model_file_line}'
                      f'max_batch_size: {maximum_batch_size}\n'
                      f'input [\n' + ",\n".join(inputs) + '\n]\n'
                      f'output [\n' + ",\n".join(outputs) + '\n]\n'

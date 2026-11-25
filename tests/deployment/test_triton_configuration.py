@@ -72,7 +72,7 @@ def read_engine_cache_prefix(model_directory: Path, model_version: int, weight_v
     write_triton_configuration(model_directory=model_directory, model_name="image_classifier_onnx",
                                model_version=model_version, export_format="onnx",
                                specification=CLASSIFIER_SPECIFICATION, maximum_batch_size=8,
-                               tensorrt_precision=tensorrt_precision)
+                               tensorrt_precision=tensorrt_precision, torchscript_precision="FP32")
     return re.findall(pattern=ENGINE_CACHE_PREFIX_PATTERN, string=(model_directory / "config.pbtxt").read_text())[0]
 
 
@@ -94,7 +94,7 @@ def test_comparison_triton_configuration_has_one_line_per_member(tmp_path: Path)
 
     write_triton_configuration(model_directory=tmp_path, model_name="sequence_comparator_torchscript",
                                model_version=1, export_format="torchscript", specification=specification,
-                               maximum_batch_size=8, tensorrt_precision=None)
+                               maximum_batch_size=8, tensorrt_precision=None, torchscript_precision="FP32")
     triton_configuration = (tmp_path / "config.pbtxt").read_text()
     assert ('input [\n'
             '  { name: "before_images" data_type: TYPE_FP32 dims: [ -1, 3, 64, 64 ] },\n'
@@ -103,48 +103,59 @@ def test_comparison_triton_configuration_has_one_line_per_member(tmp_path: Path)
     assert '{ name: "class_probabilities__0" data_type: TYPE_FP32 dims: [ 3 ] }' in triton_configuration
 
 
-@pytest.mark.parametrize(argnames=("export_format", "tensorrt_precision", "expected_message"), argvalues=[
-    ("tensorrt", "FP16", "Expected an export format among"),
-    ("TorchScript", None, "Expected an export format among"),
-    ("onnx", "fp16", "Expected a TensorRT precision among"),
-    ("onnx", "INT8", "Expected a TensorRT precision among")])
+@pytest.mark.parametrize(argnames=("export_format", "tensorrt_precision", "torchscript_precision", "expected_message"),
+                         argvalues=[("tensorrt", "FP16", "FP32", "Expected an export format among"),
+                                    ("TorchScript", None, "FP32", "Expected an export format among"),
+                                    ("onnx", "fp16", "FP32", "Expected a TensorRT precision among"),
+                                    ("onnx", "INT8", "FP32", "Expected a TensorRT precision among"),
+                                    ("torchscript", None, "fp16", "Expected a TorchScript precision among")])
 def test_unknown_export_format_or_precision_is_refused(tmp_path: Path, export_format: str, tensorrt_precision: Any,
-                                                       expected_message: str) -> None:
+                                                       torchscript_precision: Any, expected_message: str) -> None:
     """
-    Verifies that a format other than 'torchscript' and 'onnx' and a TensorRT precision other than 'FP32', 'FP16' and
-    None are refused without writing any configuration, instead of giving an ONNX Runtime model whose TensorRT block
-    is silently left out, and that the served output names refuse the misspelled format too.
+    Verifies that a format other than 'torchscript' and 'onnx', a TensorRT precision other than 'FP32', 'FP16' and
+    None and a TorchScript precision other than 'FP32' and 'FP16' are refused without writing any configuration,
+    instead of giving an ONNX Runtime model whose TensorRT block is silently left out or a TorchScript model served
+    from a file of another name, and that the served output names refuse the misspelled format too.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
         export_format (str): The export format given.
         tensorrt_precision (Any): The TensorRT precision given.
+        torchscript_precision (Any): The TorchScript precision given.
         expected_message (str): The pattern of the expected error.
     """
     with pytest.raises(expected_exception=ValueError, match=expected_message):
         write_triton_configuration(model_directory=tmp_path, model_name="image_classifier_onnx", model_version=1,
                                    export_format=export_format, specification=CLASSIFIER_SPECIFICATION,
-                                   maximum_batch_size=8, tensorrt_precision=tensorrt_precision)
+                                   maximum_batch_size=8, tensorrt_precision=tensorrt_precision,
+                                   torchscript_precision=torchscript_precision)
     assert not (tmp_path / "config.pbtxt").exists()
     if export_format not in ["torchscript", "onnx"]:
         with pytest.raises(expected_exception=ValueError, match=expected_message):
             get_served_output_names(export_format=export_format, specification=CLASSIFIER_SPECIFICATION)
 
 
-@pytest.mark.parametrize(argnames=("export_format", "tensorrt_precision", "expected_lines", "absent_lines"), argvalues=[
-    ("onnx", "FP16", ['platform: "onnxruntime_onnx"', 'value: "FP16"'], []),
-    ("onnx", None, ['platform: "onnxruntime_onnx"'], ['name: "tensorrt"']),
-    ("torchscript", "FP32", ['platform: "pytorch_libtorch"', '"class_probabilities__0"'], ['name: "tensorrt"'])])
+@pytest.mark.parametrize(argnames=("export_format", "tensorrt_precision", "torchscript_precision", "expected_lines",
+                                   "absent_lines"), argvalues=[
+    ("onnx", "FP16", "FP16", ['platform: "onnxruntime_onnx"', 'value: "FP16"'], ["default_model_filename"]),
+    ("onnx", None, "FP32", ['platform: "onnxruntime_onnx"'], ['name: "tensorrt"']),
+    ("torchscript", "FP32", "FP32", ['platform: "pytorch_libtorch"', '"class_probabilities__0"'],
+     ['name: "tensorrt"', "default_model_filename"]),
+    ("torchscript", None, "FP16", ['platform: "pytorch_libtorch"\ndefault_model_filename: "model_fp16.pt"\n'],
+     ['name: "tensorrt"'])])
 def test_known_export_formats_get_their_platform(tmp_path: Path, export_format: str, tensorrt_precision: Any,
-                                                 expected_lines: List[str], absent_lines: List[str]) -> None:
+                                                 torchscript_precision: str, expected_lines: List[str],
+                                                 absent_lines: List[str]) -> None:
     """
     Verifies the platform of the two known formats, the TensorRT block being written for an ONNX model with a
-    precision only, and never for the TorchScript model.
+    precision only, and never for the TorchScript model, whose FP16 file 'model_fp16.pt' is named by
+    'default_model_filename', the FP32 'model.pt' being the default of the backend.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
         export_format (str): The export format given.
         tensorrt_precision (Any): The TensorRT precision given.
+        torchscript_precision (str): The TorchScript precision given.
         expected_lines (List[str]): The texts the configuration must hold.
         absent_lines (List[str]): The texts the configuration must not hold.
     """
@@ -152,7 +163,8 @@ def test_known_export_formats_get_their_platform(tmp_path: Path, export_format: 
     write_onnx_export(version_directory=tmp_path / "1", weight_value=1.0)
     write_triton_configuration(model_directory=tmp_path, model_name=f"image_classifier_{export_format}",
                                model_version=1, export_format=export_format, specification=CLASSIFIER_SPECIFICATION,
-                               maximum_batch_size=8, tensorrt_precision=tensorrt_precision)
+                               maximum_batch_size=8, tensorrt_precision=tensorrt_precision,
+                               torchscript_precision=torchscript_precision)
     triton_configuration = (tmp_path / "config.pbtxt").read_text()
     assert all(expected_line in triton_configuration for expected_line in expected_lines)
     assert not any(absent_line in triton_configuration for absent_line in absent_lines)
@@ -202,9 +214,9 @@ def test_tensorrt_configuration_before_the_model_file_is_refused(tmp_path: Path)
     with pytest.raises(expected_exception=FileNotFoundError, match="before its Triton configuration"):
         write_triton_configuration(model_directory=tmp_path, model_name="image_classifier_onnx", model_version=1,
                                    export_format="onnx", specification=CLASSIFIER_SPECIFICATION, maximum_batch_size=8,
-                                   tensorrt_precision="FP16")
+                                   tensorrt_precision="FP16", torchscript_precision="FP32")
     assert not (tmp_path / "config.pbtxt").exists()
     write_triton_configuration(model_directory=tmp_path, model_name="image_classifier_onnx", model_version=1,
                                export_format="onnx", specification=CLASSIFIER_SPECIFICATION, maximum_batch_size=8,
-                               tensorrt_precision=None)
+                               tensorrt_precision=None, torchscript_precision="FP32")
     assert "trt_engine_cache" not in (tmp_path / "config.pbtxt").read_text()

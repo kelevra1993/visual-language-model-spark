@@ -1228,7 +1228,7 @@ iterations_per_epoch     = 4966
 ╰──────────────────────────────────────────────────────────╯
 ```
 
-**Example output: the Export Sizes panel** (the panels above, of the ImageNet-1k file, were recorded before it existed: this one is the model of `configuration_synthetic_shapes.yaml`, 35 classes, Adam without moving average, estimated on the CPU on 2026-11-22; every parameter is exported, the classifier having no part used by the training only)
+**Example output: the Export Sizes panel** (the panels above, of the ImageNet-1k file, were recorded before it existed: this one is the model of `configuration_synthetic_shapes.yaml`, 35 classes, Adam without moving average, estimated on the CPU on 2026-11-25; every parameter is exported, the classifier having no part used by the training only)
 ```text
 ╭────────────────────── Export Sizes ──────────────────────╮
 │ Exported Parameters : 4,637,571 of 4,637,571             │
@@ -1236,12 +1236,13 @@ iterations_per_epoch     = 4966
 │    Format                            Size  Method        │
 │    PyTorch FP32 Weights          18.60 MB  ± 1 %         │
 │    PyTorch FP16 Weights           9.32 MB  ± 1 %         │
-│    TorchScript                   18.74 MB  traced        │
+│    TorchScript FP32              18.75 MB  traced        │
+│    TorchScript FP16               9.47 MB  ± 2 %         │
 │    ONNX                          18.58 MB  ± 3 %         │
 │    TensorRT FP32 Engine  18.84 - 19.84 MB  range         │
 │    TensorRT FP16 Engine   9.57 - 10.57 MB  range         │
 │    Training Checkpoint           55.76 MB  ± 1 %         │
-╰────────────────────── 0.2 seconds ───────────────────────╯
+╰────────────────────── 0.5 seconds ───────────────────────╯
 ```
 
 ### Step 2.25 — `view_input_batches()`

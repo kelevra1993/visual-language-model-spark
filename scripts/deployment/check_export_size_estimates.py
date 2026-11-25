@@ -3,9 +3,10 @@ When run, checks the export sizes printed at the launch of every training (the E
 vision_training/deployment/export_size_estimates.py) against the files of real exports of trained runs, and gives the
 constants of its formulas fitted on them, so that the panel can be calibrated again after a change of the exports or of
 the libraries. For every run it loads the last checkpoint, computes the estimates with the function of the panel,
-writes the PyTorch weights in FP32 and FP16 with torch.save and the ONNX files with export_onnx, and reads the size of
-the real checkpoint of the run. With --build-tensorrt-engines it also serves the ONNX files in the Triton container of
-the serving benchmark (scripts/deployment/benchmark_serving_formats.py), once in FP32 and once in FP16, sends one
+writes the PyTorch weights in FP32 and FP16 with torch.save and the ONNX files with export_onnx, traces the FP16
+TorchScript file on the GPU as the export does (convert_to_half_precision, skipped without a GPU), and reads the size
+of the real checkpoint of the run. With --build-tensorrt-engines it also serves the ONNX files in the Triton container
+of the serving benchmark (scripts/deployment/benchmark_serving_formats.py), once in FP32 and once in FP16, sends one
 request at batch 1 and one at the largest batch so that ONNX Runtime builds the TensorRT engines, and reads the size of
 the engines every model added to the engine cache, the time of those first requests (the engine builds) and whether
 the engines carry the cache prefix of the model, a model Triton fails to serve being reported in red with its error:
@@ -33,7 +34,8 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from scripts.deployment.benchmark_serving_formats import BENCHMARK_SERVER, time_first_requests
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
-from vision_training.deployment.export_formats import export_onnx, hide_known_export_warnings
+from vision_training.deployment.export_formats import (convert_to_half_precision, export_onnx, export_torchscript,
+                                                       hide_known_export_warnings)
 from vision_training.deployment.export_size_estimates import (EXPORT_MAXIMUM_BATCH_SIZE, ONNX_GRAPH_BYTES_PER_OPERATOR,
                                                               STATE_DICTIONARY_BYTES_PER_TENSOR,
                                                               TENSORRT_BYTES_PER_OTHER_OPERATOR,
@@ -79,18 +81,19 @@ MAXIMUM_REQUEST_BYTES = 1_000_000_000
 # (empty when not measured)
 RESULT_COLUMNS = ["run", "task", "device", "estimate_seconds", "total_parameters", "exported_parameters",
                   "state_dictionary_tensors", "state_dictionary_key_characters", "constant_bytes",
-                  "batch_normalization_bytes", "weighted_operators", "other_operators",
-                  "pytorch_fp32_estimated", "pytorch_fp32_real", "pytorch_fp16_estimated", "pytorch_fp16_real",
-                  "torchscript_measured", "onnx_estimated", "onnx_graph_real", "onnx_data_real", "onnx_real",
-                  "checkpoint_estimated", "checkpoint_real", "tensorrt_fp32_lowest", "tensorrt_fp32_highest",
-                  "tensorrt_fp32_real", "tensorrt_fp32_build_seconds", "tensorrt_fp32_named_after_prefix",
-                  "tensorrt_fp16_lowest", "tensorrt_fp16_highest", "tensorrt_fp16_real",
-                  "tensorrt_fp16_build_seconds", "tensorrt_fp16_named_after_prefix", "tensorrt_largest_batch",
-                  "tensorrt_fp32_error", "tensorrt_fp16_error"]
+                  "batch_normalization_bytes", "weighted_operators", "other_operators", "pytorch_fp32_estimated",
+                  "pytorch_fp32_real", "pytorch_fp16_estimated", "pytorch_fp16_real", "torchscript_measured",
+                  "torchscript_fp16_estimated", "torchscript_fp16_real", "onnx_estimated", "onnx_graph_real",
+                  "onnx_data_real", "onnx_real", "checkpoint_estimated", "checkpoint_real", "tensorrt_fp32_lowest",
+                  "tensorrt_fp32_highest", "tensorrt_fp32_real", "tensorrt_fp32_build_seconds",
+                  "tensorrt_fp32_named_after_prefix", "tensorrt_fp16_lowest", "tensorrt_fp16_highest",
+                  "tensorrt_fp16_real", "tensorrt_fp16_build_seconds", "tensorrt_fp16_named_after_prefix",
+                  "tensorrt_largest_batch", "tensorrt_fp32_error", "tensorrt_fp16_error"]
 
 # Rows of the printed report: the label, the estimated and real columns (a range for TensorRT)
 REPORT_FORMATS = [("PyTorch FP32 Weights", ["pytorch_fp32_estimated"], "pytorch_fp32_real"),
                   ("PyTorch FP16 Weights", ["pytorch_fp16_estimated"], "pytorch_fp16_real"),
+                  ("TorchScript FP16", ["torchscript_fp16_estimated"], "torchscript_fp16_real"),
                   ("ONNX", ["onnx_estimated"], "onnx_real"),
                   ("TensorRT FP32 Engine", ["tensorrt_fp32_lowest", "tensorrt_fp32_highest"], "tensorrt_fp32_real"),
                   ("TensorRT FP16 Engine", ["tensorrt_fp16_lowest", "tensorrt_fp16_highest"], "tensorrt_fp16_real"),
@@ -134,11 +137,49 @@ def measure_saved_state_dictionaries(state_dictionary: Dict[str, torch.Tensor], 
             "pytorch_fp16_real": (output_folder / "weights_fp16.pt").stat().st_size}
 
 
+def measure_half_precision_torchscript(configuration_path: Path, checkpoint_path: Path, task: str,
+                                       output_folder: Path) -> Optional[int]:
+    """
+    Writes the FP16 TorchScript file of a run as deployment/export_model.py does with torchscript_precision 'FP16',
+    the real file of the TorchScript FP16 row of the panel: the inference model loaded on the GPU, its FP16 copy
+    (convert_to_half_precision) traced on the example batch of the export into 'torchscript/model_fp16.pt' of the
+    folder of the run.
+
+    Args:
+        configuration_path (Path): The 'training_configuration.yaml' of the run.
+        checkpoint_path (Path): The checkpoint of the run.
+        task (str): The task of the run.
+        output_folder (Path): The folder of the files of the run.
+
+    Returns:
+        Optional[int]: The size of 'model_fp16.pt' in bytes, None without a GPU, where the FP16 copy cannot run.
+    """
+    if not torch.cuda.is_available():
+        print_color(color="red", output="No GPU: the FP16 TorchScript file is not measured.", indent=1)
+        return None
+    device = torch.device("cuda")
+    model = load_trained_model(configuration_path=configuration_path, checkpoint_path=checkpoint_path, device=device,
+                               use_averaged_weights=False)
+    inference_model = build_inference_model(task=task, model=model)
+    specification = get_export_specification(task=task, inference_model=inference_model)
+    example_inputs = create_random_inputs(specification=specification, shape_name="example_shape",
+                                          maximum_batch_size=EXPORT_MAXIMUM_BATCH_SIZE, device=device,
+                                          generator=torch.Generator(device=device).manual_seed(0))
+
+    # FP16 copy of the network, traced under the name the export gives it
+    input_names = [input_specification["name"] for input_specification in specification["inputs"]]
+    half_precision_model = convert_to_half_precision(inference_model=inference_model, input_names=input_names)
+    torchscript_path = output_folder / "torchscript" / "model_fp16.pt"
+    export_torchscript(inference_model=half_precision_model, example_inputs=example_inputs,
+                       output_path=torchscript_path)
+    return torchscript_path.stat().st_size
+
+
 def check_run(experiment_folder: Path, device: torch.device, output_folder: Path) -> Dict[str, Any]:
     """
     Computes the estimates of the Export Sizes panel for the last checkpoint of a run, then measures the real files:
     the PyTorch weights, the ONNX files exported as deployment/export_model.py does (kept in the folder of the run for
-    the TensorRT engines) and the checkpoint of the run.
+    the TensorRT engines), the FP16 TorchScript file traced on the GPU and the checkpoint of the run.
 
     Args:
         experiment_folder (Path): The run folder, holding 'Weights' and 'training_configuration.yaml'.
@@ -183,7 +224,8 @@ def check_run(experiment_folder: Path, device: torch.device, output_folder: Path
               "weighted_operators": probe["weighted_operators"], "other_operators": probe["other_operators"],
               "pytorch_fp32_estimated": estimated["PyTorch FP32 Weights"]["lowest_bytes"],
               "pytorch_fp16_estimated": estimated["PyTorch FP16 Weights"]["lowest_bytes"],
-              "torchscript_measured": estimated["TorchScript"]["lowest_bytes"],
+              "torchscript_measured": estimated["TorchScript FP32"]["lowest_bytes"],
+              "torchscript_fp16_estimated": estimated["TorchScript FP16"]["lowest_bytes"],
               "onnx_estimated": estimated["ONNX"]["lowest_bytes"],
               "checkpoint_estimated": estimated["Training Checkpoint"]["lowest_bytes"],
               "checkpoint_real": checkpoint_path.stat().st_size,
@@ -208,6 +250,11 @@ def check_run(experiment_folder: Path, device: torch.device, output_folder: Path
     result.update({"onnx_graph_real": onnx_path.stat().st_size,
                    "onnx_data_real": Path(f"{onnx_path}.data").stat().st_size})
     result["onnx_real"] = result["onnx_graph_real"] + result["onnx_data_real"]
+
+    # FP16 TorchScript file, the FP16 copy of the network running on the GPU only
+    result["torchscript_fp16_real"] = measure_half_precision_torchscript(
+        configuration_path=configuration_path, checkpoint_path=checkpoint_path, task=experiment_configuration["task"],
+        output_folder=output_folder)
     return result
 
 
@@ -238,7 +285,8 @@ def build_tensorrt_repository(results: List[Dict[str, Any]], experiment_folders:
         specification = read_export_specification(experiment_folder=experiment_folder)
         write_triton_configuration(model_directory=model_directory, model_name=model_name, model_version=1,
                                    export_format="onnx", specification=specification,
-                                   maximum_batch_size=EXPORT_MAXIMUM_BATCH_SIZE, tensorrt_precision=tensorrt_precision)
+                                   maximum_batch_size=EXPORT_MAXIMUM_BATCH_SIZE, tensorrt_precision=tensorrt_precision,
+                                   torchscript_precision="FP32")
     return repository
 
 

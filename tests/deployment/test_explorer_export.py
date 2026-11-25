@@ -2,8 +2,9 @@
 Tests of vision_training/deployment/explorer_export.py, the export launched from the temperature explorer page: the
 run, iteration and weights read from an evaluation folder, the export folder of every checkpoint, weights and
 temperature, the exports of a checkpoint listed without the unfinished ones, the settings of the page refused with their
-reason, and on the GPU the export of a tiny classifier at two saved temperatures, each in its own folder with its
-thresholds, an export of the same temperature replacing the earlier one.
+reason, the TorchScript file of the other precision kept from the earlier export of a temperature, and on the GPU the
+export of a tiny classifier at two saved temperatures, each in its own folder with its thresholds, an export of the same
+temperature replacing the earlier one, and its FP32 and FP16 TorchScript files kept side by side.
 """
 
 import json
@@ -16,8 +17,8 @@ from typing import Any, Dict
 from tests.deployment.test_input_contract import EXPORTED_ITERATION, write_trained_model
 from vision_training.deployment.explorer_export import (EXPORT_LOG_FILE_NAME, EXPORT_RECORD_FILE_NAME,
                                                         build_export_folder, check_export_settings,
-                                                        describe_evaluation_folder, list_checkpoint_exports,
-                                                        prepare_export_job, run_export_job)
+                                                        describe_evaluation_folder, keep_other_torchscript_files,
+                                                        list_checkpoint_exports, prepare_export_job, run_export_job)
 from vision_training.deployment.export_formats import hide_known_export_warnings
 from vision_training.evaluation.classification.temperature_explorer import SAVED_THRESHOLDS_FILE_NAME
 
@@ -179,3 +180,80 @@ def test_exports_at_two_temperatures_keep_their_own_folders(tmp_path: Path) -> N
                                              use_averaged_weights=False)
     assert sorted(export["folder"].name for export in listed_exports) == ["Iteration_1_T2.5", "Iteration_1_T3"]
     assert {export["folder"].name: export["record"] for export in listed_exports} == exported_records
+
+
+@pytest.mark.parametrize(argnames=("formats", "model_version", "torchscript_precision", "expected_kept"),
+                         argvalues=[(["torchscript", "onnx"], 1, "FP16", ["FP32"]),
+                                    (["torchscript"], 1, "FP32", ["FP16"]),
+                                    (["onnx"], 1, "FP16", []),
+                                    (["torchscript"], 2, "FP16", [])])
+def test_torchscript_file_of_the_other_precision_is_kept(tmp_path: Path, formats: list, model_version: int,
+                                                         torchscript_precision: str, expected_kept: list) -> None:
+    """
+    Verifies that a new export of a temperature gets the TorchScript file of the other precision from the same version
+    folder of the earlier export, its own file never being taken from it, and that nothing is kept when the new export
+    writes no TorchScript model or another version.
+
+    Args:
+        tmp_path (Path): The pytest temporary folder holding both exports.
+        formats (list): The formats of the new export.
+        model_version (int): The Triton version of the new export.
+        torchscript_precision (str): The TorchScript precision of the new export.
+        expected_kept (list): The precisions expected to be kept.
+    """
+    # Earlier export holding both precisions in version 1, new export holding its own file in its version
+    previous_folder, work_folder = tmp_path / "Iteration_1_T2", tmp_path / "Iteration_1_T2.partial"
+    for file_name in ["model.pt", "model_fp16.pt"]:
+        (previous_folder / "image_classifier_torchscript" / "1").mkdir(parents=True, exist_ok=True)
+        (previous_folder / "image_classifier_torchscript" / "1" / file_name).write_bytes(data=b"earlier export")
+    new_file_name = "model_fp16.pt" if torchscript_precision == "FP16" else "model.pt"
+    new_version_folder = work_folder / "image_classifier_torchscript" / str(model_version)
+    if "torchscript" in formats:
+        new_version_folder.mkdir(parents=True)
+        (new_version_folder / new_file_name).write_bytes(data=b"new export")
+
+    kept_precisions = keep_other_torchscript_files(previous_folder=previous_folder, work_folder=work_folder,
+                                                   formats=formats, model_version=model_version,
+                                                   torchscript_precision=torchscript_precision)
+    assert kept_precisions == expected_kept
+
+    # The new file is its own, the kept file the earlier one
+    if "torchscript" in formats:
+        kept_file_names = [{"FP32": "model.pt", "FP16": "model_fp16.pt"}[precision] for precision in expected_kept]
+        assert sorted(path.name for path in new_version_folder.iterdir()) == sorted([new_file_name] + kept_file_names)
+        assert (new_version_folder / new_file_name).read_bytes() == b"new export"
+        assert all((new_version_folder / file_name).read_bytes() == b"earlier export" for file_name in kept_file_names)
+
+
+@pytest.mark.skipif(condition=not torch.cuda.is_available(), reason="The export runs the model on the GPU.")
+def test_fp32_and_fp16_exports_of_a_temperature_sit_side_by_side(tmp_path: Path) -> None:
+    """
+    Verifies that a tiny classifier exported at a saved temperature in FP32 then in FP16 keeps 'model.pt' next to the
+    new 'model_fp16.pt', the config.pbtxt naming the FP16 file it serves and the record listing the kept precision,
+    and that exporting FP32 again keeps the FP16 file and serves 'model.pt'.
+
+    Args:
+        tmp_path (Path): The pytest temporary folder holding the run and its evaluations.
+    """
+    hide_known_export_warnings()
+    run_folder = tmp_path / RUN_NAME
+    write_trained_model(experiment_folder=run_folder, task="classification", keep_ratio=False,
+                        tiling_configuration=None)
+    evaluation_folder = run_folder / "Checkpoint_Evaluation" / f"Iteration_{EXPORTED_ITERATION}"
+    write_saved_evaluation(evaluation_folder=evaluation_folder, logit_temperature=2.0)
+
+    # Each export of the temperature serves its own file and keeps the file of the other precision
+    for torchscript_precision, kept_precisions in [("FP32", []), ("FP16", ["FP32"]), ("FP32", ["FP16"])]:
+        job = prepare_export_job(evaluation_folder=evaluation_folder, formats=["torchscript"], model_version=1,
+                                 maximum_batch_size=4, tensorrt_precision=None,
+                                 torchscript_precision=torchscript_precision)
+        job["log_path"].write_text(data="console output of the export\n")
+        export_folder = run_export_job(job_path=job["job_path"])
+        model_directory = export_folder / "image_classifier_torchscript"
+        expected_files = ["model.pt", "model_fp16.pt"] if kept_precisions else ["model.pt"]
+        assert sorted(path.name for path in (model_directory / "1").glob(pattern="*.pt")) == expected_files
+        assert (('default_model_filename: "model_fp16.pt"' in (model_directory / "config.pbtxt").read_text()) ==
+                (torchscript_precision == "FP16"))
+        record = json.loads(s=(export_folder / EXPORT_RECORD_FILE_NAME).read_text())
+        assert (record["torchscript_precision"], record["kept_torchscript_precisions"]) == (torchscript_precision,
+                                                                                            kept_precisions)

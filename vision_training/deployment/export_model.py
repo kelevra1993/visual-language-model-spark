@@ -7,8 +7,9 @@ and the class thresholds saved from the temperature explorer of the exported che
 the input contract of the run (deployment/input_contract.py), in the metadata of the ONNX file and in
 'preprocessing.json' next to it, so that a server builds the input from a photo as the training did. With
 test_split_parity, every format is also served by a temporary Triton container and scored on the whole test split
-against the eager model (deployment/export_parity.py), the summary written to '<run>/Export_Parity/Iteration_<n>[_EMA]/'
-and next to the installed models. Run as a script with the experiment, iteration and formats set in its main block.
+against the eager model (deployment/export_parity.py), the summary written to
+'<run>/Export_Parity/Iteration_<n>[_EMA][_T<temperature>]_<precisions>/' and next to the installed models. Run as a
+script with the experiment, iteration and formats set in its main block.
 """
 
 import json
@@ -31,7 +32,8 @@ from vision_training.deployment.frame_selection_deployment import (build_decodin
 from vision_training.deployment.input_contract import (build_input_contract, write_onnx_input_contract,
                                                        write_preprocessing_file)
 from vision_training.deployment.triton_configuration import (EXPORT_FORMATS, TENSORRT_PRECISIONS,
-                                                             TORCHSCRIPT_PRECISIONS, write_triton_configuration)
+                                                             TORCHSCRIPT_FILE_NAMES, TORCHSCRIPT_PRECISIONS,
+                                                             write_triton_configuration)
 from vision_training.deployment.triton_server import check_triton_available
 from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
 from vision_training.evaluation.classification.temperature_explorer import (SAVED_THRESHOLDS_FILE_NAME,
@@ -275,9 +277,10 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
     failed check leaves the served models as they were. With test_split_parity, every format is then served from the
     staging folder by a temporary Triton container, as it will be served (its TensorRT precision included), and scored
     on the whole test split of the run with the eager model (run_test_split_parity), even when the random batch check
-    of a format failed; the summary is written to '<run>/Export_Parity/Iteration_<n>[_EMA]/' and copied next to every
-    installed model. The parity only reports: the random batch check alone decides the installation, an expected
-    drop of a reduced precision (TensorRT FP16, FP16 TorchScript) never stopping an export.
+    of a format failed; the summary is written to '<run>/Export_Parity/Iteration_<n>[_EMA][_T<temperature>]_
+    <precisions>/' (get_parity_folder) and copied next to every installed model. The parity only reports: the random
+    batch check alone decides the installation, an expected drop of a reduced precision (TensorRT FP16, FP16
+    TorchScript) never stopping an export.
 
     Args:
         experiment_folder (Path): The experiment folder holding 'Weights' and 'training_configuration.yaml'.
@@ -402,9 +405,10 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
                 check_reference_name, check_reference_outputs = "Eager Model", reference_outputs
                 check_tolerances = specification["comparison_tolerances"]
 
-                # Export the model, then run the exported file on the check batch
+                # Export the model, then run the exported file on the check batch, an FP16 TorchScript file being
+                # named 'model_fp16.pt' so that it can sit next to the 'model.pt' of the FP32 export
                 if export_format == "torchscript":
-                    model_path = model_directory / str(model_version) / "model.pt"
+                    model_path = model_directory / str(model_version) / TORCHSCRIPT_FILE_NAMES[torchscript_precision]
                     traced_model = inference_model
                     # FP16: the FP16 copy of the network is traced and is the reference of the check, at tolerances
                     # loosened for the FP16 roundings of other GPU kernels
@@ -436,7 +440,8 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
                 write_triton_configuration(model_directory=model_directory, model_name=model_name,
                                            model_version=model_version, export_format=export_format,
                                            specification=specification, maximum_batch_size=maximum_batch_size,
-                                           tensorrt_precision=tensorrt_precision)
+                                           tensorrt_precision=tensorrt_precision,
+                                           torchscript_precision=torchscript_precision)
 
                 # Input contract next to the model of every format, with the values of the metadata of the ONNX file
                 write_preprocessing_file(model_folder=model_path.parent, input_contract=input_contract)
@@ -547,8 +552,9 @@ if __name__ == "__main__":
     maximum_batch_size = 16
     # TensorRT precision of the ONNX model ('FP16' or 'FP32'), None to run it with ONNX Runtime CUDA only
     tensorrt_precision = "FP32"
-    # Precision of the network traced into the TorchScript file: 'FP32', or 'FP16' (convolution, linear and attention
-    # weights in FP16, about half the file; normalization, recurrent layers and inputs and outputs in FP32)
+    # Precision of the network traced into the TorchScript file: 'FP32' ('model.pt'), or 'FP16' ('model_fp16.pt',
+    # convolution, linear and attention weights in FP16, about half the file; normalization, recurrent layers and inputs
+    # and outputs in FP32)
     torchscript_precision = "FP32"
     # False hides the harmless library warnings printed during the export (see hide_known_export_warnings)
     show_warnings = False
@@ -563,8 +569,10 @@ if __name__ == "__main__":
     saved_thresholds_path = None
     # True serves every exported format with a temporary Triton container (Docker and the image of
     # deployment/triton/docker-compose.yml needed) and scores it on the whole test split of the run against the eager
-    # model, even when the random batch check fails; the summary goes to '<run>/Export_Parity/Iteration_<n>[_EMA]/' and
-    # next to the installed models. It only reports: the random batch check alone decides the installation
+    # model, even when the random batch check fails; the summary goes to '<run>/Export_Parity/' in a folder naming the
+    # checkpoint, the temperature of a classifier and every precision (e.g. 'Iteration_2000_T1_TorchScript-FP32_
+    # TensorRT-FP32') and next to the installed models. It only reports: the random batch check alone decides the
+    # installation
     test_split_parity = False
 
     if not show_warnings:
