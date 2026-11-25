@@ -1,14 +1,14 @@
 """
 Test split parity of an export (deployment/export_model.py with test_split_parity): the eager inference model in this
 process, the reference, then every exported format served by a temporary Triton container on the staged models,
-exactly as it will be served (TorchScript, ONNX with its TensorRT precision), are scored on the whole test split of the
-run by the test evaluation of the trainer of its task, whose predict_batch is replaced by the requests to the model of
-the row (predict_exported_batch). Every request of a served row also goes through the eager model, and every sample is
-compared with the comparison and tolerances of the export specification, so that the parity gives both the metrics of
-every format and the samples whose outputs moved. The metrics of every row, their changes against the eager row, the
-stored evaluation of the exported iteration where it is comparable and the agreement of the samples are written to
-'<run>/Export_Parity/Iteration_<n>[_EMA]/' (parity_summary.md, parity_summary.json, parity_samples.csv, the evaluation
-files of every row and the server log). The parity only reports: the installation of the models stays decided by the
+exactly as it will be served (TorchScript in FP32 or FP16, ONNX with its TensorRT precision), are scored on the whole
+test split of the run by the test evaluation of the trainer of its task, whose predict_batch is replaced by the
+requests to the model of the row (predict_exported_batch). Every request of a served row also goes through the eager
+model, and every sample is compared with the comparison and tolerances of the export specification, so that the parity
+gives both the metrics of every format and the samples whose outputs moved. The metrics of every row, their changes
+against the eager row, the stored evaluation of the exported iteration where it is comparable and the agreement of the
+samples are written to '<run>/Export_Parity/Iteration_<n>[_EMA]/' (parity_summary.md, parity_summary.json,
+parity_samples.csv, the evaluation files of every row and the server log). The parity only reports: the installation of the models stays decided by the
 random batch check of the export. The request and conversion functions also serve the test metric rows of the serving
 benchmark (scripts/deployment/evaluate_served_formats.py).
 """
@@ -636,23 +636,25 @@ def describe_reference_difference(trainer: BaseTrainer, logit_temperature: float
     return None
 
 
-def get_row_label(row_name: str, tensorrt_precision: Optional[str]) -> str:
+def get_row_label(row_name: str, tensorrt_precision: Optional[str], torchscript_precision: str) -> str:
     """
-    Names a row in the summary and the console: the eager model, TorchScript, or ONNX with the runtime Triton serves it
-    with.
+    Names a row in the summary and the console: the eager model, TorchScript with the precision of its network when
+    it is FP16, or ONNX with the runtime Triton serves it with.
 
     Args:
         row_name (str): EAGER_ROW_NAME or an export format.
         tensorrt_precision (Optional[str]): The TensorRT precision of the ONNX model, None for ONNX Runtime CUDA.
+        torchscript_precision (str): The precision of the network traced into the TorchScript file, 'FP32' or 'FP16'.
 
     Returns:
-        str: The label, e.g. 'ONNX (TensorRT FP16)'.
+        str: The label, e.g. 'ONNX (TensorRT FP16)' or 'TorchScript (FP16)'.
     """
     if row_name == EAGER_ROW_NAME:
         return "Eager"
     if row_name == "onnx":
         return f"ONNX ({'ONNX Runtime CUDA' if tensorrt_precision is None else f'TensorRT {tensorrt_precision}'})"
-    return FORMAT_LABELS[row_name]
+    # An FP32 TorchScript row keeps the plain label of the summaries written before the FP16 TorchScript export
+    return FORMAT_LABELS[row_name] if torchscript_precision == "FP32" else f"{FORMAT_LABELS[row_name]} (FP16)"
 
 
 def format_metric_change(change: float, in_percent: bool) -> str:
@@ -686,19 +688,25 @@ def build_summary_markdown(summary: Dict[str, Any]) -> str:
     evaluated_rows = [row for row in summary["rows"] if row["status"] == "evaluated"]
     eager_row = next(row for row in summary["rows"] if row["name"] == EAGER_ROW_NAME)
     percent_metrics = set(eager_row["percent_metrics"])
-    format_labels = [get_row_label(row_name=export_format, tensorrt_precision=summary["tensorrt_precision"])
-                     for export_format in summary["formats"]]
+    format_labels = {export_format: get_row_label(row_name=export_format,
+                                                  tensorrt_precision=summary["tensorrt_precision"],
+                                                  torchscript_precision=summary["torchscript_precision"])
+                     for export_format in summary["formats"]}
     lines = [f"# Export Parity · {Path(summary['run']).name}", "",
              f"- Checkpoint: `{summary['checkpoint']}` (iteration {summary['iteration']}, {summary['weights']})",
              f"- Test split: `{summary['test_data_folder']}`, {eager_row['evaluated_samples']}",
-             f"- Formats: {', '.join(format_labels)}, maximum batch size {summary['maximum_batch_size']}, version "
-             f"{summary['model_version']}",
+             f"- Formats: {', '.join(format_labels.values())}, maximum batch size {summary['maximum_batch_size']}, "
+             f"version {summary['model_version']}",
              f"- Installation: {summary['installation']}", "", "## Random Batch Check", ""]
 
-    # Random batch check of every format against the eager model, which decides the installation
+    # Random batch check of every format against the eager model, or against its eager FP16 copy for an FP16
+    # TorchScript file, which decides the installation
     for export_format, mismatches in summary["random_batch_checks"].items():
-        check_text = "matches the eager model" if not mismatches else "mismatch: " + "; ".join(mismatches)
-        lines.append(f"- {FORMAT_LABELS[export_format]}: {check_text}")
+        half_precision = export_format == "torchscript" and summary["torchscript_precision"] == "FP16"
+        reference_text = ("the eager FP16 copy of the network, at tolerances loosened for FP16" if half_precision
+                          else "the eager model")
+        check_text = f"matches {reference_text}" if not mismatches else "mismatch: " + "; ".join(mismatches)
+        lines.append(f"- {format_labels[export_format]}: {check_text}")
 
     # Metrics of every row, the headline first, with the change of every served row against the eager row
     reference_scalars = summary["reference"]["scalars"] if summary["reference"]["comparable"] else {}
@@ -737,7 +745,7 @@ def build_summary_markdown(summary: Dict[str, Any]) -> str:
     if served_rows:
         lines += ["", "## Sample Agreement", "",
                   f"Every request of a served row also went through the eager model. Within tolerances: the outputs "
-                  f"agree within the tolerances of the random batch check of the export. Largest difference: "
+                  f"agree within the FP32 tolerances of the random batch check of the export. Largest difference: "
                   f"{summary['difference_description']}.", "",
                   "| Row | Compared Samples | Within Tolerances | Largest Difference | Mean Largest Difference |",
                   "|---|---|---|---|---|"]
@@ -825,7 +833,8 @@ def print_parity_headlines(summary: Dict[str, Any]) -> None:
 def run_test_split_parity(experiment_folder: Path, checkpoint_path: Path, iteration: int, use_averaged_weights: bool,
                           inference_model: nn.Module, specification: Dict[str, Any], staged_repository: Path,
                           engine_cache_folder: Path, formats: List[str], tensorrt_precision: Optional[str],
-                          maximum_batch_size: int, model_version: int, logit_temperature: float,
+                          torchscript_precision: str, maximum_batch_size: int, model_version: int,
+                          logit_temperature: float,
                           random_batch_checks: Dict[str, List[str]]) -> Tuple[Dict[str, Any],
                                                                               Dict[str, List[Dict[str, Any]]]]:
     """
@@ -849,6 +858,7 @@ def run_test_split_parity(experiment_folder: Path, checkpoint_path: Path, iterat
         engine_cache_folder (Path): The folder receiving the TensorRT engines of the served ONNX model.
         formats (List[str]): The exported formats.
         tensorrt_precision (Optional[str]): The TensorRT precision of the ONNX model, None for ONNX Runtime CUDA.
+        torchscript_precision (str): The precision of the network traced into the TorchScript file, 'FP32' or 'FP16'.
         maximum_batch_size (int): The largest batch size of the exported models, the size of the test batches.
         model_version (int): The Triton version of the exported models.
         logit_temperature (float): The logit temperature built into an exported classifier, 1 for the other tasks.
@@ -882,13 +892,13 @@ def run_test_split_parity(experiment_folder: Path, checkpoint_path: Path, iterat
     run_eager_model = functools.partial(run_local_inference, inference_model=inference_model, decoding_settings=None)
 
     # Reference: the eager inference model of the export in this process
-    print_color(color="blue", output=f"Row : {get_row_label(row_name=EAGER_ROW_NAME, tensorrt_precision=None)}",
-                indent=1)
+    eager_label = get_row_label(row_name=EAGER_ROW_NAME, tensorrt_precision=None, torchscript_precision="FP32")
+    print_color(color="blue", output=f"Row : {eager_label}", indent=1)
     eager_results = evaluate_parity_row(trainer=trainer, run_model=run_eager_model, output_names=output_names,
                                         maximum_request_size=maximum_batch_size, iteration=iteration,
                                         row_folder=row_evaluations_folder / EAGER_ROW_NAME, comparison=None)
-    rows = [{"name": EAGER_ROW_NAME, "label": get_row_label(row_name=EAGER_ROW_NAME, tensorrt_precision=None),
-             "status": "evaluated", "error": None, "agreement": None, **eager_results}]
+    rows = [{"name": EAGER_ROW_NAME, "label": eager_label, "status": "evaluated", "error": None, "agreement": None,
+             **eager_results}]
     sample_records = {}
 
     # Served rows: one Triton container on free ports serving the staged models one at a time
@@ -900,7 +910,8 @@ def run_test_split_parity(experiment_folder: Path, checkpoint_path: Path, iterat
     # The server log is kept and the container removed whatever ends the rows
     try:
         for export_format in formats:
-            row_label = get_row_label(row_name=export_format, tensorrt_precision=tensorrt_precision)
+            row_label = get_row_label(row_name=export_format, tensorrt_precision=tensorrt_precision,
+                                      torchscript_precision=torchscript_precision)
             model_name = f"{specification['model_name']}_{export_format}"
             print_color(color="blue", output=f"Row : {row_label}", indent=1)
             comparison = create_output_comparison(task=trainer.TASK_NAME, run_reference=run_eager_model,
@@ -952,7 +963,8 @@ def run_test_split_parity(experiment_folder: Path, checkpoint_path: Path, iterat
     summary = {"run": str(experiment_folder), "task": trainer.TASK_NAME, "checkpoint": str(checkpoint_path),
                "iteration": iteration, "weights": "EMA weights" if use_averaged_weights else "trained weights",
                "test_data_folder": str(test_data_folder), "formats": formats,
-               "tensorrt_precision": tensorrt_precision, "maximum_batch_size": maximum_batch_size,
+               "tensorrt_precision": tensorrt_precision, "torchscript_precision": torchscript_precision,
+               "maximum_batch_size": maximum_batch_size,
                "model_version": model_version, "logit_temperature": logit_temperature,
                "headline_metric": eager_results["headline_metric"], "random_batch_checks": random_batch_checks,
                "difference_description": DIFFERENCE_DESCRIPTIONS[trainer.TASK_NAME],

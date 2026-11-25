@@ -2,22 +2,18 @@
 Tests of scripts/deployment/check_half_precision_parity.py, the trial of an FP16 TorchScript classifier against the
 eager FP32 one: the image comparison counts the predicted classes and the deployed decisions that moved and the
 probability differences, the table says when no threshold is deployed, the deployed thresholds are read in the class
-order of the run (a file of other classes refused), and the half precision classifier runs its network in FP16 while its temperature and probabilities stay in
-FP32, close to the eager classifier, traced into a TorchScript file that loads and runs.
+order of the run (a file of other classes refused). The FP16 conversion the trial shares with the export is tested by
+tests/deployment/test_export_specifications.py.
 """
 
 import json
 import numpy as np
 import pytest
-import torch
 
 from pathlib import Path
 
-from scripts.deployment.check_half_precision_parity import (HalfPrecisionClassifier, build_parity_table,
-                                                            compare_half_precision_outputs, read_deployed_thresholds)
-from tests.deployment.test_export_specifications import build_test_model
-from vision_training.deployment.export_formats import export_torchscript
-from vision_training.deployment.export_specifications import build_inference_model
+from scripts.deployment.check_half_precision_parity import (build_parity_table, compare_half_precision_outputs,
+                                                            read_deployed_thresholds)
 
 
 def test_comparison_counts_the_moved_predictions_and_decisions() -> None:
@@ -75,35 +71,3 @@ def test_deployed_thresholds_follow_the_class_order(tmp_path: Path) -> None:
                                     class_names=["event", "no_event"]).tolist() == [0.9, 0.93]
     with pytest.raises(expected_exception=ValueError, match="Expected the thresholds of the classes"):
         read_deployed_thresholds(thresholds_path=thresholds_path, class_names=["event", "other"])
-
-
-@pytest.mark.skipif(condition=not torch.cuda.is_available(), reason="The FP16 network runs on the GPU.")
-def test_half_precision_classifier_keeps_float32_probabilities(tmp_path: Path) -> None:
-    """
-    Verifies that the half precision classifier runs its network in FP16, keeps the logit temperature of the eager
-    classifier in FP32 and returns FP32 probabilities close to the eager ones, and that its traced TorchScript file
-    loads and gives the same probabilities.
-
-    Args:
-        tmp_path (Path): The temporary folder of the test.
-    """
-    inference_model = build_inference_model(task="classification", model=build_test_model(
-        task="classification", temporal_type=None, fusion_type=None, global_pooling="average").cuda())
-    inference_model.set_logit_temperature(logit_temperature=3.0)
-    half_model = HalfPrecisionClassifier(inference_model=inference_model).eval()
-    assert all(parameter.dtype == torch.float16 for parameter in half_model.model.parameters())
-    assert half_model.logit_temperature.dtype == torch.float32 and half_model.logit_temperature.item() == 3.0
-
-    # Probabilities of a random batch of the input contract, FP32 and close to the eager ones
-    images = torch.rand(size=(4, 3, inference_model.input_image_size, inference_model.input_image_size),
-                        generator=torch.Generator().manual_seed(0)).cuda() * 255
-    with torch.no_grad():
-        eager_probabilities, half_probabilities = inference_model(images=images), half_model(images=images)
-    assert half_probabilities.dtype == torch.float32
-    assert torch.allclose(input=half_probabilities, other=eager_probabilities, atol=1e-2)
-
-    # The traced file loads and gives the probabilities of the half precision classifier
-    export_torchscript(inference_model=half_model, example_inputs={"images": images}, output_path=tmp_path / "model.pt")
-    with torch.no_grad():
-        traced_probabilities = torch.jit.load(str(tmp_path / "model.pt"), map_location="cuda")(images=images)
-    assert torch.allclose(input=traced_probabilities, other=half_probabilities, atol=1e-6)

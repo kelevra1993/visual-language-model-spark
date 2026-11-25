@@ -367,10 +367,11 @@ def export_precision_setting(experiment_folder: Path, iteration: int, repository
         maximum_batch_size (int): The largest batch size of the exported models.
     """
     hide_known_export_warnings()
+    # TorchScript traced in FP32, the precision settings of the benchmark changing the ONNX configuration only
     export_experiment(experiment_folder=experiment_folder, iteration=iteration, use_averaged_weights=False,
                       formats=formats, repository=repository, model_version=1, maximum_batch_size=maximum_batch_size,
-                      tensorrt_precision=tensorrt_precision, use_saved_temperature=False, saved_thresholds_path=None,
-                      test_split_parity=False)
+                      tensorrt_precision=tensorrt_precision, torchscript_precision="FP32", use_saved_temperature=False,
+                      saved_thresholds_path=None, test_split_parity=False)
 
 
 def run_in_child_process(target: Any, keyword_arguments: Dict[str, Any]) -> None:

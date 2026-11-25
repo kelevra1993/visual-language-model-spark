@@ -2,8 +2,10 @@
 Writes the 'config.pbtxt' Triton model configuration of an exported model of any task (platform, inputs, outputs,
 batching, TensorRT acceleration with an engine cache named after the exported files) from its export specification,
 and names its outputs as Triton serves them, refusing any export format or TensorRT precision other than those of
-EXPORT_FORMATS and TENSORRT_PRECISIONS. Called by deployment/export_model.py once the model files are written, and by
-the frame selection ensembles of deployment/frame_selection_deployment.py.
+EXPORT_FORMATS and TENSORRT_PRECISIONS. TORCHSCRIPT_PRECISIONS, the precisions of the network traced into the
+TorchScript file, is checked by the export and leaves the configuration unchanged, the served inputs and outputs
+staying FP32 in both. Called by deployment/export_model.py once the model files are written, and by the frame selection
+ensembles of deployment/frame_selection_deployment.py.
 """
 
 import hashlib
@@ -11,11 +13,14 @@ import hashlib
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-# Export formats served by Triton with the platform of the backend reading each, and the TensorRT precisions of an ONNX
-# model, None running it with ONNX Runtime CUDA only; any other value is refused before a model is exported
+# Export formats served by Triton with the platform of the backend reading each, the TensorRT precisions of an ONNX
+# model (None running it with ONNX Runtime CUDA only) and the precisions of the network traced into the TorchScript file
+# (FP16 holding its convolution, linear and attention weights in FP16, deployment/export_formats.py); any other value
+# is refused before a model is exported
 EXPORT_PLATFORMS = {"torchscript": "pytorch_libtorch", "onnx": "onnxruntime_onnx"}
 EXPORT_FORMATS = list(EXPORT_PLATFORMS)
 TENSORRT_PRECISIONS = ["FP32", "FP16", None]
+TORCHSCRIPT_PRECISIONS = ["FP32", "FP16"]
 
 # Folder of the Triton container where ONNX Runtime caches the TensorRT engines it builds at the first requests, not
 # mounted by deployment/triton/docker-compose.yml, and the hexadecimal characters of the SHA-256 of the exported files

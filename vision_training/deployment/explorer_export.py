@@ -20,7 +20,8 @@ from typing import Any, Dict, List, Optional
 
 from vision_training.deployment.export_model import (check_export_settings, export_experiment,
                                                      hide_known_export_warnings)
-from vision_training.deployment.triton_configuration import EXPORT_FORMATS, TENSORRT_PRECISIONS
+from vision_training.deployment.triton_configuration import (EXPORT_FORMATS, TENSORRT_PRECISIONS,
+                                                             TORCHSCRIPT_PRECISIONS)
 from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
 from vision_training.evaluation.classification.temperature_explorer import (SAVED_THRESHOLDS_FILE_NAME,
                                                                             check_logit_temperature)
@@ -36,10 +37,11 @@ EXPORT_JOB_FILE_NAME = "export_job.json"
 EXPORT_LOG_FILE_NAME = "export_log.txt"
 EXPORT_RECORD_FILE_NAME = "export_record.json"
 
-# Settings the page can choose (EXPORT_FORMATS and TENSORRT_PRECISIONS, imported for the serve script, the export
-# refusing any other value), and those it shows first (the values of the main block of export_model.py)
+# Settings the page can choose (EXPORT_FORMATS, TENSORRT_PRECISIONS and TORCHSCRIPT_PRECISIONS, imported for the
+# serve script, the export refusing any other value), and those it shows first (the values of the main block of
+# export_model.py)
 DEFAULT_EXPORT_SETTINGS = {"formats": ["torchscript", "onnx"], "model_version": 1, "maximum_batch_size": 16,
-                           "tensorrt_precision": "FP32"}
+                           "tensorrt_precision": "FP32", "torchscript_precision": "FP32"}
 
 
 def describe_evaluation_folder(evaluation_folder: Path) -> Dict[str, Any]:
@@ -123,7 +125,7 @@ def list_checkpoint_exports(run_folder: Path, iteration: int, use_averaged_weigh
 
 
 def prepare_export_job(evaluation_folder: Path, formats: List[str], model_version: int, maximum_batch_size: int,
-                       tensorrt_precision: Optional[str]) -> Dict[str, Any]:
+                       tensorrt_precision: Optional[str], torchscript_precision: str) -> Dict[str, Any]:
     """
     Prepares the export of the checkpoint of a temperature explorer at its saved temperature: the settings and the saved
     thresholds are checked, the checkpoint is found in the run folder, an unfinished folder of an earlier export of the
@@ -136,6 +138,7 @@ def prepare_export_job(evaluation_folder: Path, formats: List[str], model_versio
         model_version (int): The Triton version of the exported models.
         maximum_batch_size (int): The largest batch size of the exported models.
         tensorrt_precision (Optional[str]): 'FP16' or 'FP32' to accelerate the ONNX model with TensorRT, or None.
+        torchscript_precision (str): 'FP32' or 'FP16', the precision of the network traced into the TorchScript file.
 
     Returns:
         Dict[str, Any]: The job: 'job_path', 'work_folder', 'export_folder', 'log_path' and 'logit_temperature'.
@@ -145,7 +148,7 @@ def prepare_export_job(evaluation_folder: Path, formats: List[str], model_versio
         ValueError: If a setting or the saved temperature is not one the export accepts.
     """
     check_export_settings(formats=formats, model_version=model_version, maximum_batch_size=maximum_batch_size,
-                          tensorrt_precision=tensorrt_precision)
+                          tensorrt_precision=tensorrt_precision, torchscript_precision=torchscript_precision)
     saved_thresholds_path = evaluation_folder / SAVED_THRESHOLDS_FILE_NAME
     if not saved_thresholds_path.is_file():
         raise FileNotFoundError(f"No {SAVED_THRESHOLDS_FILE_NAME} in {evaluation_folder}: save the thresholds of a "
@@ -172,7 +175,8 @@ def prepare_export_job(evaluation_folder: Path, formats: List[str], model_versio
            "run_folder": str(checkpoint["run_folder"]), "iteration": checkpoint["iteration"],
            "use_averaged_weights": checkpoint["use_averaged_weights"], "logit_temperature": logit_temperature,
            "formats": formats, "model_version": model_version, "maximum_batch_size": maximum_batch_size,
-           "tensorrt_precision": tensorrt_precision, "export_folder": str(export_folder)}
+           "tensorrt_precision": tensorrt_precision, "torchscript_precision": torchscript_precision,
+           "export_folder": str(export_folder)}
     job_path = work_folder / EXPORT_JOB_FILE_NAME
     job_path.write_text(data=json.dumps(obj=job, indent=4))
     return {"job_path": job_path, "work_folder": work_folder, "export_folder": export_folder,
@@ -210,13 +214,14 @@ def run_export_job(job_path: Path) -> Path:
     export_experiment(experiment_folder=Path(job["run_folder"]), iteration=job["iteration"],
                       use_averaged_weights=job["use_averaged_weights"], formats=job["formats"], repository=work_folder,
                       model_version=job["model_version"], maximum_batch_size=job["maximum_batch_size"],
-                      tensorrt_precision=job["tensorrt_precision"], use_saved_temperature=True,
+                      tensorrt_precision=job["tensorrt_precision"],
+                      torchscript_precision=job["torchscript_precision"], use_saved_temperature=True,
                       saved_thresholds_path=saved_thresholds_path, test_split_parity=False)
 
     # Record of what was exported, then the finished folder in place of an earlier export of the same temperature
     record = {**{key: job[key] for key in ["evaluation_folder", "saved_thresholds_path", "run_folder", "iteration",
                                            "use_averaged_weights", "logit_temperature", "formats", "model_version",
-                                           "maximum_batch_size", "tensorrt_precision"]},
+                                           "maximum_batch_size", "tensorrt_precision", "torchscript_precision"]},
               "exported_at": datetime.now().isoformat(timespec="seconds")}
     (work_folder / EXPORT_RECORD_FILE_NAME).write_text(data=json.dumps(obj=record, indent=4))
     job_path.unlink()

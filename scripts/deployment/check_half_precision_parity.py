@@ -1,17 +1,18 @@
 """
-Test split parity of a classifier traced in half precision (an FP16 TorchScript '.pt'), a trial next to
-vision_training/deployment/export_model.py, which writes TorchScript in FP32 only and reaches FP16 through TensorRT.
-The classifier of a run is loaded as the export loads it (load_trained_model, build_inference_model, and with
-use_saved_temperature the temperature saved from its temperature explorer), its network converted to FP16 with the
-temperature and the softmax kept in FP32 (HalfPrecisionClassifier), traced to
-'<run>/Half_Precision_Parity/Iteration_<n>[_EMA]/model_fp16.pt', then scored with the eager FP32 model on the whole
-test split of the run by the test evaluation of its trainer (evaluate_parity_row of deployment/export_parity.py). The
-summary gives the metrics of both rows, the predicted classes and the deployed threshold decisions that moved, and the
-sizes of the files, so that the worth of an FP16 TorchScript export can be judged before it is built into the export.
-Run as a script with the run, iteration and weights set in its main block.
+Test split parity of a classifier traced in half precision (an FP16 TorchScript '.pt') without Triton, a lighter
+companion of the FP16 TorchScript export of vision_training/deployment/export_model.py (torchscript_precision 'FP16'
+with test_split_parity) that also gives the deployed threshold decisions that move. The classifier of a run is loaded
+as the export loads it (load_trained_model, build_inference_model, and with use_saved_temperature the temperature
+saved from its temperature explorer), converted to FP16 as the export converts it (convert_to_half_precision of
+deployment/export_formats.py: convolution and linear weights in FP16, normalization layers, temperature and softmax in
+FP32), traced to '<run>/Half_Precision_Parity/Iteration_<n>[_EMA]/model_fp16.pt', then scored with the eager FP32
+model on the whole test split of the run by the test evaluation of its trainer (evaluate_parity_row of
+deployment/export_parity.py). The summary gives the metrics of both rows, the predicted classes and the deployed
+threshold decisions that moved, and the sizes of the files, so that the worth of an FP16 TorchScript export of a
+classifier can be judged before it is deployed. Run as a script with the run, iteration and weights set in its main
+block.
 """
 
-import copy
 import functools
 import json
 import shutil
@@ -20,20 +21,18 @@ import torch
 
 from datetime import datetime
 from pathlib import Path
-from torch import nn
 from typing import Any, Callable, Dict, List, Optional
 
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.deployment.deployment_utilities import run_local_inference
-from vision_training.deployment.export_formats import export_torchscript, hide_known_export_warnings
+from vision_training.deployment.export_formats import (convert_to_half_precision, export_torchscript,
+                                                       hide_known_export_warnings)
 from vision_training.deployment.export_model import find_saved_thresholds_path, read_saved_temperature
 from vision_training.deployment.export_parity import (ROW_EVALUATIONS_FOLDER_NAME, build_evaluation_trainer,
                                                       create_output_comparison, evaluate_parity_row,
                                                       summarise_sample_agreement)
 from vision_training.deployment.export_specifications import (build_inference_model, convert_outputs_to_numpy,
                                                               create_random_inputs, get_export_specification)
-from vision_training.losses.classification_losses import convert_logits_to_probabilities
-from vision_training.models.classification.inference_classifier import InferenceClassifier
 from vision_training.models.model_loading import load_trained_model
 from vision_training.evaluation.report_formatting import format_points, format_report_value
 from vision_training.trainers.checkpointing import get_checkpoint_path, get_last_checkpoint_iteration
@@ -48,41 +47,6 @@ SUMMARY_JSON_NAME = "half_precision_parity.json"
 
 # Global metrics of the table, the first one the headline of the classification trainer for one class per image
 TABLE_METRICS = ["Balanced Accuracy", "Accuracy", "Macro F1"]
-
-
-class HalfPrecisionClassifier(nn.Module):
-    """
-    Half precision version of the inference classifier of an export, traced into the FP16 TorchScript of the trial: the
-    network (backbone and head) runs in FP16 on the GPU, while the input stays the FP32 batch of the input contract of
-    the export and the class logits go back to FP32 before the temperature and the softmax, so that probabilities near
-    1, where FP16 values lie about 0.0005 apart, keep the resolution the deployed thresholds need.
-    """
-
-    def __init__(self, inference_model: InferenceClassifier) -> None:
-        """
-        Copies the network of an inference classifier into FP16, with its logit temperature kept in FP32.
-
-        Args:
-            inference_model (InferenceClassifier): The FP32 inference classifier of the export, its temperature set.
-        """
-        super(HalfPrecisionClassifier, self).__init__()
-        self.model = copy.deepcopy(inference_model.model).half()
-        self.output_mode = inference_model.output_mode
-        self.register_buffer(name="logit_temperature", tensor=inference_model.logit_temperature.detach().clone())
-
-    def forward(self, images: torch.Tensor) -> torch.Tensor:
-        """
-        Classifies a batch of preprocessed images in half precision.
-
-        Args:
-            images (torch.Tensor): Float32 BGR images in [0, 255] of shape [B, 3, H, W], the input of the export.
-
-        Returns:
-            torch.Tensor: The float32 [B, K] class probabilities of the class logits divided by the logit temperature.
-        """
-        class_logits = self.model(input_tensor=images.half())["class_logits"].float()
-        return convert_logits_to_probabilities(class_logits=class_logits / self.logit_temperature,
-                                               output_mode=self.output_mode)
 
 
 def record_request_outputs(inputs: Dict[str, np.ndarray], run_model: Callable[..., List[np.ndarray]],
@@ -282,7 +246,7 @@ def check_half_precision_parity(experiment_folder: Path, iteration: Optional[int
                                               maximum_batch_size=maximum_batch_size, device=device, generator=None)
         check_inputs = create_random_inputs(specification=specification, shape_name="check_shape",
                                             maximum_batch_size=maximum_batch_size, device=device, generator=None)
-        half_model = HalfPrecisionClassifier(inference_model=inference_model).eval()
+        half_model = convert_to_half_precision(inference_model=inference_model, input_names=["images"])
         export_torchscript(inference_model=inference_model, example_inputs=example_inputs,
                            output_path=parity_folder / REFERENCE_MODEL_NAME)
         export_torchscript(inference_model=half_model, example_inputs=example_inputs,

@@ -7,8 +7,10 @@ report their differences, the inference models match the training path on full s
 the classifier softens its probabilities in the eager model and both exports, the exports of the detector keep its
 DIoU-NMS, its greedy NMS beyond the size at which batched_nms changes its algorithm and its selection of the proposals
 level by level, its ONNX suppressions see the boxes of the image only, the exports of the instance segmenter keep
-the finer inputs of its mask heads, the mask head shared by its levels and the mask scores of its scored masks, and the
-ONNX export keeps none of the debugging metadata of the exporter but the metadata of the model.
+the finer inputs of its mask heads, the mask head shared by its levels and the mask scores of its scored masks, the
+ONNX export keeps none of the debugging metadata of the exporter but the metadata of the model, and the FP16 TorchScript
+export of every task holds its convolution, linear and attention weights in FP16 with everything else in FP32, its FP32
+inputs and outputs following the eager model, a model on the CPU being refused.
 """
 
 import numpy as np
@@ -19,11 +21,15 @@ import torch
 
 from pathlib import Path
 from torch import nn
-from typing import Optional
+from typing import Any, Dict, Optional, Tuple
 
-from vision_training.deployment.export_formats import (export_onnx, export_torchscript, find_fixed_dynamic_dimensions,
+from tests import testing_utilities
+from vision_training.deployment.export_formats import (HALF_PRECISION_MODULE_TYPES, RECURRENT_MODULE_TYPES,
+                                                       FullPrecisionRecurrentLayer, convert_to_half_precision,
+                                                       export_onnx, export_torchscript, find_fixed_dynamic_dimensions,
                                                        hide_known_export_warnings, list_graph_metadata_holders,
                                                        restore_dynamic_output_frames, strip_exporter_metadata)
+from vision_training.deployment.export_model import scale_half_precision_tolerances
 from vision_training.deployment.export_specifications import (FRAME_OUTPUT_TASKS, TASK_INPUT_NAMES,
                                                               build_inference_model, compare_keypoints,
                                                               compare_segmentations,
@@ -36,6 +42,7 @@ from tests.models.instance_segmentation.test_instance_segmenter import (MIXED_MA
                                                                        SCORED_GEOMETRIES_AND_NECKS)
 from tests.testing_utilities import build_test_model as build_test_detector
 from tests.fixtures.configuration_fixtures import (get_classification_model_configuration,
+                                                   get_detection_model_configuration,
                                                    get_keypoint_model_configuration,
                                                    get_segmentation_model_configuration,
                                                    get_self_supervised_model_configuration,
@@ -44,6 +51,18 @@ from tests.fixtures.configuration_fixtures import (get_classification_model_conf
 
 # Largest batch size of the test exports, above the batch sizes of the traced and checked batches
 TEST_MAXIMUM_BATCH_SIZE = 4
+
+# Test models of the FP16 TorchScript export, one per task: temporal module, fusion and pooling of build_test_model,
+# None for the detectors of tests/testing_utilities.py
+HALF_PRECISION_CASES = [("classification", None, None, "flatten"), ("semantic_segmentation", None, None, "average"),
+                        ("sequence_classification", "lstm", None, "average"),
+                        ("frame_selection", "gru", None, "average"),
+                        ("sequence_labelling", "transformer", None, "average"),
+                        ("sequence_comparison", "gru", "cross_attention", "average"),
+                        ("self_supervised", None, None, "average"), ("keypoint_detection", None, None, "average"),
+                        ("object_detection", None, None, None), ("instance_segmentation", None, None, None)]
+# Tasks whose FP16 export moves a few candidates of the test model against FP32, below the share of the check
+HALF_PRECISION_TIED_CANDIDATE_TASKS = ["keypoint_detection"]
 
 
 def build_test_model(task: str, temporal_type: Optional[str], fusion_type: Optional[str], global_pooling: str,
@@ -911,3 +930,119 @@ def test_sequence_normalization_exports_match_the_eager_model(tmp_path: Path, ta
                                       for input_name, input_batch in check_inputs.items()})
     assert specification["compare_outputs"](reference=reference_outputs, candidate=onnx_outputs,
                                             **specification["comparison_tolerances"]) == []
+
+
+def get_detection_model_configuration_on_gpu(**keyword_arguments: Any) -> Tuple[Dict[str, Any], torch.device,
+                                                                                torch.dtype]:
+    """
+    Stand-in for get_detection_model_configuration giving the configuration of the detector test models on the GPU,
+    where the FP16 TorchScript export runs, the detector building its anchors on the device of its configuration.
+
+    Args:
+        **keyword_arguments (Any): The arguments of get_detection_model_configuration.
+
+    Returns:
+        Tuple[Dict[str, Any], torch.device, torch.dtype]: The configuration, the GPU and the precision.
+    """
+    configuration, _, dtype = get_detection_model_configuration(**keyword_arguments)
+    return configuration, torch.device("cuda"), dtype
+
+
+@pytest.mark.skipif(condition=not torch.cuda.is_available(), reason="The FP16 network runs on the GPU.")
+@pytest.mark.parametrize(argnames=("task", "temporal_type", "fusion_type", "global_pooling"),
+                         argvalues=HALF_PRECISION_CASES)
+def test_half_precision_torchscript_exports_keep_float32_inputs_and_outputs(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, task: str, temporal_type: Optional[str],
+        fusion_type: Optional[str], global_pooling: Optional[str]) -> None:
+    """
+    Verifies the FP16 TorchScript export of every task (convert_to_half_precision): the copy holds its convolution,
+    linear and attention weights in FP16 and every other weight and buffer in FP32, its recurrent layers running in
+    FP32 behind FullPrecisionRecurrentLayer, the eager model staying FP32; the traced file keeps the input names, takes
+    the FP32 inputs and returns outputs of the types of the eager model, matching the eager FP16 copy and the FP32
+    eager model within the tolerances of the FP16 random batch check of the export (but a few tied candidates of the
+    untrained keypoint detector against FP32).
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        monkeypatch (pytest.MonkeyPatch): Turns TF32 off for the FP32 reference, as the export does, and builds the
+            detectors on the GPU.
+        task (str): The task of the exported model.
+        temporal_type (Optional[str]): The temporal module of the sequence models, None for the other tasks.
+        fusion_type (Optional[str]): The fusion of the members of the comparison model, None for the other tasks.
+        global_pooling (Optional[str]): The reduction of the final feature map, None for the detectors.
+    """
+    hide_known_export_warnings()
+    monkeypatch.setattr(target=torch.backends.cudnn, name="allow_tf32", value=False)
+    monkeypatch.setattr(target=torch.backends.cuda.matmul, name="allow_tf32", value=False)
+    device = torch.device("cuda")
+
+    # Test model of the task on the GPU, the detectors built there from their configuration
+    if task in ["object_detection", "instance_segmentation"]:
+        monkeypatch.setattr(target=testing_utilities, name="get_detection_model_configuration",
+                            value=get_detection_model_configuration_on_gpu)
+        model = build_test_detector(dtype=torch.float32, instance_segmentation=task == "instance_segmentation")
+    else:
+        model = build_test_model(task=task, temporal_type=temporal_type, fusion_type=fusion_type,
+                                 global_pooling=global_pooling).to(device)
+    inference_model = build_inference_model(task=task, model=model)
+    specification = get_export_specification(task=task, inference_model=inference_model)
+    example_inputs = create_random_inputs(specification=specification, shape_name="example_shape",
+                                          maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE, device=device,
+                                          generator=torch.Generator(device="cuda").manual_seed(1))
+    check_inputs = create_random_inputs(specification=specification, shape_name="check_shape",
+                                        maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE, device=device,
+                                        generator=torch.Generator(device="cuda").manual_seed(2))
+    half_precision_model = convert_to_half_precision(inference_model=inference_model,
+                                                     input_names=TASK_INPUT_NAMES[task])
+
+    # FP16 weights in the tensor core layers of the copy only, every floating buffer in FP32, the eager model in FP32
+    assert all(parameter.dtype == torch.float32 for parameter in inference_model.parameters())
+    for module in half_precision_model.modules():
+        expected_dtype = torch.float16 if isinstance(module, HALF_PRECISION_MODULE_TYPES) else torch.float32
+        assert all(parameter.dtype == expected_dtype for parameter in module.parameters(recurse=False))
+    assert all(buffer.dtype == torch.float32 for buffer in half_precision_model.buffers() if buffer.is_floating_point())
+    assert any(parameter.dtype == torch.float16 for parameter in half_precision_model.parameters())
+
+    # Every recurrent layer of the eager model behind its FP32 wrapper in the copy
+    wrapped_layers = [module.recurrent_layer for module in half_precision_model.modules()
+                      if isinstance(module, FullPrecisionRecurrentLayer)]
+    assert all(isinstance(layer, RECURRENT_MODULE_TYPES) for layer in wrapped_layers)
+    number_recurrent_layers = sum(isinstance(module, RECURRENT_MODULE_TYPES) for module in inference_model.modules())
+    assert len(wrapped_layers) == number_recurrent_layers
+
+    # Traced file with the input names of the task, run on FP32 inputs of another batch size (and numbers of frames)
+    export_torchscript(inference_model=half_precision_model, example_inputs=example_inputs,
+                       output_path=tmp_path / "model.pt")
+    traced_model = torch.jit.load(str(tmp_path / "model.pt"), map_location=device)
+    assert [argument.name for argument in traced_model.forward.schema.arguments[1:]] == TASK_INPUT_NAMES[task]
+    with torch.no_grad():
+        reference_outputs = convert_outputs_to_numpy(outputs=inference_model(**check_inputs))
+        half_precision_outputs = convert_outputs_to_numpy(outputs=half_precision_model(**check_inputs))
+        traced_outputs = convert_outputs_to_numpy(outputs=traced_model(**check_inputs))
+
+    # Outputs of the types of the eager model, matching the eager FP16 copy as the random batch check of the export
+    # requires, and the FP32 eager model within the same tolerances
+    assert [output.dtype for output in traced_outputs] == [output.dtype for output in reference_outputs]
+    half_precision_tolerances = scale_half_precision_tolerances(
+        comparison_tolerances=specification["comparison_tolerances"])
+    assert specification["compare_outputs"](reference=half_precision_outputs, candidate=traced_outputs,
+                                            **half_precision_tolerances) == []
+    float32_mismatches = specification["compare_outputs"](reference=reference_outputs, candidate=traced_outputs,
+                                                          **half_precision_tolerances)
+    # The FP16 roundings tie neighbouring cells of the flat heatmaps of the untrained keypoint detector, moving a few
+    # candidates (about 6 % of them against FP32), the scores of the candidates found at the same position agreeing
+    if task in HALF_PRECISION_TIED_CANDIDATE_TASKS:
+        assert all(mismatch.endswith("of the candidates only") for mismatch in float32_mismatches)
+    else:
+        assert float32_mismatches == []
+
+
+def test_half_precision_conversion_refuses_a_model_on_the_cpu() -> None:
+    """
+    Verifies that the FP16 conversion refuses an inference model on the CPU, whose FP16 weights would meet FP32 inputs
+    without the CUDA autocast that casts them.
+    """
+    inference_model = build_inference_model(task="classification", model=build_test_model(
+        task="classification", temporal_type=None, fusion_type=None, global_pooling="average"))
+    with pytest.raises(expected_exception=ValueError, match="on the GPU"):
+        convert_to_half_precision(inference_model=inference_model, input_names=TASK_INPUT_NAMES["classification"])
