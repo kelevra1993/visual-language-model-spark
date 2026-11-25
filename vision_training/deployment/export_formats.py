@@ -207,7 +207,7 @@ def convert_to_half_precision(inference_model: nn.Module, input_names: List[str]
     if any(parameter.device.type != "cuda" for parameter in inference_model.parameters()):
         raise ValueError("Expected the inference model on the GPU for its FP16 TorchScript export: the FP16 autocast "
                          "of its copy runs on CUDA only.")
-    half_precision_model = copy.deepcopy(inference_model)
+    half_precision_model = copy.deepcopy(x=inference_model)
     # Weights of the layers computed on the tensor cores in FP16, their own buffers following (none for these types)
     for module in half_precision_model.modules():
         if isinstance(module, HALF_PRECISION_MODULE_TYPES):
