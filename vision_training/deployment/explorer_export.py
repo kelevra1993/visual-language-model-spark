@@ -4,7 +4,8 @@ scripts/evaluation/serve_temperature_explorer.py. The evaluation folder of the p
 weights, the thresholds saved on the page give the temperature, and export_experiment (export_model.py) writes the
 classifier into a Triton model repository of its own, '<run>/Exports/Iteration_<n>[_EMA]_T<temperature>/', so that the
 exports of several classifiers and temperatures never overwrite one another, an export of the same temperature replacing
-the earlier one. The serve script prepares the job (prepare_export_job) and runs it as a separate process
+the earlier one but for its TorchScript file of the other precision ('model.pt' or 'model_fp16.pt'), kept next to the
+new one. The serve script prepares the job (prepare_export_job) and runs it as a separate process
 ('python -m vision_training.deployment.explorer_export <job file>'), so that the GPU memory of the export is freed when
 it ends and its console output, written to 'export_log.txt', is shown on the page.
 """
@@ -21,7 +22,7 @@ from typing import Any, Dict, List, Optional
 from vision_training.deployment.export_model import (check_export_settings, export_experiment,
                                                      hide_known_export_warnings)
 from vision_training.deployment.triton_configuration import (EXPORT_FORMATS, TENSORRT_PRECISIONS,
-                                                             TORCHSCRIPT_PRECISIONS)
+                                                             TORCHSCRIPT_FILE_NAMES, TORCHSCRIPT_PRECISIONS)
 from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
 from vision_training.evaluation.classification.temperature_explorer import (SAVED_THRESHOLDS_FILE_NAME,
                                                                             check_logit_temperature)
@@ -183,12 +184,48 @@ def prepare_export_job(evaluation_folder: Path, formats: List[str], model_versio
             "log_path": work_folder / EXPORT_LOG_FILE_NAME, "logit_temperature": logit_temperature}
 
 
+def keep_other_torchscript_files(previous_folder: Path, work_folder: Path, formats: List[str], model_version: int,
+                                 torchscript_precision: str) -> List[str]:
+    """
+    Copies into a new export of a temperature (run_export_job) the TorchScript files of the other precision that the
+    earlier export of the same temperature holds in the same version folder, so that 'model.pt' (FP32) and
+    'model_fp16.pt' (FP16) of one checkpoint, weights and temperature sit side by side, the config.pbtxt of the new
+    export naming the file Triton serves. Nothing is kept when the new export writes no TorchScript model or another
+    version, the earlier folder being replaced whole as before.
+
+    Args:
+        previous_folder (Path): The folder of the earlier export of the temperature, which may not exist.
+        work_folder (Path): The '.partial' folder of the new export, its models written.
+        formats (List[str]): The formats of the new export.
+        model_version (int): The Triton version of the new export.
+        torchscript_precision (str): The TorchScript precision of the new export, whose file it wrote itself.
+
+    Returns:
+        List[str]: The TorchScript precisions whose file was kept from the earlier export.
+    """
+    if "torchscript" not in formats or not previous_folder.is_dir():
+        return []
+
+    # Every TorchScript model of the new export, its file of the other precision taken from the same version folder
+    kept_precisions = []
+    for model_directory in sorted(work_folder.glob(pattern="*_torchscript")):
+        previous_version_directory = previous_folder / model_directory.name / str(model_version)
+        for precision, file_name in TORCHSCRIPT_FILE_NAMES.items():
+            previous_file = previous_version_directory / file_name
+            if precision != torchscript_precision and previous_file.is_file():
+                shutil.copyfile(src=previous_file, dst=model_directory / str(model_version) / file_name)
+                kept_precisions.append(precision)
+    return kept_precisions
+
+
 def run_export_job(job_path: Path) -> Path:
     """
     Runs an export prepared by prepare_export_job: the classifier is exported into the folder of the job with the
-    saved thresholds of its page (export_experiment with use_saved_temperature), the record of the export is written
-    next to the models, and the folder replaces the export of the same temperature, if any. A failed export leaves
-    the '.partial' folder with its console output, removed by the next export of that temperature.
+    saved thresholds of its page (export_experiment with use_saved_temperature), the TorchScript file of the other
+    precision is kept from the earlier export of the same temperature (keep_other_torchscript_files), the record of
+    the export is written next to the models, and the folder replaces the export of the same temperature, if any. A
+    failed export leaves the '.partial' folder with its console output, removed by the next export of that
+    temperature, the earlier export staying as it was.
 
     Args:
         job_path (Path): The 'export_job.json' of the export, in its '.partial' folder.
@@ -218,10 +255,16 @@ def run_export_job(job_path: Path) -> Path:
                       torchscript_precision=job["torchscript_precision"], use_saved_temperature=True,
                       saved_thresholds_path=saved_thresholds_path, test_split_parity=False)
 
+    # TorchScript file of the other precision of the same checkpoint, weights and temperature kept next to the new one
+    kept_torchscript_precisions = keep_other_torchscript_files(
+        previous_folder=export_folder, work_folder=work_folder, formats=job["formats"],
+        model_version=job["model_version"], torchscript_precision=job["torchscript_precision"])
+
     # Record of what was exported, then the finished folder in place of an earlier export of the same temperature
     record = {**{key: job[key] for key in ["evaluation_folder", "saved_thresholds_path", "run_folder", "iteration",
                                            "use_averaged_weights", "logit_temperature", "formats", "model_version",
                                            "maximum_batch_size", "tensorrt_precision", "torchscript_precision"]},
+              "kept_torchscript_precisions": kept_torchscript_precisions,
               "exported_at": datetime.now().isoformat(timespec="seconds")}
     (work_folder / EXPORT_RECORD_FILE_NAME).write_text(data=json.dumps(obj=record, indent=4))
     job_path.unlink()

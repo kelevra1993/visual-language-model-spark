@@ -1,12 +1,13 @@
 """
 Size of every file a model of the training is turned into, printed in the Export Sizes panel at the launch of every
 training of a task Triton serves (BaseTrainer, after the Model Size panel of TaskModel.print_model_size_summary): the
-PyTorch weights in FP32 and FP16, the TorchScript file, the ONNX graph and weights, the TensorRT engines in FP32 and
-FP16 built by Triton (deployment/export_model.py and triton_configuration.py) and the training checkpoint of every
-saved iteration (trainers/checkpointing.py). Each size is estimated from a formula when the formula stays within 5 %
-of the real file on the tutorial runs, and measured otherwise: the TorchScript trace is written to a temporary file,
-while the ONNX files and the TensorRT engines are estimated from what one forward pass of the inference model reads
-(the weights it uses and the constants it computes) and from its number of operators. The constants of the formulas
+PyTorch weights in FP32 and FP16, the TorchScript file in FP32 and FP16, the ONNX graph and weights, the TensorRT
+engines in FP32 and FP16 built by Triton (deployment/export_model.py and triton_configuration.py) and the training
+checkpoint of every saved iteration (trainers/checkpointing.py). Each size is estimated from a formula when the formula
+stays within 5 % of the real file on the tutorial runs, and measured otherwise: the FP32 TorchScript trace is written
+to a temporary file, the FP16 file being that size less the bytes its FP16 weights save, while the ONNX files and the
+TensorRT engines are estimated from what one forward pass of the inference model reads (the weights it uses and the
+constants it computes) and from its number of operators. The constants of the formulas
 and their margins come from scripts/deployment/check_export_size_estimates.py, which compares the estimates with the
 files of real exports.
 """
@@ -27,7 +28,8 @@ from torch.utils._python_dispatch import TorchDispatchMode
 from torch.utils._pytree import tree_flatten
 from typing import Any, Dict, List, Optional, Set, Tuple, TypedDict
 
-from vision_training.deployment.export_formats import export_torchscript, hide_known_export_warnings
+from vision_training.deployment.export_formats import (HALF_PRECISION_MODULE_TYPES, export_torchscript,
+                                                       hide_known_export_warnings)
 from vision_training.deployment.export_specifications import (build_inference_model, create_random_inputs,
                                                               get_export_specification)
 
@@ -76,6 +78,10 @@ TENSORRT_OVERHEAD_RANGE = (0.5, 2.2)
 STATE_DICTIONARY_MARGIN = 0.01
 CHECKPOINT_MARGIN = 0.01
 ONNX_MARGIN = 0.03
+# Margin of the FP16 TorchScript file estimated from the FP32 trace, the largest relative error against the real FP16
+# files of the ten tutorial runs (convert_to_half_precision then export_torchscript on the GPU, 2026-11-25) rounded up:
+# from 0.15 to 1.54 % below them, the casts autocast adds to the traced code being left out
+TORCHSCRIPT_HALF_PRECISION_MARGIN = 0.02
 
 # Megabytes of the panel, as in the Model Size panel, and the spaces indenting its table of formats
 BYTES_PER_MEGABYTE = 1e6
@@ -314,6 +320,29 @@ def estimate_state_dictionary_bytes(state_dictionary: Dict[str, torch.Tensor], b
     return estimated_bytes
 
 
+def count_half_precision_saved_bytes(inference_model: nn.Module) -> int:
+    """
+    Counts the bytes the FP16 TorchScript export (torchscript_precision 'FP16' of deployment/export_model.py) saves on
+    the FP32 file of an inference model, so that the panel gives the size of the FP16 file without converting the model
+    nor tracing it again: convert_to_half_precision writes the floating tensors of the HALF_PRECISION_MODULE_TYPES
+    modules (convolution, linear and attention weights) in 2 bytes instead of their own, every other tensor keeping its
+    type. A tensor shared by several modules is stored once and counted once.
+
+    Args:
+        inference_model (nn.Module): The FP32 inference model of the export.
+
+    Returns:
+        int: The bytes saved on the FP32 TorchScript file.
+    """
+    converted_tensors = {}
+    for module in inference_model.modules():
+        if isinstance(module, HALF_PRECISION_MODULE_TYPES):
+            for tensor in [*module.parameters(), *module.buffers()]:
+                if tensor.is_floating_point():
+                    converted_tensors[id(tensor)] = tensor
+    return sum(tensor.numel() * (tensor.element_size() - 2) for tensor in converted_tensors.values())
+
+
 def count_optimizer_moments(optimizer: torch.optim.Optimizer) -> int:
     """
     Gives the number of tensors the optimizer keeps per parameter, the size of a parameter each: the two moment
@@ -435,8 +464,10 @@ def estimate_export_sizes(task: str, model: nn.Module, optimizer: torch.optim.Op
     Gives the size of every file the model of a training is turned into, for the Export Sizes panel printed at launch:
     the inference model of the task (build_inference_model) runs once on one random sample under ExportGraphProbe and
     is traced to a temporary TorchScript file on the example batch of the exports, on the device of the model, then
-    every module of the model gets back its training mode. A failed trace or probe leaves its rows without size, its
-    error being listed under the panel, so that a model the exports cannot trace still trains.
+    every module of the model gets back its training mode. The FP16 TorchScript file is the FP32 trace less the bytes
+    its FP16 weights save (count_half_precision_saved_bytes), estimated on the CPU as well, where the FP16 export
+    itself cannot run. A failed trace or probe leaves its rows without size, its error being listed under the panel, so
+    that a model the exports cannot trace still trains.
 
     Args:
         task (str): The task of the training, one of the tasks Triton serves (INFERENCE_MODEL_CLASSES).
@@ -450,7 +481,7 @@ def estimate_export_sizes(task: str, model: nn.Module, optimizer: torch.optim.Op
     """
     start_time = time.perf_counter()
     errors = []
-    probe, torchscript_bytes = None, None
+    probe, torchscript_bytes, torchscript_half_bytes = None, None, None
     # Training mode of every module, restored after the inference model has run in evaluation mode, so that the frozen
     # batch normalization layers of a transfer stay as the trainer set them
     training_modes = {module: module.training for module in model.modules()}
@@ -463,6 +494,7 @@ def estimate_export_sizes(task: str, model: nn.Module, optimizer: torch.optim.Op
                                               maximum_batch_size=EXPORT_MAXIMUM_BATCH_SIZE, device=device,
                                               generator=torch.Generator(device=device).manual_seed(0))
         state_dictionary = inference_model.state_dict()
+        half_precision_saved_bytes = count_half_precision_saved_bytes(inference_model=inference_model)
 
         # One forward pass on one sample for the ONNX and TensorRT estimates
         try:
@@ -479,6 +511,8 @@ def estimate_export_sizes(task: str, model: nn.Module, optimizer: torch.optim.Op
                 warnings.filterwarnings(action="ignore", category=torch.jit.TracerWarning)
                 torchscript_bytes = measure_torchscript_bytes(inference_model=inference_model,
                                                               example_inputs=example_inputs)
+            # FP16 file: the same trace with its convolution, linear and attention weights in 2 bytes
+            torchscript_half_bytes = torchscript_bytes - half_precision_saved_bytes
         except Exception as error:
             errors.append(f"TorchScript trace: {type(error).__name__}: {error}")
     finally:
@@ -499,8 +533,11 @@ def estimate_export_sizes(task: str, model: nn.Module, optimizer: torch.optim.Op
              "method": format_margin(margin=STATE_DICTIONARY_MARGIN)},
             {"label": "PyTorch FP16 Weights", "lowest_bytes": half_bytes, "highest_bytes": half_bytes,
              "method": format_margin(margin=STATE_DICTIONARY_MARGIN)},
-            {"label": "TorchScript", "lowest_bytes": torchscript_bytes, "highest_bytes": torchscript_bytes,
+            {"label": "TorchScript FP32", "lowest_bytes": torchscript_bytes, "highest_bytes": torchscript_bytes,
              "method": "traced"},
+            {"label": "TorchScript FP16", "lowest_bytes": torchscript_half_bytes,
+             "highest_bytes": torchscript_half_bytes,
+             "method": format_margin(margin=TORCHSCRIPT_HALF_PRECISION_MARGIN)},
             {"label": "ONNX", "lowest_bytes": onnx_bytes, "highest_bytes": onnx_bytes,
              "method": format_margin(margin=ONNX_MARGIN)},
             {"label": "TensorRT FP32 Engine", "lowest_bytes": tensorrt_float_bytes[0],

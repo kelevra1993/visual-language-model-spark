@@ -222,7 +222,7 @@ def write_configuration_listing(model_name: str, export_format: str, specificati
         write_triton_configuration(model_directory=Path(model_folder), model_name=model_name,
                                    model_version=model_version, export_format=export_format,
                                    specification=specification, maximum_batch_size=maximum_batch_size,
-                                   tensorrt_precision=tensorrt_precision)
+                                   tensorrt_precision=tensorrt_precision, torchscript_precision="FP32")
         configuration_text = (Path(model_folder) / "config.pbtxt").read_text(encoding="utf-8")
     write_listing(lines=configuration_text.rstrip("\n").split("\n"), output_path=output_path)
     return configuration_text

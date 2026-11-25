@@ -339,9 +339,10 @@ def test_half_precision_tolerances_loosen_the_differences_only() -> None:
 @pytest.mark.skipif(condition=not torch.cuda.is_available(), reason="The export runs the model on the GPU.")
 def test_half_precision_torchscript_export_installs_an_fp16_network(tmp_path: Path) -> None:
     """
-    Verifies that a run exported with torchscript_precision 'FP16' installs a TorchScript file whose convolution
-    kernels are FP16 and whose normalization statistics stay FP32, taking FP32 images and returning FP32
-    probabilities within 1e-2 of those of the FP32 export of the same checkpoint.
+    Verifies that a run exported with torchscript_precision 'FP16' installs 'model_fp16.pt', named by its
+    config.pbtxt and alone in its version folder, whose convolution kernels are FP16 and whose normalization statistics
+    stay FP32, taking FP32 images and returning FP32 probabilities within 1e-2 of those of the FP32 export of the same
+    checkpoint, written to 'model.pt'.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -352,15 +353,19 @@ def test_half_precision_torchscript_export_installs_an_fp16_network(tmp_path: Pa
 
     # The same checkpoint exported with both TorchScript precisions, each into its own repository
     traced_models = {}
-    for torchscript_precision in ["FP32", "FP16"]:
+    for torchscript_precision, file_name in [("FP32", "model.pt"), ("FP16", "model_fp16.pt")]:
         repository = tmp_path / f"served_models_{torchscript_precision.lower()}"
         export_experiment(experiment_folder=experiment_folder, iteration=test_input_contract.EXPORTED_ITERATION,
                           use_averaged_weights=False, formats=["torchscript"], repository=repository, model_version=1,
                           maximum_batch_size=test_input_contract.TEST_MAXIMUM_BATCH_SIZE,
                           tensorrt_precision=None, torchscript_precision=torchscript_precision,
                           use_saved_temperature=False, saved_thresholds_path=None, test_split_parity=False)
-        traced_models[torchscript_precision] = torch.jit.load(
-            str(repository / "image_classifier_torchscript" / "1" / "model.pt"), map_location="cuda")
+        model_directory = repository / "image_classifier_torchscript"
+        assert sorted(path.name for path in (model_directory / "1").glob(pattern="*.pt")) == [file_name]
+        assert (('default_model_filename: "model_fp16.pt"' in (model_directory / "config.pbtxt").read_text()) ==
+                (torchscript_precision == "FP16"))
+        traced_models[torchscript_precision] = torch.jit.load(str(model_directory / "1" / file_name),
+                                                              map_location="cuda")
 
     # FP16 convolution kernels (the 4-dimensional weights), FP32 normalization statistics
     state_dictionary = traced_models["FP16"].state_dict()

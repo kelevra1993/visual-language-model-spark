@@ -32,7 +32,8 @@ CHECKED_RUN = {"run": "DET_test", "task": "object_detection", "device": "cuda", 
                "state_dictionary_key_characters": 24000, "constant_bytes": 4000000, "batch_normalization_bytes": 0,
                "weighted_operators": 100, "other_operators": 1000, "pytorch_fp32_estimated": 4100000,
                "pytorch_fp32_real": 4120000, "pytorch_fp16_estimated": 2100000, "pytorch_fp16_real": 2090000,
-               "torchscript_measured": 4500000, "onnx_estimated": 4180000, "onnx_graph_real": 170000,
+               "torchscript_measured": 4500000, "torchscript_fp16_estimated": 2400000,
+               "torchscript_fp16_real": 2380000, "onnx_estimated": 4180000, "onnx_graph_real": 170000,
                "onnx_data_real": 4000000, "onnx_real": 4170000, "checkpoint_estimated": 16000000,
                "checkpoint_real": 16100000, "tensorrt_fp32_lowest": 5500000, "tensorrt_fp32_highest": 6500000,
                "tensorrt_fp32_real": 6000000, "tensorrt_fp32_build_seconds": 12.3,
@@ -155,6 +156,7 @@ def test_report_gives_the_errors_and_the_range_positions(capsys: pytest.CaptureF
     detector_lines = report_lines[report_lines.index(next(line for line in report_lines if "DET_test" in line)):]
     assert any("PyTorch FP32 Weights" in line and "-0.49 %" in line for line in detector_lines)
     assert any("ONNX" in line and "+0.24 %" in line for line in detector_lines)
+    assert any("TorchScript FP16" in line and "+0.84 %" in line for line in detector_lines)
     assert any("TensorRT FP32 Engine" in line and "inside" in line for line in detector_lines)
     assert any("TensorRT FP16 Engine" in line and "outside by 2.5 %" in line for line in detector_lines)
     assert "  TensorRT FP32 engines built in 12.3 seconds (batch 1 then 16), named after their cache prefix: yes" in (

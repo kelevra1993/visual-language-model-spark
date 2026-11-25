@@ -7,10 +7,11 @@ requests to the model of the row (predict_exported_batch). Every request of a se
 model, and every sample is compared with the comparison and tolerances of the export specification, so that the parity
 gives both the metrics of every format and the samples whose outputs moved. The metrics of every row, their changes
 against the eager row, the stored evaluation of the exported iteration where it is comparable and the agreement of the
-samples are written to '<run>/Export_Parity/Iteration_<n>[_EMA]/' (parity_summary.md, parity_summary.json,
-parity_samples.csv, the evaluation files of every row and the server log). The parity only reports: the installation of the models stays decided by the
-random batch check of the export. The request and conversion functions also serve the test metric rows of the serving
-benchmark (scripts/deployment/evaluate_served_formats.py).
+samples are written to '<run>/Export_Parity/Iteration_<n>[_EMA][_T<temperature>]_<precisions>/' (parity_summary.md,
+parity_summary.json, parity_samples.csv, the evaluation files of every row and the server log), a folder of its own for
+every checkpoint, weights, classifier temperature and precision of every exported format. The parity only reports: the
+installation of the models stays decided by the random batch check of the export. The request and conversion functions
+also serve the test metric rows of the serving benchmark (scripts/deployment/evaluate_served_formats.py).
 """
 
 import csv
@@ -37,6 +38,7 @@ from vision_training.data.manifest_cache import read_manifests_once
 from vision_training.data.sequence.sequence_pair_dataset import split_pair_members
 from vision_training.deployment.deployment_utilities import (get_triton_output_names, run_local_inference,
                                                              run_triton_inference)
+from vision_training.deployment.triton_configuration import EXPORT_FORMATS
 from vision_training.deployment.triton_server import (TritonServerError, build_triton_server, find_free_ports,
                                                       load_served_model, start_triton_server, stop_triton_server,
                                                       unload_served_model)
@@ -51,8 +53,9 @@ from vision_training.trainers.detection_trainer import DetectionTrainer
 from vision_training.trainers.self_supervised_trainer import SelfSupervisedTrainer
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
-# Folder of the parities of a run, next to its evaluations, holding one folder per exported checkpoint and weights
-# ('Iteration_<n>' or 'Iteration_<n>_EMA'), its files, and the folder of the evaluation files of every row
+# Folder of the parities of a run, next to its evaluations, holding one folder per exported checkpoint, weights,
+# classifier temperature and precisions (get_parity_folder), its files, and the folder of the evaluation files of every
+# row
 PARITY_FOLDER_NAME = "Export_Parity"
 AVERAGED_WEIGHTS_SUFFIX = "_EMA"
 ROW_EVALUATIONS_FOLDER_NAME = "row_evaluations"
@@ -110,21 +113,45 @@ DIFFERENCE_DESCRIPTIONS = {
 FORMAT_LABELS = {"torchscript": "TorchScript", "onnx": "ONNX"}
 
 
-def get_parity_folder(experiment_folder: Path, checkpoint_path: Path, use_averaged_weights: bool) -> Path:
+def get_parity_folder(experiment_folder: Path, checkpoint_path: Path, use_averaged_weights: bool, task: str,
+                      logit_temperature: float, formats: List[str], tensorrt_precision: Optional[str],
+                      torchscript_precision: str) -> Path:
     """
-    Names the folder of the parity of an exported checkpoint, '<run>/Export_Parity/Iteration_<n>[_EMA]/', next to the
-    evaluations of the run, the averaged weights having their own folder.
+    Names the folder of the parity of an export, next to the evaluations of the run, after everything its rows depend
+    on, so that no parity replaces that of another export: '<run>/Export_Parity/Iteration_<n>[_EMA][_T<temperature>]_
+    <precisions>/', the temperature built into a classifier (the only task with one, 'T1' without a saved temperature)
+    and the precision of every exported format in the order of EXPORT_FORMATS: 'TorchScript-FP32' or
+    'TorchScript-FP16', then 'TensorRT-FP32', 'TensorRT-FP16' or 'ONNXRuntime-CUDA' for ONNX without TensorRT, e.g.
+    'Iteration_5000_EMA_T3_TorchScript-FP16_TensorRT-FP32'. A parity of the same export replaces it.
 
     Args:
         experiment_folder (Path): The exported run folder.
         checkpoint_path (Path): The exported checkpoint, in its 'Iteration_<n>' folder.
         use_averaged_weights (bool): Whether the moving average of the weights is exported.
+        task (str): The task of the run.
+        logit_temperature (float): The logit temperature built into an exported classifier, 1 for the other tasks.
+        formats (List[str]): The exported formats.
+        tensorrt_precision (Optional[str]): The TensorRT precision of the ONNX model, None for ONNX Runtime CUDA.
+        torchscript_precision (str): The precision of the network traced into the TorchScript file.
 
     Returns:
         Path: The parity folder.
     """
     weights_suffix = AVERAGED_WEIGHTS_SUFFIX if use_averaged_weights else ""
-    return experiment_folder / PARITY_FOLDER_NAME / f"{checkpoint_path.parent.name}{weights_suffix}"
+    temperature_suffix = f"_T{logit_temperature:g}" if task == "classification" else ""
+
+    # Precision of every exported format, in a fixed order whatever the order of the formats asked
+    precision_names = []
+    for export_format in EXPORT_FORMATS:
+        if export_format not in formats:
+            continue
+        if export_format == "torchscript":
+            precision_names.append(f"TorchScript-{torchscript_precision}")
+        else:
+            precision_names.append("ONNXRuntime-CUDA" if tensorrt_precision is None else
+                                   f"TensorRT-{tensorrt_precision}")
+    return experiment_folder / PARITY_FOLDER_NAME / (f"{checkpoint_path.parent.name}{weights_suffix}"
+                                                     f"{temperature_suffix}_{'_'.join(precision_names)}")
 
 
 def build_evaluation_trainer(experiment_folder: Path, test_data_folder: Path, evaluation_folder: Path,
@@ -843,8 +870,8 @@ def run_test_split_parity(experiment_folder: Path, checkpoint_path: Path, iterat
     parity. The eager row comes first, the reference; every served row then compares each of its requests with the
     eager model. A served row whose model Triton fails to load or to run (a TensorRT engine crashing the server, for
     instance) is recorded as failed with its error, the server is started again, and the other rows go on, so that
-    every format is evaluated whatever the others gave. The folder of an earlier parity of the same checkpoint and
-    weights is replaced.
+    every format is evaluated whatever the others gave. The folder of an earlier parity of the same export (checkpoint,
+    weights, temperature and precisions, get_parity_folder) is replaced.
 
     Args:
         experiment_folder (Path): The exported run folder.
@@ -869,13 +896,16 @@ def run_test_split_parity(experiment_folder: Path, checkpoint_path: Path, iterat
             and without its 'installation', and the records of compare_request_outputs of every served row, keyed by
             row name.
     """
+    experiment_configuration, _ = load_experiment_configuration(
+        configuration_path=experiment_folder / "training_configuration.yaml")
     parity_folder = get_parity_folder(experiment_folder=experiment_folder, checkpoint_path=checkpoint_path,
-                                      use_averaged_weights=use_averaged_weights)
+                                      use_averaged_weights=use_averaged_weights, task=experiment_configuration["task"],
+                                      logit_temperature=logit_temperature, formats=formats,
+                                      tensorrt_precision=tensorrt_precision,
+                                      torchscript_precision=torchscript_precision)
     if parity_folder.exists():
         shutil.rmtree(path=parity_folder)
     parity_folder.mkdir(parents=True)
-    experiment_configuration, _ = load_experiment_configuration(
-        configuration_path=experiment_folder / "training_configuration.yaml")
     test_data_folder = Path(experiment_configuration["test_data_folder"])
     print_color(color="blue", output=f"Test Split Parity : {format_path_link(path=test_data_folder)}",
                 add_separators=True)

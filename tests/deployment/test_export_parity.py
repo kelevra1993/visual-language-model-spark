@@ -317,7 +317,8 @@ def build_test_summary(experiment_folder: Path, checkpoint_path: Path, formats: 
         Dict[str, Any]: The summary, without its 'installation'.
     """
     parity_folder = get_parity_folder(experiment_folder=experiment_folder, checkpoint_path=checkpoint_path,
-                                      use_averaged_weights=False)
+                                      use_averaged_weights=False, task="classification", logit_temperature=1.0,
+                                      formats=formats, tensorrt_precision="FP16", torchscript_precision="FP32")
     common_row = {"headline_metric": "Accuracy", "percent_metrics": ["Accuracy"], "evaluated_samples": "4 Images",
                   "duration_seconds": 1.0, "error": None}
     worst_record = {"split": "test", "sample_identifier": 7, "sample": "circle_image_000007",
@@ -365,7 +366,11 @@ class ParityRecorder:
         self.calls.append(arguments)
         parity_folder = get_parity_folder(experiment_folder=arguments["experiment_folder"],
                                           checkpoint_path=arguments["checkpoint_path"],
-                                          use_averaged_weights=arguments["use_averaged_weights"])
+                                          use_averaged_weights=arguments["use_averaged_weights"],
+                                          task="classification", logit_temperature=arguments["logit_temperature"],
+                                          formats=arguments["formats"],
+                                          tensorrt_precision=arguments["tensorrt_precision"],
+                                          torchscript_precision=arguments["torchscript_precision"])
         parity_folder.mkdir(parents=True, exist_ok=True)
         summary = build_test_summary(experiment_folder=arguments["experiment_folder"],
                                      checkpoint_path=arguments["checkpoint_path"], formats=arguments["formats"],
@@ -614,7 +619,7 @@ def test_summary_gives_every_row_against_the_eager_row(tmp_path: Path) -> None:
                                  formats=["torchscript", "onnx"], random_batch_checks={"torchscript": [], "onnx": []})
     summary["installation"] = "installed into served_models, version 1"
     parity_folder = Path(summary["parity_folder"])
-    assert parity_folder == experiment_folder / "Export_Parity" / "Iteration_1"
+    assert parity_folder == experiment_folder / "Export_Parity" / "Iteration_1_T1_TorchScript-FP32_TensorRT-FP16"
     parity_folder.mkdir(parents=True)
     sample_records = {"torchscript": summary["rows"][1]["agreement"]["worst_samples"]}
     summary_paths = write_parity_summary(parity_folder=parity_folder, summary=summary, sample_records=sample_records)
@@ -653,6 +658,43 @@ def test_summary_of_a_detector_leaves_out_its_proposal_scalars(tmp_path: Path) -
     assert "Proposal Recall@0.5/all" not in markdown and "Proposals Per Image/all |" not in markdown
     assert "- 2 proposal scalars left out" in markdown
     assert "| **Accuracy** | 90.00 % | 88.00 % | -2.00 points |" in markdown
+
+
+@pytest.mark.parametrize(argnames=("use_averaged_weights", "task", "logit_temperature", "formats",
+                                   "tensorrt_precision", "torchscript_precision", "expected_name"), argvalues=[
+    (True, "classification", 3.0, ["torchscript"], "FP32", "FP16", "Iteration_5000_EMA_T3_TorchScript-FP16"),
+    (False, "classification", 1.0, ["onnx", "torchscript"], "FP16", "FP32",
+     "Iteration_5000_T1_TorchScript-FP32_TensorRT-FP16"),
+    (False, "classification", 2.5, ["torchscript", "onnx"], None, "FP16",
+     "Iteration_5000_T2.5_TorchScript-FP16_ONNXRuntime-CUDA"),
+    (True, "object_detection", 1.0, ["onnx"], "FP32", "FP32", "Iteration_5000_EMA_TensorRT-FP32")])
+def test_parity_folder_names_the_temperature_and_every_precision(tmp_path: Path, use_averaged_weights: bool, task: str,
+                                                                 logit_temperature: float, formats: List[str],
+                                                                 tensorrt_precision: Optional[str],
+                                                                 torchscript_precision: str,
+                                                                 expected_name: str) -> None:
+    """
+    Verifies that the parity folder names the iteration, the weights, the temperature of a classifier (only), and the
+    precision of every exported format in a fixed order, ONNX without TensorRT as ONNX Runtime CUDA, so that the
+    parities of exports differing in any of them never replace one another.
+
+    Args:
+        tmp_path (Path): The temporary folder of the test.
+        use_averaged_weights (bool): Whether the moving average of the weights is exported.
+        task (str): The task of the run.
+        logit_temperature (float): The temperature built into the exported model.
+        formats (List[str]): The exported formats, in the order asked.
+        tensorrt_precision (Optional[str]): The TensorRT precision of the ONNX model.
+        torchscript_precision (str): The TorchScript precision.
+        expected_name (str): The expected name of the parity folder.
+    """
+    experiment_folder = tmp_path / "RUN"
+    assert get_parity_folder(experiment_folder=experiment_folder,
+                             checkpoint_path=experiment_folder / "Weights" / "Iteration_5000" / "model_005000.pt",
+                             use_averaged_weights=use_averaged_weights, task=task, logit_temperature=logit_temperature,
+                             formats=formats, tensorrt_precision=tensorrt_precision,
+                             torchscript_precision=torchscript_precision) == (experiment_folder / "Export_Parity" /
+                                                                              expected_name)
 
 
 def test_summary_names_the_precision_of_an_fp16_torchscript_row(tmp_path: Path) -> None:
@@ -740,7 +782,8 @@ def test_export_with_parity_writes_its_summary_whatever_the_random_batch_check(t
     assert parity_recorder.calls[0]["formats"] == ["torchscript", "onnx"]
     assert parity_recorder.calls[0]["random_batch_checks"] == {"torchscript": [FORCED_MISMATCH],
                                                                "onnx": [FORCED_MISMATCH]}
-    parity_folder = experiment_folder / "Export_Parity" / f"Iteration_{test_input_contract.EXPORTED_ITERATION}"
+    parity_folder = (experiment_folder / "Export_Parity" /
+                     f"Iteration_{test_input_contract.EXPORTED_ITERATION}_T1_TorchScript-FP32_TensorRT-FP16")
     markdown = (parity_folder / SUMMARY_MARKDOWN_NAME).read_text()
     assert "Installation: refused, the random batch check of torchscript, onnx failed" in markdown
     assert f"- TorchScript: mismatch: {FORCED_MISMATCH}" in markdown

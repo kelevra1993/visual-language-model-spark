@@ -503,7 +503,8 @@ stay between 0 and 1.
       log.hidden = true;
     }
 
-    // Exports of the checkpoint, newest first, a record written before the FP16 TorchScript export holding FP32
+    // Exports of the checkpoint, newest first: the TorchScript precision served, then the one kept from an earlier
+    // export of the temperature, a record written before the FP16 TorchScript export holding FP32
     const headers = ["Folder", "T", "Exported", "Formats", "Version", "Batch", "TorchScript", "TensorRT"];
     const rows = [`<tr>${headers.map(header => `<th>${header}</th>`).join("")}</tr>`];
     status.exports.forEach(exportEntry => {
@@ -511,7 +512,7 @@ stay between 0 and 1.
       const cells = record === null ? [escapeHtml(exportEntry.name), "—", "—", "—", "—", "—", "—", "—"]
         : [escapeHtml(exportEntry.name), formatTemperature(record.logit_temperature), escapeHtml(record.exported_at),
            escapeHtml(record.formats.join(", ")), String(record.model_version), String(record.maximum_batch_size),
-           escapeHtml(String(record.torchscript_precision ?? "FP32")), escapeHtml(String(record.tensorrt_precision))];
+           escapeHtml(describeTorchscriptPrecisions(record)), escapeHtml(String(record.tensorrt_precision))];
       rows.push(`<tr>${cells.map(cell => `<td>${cell}</td>`).join("")}</tr>`);
     });
     document.getElementById("exports-table").innerHTML = rows.join("");
@@ -616,6 +617,16 @@ stay between 0 and 1.
       `Score Ranges At T = ${formatTemperature(answer.temperature)}`;
     document.getElementById("score-ranges-table").innerHTML = rows.join("");
     document.getElementById("score-ranges-wrapper").hidden = false;
+  }
+
+  // TorchScript cell of an export: the precision of the file served by its config.pbtxt, then any file kept from an
+  // earlier export of the temperature, a dash when no TorchScript model was exported
+  function describeTorchscriptPrecisions(record) {
+    if (!record.formats.includes("torchscript")) {
+      return "—";
+    }
+    const keptPrecisions = (record.kept_torchscript_precisions ?? []).map(precision => `${precision} kept`);
+    return [record.torchscript_precision ?? "FP32", ...keptPrecisions].join(", ");
   }
 
   // Starts the export of the checkpoint at the saved temperature with the settings of the form
