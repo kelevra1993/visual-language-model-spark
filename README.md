@@ -802,11 +802,11 @@ uv run python -m scripts.evaluation.draw_report_figures
 </p>
 <p align="center"><em>The precision-recall curves and the training curves drawn for the classifier above at iteration 2000 (test balanced accuracy 81.65 %), the curves shown for the first nine of its 35 classes (the script draws one panel per class): a dot marks the threshold reaching 99 % precision, reached by these nine and never by trapezoid, hollow parallelogram and hollow kite, at a logit temperature of 1 since no temperature was saved. The confusion matrix of the report is the one shown above; the chart of the groups needs a group manifest, which the synthetic shapes do not have.</em></p>
 
-Suppose a kept classifier must find a rare class among a million unlabelled images: `scripts/evaluation/score_image_split.py` runs only the forward pass of one checkpoint over every image of a split, decoded by many loader workers through the test dataset of the run, and writes the probability of every class to a predictions file with the columns of `predictions.csv`. It scores the images in the order of the `labels.json` of the split, stops before the next batch once `--time-budget-hours` has passed, and a new launch on the same file scores only the images it does not hold yet. Details: [tools reference](documentation/reference/tools_reference.md#scoring-a-large-split).
+Suppose a kept classifier must find a rare class among a million unlabelled images: `scripts/evaluation/score_image_split.py` runs only the forward pass of one checkpoint over every image of a split, decoded by many loader workers through the test dataset of the run, and writes the probability of every class to a predictions file with the columns of `predictions.csv`. It scores the images in the order of the `labels.json` of the split, stops before the next batch once `--time_budget_hours` has passed, and a new launch on the same file scores only the images it does not hold yet. Details: [tools reference](documentation/reference/tools_reference.md#scoring-a-large-split).
 
 ```bash
-uv run python -m scripts.evaluation.score_image_split --experiment-folder <run> --iteration 2000 \
-    --test-data-folder <split> --output-path <predictions.csv> --precision bfloat16 --time-budget-hours 3
+uv run python -m scripts.evaluation.score_image_split --experiment_folder <run> --iteration 2000 \
+    --test_data_folder <split> --output_path <predictions.csv> --precision bfloat16 --time_budget_hours 3
 ```
 
 ## Comparing Launches
@@ -1339,11 +1339,11 @@ The real files of this run measure 3.57 and 1.84 MB (`torch.save` of the state d
 
 `Exported Parameters` counts the parameters the forward pass reads, those the ONNX file and the engines keep: 438,368 of 571,104 for the SimCLR encoder of the tutorials, whose projector serves the training only (the PyTorch weights and the TorchScript file still hold it). The estimates take 0.1 to 0.8 seconds per tutorial run on the idle GPU and 0.2 to 5.0 seconds on the CPU (2026-11-22), up to 2.1 seconds for the Medium ImageNet classifier of 19.2 million parameters on a GPU other trainings shared, against 2 to 27 seconds for the real TorchScript, ONNX and PyTorch files of the tutorial runs, the ONNX export taking most of it, and from 5 seconds to 43 minutes for each TensorRT engine (the batch-16 engine of the instance segmenter). A forward pass or a trace that fails leaves its rows `failed` in red with the error under the table, and the training goes on.
 
-After a change to the exports or to their libraries, `scripts/deployment/check_export_size_estimates.py` exports the ten tutorial runs, prints every estimate against its real file and fits the constants again ([tools reference](documentation/reference/tools_reference.md#export-size-check)); with `--build-tensorrt-engines`, on an idle GPU, it also builds the 20 TensorRT engines through Triton, about two hours, to fit the TensorRT constants:
+After a change to the exports or to their libraries, `scripts/deployment/check_export_size_estimates.py` exports the ten tutorial runs, prints every estimate against its real file and fits the constants again ([tools reference](documentation/reference/tools_reference.md#export-size-check)); with `--build_tensorrt_engines`, on an idle GPU, it also builds the 20 TensorRT engines through Triton, about two hours, to fit the TensorRT constants:
 
 ```bash
 uv run python -m scripts.deployment.check_export_size_estimates
-uv run python -m scripts.deployment.check_export_size_estimates --device cuda --build-tensorrt-engines
+uv run python -m scripts.deployment.check_export_size_estimates --device cuda --build_tensorrt_engines
 ```
 
 ### Input Contract

@@ -5,19 +5,19 @@ constants of its formulas fitted on them, so that the panel can be calibrated ag
 the libraries. For every run it loads the last checkpoint, computes the estimates with the function of the panel,
 writes the PyTorch weights in FP32 and FP16 with torch.save and the ONNX files with export_onnx, traces the FP16
 TorchScript file on the GPU as the export does (convert_to_half_precision, skipped without a GPU), and reads the size
-of the real checkpoint of the run. With --build-tensorrt-engines it also serves the ONNX files in the Triton container
+of the real checkpoint of the run. With --build_tensorrt_engines it also serves the ONNX files in the Triton container
 of the serving benchmark (scripts/deployment/benchmark_serving_formats.py), once in FP32 and once in FP16, sends one
 request at batch 1 and one at the largest batch so that ONNX Runtime builds the TensorRT engines, and reads the size of
 the engines every model added to the engine cache, the time of those first requests (the engine builds) and whether
 the engines carry the cache prefix of the model, a model Triton fails to serve being reported in red with its error:
 from 10 seconds to a minute of first requests per model and precision, but 49 minutes for the instance segmenter of
 the tutorials (43 of them for its batch-16 engine), so about two hours in all, to run when the GPU is free. Every
-output stays outside the repository, under --output-folder: one folder of exported files per run, the
+output stays outside the repository, under --output_folder: one folder of exported files per run, the
 Triton logs and 'export_size_check.csv', one line per run.
 
 Run from the repository root:
     uv run python -m scripts.deployment.check_export_size_estimates
-    uv run python -m scripts.deployment.check_export_size_estimates --build-tensorrt-engines
+    uv run python -m scripts.deployment.check_export_size_estimates --build_tensorrt_engines
 """
 
 import argparse
@@ -591,12 +591,12 @@ def main() -> None:
     Checks the export size estimates of every run, writes the results and prints the report and the calibration.
     """
     parser = argparse.ArgumentParser(description="Checks the Export Sizes panel against real exports.")
-    parser.add_argument("--experiment-folders", type=Path, nargs="+", default=DEFAULT_EXPERIMENT_FOLDERS,
+    parser.add_argument("--experiment_folders", type=Path, nargs="+", default=DEFAULT_EXPERIMENT_FOLDERS,
                         help="Run folders to check (default: the tutorial runs of every task).")
-    parser.add_argument("--output-folder", type=Path, default=Path.home() / "Data" / "export_size_check",
+    parser.add_argument("--output_folder", type=Path, default=Path.home() / "Data" / "export_size_check",
                         help="Folder of the exported files, the Triton logs and export_size_check.csv.")
     parser.add_argument("--device", default="cpu", help="Device of the model during the estimates, e.g. 'cuda'.")
-    parser.add_argument("--build-tensorrt-engines", action="store_true",
+    parser.add_argument("--build_tensorrt_engines", action="store_true",
                         help="Also build the TensorRT engines through Triton (about two hours of GPU for the "
                              "tutorial runs, most of it for the instance segmenter).")
     arguments = parser.parse_args()

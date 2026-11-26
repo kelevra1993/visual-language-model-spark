@@ -11,11 +11,11 @@ row was cut by an interruption being refused. The images of the split are scored
 that a split ordered by priority scores its most promising images first.
 
 The forward pass can run in bfloat16 autocast, the precision of the training, after checking on the labelled test split
-of the run that the predicted classes and the balanced accuracy match the float32 pass (--compare-precisions).
+of the run that the predicted classes and the balanced accuracy match the float32 pass (--compare_precisions).
 
 Run from the repository root:
-    uv run python -m scripts.evaluation.score_image_split --experiment-folder <run> --iteration 1500 \
-        --use-averaged-weights --test-data-folder <split> --output-path <file.csv> --time-budget-hours 3
+    uv run python -m scripts.evaluation.score_image_split --experiment_folder <run> --iteration 1500 \
+        --use_averaged_weights --test_data_folder <split> --output_path <file.csv> --time_budget_hours 3
 """
 import argparse
 import csv
@@ -56,23 +56,23 @@ def parse_arguments() -> argparse.Namespace:
         argparse.Namespace: The parsed arguments.
     """
     argument_parser = argparse.ArgumentParser(description="Score every image of a split with one checkpoint.")
-    argument_parser.add_argument("--experiment-folder", required=True, help="Run folder of the classifier.")
+    argument_parser.add_argument("--experiment_folder", required=True, help="Run folder of the classifier.")
     argument_parser.add_argument("--iteration", type=int, required=True, help="Checkpoint iteration.")
-    argument_parser.add_argument("--use-averaged-weights", action="store_true",
+    argument_parser.add_argument("--use_averaged_weights", action="store_true",
                                  help="Score with the moving average of the weights saved with the checkpoint.")
-    argument_parser.add_argument("--test-data-folder", default=None,
+    argument_parser.add_argument("--test_data_folder", default=None,
                                  help="Split to score (labels.json and data/), any placeholder class; required "
-                                      "unless --compare-precisions only.")
-    argument_parser.add_argument("--output-path", default=None, help="Predictions file, appended when it exists.")
+                                      "unless --compare_precisions only.")
+    argument_parser.add_argument("--output_path", default=None, help="Predictions file, appended when it exists.")
     argument_parser.add_argument("--precision", choices=list(AUTOCAST_DTYPES), default="float32",
                                  help="Precision of the forward pass.")
-    argument_parser.add_argument("--batch-size", type=int, default=128, help="Images per forward pass.")
-    argument_parser.add_argument("--number-workers", type=int, default=12, help="Loader worker processes.")
-    argument_parser.add_argument("--time-budget-hours", type=float, default=None,
+    argument_parser.add_argument("--batch_size", type=int, default=128, help="Images per forward pass.")
+    argument_parser.add_argument("--number_workers", type=int, default=12, help="Loader worker processes.")
+    argument_parser.add_argument("--time_budget_hours", type=float, default=None,
                                  help="Stops after this time, the file then resuming at the next launch.")
-    argument_parser.add_argument("--compare-precisions", action="store_true",
+    argument_parser.add_argument("--compare_precisions", action="store_true",
                                  help="Scores the labelled test split of the run in every precision first and prints "
-                                      "the agreement and the speed, then stops unless --test-data-folder is given.")
+                                      "the agreement and the speed, then stops unless --test_data_folder is given.")
     return argument_parser.parse_args()
 
 
@@ -275,7 +275,7 @@ def read_scored_samples(output_path: Path, fieldnames: List[str]) -> Set[str]:
         reader = csv.DictReader(f=predictions_file)
         if reader.fieldnames != fieldnames:
             raise ValueError(f"{output_path} has the columns {reader.fieldnames}, expected {fieldnames}: it was written "
-                             f"for other classes, give another --output-path.")
+                             f"for other classes, give another --output_path.")
 
         # A row cut by an interruption lacks values (None) or holds more of them (key None)
         for row in reader:
@@ -305,7 +305,7 @@ def main() -> None:
     # Scoring a split needs the split and its predictions file, the precision comparison alone needs neither
     scores_split = arguments.test_data_folder is not None or not arguments.compare_precisions
     if scores_split and (arguments.test_data_folder is None or arguments.output_path is None):
-        raise ValueError("Scoring a split needs --test-data-folder and --output-path; only --compare-precisions runs "
+        raise ValueError("Scoring a split needs --test_data_folder and --output_path; only --compare_precisions runs "
                          "without them.")
 
     # Precisions compared on the labelled test split of the run, with the same weights
