@@ -69,7 +69,7 @@ evaluate_detections on the masks, then on the boxes ─► mAP@0.5 / 0.75 / 0.95
 ```bash
 uv run python -m vision_training.data.synthetic.create_synthetic_dataset --output_folder="$HOME/Data/instance_segmentation_data/synthetic_shapes"
 ```
-2. Train, after setting `experiment_folder` (and the data folders and mapping file if the dataset is elsewhere) in the configuration:
+2. Train, after pointing the three data folders and `Data.label_mapping.mapping_file_path` of the configuration to the dataset of step 1 and `experiment_folder` to the folder receiving the runs, as absolute paths:
 ```bash
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml"
 ```

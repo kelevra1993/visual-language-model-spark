@@ -98,14 +98,14 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv --version
 ```
 
-So that the repository runs on the Python it is developed and tested with, let uv download Python 3.13 and pin it for the project from the repository root. The download goes to uv's own folder and leaves the system Python untouched. `uv python pin` writes `.python-version` at the repository root, which `uv sync` and `uv run` read from then on; without it, uv takes the first Python it finds that satisfies `requires-python = ">=3.13"`, which may be a 3.14.
+So that the repository runs on the Python it is developed and tested with, its tracked `.python-version` file pins Python 3.13, which `uv sync` and `uv run` read; without it, uv would take the first Python it finds that satisfies `requires-python = ">=3.13"`, which may be a 3.14. From the repository root, `uv python install` downloads the pinned Python into uv's own folder, leaving the system Python untouched, and `uv python pin` prints the pinned version (given another version, it rewrites `.python-version`):
 
 ```bash
-uv python install 3.13
-uv python pin 3.13
+uv python install
+uv python pin
 ```
 
-Once Python is pinned, `uv sync` creates `.venv` with that Python and installs the versions locked in `uv.lock`, then `uv run python --version` should print 3.13:
+Once Python is installed, `uv sync` creates `.venv` with the pinned Python and installs the versions locked in `uv.lock`, then `uv run python --version` should print 3.13:
 
 ```bash
 uv sync
@@ -132,7 +132,7 @@ Should the backbones of classification, object detection or segmentation start f
 ## Quick Start With Synthetic Data
 In order to check the installation or a configuration within minutes, every task has a synthetic shapes dataset:
 1. Set `task` in the main block of `vision_training/data/synthetic/create_synthetic_dataset.py`, then run it with the root folder of the dataset, which is required and receives the `train`, `validation` and `test` folders and `label_mapping.json` (existing splits of the same names are overwritten).
-2. Point `experiment_folder`, the three data folders and `Data.label_mapping.mapping_file_path` of the synthetic configuration of the task (table below, in `vision_training/configurations/`) to the generated dataset.
+2. In the synthetic configuration of the task (table below, in `vision_training/configurations/`), point the three data folders and `Data.label_mapping.mapping_file_path` to the `train`, `validation` and `test` folders and the `label_mapping.json` of the generated dataset, and `experiment_folder` to the folder receiving the runs, all as absolute paths: a configuration expands neither `~` nor `$HOME`.
 3. Train with that configuration.
 
 ```bash
@@ -164,7 +164,7 @@ Should you need to know what a model of these datasets has to cope with, every t
 ## Training
 
 ### Launching A Run
-Once a dataset is ready, copy the `configuration_example.yaml` of the task (`vision_training/configurations/<task>/`), fill `experiment_folder`, the three data folders and the label mapping file (every key is explained by its comment), and run:
+Once a dataset is ready, copy the `configuration_example.yaml` of the task (`vision_training/configurations/<task>/`), fill `experiment_folder`, the three data folders and the label mapping file with absolute paths (every key is explained by its comment), and run:
 
 ```bash
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/classification/my_configuration.yaml"
@@ -927,8 +927,6 @@ tutorials/build_tutorials.sh --check-references
 tutorials/build_tutorials.sh --experiments-folder tutorials/run_snapshots
 ```
 
-Before creating, updating or rebuilding a chapter, read `tutorials/MAINTAINING.md`: the writing rules, the review workflow, and how `tutorials/run_snapshots/` (small copies of the runs, their dataset files and the figures that need a checkpoint, at most 5 MB per file) keeps everything a rebuild needs in the repository.
-
 Each time a build ends, it writes `index.html` next to the series folders: one player per series, with its chapters and their scenes as links to their start.
 
 <p align="center">
@@ -1576,7 +1574,7 @@ To find your way in the code, the diagram follows the packages along the path of
 │   └── utilities/                     # File, tensor, mask and visualization helpers
 ├── scripts/                           # Configuration, data, deployment (serving benchmark, export size check), embedding, evaluation and model drawing scripts
 ├── tests/                             # Tests, mirroring vision_training/ and scripts/
-└── tutorials/                         # Narrated tutorial videos: storyboards, figure scripts, run snapshots, MAINTAINING.md
+└── tutorials/                         # Narrated tutorial videos: storyboards, figure scripts, run snapshots, README.md of the build
 ```
 
 ## Metrics Explained
