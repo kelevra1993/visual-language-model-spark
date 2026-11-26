@@ -327,13 +327,19 @@ scenes:
   - kind: summary
     title: "Recap"
     items:
-      - {text: "{{foundations.repository.task_count}} tasks: one backbone, one loop, one configuration format, one report"}
-      - {text: "uv sync, then every script as a module from the repository root"}
-      - {text: "The Dockerfile builds the trainer image for the cloud and the Spark"}
-      - {text: "One YAML file per run, checked at launch or by check_configuration"}
-      - {text: "Iterations, not epochs"}
-      - {text: "The run name encodes the model; run_name_suffix starts a new run"}
-      - {text: "Everything a run writes stays in its run folder"}
+      - {text: "{{foundations.repository.task_count}} tasks: one backbone, one loop, one configuration format, one report", sentences: [0]}
+      - {text: "uv sync, then every script as a module from the repository root", sentences: [1]}
+      - {text: "The Dockerfile builds the trainer image for the cloud and the Spark", sentences: [2]}
+      - {text: "One YAML file per run, checked at launch or by check_configuration", sentences: [3]}
+      - {text: "Iterations, not epochs", sentences: [4]}
+      - {text: "The run name encodes the model; run_name_suffix starts a new run", sentences: [5]}
+      - {text: "Everything a run writes stays in its run folder", sentences: [6]}
     narration:
-      - "To recap: one configuration file defines a run, the run name identifies its model, and its folder holds everything it writes."
+      - "To recap: the {{foundations.repository.task_count:words}} tasks share the same backbone code, training loop, configuration format, evaluation report and export, so this series holds for each of them."
+      - "uv sync installs the environment pinned by the lock file, and every script runs as a module from the repository root, most of them set in their main block."
+      - "The Dockerfile builds the trainer image in named stages, with no CUDA image underneath, so each machine, a cloud pod or the DGX Spark, builds it for its own architecture."
+      - "One YAML file defines the run, without defaults; its checks run at launch, or alone with the check configuration module, which lists every problem and refuses unknown keys."
+      - "The length of a run, its checkpoints, evaluations and summaries are all counted in iterations; epochs only appear in the launch information."
+      - "The run name is built from the settings that shape the model, so the same settings resume in the same folder, and a run name suffix starts another run of them."
+      - "Everything a run writes stays in its folder: the copy of its configuration, the record of its data, its input samples, checkpoints, logs and evaluations."
       - "The next chapter follows the training loop itself: the iterations, the validation, the checkpoints, and how a run stops and resumes."

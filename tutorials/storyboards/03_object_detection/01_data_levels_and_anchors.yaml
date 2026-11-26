@@ -499,16 +499,22 @@ scenes:
 
   - kind: summary
     title: "Recap"
-    # The two stages and the four losses of the method
-    literal_numbers: [two, four]
+    # The two stages and the four losses of the method, and the block numbers of the levels
+    literal_numbers: [two, four, "6", "7"]
     items:
-      - {text: "Two stages: proposals per level, then RoI heads per level; Neck: {{object_detection.inference.model.neck_type}}"}
-      - {text: "COCO bbox [x, y, w, h] to corners; background added as class {{object_detection.data.background_class}}"}
-      - {text: "Blocks {{object_detection.run.level_names_text}}: strides {{object_detection.inference.level_4.stride}}, {{object_detection.inference.level_5.stride}}, {{object_detection.inference.level_6.stride}}, {{object_detection.inference.level_7.stride}}"}
-      - {text: "{{object_detection.inference.level_5.anchors_per_cell}} or {{object_detection.inference.level_7.anchors_per_cell}} anchors per cell, {{object_detection.inference.anchor_total:,}} in all, centred on the cell corners"}
-      - {text: "anchor_recall.csv: {{object_detection.anchor_recall.all.recall_all_levels:percent}} of the objects, {{object_detection.anchor_recall.small.recall_all_levels:percent}} of the small ones"}
-      - {text: "Proposals ({{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.proposal_selection}}): top-k and NMS {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.nms_iou_threshold}}, then {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.training.post_nms_proposals}} or {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.inference.post_nms_proposals}} kept"}
-      - {text: "Per level against joint on the benchmark: every slot real, {{object_detection.proposal_selection.lead:points}} of mAP"}
+      - {text: "Two stages: proposals per level, then RoI heads per level; Neck: {{object_detection.inference.model.neck_type}}", sentences: [0]}
+      - {text: "COCO bbox [x, y, w, h] to corners; background added as class {{object_detection.data.background_class}}", sentences: [1]}
+      - {text: "Blocks {{object_detection.run.level_names_text}}: strides {{object_detection.inference.level_4.stride}}, {{object_detection.inference.level_5.stride}}, {{object_detection.inference.level_6.stride}}, {{object_detection.inference.level_7.stride}}", sentences: [2]}
+      - {text: "{{object_detection.inference.level_5.anchors_per_cell}} or {{object_detection.inference.level_7.anchors_per_cell}} anchors per cell, {{object_detection.inference.anchor_total:,}} in all, centred on the cell corners", sentences: [3]}
+      - {text: "anchor_recall.csv: {{object_detection.anchor_recall.all.recall_all_levels:percent}} of the objects, {{object_detection.anchor_recall.small.recall_all_levels:percent}} of the small ones", sentences: [4]}
+      - {text: "Proposals ({{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.proposal_selection}}): top-k and NMS {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.nms_iou_threshold}}, then {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.training.post_nms_proposals}} or {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.inference.post_nms_proposals}} kept", sentences: [5]}
+      - {text: "Per level against joint on the benchmark: every slot real, {{object_detection.proposal_selection.lead:points}} of mAP", sentences: [6]}
     narration:
-      - "To recap: {{object_detection.inference.level_count:words}} levels of the backbone, {{object_detection.inference.level_5.anchors_per_cell:words}} or {{object_detection.inference.level_7.anchors_per_cell:words}} anchors per cell, region proposals selected per level or jointly, and an anchor recall that tells at launch which objects the detector can learn."
+      - "To recap: the region proposal head of every level proposes boxes, and the detection head of the level a proposal came from classifies it and refines its box, both reading the feature pyramid neck."
+      - "The detector turns the COCO bbox, x, y, width and height, into corners, and the label dictionary adds the background as class {{object_detection.data.background_class:words}}; a category missing from the mapping is dropped."
+      - "Every block named in Detection Levels is a level: the run reads blocks {{object_detection.run.level_names_text}}, and with the last max pooling off, block 7 keeps the stride of block 6."
+      - "Every cell gets one anchor per scale and ratio, {{object_detection.inference.level_5.anchors_per_cell:words}} or {{object_detection.inference.level_7.anchors_per_cell:words}} per cell, sitting on the top left corner of the cell rather than its center, since centered anchors trained no better."
+      - "Anchor recall csv, written at every launch from the annotations alone, shows that only {{object_detection.anchor_recall.small.recall_all_levels:percent}} of the small objects get an anchor reaching the foreground threshold; the others rely on the fallback."
+      - "The proposal filter ranks and suppresses the proposals within every level, then passes the best {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.training.post_nms_proposals}} per image to the detection heads in training, {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#RegionProposal.inference.post_nms_proposals}} in evaluation."
+      - "On the benchmark detector, the per-level selection fills every slot with a real proposal and ends {{object_detection.proposal_selection.lead:points}} of mAP ahead of the joint one, more than the noise between launches."
       - "The next chapter follows the training: how the anchors and proposals get their targets, the detection heads, and the four losses."

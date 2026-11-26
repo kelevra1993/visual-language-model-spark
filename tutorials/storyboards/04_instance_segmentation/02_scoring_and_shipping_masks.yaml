@@ -277,16 +277,22 @@ scenes:
 
   - kind: summary
     title: "Recap"
-    # The intersection over union of AP@0.75
-    literal_numbers: ["0.75"]
+    # The intersections over union of mAP@0.5 and AP@0.75
+    literal_numbers: ["0.5", "0.75"]
     items:
-      - {text: "Masks predicted on the final boxes, at the level of their proposal"}
-      - {text: "paste_instance_masks: bilinear at pixel centres, then >= {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.inference.mask_threshold}}"}
-      - {text: "Mask IoU in chunks, float64 ratio; mAP on masks, then on boxes"}
-      - {text: "Mask mAP@0.5 {{instance_segmentation.report.trained.mask_methods.area.0:percent}}, box {{instance_segmentation.report.trained.box_methods.area.0:percent}} at {{instance_segmentation.run.checkpoint_iteration}}"}
-      - {text: "AP@0.75 of the {{instance_segmentation.classes.largest_loss.name_text}}: mask {{instance_segmentation.classes.largest_loss.mask_ap_75:percent}}, box {{instance_segmentation.classes.largest_loss.box_ap_75:percent}}"}
-      - {text: "Finer mask inputs: image branch {{instance_segmentation.mask_inputs.image_branch_map:percent}}, skips {{instance_segmentation.mask_inputs.backbone_skips_map:percent}}, none {{instance_segmentation.mask_inputs.heads_map:percent}}"}
-      - {text: "detection_masks [B, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}]: pasted and thresholded by the client"}
+      - {text: "Masks predicted on the final boxes, at the level of their proposal", sentences: [0]}
+      - {text: "paste_instance_masks: bilinear at pixel centres, then >= {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.inference.mask_threshold}}", sentences: [1]}
+      - {text: "Mask IoU in chunks, float64 ratio; mAP on masks, then on boxes", sentences: [2]}
+      - {text: "Mask mAP@0.5 {{instance_segmentation.report.trained.mask_methods.area.0:percent}}, box {{instance_segmentation.report.trained.box_methods.area.0:percent}} at {{instance_segmentation.run.checkpoint_iteration}}", sentences: [3]}
+      - {text: "AP@0.75 of the {{instance_segmentation.classes.largest_loss.name_text}}: mask {{instance_segmentation.classes.largest_loss.mask_ap_75:percent}}, box {{instance_segmentation.classes.largest_loss.box_ap_75:percent}}", sentences: [4]}
+      - {text: "Finer mask inputs: image branch {{instance_segmentation.mask_inputs.image_branch_map:percent}}, skips {{instance_segmentation.mask_inputs.backbone_skips_map:percent}}, none {{instance_segmentation.mask_inputs.heads_map:percent}}", sentences: [5]}
+      - {text: "detection_masks [B, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}]: pasted and thresholded by the client", sentences: [6]}
     narration:
-      - "To recap: masks are scored after pasting, on their own IoU and size, next to the boxes of the same detections, and shipped as probabilities the client pastes."
+      - "To recap: in evaluation the masks are predicted on the final refined boxes, each detection at the level of its proposal, keeping the sigmoid of the detected class."
+      - "Paste instance masks puts every mask back into the image by bilinear sampling at the pixel centres, and the pixels from the mask threshold of {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.inference.mask_threshold}} belong to the object."
+      - "The mask IoU multiplies the masks in segments and takes the ratio in float64, so that exact ratios are not rounded down; the mAP then runs on the masks, then on the boxes of the same detections."
+      - "The mask table heads the report and compares the checkpoints: at iteration {{instance_segmentation.run.checkpoint_iteration:words}}, a mask mAP at 0.5 of {{instance_segmentation.report.trained.mask_methods.area.0:percent}}, against {{instance_segmentation.report.trained.box_methods.area.0:percent}} on the boxes."
+      - "Per class at 0.75, the masks lose on the hollow shapes, the {{instance_segmentation.classes.largest_loss.name_text}} most: thin walls pooled from coarse strides hold too few cells for their borders."
+      - "On the instance segmentation benchmark, the image branch and the backbone skips tie on the mask mAP over all overlap thresholds, both well above the heads without finer inputs."
+      - "The export ships probability masks in the frame of their boxes: the client pastes them at boxes restored unclipped, and applies the mask threshold itself."
       - "That closes the series on instance masks; the keypoint detection series follows."

@@ -161,13 +161,17 @@ scenes:
   - kind: summary
     title: "Recap"
     items:
-      - {text: "Image tasks: CLS, DET, INS, KPT, SEG"}
-      - {text: "Sequence tasks: M2O, M2M, CMP, SEL"}
-      - {text: "SSL: a backbone learnt without labels, for every other task"}
-      - {text: "Pick the task from the question: per image, object, pixel, sequence, frame or pair"}
-      - {text: "Everything around the task is shared"}
-      - {text: "Next: the foundations series, the series of your task, then deployment"}
+      - {text: "Image tasks: CLS, DET, INS, KPT, SEG", sentences: [0]}
+      - {text: "Sequence tasks: M2O, M2M, CMP, SEL", sentences: [1]}
+      - {text: "SSL: a backbone learnt without labels, for every other task", sentences: [2]}
+      - {text: "Pick the task from the question: per image, object, pixel, sequence, frame or pair", sentences: [3]}
+      - {text: "Everything around the task is shared", sentences: [4]}
+      - {text: "Next: the foundations series, the series of your task, then deployment", sentences: [5, 6]}
     narration:
-      - "To recap: start from the question you need answered, and the task follows; everything around the task is shared."
+      - "To recap: the image tasks, classification, detection, instance segmentation, keypoints and semantic segmentation, each read a single picture and differ by the answer they give."
+      - "The sequence tasks run the backbone on every frame, then a temporal module, to classify a sequence, label each frame, compare a pair of sequences or select frames."
+      - "The self-supervised task learns a backbone from images without labels, and its weights can start any other task instead of random weights."
+      - "To choose, start from the question: one answer per image, per object or per pixel, or one per sequence, per frame or per pair of sequences."
+      - "Around the task, the backbone, the training loop, the configuration, the data loading, the run folder and the export are the same code; the head, its losses and its metrics change."
       - "The foundations series comes next, with what every task shares, then each task has its own series, from its data to its export."
       - "A last series, deployment, exports the trained models, serves them with Triton and compares their serving formats."

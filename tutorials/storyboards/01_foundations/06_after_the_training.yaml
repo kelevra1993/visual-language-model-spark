@@ -209,12 +209,17 @@ scenes:
   - kind: summary
     title: "The foundations"
     items:
-      - {text: "One configuration file per run, its name and folder written by the run"}
-      - {text: "One training loop, scheduled in iterations"}
-      - {text: "One data pipeline and one augmentation code"}
-      - {text: "One backbone with its modules, shared by the {{foundations.repository.task_count}} tasks"}
-      - {text: "One optimization step, its schedule and averaged weights"}
-      - {text: "Evaluation, comparison, clustering and export scripts"}
+      - {text: "One configuration file per run, its name and folder written by the run", sentences: [0]}
+      - {text: "One training loop, scheduled in iterations", sentences: [1]}
+      - {text: "One data pipeline and one augmentation code", sentences: [2]}
+      - {text: "One backbone with its modules, shared by the {{foundations.repository.task_count}} tasks", sentences: [3]}
+      - {text: "One optimization step, its schedule and averaged weights", sentences: [4]}
+      - {text: "Evaluation, comparison, clustering and export scripts", sentences: [5]}
     narration:
-      - "To sum up the foundations: one configuration format, one training loop, one data pipeline, one backbone and one optimization serve every task, with the same tools after the training."
+      - "To recap the foundations: one configuration file defines a run, the settings that shape the model name it, and its folder holds everything it writes."
+      - "One training loop trains every task, its summaries, checkpoints and evaluations scheduled in iterations, and a relaunch always resumes the run."
+      - "One data pipeline loads, resizes and normalizes the images, and one augmentation code changes the training images only, its strengths fixed in the code."
+      - "The {{foundations.repository.task_count:words}} tasks build their feature extractor from the same backbone section and modules, so a backbone trained for one task can start another."
+      - "One optimization step applies the learning rate and its schedule in mixed precision, with an optional moving average of the weights."
+      - "After the training, the scripts evaluate checkpoints again, compare launches and runs, cluster image embeddings and export a model to Triton."
       - "Every task series then covers what is its own: its data, its model, its targets and losses, its evaluation and its export, starting with classification."

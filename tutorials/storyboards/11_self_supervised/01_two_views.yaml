@@ -240,16 +240,20 @@ scenes:
 
   - kind: summary
     title: "Recap"
-    # The two views and the two methods
-    literal_numbers: ["two"]
     items:
-      - {text: "Pre-train the backbone on unlabelled images, transfer it with Backbone.pretrained"}
-      - {text: "Labels only serve the k-NN evaluation; unmapped images get {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}"}
-      - {text: "ProjectionHead: pooling to the representation, layers to the embedding"}
-      - {text: "simclr (temperature) or barlow_twins (off-diagonal weight)"}
-      - {text: "Views drawn by Data.data_augmentation, random_crop at probability {{config:vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml#Data.data_augmentation.types.random_crop.probability}}"}
-      - {text: "Solarize and black-out on the second view only"}
-      - {text: "No token for the views, batch or learning rate: set run_name_suffix"}
+      - {text: "Pre-train the backbone on unlabelled images, transfer it with Backbone.pretrained", sentences: [0]}
+      - {text: "Labels only serve the k-NN evaluation; unmapped images get {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}", sentences: [1]}
+      - {text: "ProjectionHead: pooling to the representation, layers to the embedding", sentences: [2]}
+      - {text: "simclr (temperature) or barlow_twins (off-diagonal weight)", sentences: [3]}
+      - {text: "Views drawn by Data.data_augmentation, random_crop at probability {{config:vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml#Data.data_augmentation.types.random_crop.probability}}", sentences: [4]}
+      - {text: "Solarize and black-out on the second view only", sentences: [5]}
+      - {text: "No token for the views, batch or learning rate: set run_name_suffix", sentences: [6]}
     narration:
-      - "To recap: two random views of every image, drawn by the data augmentation at the self-supervised strengths, a projection head on the pooled backbone, and one of two methods."
+      - "To recap: the task pre-trains the backbone on images without labels, and another task starts from it through the pre-trained settings of its backbone section."
+      - "The labels only serve the nearest neighbour evaluation; an image without a mapped category gets the ignored label and is trained on like the others."
+      - "The projection head pools the last map into the representation, the vector that is evaluated and transferred, and its layers map it to the embedding the loss compares."
+      - "The method key switches between SimCLR, set by its temperature, and Barlow Twins, set by its off-diagonal weight, both settings being checked whatever the method."
+      - "The data augmentation section draws the views and must be on, and the random crop, when activated, stays at a probability of one: it is the main difference between the views."
+      - "Solarization and black-out are drawn for the second view only, as in the asymmetric views of Barlow Twins."
+      - "The views, the batch size and the learning rate leave no run name token, so a relaunch with stronger views resumes the previous folder unless a run name suffix is set."
       - "The next chapter follows the views through the network to the InfoNCE and Barlow Twins losses, and reads the training curves of the run."

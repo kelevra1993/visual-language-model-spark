@@ -265,13 +265,19 @@ scenes:
   - kind: summary
     title: "Recap"
     items:
-      - {text: "Loader workers read and resize the images, each loader with its own"}
-      - {text: "Square input: keep_ratio pads with black bands, otherwise stretches"}
-      - {text: "Pixels mapped to {{foundations.data.normalized_pixel_minimum}} to {{foundations.data.normalized_pixel_maximum}} by the first layer of the model"}
-      - {text: "Augmentation: one draw per image, then one per activated type"}
-      - {text: "Strengths in the code, switches and probabilities in the file"}
-      - {text: "Validation and test images are never augmented"}
-      - {text: "view_input_images shows what the network receives, Input_Samples/ keeps it"}
+      - {text: "Loader workers read and resize the images, each loader with its own", sentences: [0]}
+      - {text: "Square input: keep_ratio pads with black bands, otherwise stretches", sentences: [1]}
+      - {text: "Pixels mapped to {{foundations.data.normalized_pixel_minimum}} to {{foundations.data.normalized_pixel_maximum}} by the first layer of the model", sentences: [2]}
+      - {text: "Augmentation: one draw per image, then one per activated type", sentences: [3]}
+      - {text: "Strengths in the code, switches and probabilities in the file", sentences: [4]}
+      - {text: "Validation and test images are never augmented", sentences: [5]}
+      - {text: "view_input_images shows what the network receives, Input_Samples/ keeps it", sentences: [6]}
     narration:
-      - "To sum up: the workers read and resize the images, the first layer of the model normalizes them, and only the training batches are augmented, with the types and probabilities of the configuration."
+      - "To recap: loader workers read and resize the images of the labels file, each loader with workers of its own, their number and prefetched batches fixed in the code."
+      - "Every image becomes the square input of the network: keep ratio fits it between black bands and maps the predictions back, while without it the image is stretched."
+      - "The input normalization, the first layer of the model, maps the pixels to {{foundations.data.normalized_pixel_minimum}} to {{foundations.data.normalized_pixel_maximum}} on the GPU, after the augmentation."
+      - "A first draw decides whether a training image is augmented at all, then every activated type is drawn with its own probability, so an image may get several types or none."
+      - "The strengths are fixed in the code, a stronger set for the self-supervised views, so a configuration file only switches the types on and sets their probabilities."
+      - "The validation and test images are never augmented, so that their curves and metrics measure the model on the real images."
+      - "View input images shows the training images as the network receives them, then stops without training, and every launch writes its first samples to the input samples folder."
       - "The next chapter opens the model: the convolution blocks of the backbone and the modules that can be switched on."

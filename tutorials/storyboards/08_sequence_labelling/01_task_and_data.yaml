@@ -190,12 +190,17 @@ scenes:
   - kind: summary
     title: "Recap"
     items:
-      - {text: "M2M: one class per frame, any number of frames per class"}
-      - {text: "labels.json: frame_category_ids, one category per frame"}
-      - {text: "Unmapped category → label {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}: no loss, no metric"}
-      - {text: "no_change: {{sequence_labelling.dataset.no_change_share:percent}} of the frames, always the first one"}
-      - {text: "Position prior: cross entropy {{sequence_labelling.dataset.prior_cross_entropy:.2f}}, uniform {{sequence_labelling.dataset.uniform_cross_entropy:.2f}}"}
-      - {text: "Whole sequences, padded per batch, longer ones left out"}
+      - {text: "M2M: one class per frame, any number of frames per class", sentences: [0]}
+      - {text: "labels.json: frame_category_ids, one category per frame", sentences: [1]}
+      - {text: "Unmapped category → label {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}: no loss, no metric", sentences: [2]}
+      - {text: "no_change: {{sequence_labelling.dataset.no_change_share:percent}} of the frames, always the first one", sentences: [3]}
+      - {text: "Position prior: cross entropy {{sequence_labelling.dataset.prior_cross_entropy:.2f}}, uniform {{sequence_labelling.dataset.uniform_cross_entropy:.2f}}", sentences: [4]}
+      - {text: "Whole sequences, padded per batch, longer ones left out", sentences: [5]}
     narration:
-      - "To recap: one class per frame, unmapped frames ignored, whole sequences padded per batch, and a class balance where no change dominates and always opens a sequence."
+      - "To recap: sequence labeling gives a class to every frame, any number of frames holding any class: choose it when the answer is the frame where something happens."
+      - "The labels file lists the frames of every sequence in order with one category per frame, and a list one category too long or too short is refused when the data set is built."
+      - "A frame whose category the label mapping leaves out gets the label {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}: the loss and the metrics skip it, and it ends a segment."
+      - "No change holds {{sequence_labelling.dataset.no_change_share:percent}} of the training frames and always labels the first one, so a model that never finds a change still gets a fair accuracy."
+      - "The position of a frame alone already gives a cross entropy of {{sequence_labelling.dataset.prior_cross_entropy:.2f}}, against {{sequence_labelling.dataset.uniform_cross_entropy:.2f}} for a uniform guess: the references of the training loss."
+      - "Every sequence is fed whole and padded to the longest one of its batch, the padding masked out of the loss; a sequence over the maximum length is left out with a warning, never cut."
       - "The next chapter follows a batch through the model: the encoder of the frames, the recurrent module keeping one vector per frame, the head and the loss."

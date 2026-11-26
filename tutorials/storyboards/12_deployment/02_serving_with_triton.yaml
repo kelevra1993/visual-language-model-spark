@@ -234,13 +234,19 @@ scenes:
   - kind: summary
     title: "Recap"
     items:
-      - {text: "docker compose up in vision_training/deployment/triton, ports {{deployment.compose.http_port}}, {{deployment.compose.grpc_port}}, {{deployment.compose.metrics_port}}"}
-      - {text: "<model>_<format>/<version>/: model file, preprocessing.json, config.pbtxt beside", monospace: true}
-      - {text: "The client builds the input from the contract and sends float32 tensors"}
-      - {text: "System shared memory instead of gRPC payloads for large images"}
-      - {text: "TorchScript, ONNX Runtime CUDA, TensorRT FP32 and FP16; no BF16, no native engine"}
-      - {text: "TensorRT engines built at the first request of every batch size, cache not mounted"}
-      - {text: "Batching and instances: config.pbtxt, or a configuration given at load time"}
+      - {text: "docker compose up in vision_training/deployment/triton, ports {{deployment.compose.http_port}}, {{deployment.compose.grpc_port}}, {{deployment.compose.metrics_port}}", sentences: [0]}
+      - {text: "<model>_<format>/<version>/: model file, preprocessing.json, config.pbtxt beside", monospace: true, sentences: [1]}
+      - {text: "The client builds the input from the contract and sends float32 tensors", sentences: [2]}
+      - {text: "System shared memory instead of gRPC payloads for large images", sentences: [3]}
+      - {text: "TorchScript, ONNX Runtime CUDA, TensorRT FP32 and FP16; no BF16, no native engine", sentences: [4]}
+      - {text: "TensorRT engines built at the first request of every batch size, cache not mounted", sentences: [5]}
+      - {text: "Batching and instances: config.pbtxt, or a configuration given at load time", sentences: [6]}
     narration:
-      - "To recap: Triton serves every model of the repository from one compose file, the client prepares the input from the contract and sends it over gRPC or shared memory, and TensorRT pays for its speed with engines built at the first requests."
+      - "To recap: one docker compose file starts Triton on the model repository of the export, with its own ports for HTTP, gRPC and the metrics, and loads every model at start."
+      - "Each model is a folder named after its task model and format, its Triton configuration next to one folder per version, which holds the model file and its preprocessing file."
+      - "Triton does not prepare the images: the client reads the photo as BGR, resizes and pads it as the preprocessing file states, and sends float32 tensors."
+      - "For large images, write them once into a system shared memory region instead of copying them into every gRPC request, which needs the IPC host setting of the compose file."
+      - "TorchScript, plain ONNX Runtime and the TensorRT accelerator in FP32 and FP16 can be served, the engines unchecked; BF16 is refused at load and native engines are not implemented."
+      - "ONNX Runtime builds a TensorRT engine at the first request of every larger batch, cached in a folder the compose file does not mount, so warm the server up before opening it."
+      - "To change the dynamic batching or the instances, edit the Triton configuration file before the next start, or give a changed configuration in the load request, as the serving benchmark does."
       - "The last chapter measures every serving path on {{deployment.sweep.model_count:words}} models, and shows what it changed in the code."

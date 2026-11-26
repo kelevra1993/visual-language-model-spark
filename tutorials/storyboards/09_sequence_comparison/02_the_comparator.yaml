@@ -183,12 +183,17 @@ scenes:
   - kind: summary
     title: "Recap"
     items:
-      - {text: "One backbone, pooling and temporal module for both members"}
-      - {text: "Training: 2B padded sequences, one encoder call"}
-      - {text: "Export: every member alone, its own length"}
-      - {text: "FCAT {{sequence_comparison.features.concatenation_multiple}} × {{sequence_comparison.features.member}}, FDIF and FXA {{sequence_comparison.features.difference_multiple}} × {{sequence_comparison.features.member}} features"}
-      - {text: "Mean pooling and difference: no weights besides backbone and head"}
-      - {text: "Cross attention: Fusion.number_heads divides the last block channels"}
+      - {text: "One backbone, pooling and temporal module for both members", sentences: [0]}
+      - {text: "Training: 2B padded sequences, one encoder call", sentences: [1]}
+      - {text: "Export: every member alone, its own length", sentences: [2]}
+      - {text: "FCAT {{sequence_comparison.features.concatenation_multiple}} × {{sequence_comparison.features.member}}, FDIF and FXA {{sequence_comparison.features.difference_multiple}} × {{sequence_comparison.features.member}} features", sentences: [3]}
+      - {text: "Mean pooling and difference: no weights besides backbone and head", sentences: [4]}
+      - {text: "Cross attention: Fusion.number_heads divides the last block channels", sentences: [5]}
     narration:
-      - "To recap: both members share every weight, they are encoded together as 2B sequences in training and alone in the export, and the fusion turns two member vectors into one pair vector."
+      - "To recap: both members go through the same backbone, pooling and temporal module, so that their vectors are comparable."
+      - "In training and evaluation, encode members stacks both padded members into 2B sequences for one call, the padding frames getting zeros without reaching the backbone."
+      - "The export encodes and summarizes every member alone, each with its own number of frames, and gives the same probabilities as the masked path of the training."
+      - "Concatenation gives {{sequence_comparison.features.concatenation}} features; difference and cross attention add the after minus the before vector, {{sequence_comparison.features.difference}} features, the change made explicit for the head."
+      - "With a mean pooling and a difference fusion, only the backbone and the head have weights, {{sequence_comparison.parameters.total:,}} parameters in all, under one megabyte."
+      - "With the cross attention fusion, its number of heads must divide the channels of the last backbone block, {{sequence_comparison.backbone.channels}} in this run."
       - "The next chapter trains this configuration and reads its evaluation, its errors and its thresholds."

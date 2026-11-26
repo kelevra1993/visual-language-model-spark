@@ -195,12 +195,17 @@ scenes:
   - kind: summary
     title: "Recap"
     items:
-      - {text: "Cross entropy + soft Dice at weights {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.cross_entropy_weight:g}} and {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.dice_weight:g}}; IoU surrogate and boundary at {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.lovasz_weight:g}} and {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.boundary_weight:g}}"}
-      - {text: "Pixels at {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}} left out of every loss and metric"}
-      - {text: "class_weighting balanced: pixel counts cached in class_pixel_counts.json"}
-      - {text: "No run name token for the losses: a change resumes the run"}
-      - {text: "Batch mean IoU: classes of the batch, averaged over batches"}
-      - {text: "Watch the mean IoU, not the pixel accuracy"}
+      - {text: "Cross entropy + soft Dice at weights {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.cross_entropy_weight:g}} and {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.dice_weight:g}}; IoU surrogate and boundary at {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.lovasz_weight:g}} and {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.boundary_weight:g}}", sentences: [0]}
+      - {text: "Pixels at {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}} left out of every loss and metric", sentences: [1]}
+      - {text: "class_weighting balanced: pixel counts cached in class_pixel_counts.json", sentences: [2]}
+      - {text: "No run name token for the losses: a change resumes the run", sentences: [3]}
+      - {text: "Batch mean IoU: classes of the batch, averaged over batches", sentences: [4]}
+      - {text: "Watch the mean IoU, not the pixel accuracy", sentences: [5]}
     narration:
-      - "To recap: the cross entropy trains every pixel, the Dice loss gives the small classes their weight, and the batch metrics follow the training while the mean IOU of the evaluations compares the checkpoints."
+      - "To recap: the cross entropy, which trains every pixel, and the soft Dice loss, which gives the small classes their weight, have weights {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.cross_entropy_weight:.2g}} and {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.dice_weight:.2g}}, the IOU surrogate and the boundary loss {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.lovasz_weight:.2g}} and {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.boundary_weight:.2g}}."
+      - "The pixels at {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}, the padding and the unlabelled ones, give no loss and are left out of every metric, the confusion matrix and the boundary counts included."
+      - "Balanced class weighting counts the pixels of every class once over the training masks and caches them in the run folder; the synthetic configuration keeps it at {{config:vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml#SegmentationLoss.class_weighting}}."
+      - "None of the loss settings gives a token to the run name, so changing them resumes the same run folder, with the class weights of the new configuration."
+      - "The mean IOU of a batch averages the classes of that batch, and the summaries average the batches, so it follows the training but is not the IOU of a test evaluation."
+      - "The background makes the pixel accuracy high early, {{semantic_segmentation.headline_pixel_accuracy_1000:percent}} at iteration {{semantic_segmentation.run_first_evaluated_iteration}}, so compare the checkpoints on the mean IOU of the test evaluations."
       - "The next chapter evaluates the checkpoints: the confusion matrix, the boundary metrics, the curves of the pixel probabilities, the sample images, and the export."

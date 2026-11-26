@@ -300,13 +300,19 @@ scenes:
   - kind: summary
     title: "Recap"
     items:
-      - {text: "Accuracy {{sequence_labelling.evaluation.accuracy:percent}}, balanced accuracy {{sequence_labelling.evaluation.balanced_accuracy:percent}}"}
-      - {text: "Balanced accuracy = mean of the Per Class Recall column"}
-      - {text: "Recall intervals over the test sequences, not the frames"}
-      - {text: "First frames: {{sequence_labelling.predictions.first_frame_accuracy:percent}} right, the cost of the balanced weights"}
-      - {text: "Trivial values: accuracy {{sequence_labelling.trivial.accuracy:percent}}, macro F1 {{sequence_labelling.trivial.macro_f1:percent}}"}
-      - {text: "Segment metrics: events, not frames"}
-      - {text: "Export: [B, T, {{sequence_labelling.run.input_channels}}, S, S] → [B, T, K], no mask"}
+      - {text: "Accuracy {{sequence_labelling.evaluation.accuracy:percent}}, balanced accuracy {{sequence_labelling.evaluation.balanced_accuracy:percent}}", sentences: [0]}
+      - {text: "Balanced accuracy = mean of the Per Class Recall column", sentences: [1]}
+      - {text: "Recall intervals over the test sequences, not the frames", sentences: [2]}
+      - {text: "First frames: {{sequence_labelling.predictions.first_frame_accuracy:percent}} right, the cost of the balanced weights", sentences: [3]}
+      - {text: "Trivial values: accuracy {{sequence_labelling.trivial.accuracy:percent}}, macro F1 {{sequence_labelling.trivial.macro_f1:percent}}", sentences: [4]}
+      - {text: "Segment metrics: events, not frames", sentences: [5]}
+      - {text: "Export: [B, T, {{sequence_labelling.run.input_channels}}, S, S] → [B, T, K], no mask", sentences: [6]}
     narration:
-      - "To recap: compare every metric with its trivial value, read the recall of every class and the predictions by frame position, and score the events with the segment metrics."
+      - "To recap: the run gets {{sequence_labelling.evaluation.accuracy:percent}} of its frames right, and a balanced accuracy of {{sequence_labelling.evaluation.balanced_accuracy:percent}}, every change class counting as much as no change."
+      - "The balanced accuracy is the mean of the Per Class Recall column, so read that column to find the change classes the model misses."
+      - "The recall intervals take their effective sample size from a bootstrap of the test sequences, since the frames of one sequence are not independent, and come out wider."
+      - "Only {{sequence_labelling.predictions.first_frame_accuracy:percent}} of the first frames are right, the balanced weights making no change light: give the first frame no change, or read no change through its threshold."
+      - "Predicting no change everywhere already reaches an accuracy of {{sequence_labelling.trivial.accuracy:percent}} but a macro F1 of {{sequence_labelling.trivial.macro_f1:percent}}: read the balanced metrics before the accuracy."
+      - "The segment metrics score the events, not the frames: the edit score and the segment F1 catch a prediction cut into fragments, which the frame metrics never see."
+      - "The export takes images of B by T frames and returns the probabilities of every frame, without a sequence mask, so the sequences of one request share their number of frames."
       - "The next series, sequence comparison, puts sequences side by side in pairs: a before and an after member, their padding and their fusion."

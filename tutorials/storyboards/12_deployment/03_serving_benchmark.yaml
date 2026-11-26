@@ -222,13 +222,18 @@ scenes:
   - kind: summary
     title: "What the benchmark decided"
     items:
-      - {text: "TensorRT FP16: fastest row, CLS and M2M within {{deployment.metric.CLS.tensorrt_fp16_gap:points}} and {{deployment.metric.M2M.tensorrt_fp16_gap:points}}"}
-      - {text: "DET FP16 {{deployment.metric.DET.tensorrt_fp16_gap:points}}: group offsets overflowed FP16 in batches"}
-      - {text: "suppress_stacked_groups and DIoU on fractions: DET {{deployment.metric.DET_fixed.tensorrt_fp16_gap:points}} in FP16"}
-      - {text: "Dynamic batching as exported helps none of the measured models"}
-      - {text: "Shared memory over gRPC for large images"}
-      - {text: "Eager and TorchScript DET: batches grow with the square of the batch size"}
-      - {text: "Plan and results: documentation/architecture_benchmarking/serving_benchmark_*", monospace: true}
+      - {text: "TensorRT FP16: fastest row, CLS and M2M within {{deployment.metric.CLS.tensorrt_fp16_gap:points}} and {{deployment.metric.M2M.tensorrt_fp16_gap:points}}", sentences: [0]}
+      - {text: "DET FP16 {{deployment.metric.DET.tensorrt_fp16_gap:points}}: group offsets overflowed FP16 in batches", sentences: [1]}
+      - {text: "suppress_stacked_groups and DIoU on fractions: DET {{deployment.metric.DET_fixed.tensorrt_fp16_gap:points}} in FP16", sentences: [2]}
+      - {text: "Dynamic batching as exported: off in the fastest setting of every model", sentences: [3]}
+      - {text: "Shared memory over gRPC for large images", sentences: [4]}
+      - {text: "Eager and TorchScript DET: batches grow with the square of the batch size", sentences: [5]}
+      - {text: "Plan and results: documentation/architecture_benchmarking/serving_benchmark_*", monospace: true, sentences: [6]}
     narration:
-      - "To recap: serve TensorRT FP16 when its test metric matches the eager model, check that metric through the served engine, prefer shared memory for large images, and measure the server settings before keeping the exported ones."
+      - "To recap: TensorRT FP16 is the fastest row of every model, and the classifier and the sequence labeller keep their test accuracy, within {{deployment.metric.CLS.tensorrt_fp16_gap:points}} and {{deployment.metric.M2M.tensorrt_fp16_gap:points}}."
+      - "The detector read {{deployment.metric.DET.tensorrt_fp16_gap:points}} of mAP in FP16: in batches, the group offsets of its exported NMS passed the largest FP16 value, so the duplicates of the later images survived."
+      - "Suppress stacked groups now gives every group its own batch of one NonMaxSuppression, and the distance IoU runs on boxes in fractions of the image, so the detector reads {{deployment.metric.DET_fixed.tensorrt_fp16_gap:points}} in FP16."
+      - "The dynamic batching the export writes only adds its queue delay with one client, and the fastest measured setting of every model leaves it off, so measure the server settings before keeping them."
+      - "Over gRPC, building and copying large requests costs more than the model, so send large images through system shared memory."
+      - "The eager and TorchScript detectors take time growing with about the square of the batch size, since their suppressions get every box of the batch, so never size a server from them."
       - "The serving plan and its results files keep every number of this chapter, and its follow-ups section holds the work left to do."

@@ -308,12 +308,17 @@ scenes:
     # The two losses and the two decodings of the task
     literal_numbers: ["two"]
     items:
-      - {text: "Per-frame loss: which class is this frame"}
-      - {text: "Selection loss: which frames are best for this class"}
-      - {text: "Equal logits: ln T, {{frame_selection.dataset.mean_log_length:.2f}} on average"}
-      - {text: "Hungarian gain: log p(f, c) − log p(f, unselected)"}
-      - {text: "linear_sum_assignment: the most probable labelling"}
-      - {text: "Greedy: cheaper, can lose the labelling"}
+      - {text: "Per-frame loss: which class is this frame", sentences: [0]}
+      - {text: "Selection loss: which frames are best for this class", sentences: [1]}
+      - {text: "Equal logits: ln T, {{frame_selection.dataset.mean_log_length:.2f}} on average", sentences: [2]}
+      - {text: "Hungarian gain: log p(f, c) − log p(f, unselected)", sentences: [3]}
+      - {text: "linear_sum_assignment: the most probable labelling", sentences: [4]}
+      - {text: "Greedy: cheaper, can lose the labelling", sentences: [5]}
     narration:
-      - "To recap: two losses, one per frame and one per class over the frames, and two decodings, the Hungarian assignment of the most probable labeling and the cheaper greedy rule."
+      - "To recap: the per-frame loss is the cross entropy of the sequence labeling, and answers which class each frame is."
+      - "The selection loss takes the softmax of every wanted class over the frames of the sequence, so that the true frame must beat every other frame, the comparison the decoding makes."
+      - "A model giving every frame the same logit scores the log of T on the selection loss, {{frame_selection.dataset.mean_log_length:.2f}} on average over the training sequences, close to the first selection loss of the run."
+      - "The Hungarian decoding scores a frame for a class by its gain, the log probability of the class minus that of unselected: what the frame adds when taken from unselected."
+      - "Linear sum assignment then picks the frames of the largest total gain, every frame at most once: the most probable labeling, not the largest number of right frames."
+      - "Greedy is cheaper, but gives a frame to a class that only slightly prefers it; both decodings are scored at every evaluation, and Selection decoding picks the one used."
       - "The next chapter reads the evaluation of the run, its {{frame_selection.decodings.iteration_1000_hungarian_wrong:words}} wrong picks and their confidence thresholds, then its deployment as a network, a decoder and an ensemble."

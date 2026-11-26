@@ -213,12 +213,17 @@ scenes:
   - kind: summary
     title: "Recap"
     items:
-      - {text: "One class per sequence, read whole: no window"}
-      - {text: "labels.json: the ordered frames and one category per sequence"}
-      - {text: "Longer than maximum_sequence_length: left out, in red"}
-      - {text: "Batches padded with black frames to their longest sequence"}
-      - {text: "sequence_mask: False on the padding, real frames first"}
-      - {text: "Moving shapes: {{sequence_classification.dataset.disk_minimum_frames}} to {{sequence_classification.dataset.disk_maximum_frames}} frames, {{sequence_classification.lengths.padding_share_run:percent}} padding"}
+      - {text: "One class per sequence, read whole: no window", sentences: [0]}
+      - {text: "labels.json: the ordered frames and one category per sequence", sentences: [1]}
+      - {text: "Longer than maximum_sequence_length: left out, in red", sentences: [2]}
+      - {text: "Batches padded with black frames to their longest sequence", sentences: [3]}
+      - {text: "sequence_mask: False on the padding, real frames first", sentences: [4]}
+      - {text: "Moving shapes: {{sequence_classification.dataset.disk_minimum_frames}} to {{sequence_classification.dataset.disk_maximum_frames}} frames, {{sequence_classification.lengths.padding_share_run:percent}} padding", sentences: [5]}
     narration:
-      - "To recap: a sequence is one sample read in full, a batch is padded to its longest sequence, and the mask tells every module which frames are real."
+      - "To recap: every sequence is one sample with one class, read in full, with no window and no subsampling."
+      - "The labels file gives every sequence its frames in order and a single category, which the label mapping turns into a class index."
+      - "A sequence longer than the maximum length is left out with a red line, in every split, the test split included, so set the length from the data."
+      - "The collate pads every batch with black frames up to its own longest sequence, not up to the maximum length, so smaller batches pad less."
+      - "The sequence mask is False on the padding, and the real frames always come first, as the packed recurrent networks need."
+      - "The moving shapes hold {{sequence_classification.dataset.disk_minimum_frames_words}} to {{sequence_classification.dataset.disk_maximum_frames_words}} frames per sequence, so {{sequence_classification.lengths.padding_share_run:percent}} of the frames of the run batches are padding, made by the collate but never encoded."
       - "The next chapter follows a padded batch through the encoder of the frames, the temporal module and the head."

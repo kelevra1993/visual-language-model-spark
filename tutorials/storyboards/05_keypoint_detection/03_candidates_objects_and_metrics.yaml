@@ -228,12 +228,17 @@ scenes:
     # The similarity of a key point not found (0.5 listed first, the 0 alone splitting the name mAP@0.5)
     literal_numbers: ["0.5", "0"]
     items:
-      - {text: "Candidates: {{constant:vision_training/models/keypoints/keypoint_detector.py#CANDIDATE_WINDOW_SIZE}}x{{constant:vision_training/models/keypoints/keypoint_detector.py#CANDIDATE_WINDOW_SIZE}} local maxima of the averaged heat maps, placed within their cell"}
-      - {text: "Grouping on the CPU, key point by key point, by rounded tag distance then score"}
-      - {text: "OKS replaces the box IOU: sigma {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.evaluation.default_keypoint_sigma}}, a missing key point counts 0"}
-      - {text: "OKS mAP@0.5 is the headline; Matched Objects needs an OKS of {{constant:vision_training/evaluation/keypoints/object_keypoint_similarity.py#MINIMUM_MATCH_SIMILARITY}}"}
-      - {text: "Exported network outputs candidates, the client groups them"}
-      - {text: "evaluate_checkpoint: no error images, the limit skipped with a warning"}
+      - {text: "Candidates: {{constant:vision_training/models/keypoints/keypoint_detector.py#CANDIDATE_WINDOW_SIZE}}x{{constant:vision_training/models/keypoints/keypoint_detector.py#CANDIDATE_WINDOW_SIZE}} local maxima of the averaged heat maps, placed within their cell", sentences: [0]}
+      - {text: "Grouping on the CPU, key point by key point, by rounded tag distance then score", sentences: [1]}
+      - {text: "OKS replaces the box IOU: sigma {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.evaluation.default_keypoint_sigma}}, a missing key point counts 0", sentences: [2]}
+      - {text: "OKS mAP@0.5 is the headline; Matched Objects needs an OKS of {{constant:vision_training/evaluation/keypoints/object_keypoint_similarity.py#MINIMUM_MATCH_SIMILARITY}}", sentences: [3]}
+      - {text: "Exported network outputs candidates, the client groups them", sentences: [4]}
+      - {text: "evaluate_checkpoint: no error images, the limit skipped with a warning", sentences: [5]}
     narration:
-      - "To recap: the network gives candidates, the grouping turns them into objects by their tags, and the object key point similarity scores them, with the trained and the averaged weights."
+      - "To recap: the candidates are the local maxima over {{constant:vision_training/models/keypoints/keypoint_detector.py#CANDIDATE_WINDOW_SIZE:words}} by {{constant:vision_training/models/keypoints/keypoint_detector.py#CANDIDATE_WINDOW_SIZE:words}} cells of the averaged heat maps, each placed within its cell by a parabola through its neighbours."
+      - "The grouping runs on the CPU key point by key point, by tag distance rounded to whole units, then by score: objects of one class with close tags can exchange key points."
+      - "The object key point similarity replaces the box IOU, with a default sigma of {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.evaluation.default_keypoint_sigma}}; a labelled key point not found counts for nothing, so half of them missing caps it at one half."
+      - "The OKS mAP at 0.5 compares the checkpoints, and Matched Objects counts a ground truth only from an OKS of {{constant:vision_training/evaluation/keypoints/object_keypoint_similarity.py#MINIMUM_MATCH_SIMILARITY}}, the mean error coming from these matches only."
+      - "The exported network stops at the candidates, and the client groups them with the same function, rebuilding the channel table from the training labels."
+      - "The evaluation script saves no error images for this task, so it skips their limit with a warning."
       - "The next series, semantic segmentation, keeps the shared backbone and puts a decoder on it to give a class to every pixel."

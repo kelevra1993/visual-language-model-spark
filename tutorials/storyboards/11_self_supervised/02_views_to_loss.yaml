@@ -269,12 +269,17 @@ scenes:
     # The 2N views and 2N - 1 others of InfoNCE, and the spread of spread out (about 1) and collapsed (0) embeddings
     literal_numbers: ["2N", "1", "0"]
     items:
-      - {text: "The 2N views go through the backbone as one batch"}
-      - {text: "Representation: pooled backbone, kept; embedding: projection head, for the loss"}
-      - {text: "InfoNCE: every view finds its partner among 2N - 1, ln(2N - 1) at random"}
-      - {text: "Barlow Twins: cross-correlation of the features pushed to the identity"}
-      - {text: "Embedding standard deviation: about 1 spread, 0 collapsed"}
-      - {text: "Positive pair accuracy above chance at the start: a shared cue"}
+      - {text: "The 2N views go through the backbone as one batch", sentences: [0]}
+      - {text: "Representation: pooled backbone, kept; embedding: projection head, for the loss", sentences: [1]}
+      - {text: "InfoNCE: every view finds its partner among 2N - 1, ln(2N - 1) at random", sentences: [2]}
+      - {text: "Barlow Twins: cross-correlation of the features pushed to the identity", sentences: [3]}
+      - {text: "Embedding standard deviation: about 1 spread, 0 collapsed", sentences: [4]}
+      - {text: "Positive pair accuracy above chance at the start: a shared cue", sentences: [5]}
     narration:
-      - "To recap: both views go through the network in one pass, the loss compares the embeddings of the head, and the representation before it is what the run keeps."
+      - "To recap: the views of both batches go through the backbone as one batch, so that its batch normalization sees them together."
+      - "The pooled backbone gives the representation, the vector the run keeps; the projection head maps it to the embedding the loss compares, so the representation keeps what the views remove."
+      - "InfoNCE makes every view find its partner among all the other views of the batch; random embeddings score {{self_supervised.curves.random_info_nce:.2f}} for the batches of this run."
+      - "Barlow Twins correlates the features of the first views with those of the second, and pushes that matrix towards the identity, so that the features cannot all collapse to one constant."
+      - "The embedding standard deviation watches the collapse: about one when the embeddings spread over the sphere, falling to nothing when every image gets the same embedding."
+      - "A positive pair accuracy far above chance from the very first batch means the views share a cue, here the colour of the shape, which a loss can learn instead of the shapes."
       - "The next chapter judges that representation without any classifier: the nearest neighbour evaluation, the effective rank, the pitfalls of the evaluation, and the export and transfer of the backbone."

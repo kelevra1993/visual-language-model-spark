@@ -225,13 +225,20 @@ scenes:
 
   - kind: summary
     title: "Recap"
+    # The overlaps of the metric names mAP at 0.5 and from 0.5 to 0.95
+    literal_numbers: ["0.5", "0.95"]
     items:
-      - {text: "Evaluation at score {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.evaluation.score_threshold}}, deployment at {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.score_threshold}}; NMS {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.nms_iou_threshold}} per class; {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections}} per image"}
-      - {text: "mAP@0.5 {{object_detection.report.trained.methods.area.0:percent}} at {{object_detection.run.checkpoint_iteration}}, {{object_detection.samples.metrics[1]:percent}} at {{object_detection.samples.iterations[1]}}"}
-      - {text: "Small objects: mAP@0.5 {{object_detection.report.trained.sizes.small.1:percent}}, proposal recall {{object_detection.proposal_recall.small.recall_50:percent}}"}
-      - {text: "Moving average: tighter boxes, mAP@[0.5:0.95] {{object_detection.metrics.map_50_95.test_ema_last:percent}}, trained {{object_detection.metrics.map_50_95.test_last:percent}}"}
-      - {text: "class_thresholds.json: per-class scores at precision {{object_detection.classes.target_precision:percent_label}}"}
-      - {text: "object_detector: boxes, scores, labels, count; letterbox and thresholds client side"}
+      - {text: "Evaluation at score {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.evaluation.score_threshold}}, deployment at {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.score_threshold}}; NMS {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.nms_iou_threshold}} per class; {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections}} per image", sentences: [0]}
+      - {text: "mAP@0.5 {{object_detection.report.trained.methods.area.0:percent}} at {{object_detection.run.checkpoint_iteration}}, {{object_detection.samples.metrics[1]:percent}} at {{object_detection.samples.iterations[1]}}", sentences: [1]}
+      - {text: "Small objects: mAP@0.5 {{object_detection.report.trained.sizes.small.1:percent}}, proposal recall {{object_detection.proposal_recall.small.recall_50:percent}}", sentences: [2]}
+      - {text: "Moving average: tighter boxes, mAP@[0.5:0.95] {{object_detection.metrics.map_50_95.test_ema_last:percent}}, trained {{object_detection.metrics.map_50_95.test_last:percent}}", sentences: [3]}
+      - {text: "class_thresholds.json: per-class scores at precision {{object_detection.classes.target_precision:percent_label}}", sentences: [4]}
+      - {text: "object_detector: boxes, scores, labels, count; letterbox and thresholds client side", sentences: [5]}
     narration:
-      - "To recap: evaluate at a low score, read the mAP by size and the recalls before the headline number, compare the averaged weights with the trained ones, and keep the letterbox and the class thresholds on the client side."
+      - "To recap: the evaluation scores at {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.evaluation.score_threshold}} so that the precision recall curves keep their low end, the deployment at {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.score_threshold}}, and a suppression per class keeps the best {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections:words}} detections per image."
+      - "The mAP at 0.5 reaches {{object_detection.report.trained.methods.area.0:percent}} at iteration {{object_detection.run.checkpoint_iteration:words}}, against {{object_detection.samples.metrics[1]:percent}} at {{object_detection.samples.iterations[1]:words}}; its PASCAL VOC matching makes the average from 0.5 to 0.95 differ from that of the COCO tools."
+      - "Small objects are the weakest size, {{object_detection.report.trained.sizes.small.1:percent}} at 0.5, and the one the proposals cover least, {{object_detection.proposal_recall.small.recall_50:percent}} of them against {{object_detection.proposal_recall.all.recall_50:percent}} of all objects."
+      - "The moving average of the weights tightens the boxes, {{object_detection.metrics.map_50_95.test_ema_last:percent}} from 0.5 to 0.95 against {{object_detection.metrics.map_50_95.test_last:percent}} for the trained weights, so compare both before choosing which to export."
+      - "Class thresholds json gives every class the score keeping its highest recall at a precision of {{object_detection.classes.target_precision:percent_label}}; {{object_detection.classes.without_threshold_count:words}} classes never reach it in this run."
+      - "The exported object detector returns padded boxes, scores, labels and the number of detections per image, while the letterbox, the box restoration and the per-class thresholds stay on the client side."
       - "The next series, on instance masks, builds on this detector, adding a mask head to every level."

@@ -254,13 +254,19 @@ scenes:
     # The two views of the methods
     literal_numbers: ["two"]
     items:
-      - {text: "No classifier: a k-NN of test images among training images"}
-      - {text: "{{config:vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml#ExperimentConfiguration.evaluation.number_neighbours}} neighbours, each weighing exp(cosine / {{constant:vision_training/evaluation/self_supervised/representation_metrics.py#NEAREST_NEIGHBOUR_TEMPERATURE}})"}
-      - {text: "Effective rank: the label-free collapse watch"}
-      - {text: "Sample images: the same two views at every checkpoint"}
-      - {text: "Early checkpoints: running statistics not settled"}
-      - {text: "Export image_encoder: L2-normalized representations, no head"}
-      - {text: "Transfer through Backbone.pretrained"}
+      - {text: "No classifier: a k-NN of test images among training images", sentences: [0]}
+      - {text: "{{config:vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml#ExperimentConfiguration.evaluation.number_neighbours}} neighbours, each weighing exp(cosine / {{constant:vision_training/evaluation/self_supervised/representation_metrics.py#NEAREST_NEIGHBOUR_TEMPERATURE}})", sentences: [1]}
+      - {text: "Effective rank: the label-free collapse watch", sentences: [2]}
+      - {text: "Sample images: the same two views at every checkpoint", sentences: [3]}
+      - {text: "Early checkpoints: running statistics not settled", sentences: [4]}
+      - {text: "Export image_encoder: L2-normalized representations, no head", sentences: [5]}
+      - {text: "Transfer through Backbone.pretrained", sentences: [6]}
     narration:
-      - "To recap: a checkpoint is judged by the nearest neighbours of its representations and by their effective rank, with the same sample views at every evaluation."
-      - "The representation is what the export serves and what the other tasks start from; this ends the self-supervised series, and the deployment series follows, with the serving of the exported models."
+      - "To recap: no classifier is trained; every labelled test image is classified by its nearest neighbours among a fixed set of labelled training images, encoded by the same weights."
+      - "The {{config:vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml#ExperimentConfiguration.evaluation.number_neighbours}} nearest ones vote for their class, each weighing the exponential of its cosine similarity over {{constant:vision_training/evaluation/self_supervised/representation_metrics.py#NEAREST_NEIGHBOUR_TEMPERATURE}}."
+      - "The effective rank needs no label, so it is the headline of a test split without labels and the warning of a collapse."
+      - "The sample images draw the same two views from the seed of each image at every evaluation; their similarity proves nothing alone, a collapsed backbone giving one to every pair."
+      - "Checkpoints evaluated early look collapsed whatever the training, the running statistics of the batch normalization being still far from the data."
+      - "The export serves the image encoder: L2-normalized representations without the projection head, so that a dot product is a cosine similarity."
+      - "Another task starts from this backbone through the experiment folder of its backbone pre-trained settings, and only the backbone is loaded."
+      - "This ends the self-supervised series; the deployment series follows, with the serving of the exported models."

@@ -200,12 +200,17 @@ scenes:
   - kind: summary
     title: "Recap"
     items:
-      - {text: "One loop for every task: batch, augmentation, forward, loss, backward, step"}
-      - {text: "Validation every validation_iteration_ratio iterations, without update", monospace: false}
-      - {text: "Summaries, checkpoints and evaluations scheduled in iterations"}
-      - {text: "TensorBoard every iteration, MLflow per run"}
-      - {text: "Ctrl+C saves; a relaunch restarts from the last checkpoint"}
-      - {text: "Settings without a run name token can change on resume"}
+      - {text: "One loop for every task: batch, augmentation, forward, loss, backward, step", sentences: [0]}
+      - {text: "Validation every validation_iteration_ratio iterations, without update", monospace: false, sentences: [1]}
+      - {text: "Summaries, checkpoints and evaluations scheduled in iterations", sentences: [2]}
+      - {text: "TensorBoard every iteration, MLflow per run", sentences: [3]}
+      - {text: "Ctrl+C saves; a relaunch restarts from the last checkpoint", sentences: [4]}
+      - {text: "Settings without a run name token can change on resume", sentences: [5]}
     narration:
-      - "To recap: one loop trains every task, everything is scheduled in iterations, and a run can stop and resume with its training settings changed."
+      - "To recap: every task trains in the loop of the base trainer: a prefetched batch, augmented on the GPU, a forward pass, the task losses, the backward pass and one optimizer step."
+      - "Every validation ratio iterations, one validation batch goes through the model without augmentation nor update, a noisy estimate whose smoothed trend is the one to read."
+      - "Console summaries, checkpoints and test evaluations are all scheduled in iterations, in a fixed order within one iteration, and a model is judged by its test evaluations."
+      - "TensorBoard receives every value at every iteration, and with tracking on, every run is also an MLflow run, logged from a background thread that never slows the training."
+      - "Control C saves a checkpoint, and a relaunch always resumes from the last one with its optimizer state, the number of iterations staying the total of the run."
+      - "Settings without a run name token, like the learning rate or the augmentation, can change on resume, while a setting with a token starts a new run folder."
       - "The next chapter opens the data pipeline: the loaders, the image size, the normalization and the augmentation."

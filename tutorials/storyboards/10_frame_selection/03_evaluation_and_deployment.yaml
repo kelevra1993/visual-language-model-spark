@@ -180,15 +180,21 @@ scenes:
 
   - kind: summary
     title: "Recap"
-    # The two views of the self-supervised methods of the next series
-    literal_numbers: ["two"]
+    # The two views of the self-supervised methods of the next series, and the thresholds of zero of an export
+    # without evaluation (build_decoding_settings)
+    literal_numbers: ["two", "zero"]
     items:
-      - {text: "Selection accuracy of both decodings, the run's decoding as headline"}
-      - {text: "Top-k and mean rank: the probabilities before decoding"}
-      - {text: "Thresholds at the target precision flag the doubtful picks"}
-      - {text: "selections.csv: one row per sequence and wanted class"}
-      - {text: "Network, CPU decoder, ensemble: the clients query the ensemble"}
-      - {text: "Evaluate the exported iteration, or no pick is flagged"}
+      - {text: "Selection accuracy of both decodings, the run's decoding as headline", sentences: [0]}
+      - {text: "Top-k and mean rank: the probabilities before decoding", sentences: [1]}
+      - {text: "Thresholds at the target precision flag the doubtful picks", sentences: [2]}
+      - {text: "selections.csv: one row per sequence and wanted class", sentences: [3]}
+      - {text: "Network, CPU decoder, ensemble: the clients query the ensemble", sentences: [4]}
+      - {text: "Evaluate the exported iteration, or no pick is flagged", sentences: [5]}
     narration:
-      - "To recap: both decodings scored, the thresholds of the target precision flagging the doubtful picks, and a deployment that keeps the decoding of the evaluation next to the network."
+      - "To recap: the report gives the selection accuracy of both decodings, and the one of Selection decoding is the headline metric that chooses the best checkpoint."
+      - "The top-k accuracy and the mean true frame rank score the probabilities before any decoding; tied probabilities take the best rank, so read them with the selection accuracy."
+      - "The threshold of a class is the probability from which its picks reach the target precision; the picks below it are flagged low confidence, but a confident wrong pick goes through."
+      - "With save predictions on, the selections file gives one row per sequence and wanted class, with the true frames, their probabilities and ranks, and the picks of both decodings."
+      - "The export writes the network, a Python decoder run on the CPU with a copy of the decoding file, and the ensemble chaining them, the model the clients query."
+      - "The decoder reads the thresholds of the evaluation of the exported iteration; without one, every threshold is zero and no pick is ever flagged, so evaluate before exporting."
       - "The next series, self-supervised learning, trains the backbone without labels from two views of every image: SimCLR and Barlow Twins, the projection head, and the nearest neighbor evaluation."
