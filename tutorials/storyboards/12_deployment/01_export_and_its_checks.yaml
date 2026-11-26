@@ -277,14 +277,19 @@ scenes:
   - kind: summary
     title: "Recap"
     items:
-      - {text: "export_model.py: TorchScript and ONNX, one folder per model and version"}
-      - {text: "Every format checked against the eager model, never the TensorRT engine"}
-      - {text: "Staging folder: the served models replaced only when every format matches"}
-      - {text: "config.pbtxt: max batch {{deployment.export.maximum_batch_size}}, dynamic batching, {{deployment.triton.instance_count}} instance, TensorRT accelerator"}
-      - {text: "preprocessing.json and ONNX metadata: the input contract, version {{constant:vision_training/deployment/input_contract.py#INPUT_CONTRACT_VERSION}}"}
-      - {text: "Classifier temperature and thresholds, frame selector decoder and ensembles"}
-      - {text: "Export Sizes panel at every launch: every file estimated, TorchScript traced"}
+      - {text: "export_model.py: TorchScript and ONNX, one folder per model and version", sentences: [0]}
+      - {text: "Every format checked against the eager model, never the TensorRT engine", sentences: [1]}
+      - {text: "Staging folder: the served models replaced only when every format matches", sentences: [2]}
+      - {text: "config.pbtxt: max batch {{deployment.export.maximum_batch_size}}, dynamic batching, {{deployment.triton.instance_count}} instance, TensorRT accelerator", sentences: [3]}
+      - {text: "preprocessing.json and ONNX metadata: the input contract, version {{constant:vision_training/deployment/input_contract.py#INPUT_CONTRACT_VERSION}}", sentences: [4]}
+      - {text: "Classifier temperature and thresholds, frame selector decoder and ensembles", sentences: [5]}
+      - {text: "Export Sizes panel at every launch: every file estimated, TorchScript traced", sentences: [6]}
     narration:
-      - "To recap: one script exports any task in both formats, checks each file against the eager model, and installs them only when all agree, with their Triton configuration and their input contract."
-      - "The size of each of these files is printed at the launch of the training, estimated rather than exported."
+      - "To recap: the export model script exports any task to TorchScript and ONNX, each model in its own folder of the model repository with one folder per version."
+      - "Every exported file is run again and compared with the eager model within the tolerances of the task, but the TensorRT engine Triton builds is never checked."
+      - "The formats are written into a staging folder outside the folder Triton reads, and the served models are replaced only when every format matches; one mismatch leaves them untouched."
+      - "Each model gets its Triton configuration: the max batch size of the export, dynamic batching, {{deployment.triton.instance_count:words}} instance on the GPU, and the TensorRT accelerator when a TensorRT precision is set."
+      - "The input contract writes how the training prepared its images into preprocessing json and the ONNX metadata, and its version lets a server refuse a contract it does not know."
+      - "A classifier can carry its saved temperature and class thresholds, and a frame selector gets a decoder on the Python backend of Triton and the ensembles that clients query."
+      - "The launch of every training prints the Export Sizes panel, every exported file estimated from one forward pass and formulas, only the full precision TorchScript file being traced."
       - "The next chapter starts Triton on this repository, sends it requests, and goes through the serving paths it offers."

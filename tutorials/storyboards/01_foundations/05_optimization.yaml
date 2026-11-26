@@ -202,13 +202,20 @@ scenes:
 
   - kind: summary
     title: "Recap"
+    # The learning rate of the configuration is read with all its decimals, a rounded learning rate being another one
+    exact_facts: ["config:vision_training/configurations/classification/configuration_synthetic_shapes.yaml#ExperimentConfiguration.learning_rate"]
     items:
-      - {text: "One step: learning rate × schedule factor, optimizer, average"}
-      - {text: "Adam without a token; AdamW, SGD and a weight decay enter the run name"}
-      - {text: "A learning rate that learns: {{config:vision_training/configurations/classification/configuration_synthetic_shapes.yaml#ExperimentConfiguration.learning_rate:g}} on the synthetic shapes"}
-      - {text: "Warm-up, then constant or cosine, from the iteration alone"}
-      - {text: "Mixed precision always on: {{foundations.optimization.mixed_precision_dtype}} forward passes, faster and lighter"}
-      - {text: "The averaged weights were ahead at every evaluation of the benchmark"}
+      - {text: "One step: learning rate × schedule factor, optimizer, average", sentences: [0]}
+      - {text: "Adam without a token; AdamW, SGD and a weight decay enter the run name", sentences: [1]}
+      - {text: "A learning rate that learns: {{config:vision_training/configurations/classification/configuration_synthetic_shapes.yaml#ExperimentConfiguration.learning_rate:g}} on the synthetic shapes", sentences: [2]}
+      - {text: "Warm-up, then constant or cosine, from the iteration alone", sentences: [3]}
+      - {text: "Mixed precision always on: {{foundations.optimization.mixed_precision_dtype}} forward passes, faster and lighter", sentences: [4]}
+      - {text: "The averaged weights were ahead at every evaluation of the benchmark", sentences: [5]}
     narration:
-      - "To sum up: pick a learning rate that learns, an optimizer and a schedule, the mixed precision being always on, and consider the moving average of the weights, ahead at every evaluation of the benchmark."
+      - "To recap: every step takes the learning rate times the schedule factor, and the loaded weights also times their multiplier, then the optimizer steps and the moving average follows when on."
+      - "Adam gives no run name token, while AdamW, SGD and a weight decay enter the run name, since the state of one optimizer cannot be resumed by another."
+      - "The learning rate decides whether a run learns at all: in the benchmark, the larger values stalled near chance, and the synthetic shapes classifier trains at {{config:vision_training/configurations/classification/configuration_synthetic_shapes.yaml#ExperimentConfiguration.learning_rate}}."
+      - "An optional linear warm-up leads to a constant learning rate or a cosine decay, and since the factor depends on the iteration alone, a stopped run resumes the schedule exactly."
+      - "Mixed precision is always on: the forward passes run in {{foundations.optimization.mixed_precision_dtype}}, and float32 launches of the benchmark took about one and a half times longer and nearly twice the memory."
+      - "The averaged weights were ahead of the trained ones at every evaluation of the benchmark, and steadier, and they can be turned on when a run resumes."
       - "The next chapter reads the results of a run: the evaluation files, the comparison of runs and the export of a model."

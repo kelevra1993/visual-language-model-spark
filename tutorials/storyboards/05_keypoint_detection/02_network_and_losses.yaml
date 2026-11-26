@@ -368,13 +368,19 @@ scenes:
   - kind: summary
     title: "Recap"
     items:
-      - {text: "Stem at {{keypoint_detection.heatmap_fraction}} by convolutions and max pooling, then an HRNet of {{keypoint_detection.network_branch_count}} branches exchanging after every module"}
-      - {text: "modules_per_stage: its length sets the branches, its numbers the modules; blocks_per_branch: residual pairs per module"}
-      - {text: "Head at {{keypoint_detection.heatmap_fraction}}: {{keypoint_detection.network_prediction_channels}} channels, {{keypoint_detection.channels_total}} heat map logits then {{keypoint_detection.channels_total}} tags"}
-      - {text: "Higher resolution branch: {{keypoint_detection.channels_total}} more heat maps at {{keypoint_detection.branch_fraction}}"}
-      - {text: "hidden_width {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#KeypointHead.hidden_width}}, heat map bias at logit({{constant:vision_training/models/keypoints/keypoint_detector.py#HEATMAP_PRIOR_PROBABILITY}})"}
-      - {text: "Focal loss of both strides over the positive cells"}
-      - {text: "Pull and push tag losses, weighted by {{keypoint_detection.tag_loss_weight}}, same class only"}
+      - {text: "Stem at {{keypoint_detection.heatmap_fraction}} by convolutions and max pooling, then an HRNet of {{keypoint_detection.network_branch_count}} branches exchanging after every module", sentences: [0]}
+      - {text: "modules_per_stage: its length sets the branches, its numbers the modules; blocks_per_branch: residual pairs per module", sentences: [1]}
+      - {text: "Head at {{keypoint_detection.heatmap_fraction}}: {{keypoint_detection.network_prediction_channels}} channels, {{keypoint_detection.channels_total}} heat map logits then {{keypoint_detection.channels_total}} tags", sentences: [2]}
+      - {text: "Higher resolution branch: {{keypoint_detection.channels_total}} more heat maps at {{keypoint_detection.branch_fraction}}", sentences: [3]}
+      - {text: "hidden_width {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#KeypointHead.hidden_width}}, heat map bias at logit({{constant:vision_training/models/keypoints/keypoint_detector.py#HEATMAP_PRIOR_PROBABILITY}})", sentences: [4]}
+      - {text: "Focal loss of both strides over the positive cells", sentences: [5]}
+      - {text: "Pull and push tag losses, weighted by {{keypoint_detection.tag_loss_weight}}, same class only", sentences: [6]}
     narration:
-      - "To recap: one quarter resolution branch carries the features from the stem to both heads, the focal loss trains the almost empty heat maps, and the tag losses shape the tags that group the key points."
+      - "To recap: the stem reaches a quarter of the image with convolutions and max pooling only, then the high resolution network runs {{keypoint_detection.network_branch_count:words}} branches exchanging their features after every module."
+      - "In modules per stage, the length of the list sets the branches and each number the modules of its stage, while blocks per branch sets the residual pairs of every module."
+      - "The head reads the quarter resolution branch and gives {{keypoint_detection.network_prediction_channels}} channels: the {{keypoint_detection.channels_total}} heat map logits first, then the {{keypoint_detection.channels_total}} tags."
+      - "The higher resolution branch concatenates the features with these predictions, doubles their resolution and predicts {{keypoint_detection.channels_total}} more heat maps at half the image."
+      - "The hidden width of {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#KeypointHead.hidden_width}} gives every heat map room for its own key points, and the bias at the logit of {{constant:vision_training/models/keypoints/keypoint_detector.py#HEATMAP_PRIOR_PROBABILITY}} lets the empty cells start almost free."
+      - "The focal loss is summed over both strides and divided by the number of positive cells, so that neither the channels nor the size of the maps dilute the key points."
+      - "The pull loss gathers the tags of an object, the push loss separates objects of the same class only, both weighted by {{keypoint_detection.tag_loss_weight}}; in this run the push loss barely fell."
       - "The next chapter turns the heat maps into objects: the candidates and their refinement, the grouping by tags, the object key point similarity, the metrics of the run and the export."

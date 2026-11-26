@@ -417,15 +417,20 @@ scenes:
 
   - kind: summary
     title: "Recap"
-    # The four branches of Inception
-    literal_numbers: [four]
+    # The four branches of Inception, and the multiple of eight its filters must be (InceptionConvolution, inception.py)
+    literal_numbers: [four, eight]
     items:
-      - {text: "The backbone section lists the blocks: layers and filters, a max pooling after every block"}
-      - {text: "A layer: convolution, normalization, ReLU, then squeeze and excitation"}
-      - {text: "Shortcuts add the input of a pair of layers, shifted when the channels change"}
-      - {text: "Inception splits every layer into four branches from block {{constant:vision_training/models/backbones/backbone.py#INCEPTION_STARTING_BLOCK}}"}
-      - {text: "Model size printed at every launch, receptive field by the diagnosis modes"}
-      - {text: "A trained backbone starts another run, a deeper one keeping its extra blocks random"}
+      - {text: "The backbone section lists the blocks: layers and filters, a max pooling after every block", sentences: [0]}
+      - {text: "A layer: convolution, normalization, ReLU, then squeeze and excitation", sentences: [1]}
+      - {text: "Shortcuts add the input of a pair of layers, shifted when the channels change", sentences: [2]}
+      - {text: "Inception splits every layer into four branches from block {{constant:vision_training/models/backbones/backbone.py#INCEPTION_STARTING_BLOCK}}", sentences: [3]}
+      - {text: "Model size printed at every launch, receptive field by the diagnosis modes", sentences: [4]}
+      - {text: "A trained backbone starts another run, a deeper one keeping its extra blocks random", sentences: [5]}
     narration:
-      - "To sum up: the backbone stacks the blocks of its section, with squeeze and excitation, the residual shortcuts and inception as options, the shortcuts following pairs of layers with the same channels."
+      - "To recap: the convolutions of the backbone section list the blocks with their layers and filters, and a max pooling ends every block but the last while last max pooling is false."
+      - "Each layer is a padded convolution, its normalization and a ReLU, then squeeze and excitation, whose gates rescale every channel from averages over the whole map."
+      - "A shortcut adds the input of a pair of layers to their output, the pairs starting one layer later when the first layer changes the channels; the backbone summary of every launch names the blocks with a shortcut."
+      - "Inception replaces every convolution with four branches sharing its filters, so their number must be a multiple of eight, and only from block {{constant:vision_training/models/backbones/backbone.py#INCEPTION_STARTING_BLOCK:words}} on."
+      - "Every launch prints the parameters of every part, {{foundations.listings.last_block_parameter_share:percent}} of this backbone in its last block, and compute receptive field in the diagnosis modes prints what every layer sees."
+      - "A trained backbone can start a run of another image size or task, and a deeper backbone loads it into its first blocks, freeze and multiplier applying to the loaded blocks only."
       - "The next chapter covers the optimization: the optimizer, the learning rate and its schedule, mixed precision and the moving average of the weights."

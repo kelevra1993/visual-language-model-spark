@@ -210,12 +210,17 @@ scenes:
     # The two heads of the detector and the target value of a key point cell
     literal_numbers: [two, "1"]
     items:
-      - {text: "Bottom-up: heat maps and tags of every key point of every class, grouped on the CPU"}
-      - {text: "Key point names and skeletons come from the COCO categories of labels.json"}
-      - {text: "Consecutive channels per class: {{keypoint_detection.channels_total}} for {{keypoint_detection.channels_classes}} classes, the table saved in the checkpoint"}
-      - {text: "Augmentations move key points but never rename them: flips off for sided names"}
-      - {text: "Gaussian targets of sigma {{keypoint_detection.grid_sigma:g}} cells at strides {{constant:vision_training/models/keypoints/keypoint_detector.py#HEATMAP_STRIDE}} and {{keypoint_detection.branch_stride}}, the key point cell at exactly 1"}
-      - {text: "Almost empty targets: the reason for the focal loss"}
+      - {text: "Bottom-up: heat maps and tags of every key point of every class, grouped on the CPU", sentences: [0]}
+      - {text: "Key point names and skeletons come from the COCO categories of labels.json", sentences: [1]}
+      - {text: "Consecutive channels per class: {{keypoint_detection.channels_total}} for {{keypoint_detection.channels_classes}} classes, the table saved in the checkpoint", sentences: [2]}
+      - {text: "Augmentations move key points but never rename them: flips off for sided names", sentences: [3]}
+      - {text: "Gaussian targets of sigma {{keypoint_detection.grid_sigma:g}} cells at strides {{constant:vision_training/models/keypoints/keypoint_detector.py#HEATMAP_STRIDE}} and {{keypoint_detection.branch_stride}}, the key point cell at exactly 1", sentences: [4]}
+      - {text: "Almost empty targets: the reason for the focal loss", sentences: [5]}
     narration:
-      - "To recap: the labels give the key points and their names, the channel table gives every key point of every class its heat map and tag, and the targets are Gaussians with a single positive cell per key point."
+      - "To recap: the detector is bottom-up, with a heat map and a tag map for every key point of every class, and the tags group the candidates into objects on the CPU, without any box."
+      - "The key point names and skeletons come from the categories of the training labels file, not from the configuration, so every class has its own key points."
+      - "Every class takes consecutive channels, {{keypoint_detection.channels_total}} for the {{keypoint_detection.channels_classes}} synthetic classes, and the channel table is saved in every checkpoint; the export writes no names, so keep the labels with the model."
+      - "The geometric augmentations move the key points but never rename them, so keep the flips off when the names depend on the side, like a left and a right eye."
+      - "The targets are Gaussians of sigma {{keypoint_detection.grid_sigma:.3g}} cells at strides {{constant:vision_training/models/keypoints/keypoint_detector.py#HEATMAP_STRIDE:words}} and {{keypoint_detection.branch_stride:words}}, with the cell holding the key point at exactly one, the only positive cell of the loss."
+      - "With only {{keypoint_detection.targets_stride_4_nonzero_share:percent}} of the cells not empty, a squared error collapsed to empty heat maps: that is why the focal loss replaced it."
       - "The next chapter follows the network itself: the stem, the high resolution network and its two heads, then the focal heat map loss and the tag losses."

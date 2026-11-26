@@ -182,12 +182,17 @@ scenes:
   - kind: summary
     title: "Recap"
     items:
-      - {text: "A pair: a before and an after member, one category"}
-      - {text: "maximum_sequence_length: per member, the pair left out"}
-      - {text: "Sample: both members padded to the longer one, [2T, {{sequence_comparison.run.input_channels}}, H, W]"}
-      - {text: "Batch: every member padded to the longest member, [B, 2T]"}
-      - {text: "split_pair_members: two halves, before then after"}
-      - {text: "Fusion keys required for every fusion type"}
+      - {text: "A pair: a before and an after member, one category", sentences: [0]}
+      - {text: "maximum_sequence_length: per member, the pair left out", sentences: [1]}
+      - {text: "Sample: both members padded to the longer one, [2T, {{sequence_comparison.run.input_channels}}, H, W]", sentences: [2]}
+      - {text: "Batch: every member padded to the longest member, [B, 2T]", sentences: [3]}
+      - {text: "split_pair_members: two halves, before then after", sentences: [4]}
+      - {text: "Fusion keys required for every fusion type", sentences: [5]}
     narration:
-      - "To recap: a pair is two members of their own lengths, padded to the longer member in the sample, to the longest member in the batch, and cut in two halves before the model."
+      - "To recap: a pair is a before and an after member, each of its own length, with one category that only their comparison gives."
+      - "The maximum sequence length applies to every member: a pair with a longer member is left out of its split, with a red warning naming it."
+      - "The pair data set pads the shorter member to the longer one and joins them into one sample of 2T frames, so that both members get the same augmentation draw."
+      - "The collate then pads every member to the longest member of the batch; that padding is transferred but never encoded, and carries nothing of the class."
+      - "Just before the model, split pair members cuts the frame axis into two halves, the before images then the after images, each with its mask."
+      - "The Fusion section is required in full, its number of heads, dropout and normalization scope included, even for a fusion type that ignores them."
       - "The next chapter follows the two members through the comparator: the shared encoder, the temporal module and the fusion."

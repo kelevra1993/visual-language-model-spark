@@ -200,12 +200,17 @@ scenes:
   - kind: summary
     title: "Recap"
     items:
-      - {text: "Console: sequences and real frames per second"}
-      - {text: "Flatten at {{sequence_classification.image_sizes.flatten_256}} pixels: accuracy {{sequence_classification.evaluation.flatten_256.last.accuracy:percent}} at iteration {{sequence_classification.evaluation.flatten_256.last_iteration:,}}"}
-      - {text: "Average pooling: {{sequence_classification.probabilities.average_512.predicted_class}} for every sequence, loss at ln {{sequence_classification.run.number_classes}}"}
-      - {text: "The evaluation files of CLS, one row per sequence"}
-      - {text: "Export: images {{sequence_classification.export.input_shape}}, every frame real"}
-      - {text: "On motion classes, the pooling decides, not the temporal module"}
+      - {text: "Console: sequences and real frames per second", sentences: [0]}
+      - {text: "Flatten at {{sequence_classification.image_sizes.flatten_256}} pixels: accuracy {{sequence_classification.evaluation.flatten_256.last.accuracy:percent}} at iteration {{sequence_classification.evaluation.flatten_256.last_iteration:,}}", sentences: [1]}
+      - {text: "Average pooling: {{sequence_classification.probabilities.average_512.predicted_class}} for every sequence, loss at ln {{sequence_classification.run.number_classes}}", sentences: [2]}
+      - {text: "The evaluation files of CLS, one row per sequence", sentences: [3]}
+      - {text: "Export: images {{sequence_classification.export.input_shape}}, every frame real", sentences: [4]}
+      - {text: "On motion classes, the pooling decides, not the temporal module", sentences: [5]}
     narration:
-      - "To recap: on the moving shapes the frame pooling decides everything, flatten at {{sequence_classification.image_sizes.flatten_256}} pixels reaches {{sequence_classification.evaluation.flatten_256.last.accuracy:percent}} in {{sequence_classification.evaluation.flatten_256.last_iteration}} iterations, and the evaluation reads like that of the image classification."
+      - "To recap: the console summary gives the sequences per second, and the frames per second counting only the real frames, so the padding never inflates them."
+      - "Flatten at {{sequence_classification.image_sizes.flatten_256}} pixels reaches a test accuracy of {{sequence_classification.evaluation.flatten_256.last.accuracy:percent}} at iteration {{sequence_classification.evaluation.flatten_256.last_iteration}}, {{sequence_classification.evaluation.flatten_256.last.wrong_count:words}} sequences being wrong."
+      - "Average pooling predicts {{sequence_classification.probabilities.average_512.predicted_class}} for every test sequence, its loss stuck at the natural log of {{sequence_classification.run.number_classes:words}}, and nothing else warns about it."
+      - "The evaluation folder holds the files of the image classification, the predictions file giving one row per sequence, with its first and last frames."
+      - "The exported model has no mask, so every frame of a request counts as real: a client batching sequences of different lengths must not pad them."
+      - "On motion classes the frame pooling decides, not the temporal module: once the frame vectors lose the position of the shape, no temporal module recovers the direction."
       - "The next series, sequence labelling, keeps the time axis and gives a class to every frame."

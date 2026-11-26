@@ -224,16 +224,21 @@ scenes:
   - kind: summary
     title: "Recap"
     items:
-      - {text: "Masks: uint8 category per pixel, 0 background, {{constant:vision_training/data/segmentation/segmentation_dataset.py#IGNORED_MASK_VALUE}} ignored"}
-      - {text: "A {{constant:vision_training/data/segmentation/segmentation_dataset.py#NUMBER_MASK_VALUES}}-entry lookup table: categories to classes, {{constant:vision_training/data/segmentation/segmentation_dataset.py#IGNORED_MASK_VALUE}} to {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}"}
-      - {text: "Masks resized and augmented with the nearest interpolation"}
-      - {text: "Encoder = backbone, skips before pooling, decoder level per skip"}
-      - {text: "1x1 head: one logit per class and pixel, background at {{semantic_segmentation.mask_background_class}}"}
-      - {text: "residual_nets: a decoder level closes its first shortcut at its third layer"}
+      - {text: "Masks: uint8 category per pixel, 0 background, {{constant:vision_training/data/segmentation/segmentation_dataset.py#IGNORED_MASK_VALUE}} ignored", sentences: [0]}
+      - {text: "A {{constant:vision_training/data/segmentation/segmentation_dataset.py#NUMBER_MASK_VALUES}}-entry lookup table: categories to classes, {{constant:vision_training/data/segmentation/segmentation_dataset.py#IGNORED_MASK_VALUE}} to {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}", sentences: [1]}
+      - {text: "Masks resized and augmented with the nearest interpolation", sentences: [2]}
+      - {text: "Encoder = backbone, skips before pooling, decoder level per skip", sentences: [3]}
+      - {text: "1x1 head: one logit per class and pixel, background at {{semantic_segmentation.mask_background_class}}", sentences: [4]}
+      - {text: "residual_nets: a decoder level closes its first shortcut at its third layer", sentences: [5]}
     # The background value 0 of the masks, which build_class_lookup_table keeps (lookup_table[0] = 0) without a
     # constant, the 1x1 kernel of the head, and the third layer of a decoder level, the first to close a residual pair
     # (residual_parity of vision_training/models/components/convolution_block.py)
-    literal_numbers: ["0", "1x1", third]
+    literal_numbers: ["0", zero, "1x1", third]
     narration:
-      - "To recap: the masks hold categories, the lookup table turns them into classes, and the decoder brings the encoder back to one logit per class and pixel."
+      - "To recap: a mask is a single-channel byte image holding the category of every pixel, zero for the background and {{constant:vision_training/data/segmentation/segmentation_dataset.py#IGNORED_MASK_VALUE}} for the pixels left out of the losses and the metrics."
+      - "The lookup table converts a whole mask at once, {{constant:vision_training/data/segmentation/segmentation_dataset.py#IGNORED_MASK_VALUE}} becoming {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}, the ignored index, while a category missing from the mapping becomes background, not ignored."
+      - "Masks are resized and moved with the exact nearest interpolation, so every pixel keeps a category; the perspective and the jigsaw, which move the image only, are refused."
+      - "The backbone of the other tasks is the encoder, the output of every block before its pooling is a skip, and the decoder has one level per skip, from the deepest."
+      - "A one by one head on the last level gives a logit per class and pixel, the background being class {{semantic_segmentation.mask_background_class:words}}, and stays outside the decoder, so a transferred decoder can serve other classes."
+      - "Residual nets close the first shortcut of a decoder level only at its third layer, since the level reads the skip plus the upsampled channels, so they add {{semantic_segmentation.configuration_decoder_shortcuts:words}} shortcuts to the decoder of the synthetic configuration."
       - "The next chapter trains it: the cross entropy and Dice losses, the class weighting, the batch metrics and the curves of the run."

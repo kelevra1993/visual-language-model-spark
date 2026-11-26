@@ -135,12 +135,17 @@ scenes:
   - kind: summary
     title: "Recap"
     items:
-      - {text: "Console: pairs and real frames per second"}
-      - {text: "Test accuracy {{sequence_comparison.evaluation.accuracy.last:percent}} at iteration {{sequence_comparison.evaluation.iterations[1]:,}}"}
-      - {text: "Every error a missed loss, given same"}
-      - {text: "class_thresholds.json: one threshold per class at precision {{sequence_comparison.probabilities.target_precision:percent_label}}"}
-      - {text: "Samples: before frames above after frames"}
-      - {text: "Training: 2B padded sequences · export: members alone"}
+      - {text: "Console: pairs and real frames per second", sentences: [0]}
+      - {text: "Test accuracy {{sequence_comparison.evaluation.accuracy.last:percent}} at iteration {{sequence_comparison.evaluation.iterations[1]:,}}", sentences: [1]}
+      - {text: "Every error a missed loss, given same", sentences: [2]}
+      - {text: "class_thresholds.json: one threshold per class at precision {{sequence_comparison.probabilities.target_precision:percent_label}}", sentences: [3]}
+      - {text: "Samples: before frames above after frames", sentences: [4]}
+      - {text: "Training: 2B padded sequences · export: members alone", sentences: [5]}
     narration:
-      - "To recap: the comparator trains and evaluates like the image classifier, on pairs; its errors here are all missed losses, and the thresholds of every class tell how far to move its decision."
+      - "To recap: the console summary gives the pairs per second and the real frames of both members per second, every real frame going through the backbone."
+      - "The test accuracy reaches {{sequence_comparison.evaluation.accuracy.last:percent}} at iteration {{sequence_comparison.evaluation.iterations[1]:,}}, up from {{sequence_comparison.evaluation.accuracy.first:percent}} at iteration {{sequence_comparison.evaluation.iterations[0]:,}}."
+      - "Every error is a loss of object given same, the lost object small, dark, or close to the colour of its background."
+      - "The thresholds file gives every class the threshold keeping a precision of {{sequence_comparison.probabilities.target_precision:percent_label}}, and loss of object then keeps a recall of {{sequence_comparison.probabilities.loss_of_object.recall:percent}}, above the argmax."
+      - "The sample images draw the real before frames above the real after frames, under the true class, the predicted one and its probability."
+      - "Training encodes 2B padded sequences and the export every member alone; both agree in evaluation mode, but only the export takes members of different lengths without padding."
       - "The next series, frame selection, chooses in every sequence the frames of every wanted class."

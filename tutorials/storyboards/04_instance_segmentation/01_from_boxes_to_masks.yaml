@@ -265,12 +265,17 @@ scenes:
     # The binarisation of build_mask_targets, typed in its code (mask_operations.py)
     literal_numbers: ["0.5"]
     items:
-      - {text: "The detector of DET, plus one mask head per level"}
-      - {text: "Segmentations: polygons or RLE; box = tight box of the mask"}
-      - {text: "Mask head of the run: ROI Align {{instance_segmentation.geometry.pool_size}}, {{instance_segmentation.geometry.convolution_layers}} convolutions, transposed convolution to {{instance_segmentation.geometry.mask_size}}, {{instance_segmentation.model.number_classes}} masks"}
-      - {text: "Targets: the matched mask cropped to the positive proposal, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}} × {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}, at 0.5"}
-      - {text: "BCE on the ground truth class channel, float32"}
-      - {text: "+{{instance_segmentation.model.mask_parameters:,}} parameters for the {{instance_segmentation.geometry.level_count:words}} mask heads"}
+      - {text: "The detector of DET, plus one mask head per level", sentences: [0]}
+      - {text: "Segmentations: polygons or RLE; box = tight box of the mask", sentences: [1]}
+      - {text: "Mask head of the run: ROI Align {{instance_segmentation.geometry.pool_size}}, {{instance_segmentation.geometry.convolution_layers}} convolutions, transposed convolution to {{instance_segmentation.geometry.mask_size}}, {{instance_segmentation.model.number_classes}} masks", sentences: [2]}
+      - {text: "Targets: the matched mask cropped to the positive proposal, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}} × {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}, at 0.5", sentences: [3]}
+      - {text: "BCE on the ground truth class channel, float32", sentences: [4]}
+      - {text: "+{{instance_segmentation.model.mask_parameters:,}} parameters for the {{instance_segmentation.geometry.level_count:words}} mask heads", sentences: [5]}
     narration:
-      - "To recap: the detector is unchanged, every level gets a small mask head, and the masks are learned on the positive proposals against their cropped ground truth masks."
+      - "To recap: the segmenter is the detector of the object detection series plus one mask head per level, each trained on the positives of its own level unless the shared setting is on."
+      - "The masks come as polygons or run length encodings, and every box is the tight box of its mask at the network resolution, so that boxes and masks always agree."
+      - "Each head of the run pools its box with ROI Align at {{instance_segmentation.geometry.pool_size}}, runs {{instance_segmentation.geometry.convolution_layers:words}} convolutions, doubles the map to {{instance_segmentation.geometry.mask_size}} with a transposed convolution, and predicts one mask per class."
+      - "Its target is the matched ground truth mask cropped to the positive proposal and cut at 0.5: the part of the object inside the proposal, in the frame where the head predicts it."
+      - "The loss is a binary cross entropy on the channel of the ground truth class only, in float32 even under mixed precision: the classes never compete for a pixel."
+      - "The {{instance_segmentation.geometry.level_count:words}} mask heads add {{instance_segmentation.model.mask_parameters:,}} parameters to the {{instance_segmentation.model.detector_parameters:,}} of the detector."
       - "The next chapter scores the masks: their pasting, the mask overlap and mAP against the boxes, and the export."

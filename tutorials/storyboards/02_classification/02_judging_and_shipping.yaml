@@ -357,13 +357,19 @@ scenes:
   - kind: summary
     title: "Recap"
     items:
-      - {text: "Results.txt: headline metrics, then every class, worst F1 first"}
-      - {text: "Confusion matrices over the evaluations: which pairs remain"}
-      - {text: "class_thresholds.json: thresholds at precision {{classification.class_metrics.target_precision:percent_label}}, the temperature"}
-      - {text: "predictions.csv: every probability, no model run needed"}
-      - {text: "Errors/<TRUE>-TO-<PREDICTED>/<sample>_<probability>.png", monospace: true}
-      - {text: "serve_temperature_explorer: save a temperature, export from the page"}
-      - {text: "Export: {{constant:vision_training/deployment/export_specifications.py#TASK_MODEL_NAMES.classification}}, class probabilities [B, {{classification.head.number_classes}}]"}
+      - {text: "Results.txt: headline metrics, then every class, worst F1 first", sentences: [0]}
+      - {text: "Confusion matrices over the evaluations: which pairs remain", sentences: [1]}
+      - {text: "class_thresholds.json: thresholds at precision {{classification.class_metrics.target_precision:percent_label}}, the temperature", sentences: [2]}
+      - {text: "predictions.csv: every probability, no model run needed", sentences: [3]}
+      - {text: "Errors/<TRUE>-TO-<PREDICTED>/<sample>_<probability>.png", monospace: true, sentences: [4]}
+      - {text: "serve_temperature_explorer: save a temperature, export from the page", sentences: [5]}
+      - {text: "Export: {{constant:vision_training/deployment/export_specifications.py#TASK_MODEL_NAMES.classification}}, class probabilities [B, {{classification.head.number_classes}}]", sentences: [6]}
     narration:
-      - "To recap: read the report with the confusion matrices, check the thresholds and the probabilities of the errors, choose a temperature on the explorer page if they are squeezed, and export the checkpoint from that page with the thresholds found at it."
+      - "To recap: the results file writes one block per evaluated checkpoint, the headline metrics first, then a row for every class, the worst F1 at the top."
+      - "Comparing the confusion matrices of successive evaluations shows which pairs of classes the training separates and which remain, here the close quadrilaterals."
+      - "Class thresholds json gives every class the threshold reaching the target precision, with the temperature it was found at; a class never reaching it gets null, which a server must handle."
+      - "Predictions csv keeps the probability of every class for every test image, so the errors and the thresholds can be studied again without running the model."
+      - "The error images are saved in one folder per pair of true and predicted classes, each file name ending with the probability of the wrong class."
+      - "When the probabilities are squeezed against one, the serve temperature explorer script lets you choose a temperature, save the thresholds found at it, and export the checkpoint from the page."
+      - "The export names its Triton model after the task and returns the class probabilities only, the softmax and the saved temperature built into the model."
       - "The next series covers object detection: boxes with their class and score, the anchors, the region proposals and the detection heads."

@@ -195,15 +195,20 @@ scenes:
   - kind: summary
     title: "Recap"
     items:
-      - {text: "Counts on the device: confusion [{{semantic_segmentation.run_number_classes}}, {{semantic_segmentation.run_number_classes}}], boundary [{{semantic_segmentation.run_number_classes}}, {{semantic_segmentation.evaluation_boundary_counts}}], histograms [{{semantic_segmentation.run_number_classes}}, 2, {{constant:vision_training/evaluation/segmentation/segmentation_metrics.py#SCORE_HISTOGRAM_BINS}}]"}
-      - {text: "Mean IoU over the classes present or predicted: a hallucinated class counts as 0"}
-      - {text: "Boundary IoU and F1 score the contours within {{semantic_segmentation.run_boundary_tolerance}} pixels"}
-      - {text: "Macro ROC AUC is flattered by the negatives; read the macro AP"}
-      - {text: "Export: outputs at the network resolution, input settings in preprocessing.json"}
-      - {text: "evaluate_checkpoint: an error image limit skipped with a warning"}
+      - {text: "Counts on the device: confusion [{{semantic_segmentation.run_number_classes}}, {{semantic_segmentation.run_number_classes}}], boundary [{{semantic_segmentation.run_number_classes}}, {{semantic_segmentation.evaluation_boundary_counts}}], histograms [{{semantic_segmentation.run_number_classes}}, 2, {{constant:vision_training/evaluation/segmentation/segmentation_metrics.py#SCORE_HISTOGRAM_BINS}}]", sentences: [0]}
+      - {text: "Mean IoU over the classes present or predicted: a hallucinated class counts as 0", sentences: [1]}
+      - {text: "Boundary IoU and F1 score the contours within {{semantic_segmentation.run_boundary_tolerance}} pixels", sentences: [2]}
+      - {text: "Macro ROC AUC is flattered by the negatives; read the macro AP", sentences: [3]}
+      - {text: "Export: outputs at the network resolution, input settings in preprocessing.json", sentences: [4]}
+      - {text: "evaluate_checkpoint: an error image limit skipped with a warning", sentences: [5]}
     # The two histograms of a class (its pixels and the others), and the IoU of a class without true pixels, zero by
     # its definition
-    literal_numbers: ["2", "0"]
+    literal_numbers: ["2", "0", zero]
     narration:
-      - "To recap: the evaluation counts pixels on the device, the mean IOU compares the checkpoints, the boundary metrics check the contours, and the exported model gives a class and probabilities for every pixel."
+      - "To recap: an evaluation keeps no pixel, only counts summed on the device, the confusion matrix, the boundary counts and the probability histograms of every class, and every metric comes from them."
+      - "The mean IOU averages every class present or predicted, so a class predicted but absent from the true masks counts with an IOU of zero and lowers it, as in mmseg."
+      - "The boundary IOU and F score only look at the contours, within {{semantic_segmentation.run_boundary_tolerance:words}} pixels, where the region metrics hardly see an error."
+      - "The millions of negative pixels flatter the macro ROC AUC, already {{semantic_segmentation.headline_macro_roc_auc_1000:percent}} at iteration {{semantic_segmentation.run_first_evaluated_iteration}}, so read the macro average precision instead."
+      - "The exported segmenter gives its outputs at the network resolution and writes its input settings in the preprocessing file, the client cutting the letterbox and resizing back."
+      - "The standalone evaluation script skips a limit of error images set in its main block with a warning, since this task draws no error images."
       - "The next series, sequence classification, runs the backbone on every frame of a sequence and gives one class per sequence."

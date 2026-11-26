@@ -209,12 +209,17 @@ scenes:
   - kind: summary
     title: "Recap"
     items:
-      - {text: "Backbone loaded from a shape classifier, on the real frames only"}
-      - {text: "Flatten pooling: {{sequence_labelling.model.flatten_features:,}} values per frame"}
-      - {text: "Bidirectional {{sequence_labelling.run.temporal_type_upper}}: one vector per frame from both directions"}
-      - {text: "Head of the image classifier on every frame vector"}
-      - {text: "Cross entropy of the labelled frames, ignore_index {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}"}
-      - {text: "Balanced weights: {{sequence_labelling.dataset.balanced_weight_no_change:.2f}} for no_change, about {{sequence_labelling.dataset.balanced_weight_change_minimum:.1f}} for a change"}
+      - {text: "Backbone loaded from a shape classifier, on the real frames only", sentences: [0]}
+      - {text: "Flatten pooling: {{sequence_labelling.model.flatten_features:,}} values per frame", sentences: [1]}
+      - {text: "Bidirectional {{sequence_labelling.run.temporal_type_upper}}: one vector per frame from both directions", sentences: [2]}
+      - {text: "Head of the image classifier on every frame vector", sentences: [3]}
+      - {text: "Cross entropy of the labelled frames, ignore_index {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}}", sentences: [4]}
+      - {text: "Balanced weights: {{sequence_labelling.dataset.balanced_weight_no_change:.2f}} for no_change, about {{sequence_labelling.dataset.balanced_weight_change_minimum:.1f}} for a change", sentences: [5]}
     narration:
-      - "To recap: a pre-trained backbone on the real frames, the whole maps flattened, a bidirectional LSTM keeping one vector per frame, the head on every vector, and the cross entropy of the labeled frames, weighted by class."
+      - "To recap: the backbone starts from a multi-label classifier of the shapes, and only the real frames run through it, so the padding never enters its batch normalization statistics."
+      - "Flatten pooling keeps the whole last map, {{sequence_labelling.model.flatten_features:,}} values per frame at {{sequence_labelling.dataset.image_size}} pixels, where average pooling would keep the channels alone at any image size."
+      - "The bidirectional LSTM packs the real frames of every sequence and returns one vector per frame, joining a pass over the frames before it and a pass over the frames after it."
+      - "The head of the image classifier then runs on every frame vector, giving the logits of every class for that frame."
+      - "The loss is the cross entropy of every frame, the ignore index {{constant:vision_training/core/contracts.py#IGNORED_LABEL_INDEX}} dropping the padding and the unmapped frames out of the mean."
+      - "Balanced weights give a no change frame {{sequence_labelling.dataset.balanced_weight_no_change:.2f}} against {{sequence_labelling.dataset.balanced_weight_change_minimum:.2f}} to {{sequence_labelling.dataset.balanced_weight_change_maximum:.2f}} for a change frame; add no label smoothing on top, since the weights enter its term too."
       - "The next chapter reads the evaluation of this run and shows how a degenerate solution would look next to it."

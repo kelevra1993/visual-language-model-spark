@@ -176,14 +176,19 @@ scenes:
   - kind: summary
     title: "Recap"
     items:
-      - {text: "encode_frames: real frames gathered, vectors scattered back"}
-      - {text: "Padding frames: never encoded, zero vectors"}
-      - {text: "average and max pooling remove where the shape is"}
-      - {text: "flatten: channels x height x width, follows the image size"}
-      - {text: "The {{sequence_classification.temporal.types:words}} temporal modules all mask the padding"}
-      - {text: "GRU on packed sequences: final states, 2 x {{sequence_classification.run.hidden_size}}"}
+      - {text: "encode_frames: real frames gathered, vectors scattered back", sentences: [0]}
+      - {text: "Padding frames: never encoded, zero vectors", sentences: [1]}
+      - {text: "average and max pooling remove where the shape is", sentences: [2]}
+      - {text: "flatten: channels x height x width, follows the image size", sentences: [3]}
+      - {text: "The {{sequence_classification.temporal.types:words}} temporal modules all mask the padding", sentences: [4]}
+      - {text: "GRU on packed sequences: final states, 2 x {{sequence_classification.run.hidden_size}}", sentences: [5]}
     # The zero vectors of the padding frames (new_zeros of encode_frames) and the two directions of the GRU
     literal_numbers: [zero, "2"]
     narration:
-      - "To recap: only the real frames reach the backbone, every temporal module ignores the padding, and the pooling decides whether the frame vectors still hold the position of the shape."
+      - "To recap: the encode frames function gathers the real frames of all the sequences into one batch of images for the backbone, then scatters their vectors back to their frame positions."
+      - "The padding frames never reach the backbone, so they cost nothing and stay out of the batch normalization statistics; they get zero vectors."
+      - "Average and max pooling keep one value per channel, so the position of the shape is lost and no temporal module can find its direction."
+      - "Flatten keeps every position of the last map, a frame vector of channels times height times width, which grows with the image size, and the GRU with it."
+      - "Every one of the {{sequence_classification.temporal.types:words}} temporal modules keeps the padding out, by a mask, scores at minus infinity or packed sequences, so the padding changes nothing."
+      - "The GRU reads packed sequences, stops at the last real frame of each, and concatenates the final states of both directions into {{sequence_classification.run.sequence_features}} features."
       - "The third chapter trains this configuration, reads its evaluation against the average pooling run, and exports the model."

@@ -14,4 +14,4 @@ package = false
 
 [tool.uv.sources]
 # The private builder repository, pinned to a release tag; move the tag to take a newer builder, then `uv sync`
-tutorial-video-builder = { git = "ssh://git@github.com/kelevra1993/tutorial-video-builder.git", tag = "v1.3.1" }
+tutorial-video-builder = { git = "ssh://git@github.com/kelevra1993/tutorial-video-builder.git", tag = "v1.4.0" }

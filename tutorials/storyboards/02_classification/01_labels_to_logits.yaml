@@ -305,12 +305,17 @@ scenes:
     # The class indices from 0 to K - 1
     literal_numbers: ["0", "1"]
     items:
-      - {text: "labels.json + label_mapping.json: category → class index 0 to K − 1"}
-      - {text: "multi_class: softmax, cross entropy · multi_label: sigmoids, binary cross entropy"}
-      - {text: "Head tokens: {{classification.run_name.head_tokens[0]}}-{{classification.run_name.head_tokens[1]}}-{{classification.run_name.head_tokens[2]}}_{{classification.run_name.classes_token}}", monospace: true}
-      - {text: "flatten: {{classification.head.input_features:,}} features, {{classification.head.first_linear_share:percent}} of the parameters, tied to the image size"}
-      - {text: "Balanced weights N / (K · N_k), never with label smoothing"}
-      - {text: "Decorrelation: no token, mind the noise floor of the batch"}
+      - {text: "labels.json + label_mapping.json: category → class index 0 to K − 1", sentences: [0]}
+      - {text: "multi_class: softmax, cross entropy · multi_label: sigmoids, binary cross entropy", sentences: [1]}
+      - {text: "Head tokens: {{classification.run_name.head_tokens[0]}}-{{classification.run_name.head_tokens[1]}}-{{classification.run_name.head_tokens[2]}}_{{classification.run_name.classes_token}}", monospace: true, sentences: [2]}
+      - {text: "flatten: {{classification.head.input_features:,}} features, {{classification.head.first_linear_share:percent}} of the parameters, tied to the image size", sentences: [3]}
+      - {text: "Balanced weights N / (K · N_k), never with label smoothing", sentences: [4]}
+      - {text: "Decorrelation: no token, mind the noise floor of the batch", sentences: [5]}
     narration:
-      - "To recap: the mapping file sets the classes, the head flattens the last map into the largest layer of the model, and the loss is a weighted cross entropy of the softmax."
+      - "To recap: the labels json manifest gives every image its category, and the label mapping turns each category into a class index, without gaps up to K minus one."
+      - "Multi class reads the logits with a softmax and a cross entropy, one class per image; multi label gives every class its own sigmoid and a binary cross entropy."
+      - "The head writes the last tokens of the run name: the flatten and its hidden layer, the layer normalization, the balanced weights, then MC and the number of classes."
+      - "Flatten keeps all {{classification.head.input_features:,}} values of the last map, so the first layer holds {{classification.head.first_linear_share:percent}} of the parameters, and the head only transfers to a run of the same image size."
+      - "Balanced weights scale the loss of every image by the inverse frequency of its class; leave label smoothing off with them, since PyTorch weights the smoothing term too."
+      - "Decorrelation gives no run name token, so it can be turned on when a run resumes; batch noise alone never lets the term vanish, so aim its weight at about a tenth of the classification loss."
       - "The next chapter judges this classifier: its evaluation files, its confusions, its thresholds, the measured effects of the head settings, its pitfalls and its export."

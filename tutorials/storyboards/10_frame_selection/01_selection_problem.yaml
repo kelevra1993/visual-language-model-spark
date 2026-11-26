@@ -213,12 +213,17 @@ scenes:
     # The two losses and the two decodings of the task
     literal_numbers: ["two"]
     items:
-      - {text: "SEL: exactly frames_per_class frames per wanted class"}
-      - {text: "Every class but Selection.unselected_category is wanted"}
-      - {text: "Unmapped categories become unselected frames"}
-      - {text: "A sequence with another count stops the launch"}
-      - {text: "The network of M2M, with a bidirectional GRU"}
-      - {text: "wanted_class_mask saved with the weights"}
+      - {text: "SEL: exactly frames_per_class frames per wanted class", sentences: [0]}
+      - {text: "Every class but Selection.unselected_category is wanted", sentences: [1]}
+      - {text: "Unmapped categories become unselected frames", sentences: [2]}
+      - {text: "A sequence with another count stops the launch", sentences: [3]}
+      - {text: "The network of M2M, with a bidirectional GRU", sentences: [4]}
+      - {text: "wanted_class_mask saved with the weights", sentences: [5]}
     narration:
-      - "To recap: a fixed count of frames per wanted class, checked on every sequence at launch, chosen from the probabilities of the network of the sequence labeling."
+      - "To recap: frame selection picks exactly frames per class frames for every wanted class, for when that count is known and the right frame depends on the rest of its sequence."
+      - "Every class of the mapping is wanted except the category named by Selection unselected category, which is never chosen."
+      - "A category left out of the label mapping turns its frames into unselected ones, so a wanted class missing from the mapping drops out of the selection."
+      - "Every sequence must hold exactly that count of frames of every wanted class, since the decoding always picks that many; any other count stops the launch."
+      - "The model is the network of the sequence labeling, its GRU kept bidirectional so that every frame is also compared with the frames after it."
+      - "The wanted class mask is saved with the weights, so that an exported model knows its unselected class without any labels file."
       - "The next chapter covers the two losses that train it and the two decodings that read it, on the real probabilities of the README run."
