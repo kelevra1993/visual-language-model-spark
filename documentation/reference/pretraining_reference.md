@@ -88,14 +88,25 @@ Should you launch the Open Images pretraining of a size, `configuration_small_mo
 
 | Size | Backbone, block 7 equal to block 6 | Neck and heads of every level | Parameters | Backbone source in `imagenet_experiments/` |
 |---|---|---|---|---|
-| S | 1x32 · 2x32 · 2x32 · 16x64 · 20x64 · 20x64 · 20x64 | 32 channels, region proposal [2, 32], detection [2, 32] then [64, 32] | 4.2 M | `small/`, training |
-| M | 1x64 · 2x64 · 2x64 · 16x128 · 20x128 · 20x128 · 20x128 | 64 channels, region proposal [2, 64], detection [2, 64] then [128, 64] | 16.0 M | `medium/`, training |
-| L | 1x128 · 2x128 · 2x128 · 16x256 · 20x256 · 20x256 · 20x256 | 128 channels, region proposal [2, 128], detection [2, 128] then [256, 128] | 62.2 M | `large/`, not trained yet |
+| S | 1x32 · 2x32 · 2x32 · 16x64 · 20x64 · 20x64 · 20x64 | 32 channels, region proposal [2, 32], detection [2, 32] then [64, 32] | 4.5 M | `small/`, training |
+| M | 1x64 · 2x64 · 2x64 · 16x128 · 20x128 · 20x128 · 20x128 | 64 channels, region proposal [2, 64], detection [2, 64] then [128, 64] | 16.8 M | `medium/`, training |
+| L | 1x128 · 2x128 · 2x128 · 16x256 · 20x256 · 20x256 · 20x256 | 128 channels, region proposal [2, 128], detection [2, 128] then [256, 128] | 65.2 M | `large/`, not trained yet |
 
-- Shared: 1024 pixel images with their aspect ratio kept, batch size 16, levels 4 to 7 with the anchors of the detection benchmark (16 and 32, 48 and 96, 128 and 256, 384 and 768 pixels), Adam at 1e-3 under a constant learning rate until the run is stopped (`number_iterations: 1e10`), moving average of the weights at 0.9998, test on `validation_test_20000/` every 5,000 iterations without validation, MLflow on, runs in `open_images_experiments/<size>/`.
+- Shared: 1024 pixel images with their aspect ratio kept, batch size 16, levels 3 to 7 (strides 8, 16, 32, 64 and 64) with 3 anchor scales and 5 aspect ratios (0.25 to 4) per level (scales 8, 11, 16; 16, 23, 32; 48, 68, 96; 128, 181, 256; 384, 543, 768 pixels), Adam at 1e-3 under a constant learning rate until the run is stopped (`number_iterations: 1e10`), moving average of the weights at 0.9998, test on `validation_test_20000/` every 5,000 iterations without validation, MLflow on, runs in `open_images_experiments/<size>/`.
 - Backbone: blocks 1 to 6 come from the last checkpoint (its moving average) of the ImageNet run of the same size at launch, trained by the launch copies of `vision_training/configurations/classification/imagenet_merged/`; until the Large ImageNet run exists, `check_configuration.py --check_paths` refuses the Large file.
-- Memory: a training step at 1024 pixels takes about 0.65, 1.2 and 2.35 GB of GPU memory per image for S, M and L, and the main process of a Small launch peaked at 16.8 GB while it read the training `labels.json`.
-- Anchors: at launch, 79.8 % of the 15,734,499 training objects have an anchor overlapping them by 0.5 or more (`anchor_recall.csv` of the run), 40.7 % of the small objects (under 32 x 32 pixels), 74.0 % of the medium and 92.1 % of the large ones.
+- Memory: a training step at 1024 pixels takes about 0.76, 1.35 and 2.55 GB of GPU memory per image for S, M and L (about 12, 22 and 42 GB at batch size 16), and the main process of a Small launch peaked at 16.8 GB while it read the training `labels.json`.
+
+Before choosing the anchors, the `compute_anchor_coverage` diagnosis measured the share of the objects with an anchor overlapping them by 0.5 or more, on the 1,582,949 boxes of a random 10 % of the training images (small objects under 32 x 32 pixels of the network input, large from 96 x 96). The objects under 32 pixels are limited by the stride of the finest level: more scales and ratios at stride 16 raise them by 7 points, level 3 at stride 8 by 31.
+
+| Anchors | Anchors per image | All | Small | Medium | Large | GPU memory |
+|---|---|---|---|---|---|---|
+| Levels 4 to 7, scales of the detection benchmark (16 and 32 to 384 and 768), ratios 0.5, 1 and 2 | 33,792 | 79.8 % | 40.7 % | 74.1 % | 92.1 % | reference |
+| The same with ratios 0.25, 0.5, 1, 2 and 4 | 56,320 | 82.8 % | 42.0 % | 77.0 % | 95.8 % | |
+| 3 scales per level (16, 23, 32 to 384, 543, 768), ratios 0.5, 1 and 2 | 50,688 | 85.2 % | 46.5 % | 82.0 % | 96.1 % | |
+| 3 scales and 5 ratios per level | 84,480 | 87.4 % | 47.5 % | 84.2 % | 98.7 % | +3 % (S) |
+| Kept: level 3 added (8, 11, 16), 3 scales and 5 ratios per level | 330,240 | 90.7 % | 71.9 % | 84.2 % | 98.7 % | +20 % (S), +6 % (L) |
+
+The kept anchors cost time as well: two launches of the Small file trained one after the other on the same images, with the GPU shared with two other trainings, ran at 5.6 images per second with them against 6.5 with the anchors of the detection benchmark over their last 60 iterations, about 14 % slower.
 
 ### Instance Segmentation
 So that the backbone, pyramid and proposal network are not trained twice, each instance segmentation model starts from the COCO detector of its size, only the mask head starting random.

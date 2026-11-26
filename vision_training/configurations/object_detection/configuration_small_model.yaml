@@ -1,5 +1,5 @@
 # Open Images V7 detection pretraining (601 classes, splits of pretraining_reference.md), Small size: the blocks of the
-# ImageNet Small run plus a random block 7, levels 4 to 7; other settings shared by Small, Medium and Large.
+# ImageNet Small run plus a random block 7, levels 3 to 7; other settings shared by Small, Medium and Large.
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "object_detection": two-stage detector; needs RegionProposal,
   # DetectionLevels and Detector. Labels: COCO annotations with a 'bbox' per object.
@@ -259,28 +259,32 @@ Backbone:
     learning_rate_multiplier: 1.0
 
 # Detection levels, finest to coarsest: each key is the quoted number of a Backbone.convolutions block (from "1") whose
-# map feeds the anchors and heads of the level, 4 to 7 (strides 16, 32, 64, 64) as in the detection benchmark.
+# map feeds the anchors and heads of the level, 3 to 7 (strides 8, 16, 32, 64, 64), level 3 for the small objects.
 DetectionLevels:
-  "4":
+  "3":
     # Anchors per position, one per scale (square side, input pixels) and aspect ratio (height / width, same area);
-    # scales x aspect_ratios gives the region proposal head outputs. The scales of the benchmark, 16 to 768 pixels.
-    anchors: { scales: [16, 32], aspect_ratios: [0.5, 1.0, 2.0] }
+    # scales x aspect_ratios gives the region proposal head outputs; 3 scales x 5 ratios (pretraining_reference.md).
+    anchors: { scales: [8, 11, 16], aspect_ratios: [0.25, 0.5, 1.0, 2.0, 4.0] }
     # Region proposal head: [number_layers, output_channels] of its convolutions, before its objectness and box
     # regression layers.
     region_proposal: { convolutions: [2, 32] }
     # Detection head: RoIAlign grid side per proposal, [number_layers, output_channels] of its convolutions (multiples
     # of 8 with Detector.modules.inception), then fully connected sizes before the classifier and box regressor.
     detector: { roi_align_pool_size: 7, convolutions: [2, 32], fully_connected: [64, 32] }
+  "4":
+    anchors: { scales: [16, 23, 32], aspect_ratios: [0.25, 0.5, 1.0, 2.0, 4.0] }
+    region_proposal: { convolutions: [2, 32] }
+    detector: { roi_align_pool_size: 7, convolutions: [2, 32], fully_connected: [64, 32] }
   "5":
-    anchors: { scales: [48, 96], aspect_ratios: [0.5, 1.0, 2.0] }
+    anchors: { scales: [48, 68, 96], aspect_ratios: [0.25, 0.5, 1.0, 2.0, 4.0] }
     region_proposal: { convolutions: [2, 32] }
     detector: { roi_align_pool_size: 7, convolutions: [2, 32], fully_connected: [64, 32] }
   "6":
-    anchors: { scales: [128, 256], aspect_ratios: [0.5, 1.0, 2.0] }
+    anchors: { scales: [128, 181, 256], aspect_ratios: [0.25, 0.5, 1.0, 2.0, 4.0] }
     region_proposal: { convolutions: [2, 32] }
     detector: { roi_align_pool_size: 7, convolutions: [2, 32], fully_connected: [64, 32] }
   "7":
-    anchors: { scales: [384, 768], aspect_ratios: [0.5, 1.0, 2.0] }
+    anchors: { scales: [384, 543, 768], aspect_ratios: [0.25, 0.5, 1.0, 2.0, 4.0] }
     region_proposal: { convolutions: [2, 32] }
     detector: { roi_align_pool_size: 7, convolutions: [2, 32], fully_connected: [64, 32] }
 
