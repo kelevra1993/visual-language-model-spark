@@ -94,14 +94,12 @@ scenes:
   - kind: terminal
     title: "Generate, train, evaluate"
     code_reference: "vision_training/data/synthetic/create_synthetic_dataset.py · create_synthetic_dataset"
-    # The three data folders, training, validation and test
-    literal_numbers: [three]
+    # Ten rows at most fit in the terminal window: one comment for the training and the evaluation
     lines:
       - {role: comment, text: "# One shape per {{classification.generator.image_size}} pixel image: task = \"classification\" in the main block"}
       - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset --output_folder=~/Data/classifier_data/synthetic_shapes"}
-      - {role: comment, text: "# Training: experiment_folder, the three data folders and the mapping file set first"}
+      - {role: comment, text: "# Training once its folders and mapping file are set, then any checkpoint scored again"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/classification/configuration_synthetic_shapes.yaml\""}
-      - {role: comment, text: "# Checkpoints scored again, error images on: settings in the main block"}
       - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
       - {role: comment, text: "# Several shapes per image, multi_label: task = \"multi_label_classification\" in the main block"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/classification/configuration_synthetic_counted_shapes.yaml\""}
