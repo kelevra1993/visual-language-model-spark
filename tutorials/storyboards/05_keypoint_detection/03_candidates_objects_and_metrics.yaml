@@ -187,7 +187,7 @@ scenes:
     code_reference: "vision_training/deployment/export_model.py · export_experiment"
     lines:
       - {role: comment, text: "# Synthetic key point data set: task = \"keypoint_detection\" in the main block of the script"}
-      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset"}
+      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset --output_folder=~/Data/keypoint_data/synthetic_shapes"}
       - {role: comment, text: "# Training, its data folders and label mapping set in the configuration"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml\""}
       - {role: comment, text: "# Evaluation of checkpoints: run and iteration set in its main block"}

@@ -60,9 +60,9 @@ files          Evaluation/Iteration_<n>/ class_metrics.csv, keypoint_metrics.csv
 
 ```bash
 # 1. Synthetic dataset: in the main block of vision_training/data/synthetic/create_synthetic_dataset.py, set
-#    task = "keypoint_detection" and output_folders["keypoint_detection"] (250,000 / 50,000 / 50,000 images of 512
-#    pixels with 2 to 5 objects; lower split_sizes["keypoint_detection"] for a first try, 300 / 30 / 30 here)
-uv run python -m vision_training.data.synthetic.create_synthetic_dataset
+#    task = "keypoint_detection" (250,000 / 50,000 / 50,000 images of 512 pixels with 2 to 5 objects; lower
+#    split_sizes["keypoint_detection"] for a first try, 300 / 30 / 30 here), the dataset folder being required
+uv run python -m vision_training.data.synthetic.create_synthetic_dataset --output_folder="$HOME/Data/keypoint_data/synthetic_shapes"
 
 # 2. Training: set experiment_folder, the three data folders and Data.label_mapping.mapping_file_path first
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml"

@@ -175,8 +175,8 @@ def run_scoring(monkeypatch: pytest.MonkeyPatch, arguments: List[str]) -> None:
     """
     monkeypatch.setattr(score_image_split_module, "build_scoring_trainer", build_fake_scoring_trainer)
     monkeypatch.setattr(score_image_split_module, "load_checkpoint_weights", load_fake_checkpoint_weights)
-    monkeypatch.setattr(sys, "argv", ["score_image_split.py", "--experiment-folder", "run", "--iteration", "10",
-                                      "--batch-size", "2", "--number-workers", "0"] + arguments)
+    monkeypatch.setattr(sys, "argv", ["score_image_split.py", "--experiment_folder", "run", "--iteration", "10",
+                                      "--batch_size", "2", "--number_workers", "0"] + arguments)
     score_image_split_module.main()
 
 
@@ -206,7 +206,7 @@ def test_scoring_resumes_after_the_scored_images_in_the_order_of_the_split(tmp_p
     output_path = tmp_path / "predictions.csv"
     output_path.write_text(data=",".join(FIELDNAMES) + "\r\nimage_000.png,0.5,0.5\r\nimage_003.png,0.1,0.9\r\n",
                            encoding="utf-8")
-    run_scoring(monkeypatch=monkeypatch, arguments=["--test-data-folder", "split", "--output-path", str(output_path)])
+    run_scoring(monkeypatch=monkeypatch, arguments=["--test_data_folder", "split", "--output_path", str(output_path)])
 
     # The two earlier rows stay first, the four other images follow in the order of the split
     with open(output_path, encoding="utf-8", newline="") as predictions_file:
@@ -231,7 +231,7 @@ def test_header_only_file_gets_no_second_header(tmp_path: Path, monkeypatch: pyt
     """
     output_path = tmp_path / "predictions.csv"
     output_path.write_text(data=",".join(FIELDNAMES) + "\r\n", encoding="utf-8")
-    run_scoring(monkeypatch=monkeypatch, arguments=["--test-data-folder", "split", "--output-path", str(output_path)])
+    run_scoring(monkeypatch=monkeypatch, arguments=["--test_data_folder", "split", "--output_path", str(output_path)])
     lines = output_path.read_text(encoding="utf-8").splitlines()
     assert lines.count(",".join(FIELDNAMES)) == 1
     assert len(lines) == 1 + len(SPLIT_FILE_NAMES)
@@ -250,7 +250,7 @@ def test_predictions_file_of_other_classes_is_refused(tmp_path: Path, monkeypatc
     output_path.write_text(data=written_text, encoding="utf-8")
     with pytest.raises(ValueError, match="written for other classes"):
         run_scoring(monkeypatch=monkeypatch,
-                    arguments=["--test-data-folder", "split", "--output-path", str(output_path)])
+                    arguments=["--test_data_folder", "split", "--output_path", str(output_path)])
     assert output_path.read_bytes() == written_text.encode(encoding="utf-8")
 
 
@@ -270,12 +270,12 @@ def test_row_cut_by_an_interruption_is_refused(tmp_path: Path, monkeypatch: pyte
     output_path.write_text(data=written_text, encoding="utf-8")
     with pytest.raises(ValueError, match="interrupted write"):
         run_scoring(monkeypatch=monkeypatch,
-                    arguments=["--test-data-folder", "split", "--output-path", str(output_path)])
+                    arguments=["--test_data_folder", "split", "--output_path", str(output_path)])
     assert output_path.read_bytes() == written_text.encode(encoding="utf-8")
 
 
-@pytest.mark.parametrize("arguments", [["--output-path", "predictions.csv"], ["--test-data-folder", "split"],
-                                       ["--compare-precisions", "--test-data-folder", "split"]])
+@pytest.mark.parametrize("arguments", [["--output_path", "predictions.csv"], ["--test_data_folder", "split"],
+                                       ["--compare_precisions", "--test_data_folder", "split"]])
 def test_scoring_without_split_or_predictions_file_is_refused(monkeypatch: pytest.MonkeyPatch,
                                                               arguments: List[str]) -> None:
     """
@@ -286,7 +286,7 @@ def test_scoring_without_split_or_predictions_file_is_refused(monkeypatch: pytes
         monkeypatch (pytest.MonkeyPatch): The pytest fixture replacing the trainer, the weights and the command line.
         arguments (List[str]): The command line arguments, missing the split or the predictions file.
     """
-    with pytest.raises(ValueError, match="needs --test-data-folder and --output-path"):
+    with pytest.raises(ValueError, match="needs --test_data_folder and --output_path"):
         run_scoring(monkeypatch=monkeypatch, arguments=arguments)
 
 

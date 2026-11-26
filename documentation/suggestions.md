@@ -148,7 +148,7 @@
       `restore_dynamic_output_frames`, the stripped metadata) or the larger batch request are the first suspects:
       export the run with the code of 2026-11-17, compare the graphs, then try a larger `max_workspace_size_bytes`. A
       served sequence model fails as soon as the dynamic batcher forms a batch above the one its engine was built for.
-    `scripts/deployment/check_export_size_estimates.py --build-tensorrt-engines` reproduces both (the models are
+    `scripts/deployment/check_export_size_estimates.py --build_tensorrt_engines` reproduces both (the models are
     reported in red and the other engines still measured).
 
 ## F. Reference: Mask R-CNN compared stage by stage

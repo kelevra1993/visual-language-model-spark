@@ -174,7 +174,7 @@ scenes:
     literal_numbers: ["26", "256"]
     lines:
       - {role: comment, text: "# Data: task = \"sequence_labelling\" in the main block, {{sequence_labelling.generator.train_sequences:,}} / {{sequence_labelling.generator.validation_sequences:,}} / {{sequence_labelling.generator.test_sequences:,}} sequences"}
-      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset"}
+      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset --output_folder=~/Data/sequence_data/synthetic_changing_shapes"}
       - {role: comment, text: "# test_{{sequence_labelling.subset.sequence_count}}: {{sequence_labelling.subset.sequence_count:,}} test sequences drawn with the seed {{sequence_labelling.subset.seed}}, linked to the test frames"}
       - {role: command, text: "uv run python -m scripts.data.create_sequence_split_subset"}
       - {role: comment, text: "# Training: its only argument is the configuration"}

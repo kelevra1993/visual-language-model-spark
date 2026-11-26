@@ -89,15 +89,32 @@ This README gives the commands and the settings that matter most. The details ar
 ## Prerequisites
 
 ### Package Requirements
-Before running any script, install Python 3.13+ and uv. An NVIDIA GPU with CUDA is expected (the CPU fallback is much slower), and Docker with the NVIDIA container runtime is only needed to serve the exported models with Triton and to train in the [Docker image](#docker-image).
+Before running any script, the machine needs uv, the Python 3.13 it installs, and an NVIDIA GPU with CUDA (the CPU fallback is much slower). Docker with the NVIDIA container runtime is only needed to serve the exported models with Triton and to train in the [Docker image](#docker-image).
+
+On a machine without uv, install it with its standalone installer, then open a new shell so that `uv` is on the `PATH`:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv --version
+```
+
+So that the repository runs on the Python it is developed and tested with, its tracked `.python-version` file pins Python 3.13, which `uv sync` and `uv run` read; without it, uv would take the first Python it finds that satisfies `requires-python = ">=3.13"`, which may be a 3.14. From the repository root, `uv python install` downloads the pinned Python into uv's own folder, leaving the system Python untouched, and `uv python pin` prints the pinned version (given another version, it rewrites `.python-version`):
+
+```bash
+uv python install
+uv python pin
+```
+
+Once Python is installed, `uv sync` creates `.venv` with the pinned Python and installs the versions locked in `uv.lock`, then `uv run python --version` should print 3.13:
 
 ```bash
 uv sync
+uv run python --version
 ```
 
 Besides the dependencies, `uv sync` installs the `dev` group (pytest) and the `datasets` group (FiftyOne, for `data_retriever.py`), both left out of the Docker image.
 
-Every script runs as a module from the repository root. The training and the [configuration check](#configurations) (`vision_training.check_configuration`) take `--configuration_path`, the task being read from the file; the other scripts take no arguments, their settings being the variables of their `if __name__ == "__main__":` block.
+Every script runs as a module from the repository root. The training and the [configuration check](#configurations) (`vision_training.check_configuration`) take `--configuration_path`, the task being read from the file, and the [synthetic dataset script](#quick-start-with-synthetic-data) takes the `--output_folder` of the dataset; most other scripts take no arguments, their settings being the variables of their `if __name__ == "__main__":` block.
 
 <p align="center">
   <img src="README/scripts_and_requirements.png" width="100%" />
@@ -114,11 +131,12 @@ Should the backbones of classification, object detection or segmentation start f
 
 ## Quick Start With Synthetic Data
 In order to check the installation or a configuration within minutes, every task has a synthetic shapes dataset:
-1. Set `task` and its folder in `output_folders` in the main block of `vision_training/data/synthetic/create_synthetic_dataset.py`, then run `uv run python -m vision_training.data.synthetic.create_synthetic_dataset`.
-2. Point `experiment_folder`, the three data folders and `Data.label_mapping.mapping_file_path` of the synthetic configuration of the task (table below, in `vision_training/configurations/`) to the generated dataset.
-3. Train with that configuration:
+1. Set `task` in the main block of `vision_training/data/synthetic/create_synthetic_dataset.py`, then run it with the root folder of the dataset, which is required and receives the `train`, `validation` and `test` folders and `label_mapping.json` (existing splits of the same names are overwritten).
+2. In the synthetic configuration of the task (table below, in `vision_training/configurations/`), point the three data folders and `Data.label_mapping.mapping_file_path` to the `train`, `validation` and `test` folders and the `label_mapping.json` of the generated dataset, and `experiment_folder` to the folder receiving the runs, all as absolute paths: a configuration expands neither `~` nor `$HOME`.
+3. Train with that configuration.
 
 ```bash
+uv run python -m vision_training.data.synthetic.create_synthetic_dataset --output_folder="$HOME/Data/classifier_data/synthetic_shapes"
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/classification/configuration_synthetic_shapes.yaml"
 ```
 
@@ -146,7 +164,7 @@ Should you need to know what a model of these datasets has to cope with, every t
 ## Training
 
 ### Launching A Run
-Once a dataset is ready, copy the `configuration_example.yaml` of the task (`vision_training/configurations/<task>/`), fill `experiment_folder`, the three data folders and the label mapping file (every key is explained by its comment), and run:
+Once a dataset is ready, copy the `configuration_example.yaml` of the task (`vision_training/configurations/<task>/`), fill `experiment_folder`, the three data folders and the label mapping file with absolute paths (every key is explained by its comment), and run:
 
 ```bash
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/classification/my_configuration.yaml"
@@ -784,11 +802,11 @@ uv run python -m scripts.evaluation.draw_report_figures
 </p>
 <p align="center"><em>The precision-recall curves and the training curves drawn for the classifier above at iteration 2000 (test balanced accuracy 81.65 %), the curves shown for the first nine of its 35 classes (the script draws one panel per class): a dot marks the threshold reaching 99 % precision, reached by these nine and never by trapezoid, hollow parallelogram and hollow kite, at a logit temperature of 1 since no temperature was saved. The confusion matrix of the report is the one shown above; the chart of the groups needs a group manifest, which the synthetic shapes do not have.</em></p>
 
-Suppose a kept classifier must find a rare class among a million unlabelled images: `scripts/evaluation/score_image_split.py` runs only the forward pass of one checkpoint over every image of a split, decoded by many loader workers through the test dataset of the run, and writes the probability of every class to a predictions file with the columns of `predictions.csv`. It scores the images in the order of the `labels.json` of the split, stops before the next batch once `--time-budget-hours` has passed, and a new launch on the same file scores only the images it does not hold yet. Details: [tools reference](documentation/reference/tools_reference.md#scoring-a-large-split).
+Suppose a kept classifier must find a rare class among a million unlabelled images: `scripts/evaluation/score_image_split.py` runs only the forward pass of one checkpoint over every image of a split, decoded by many loader workers through the test dataset of the run, and writes the probability of every class to a predictions file with the columns of `predictions.csv`. It scores the images in the order of the `labels.json` of the split, stops before the next batch once `--time_budget_hours` has passed, and a new launch on the same file scores only the images it does not hold yet. Details: [tools reference](documentation/reference/tools_reference.md#scoring-a-large-split).
 
 ```bash
-uv run python -m scripts.evaluation.score_image_split --experiment-folder <run> --iteration 2000 \
-    --test-data-folder <split> --output-path <predictions.csv> --precision bfloat16 --time-budget-hours 3
+uv run python -m scripts.evaluation.score_image_split --experiment_folder <run> --iteration 2000 \
+    --test_data_folder <split> --output_path <predictions.csv> --precision bfloat16 --time_budget_hours 3
 ```
 
 ## Comparing Launches
@@ -908,8 +926,6 @@ tutorials/build_tutorials.sh --check-references
 # On a machine without the runs: build from their committed snapshots
 tutorials/build_tutorials.sh --experiments-folder tutorials/run_snapshots
 ```
-
-Before creating, updating or rebuilding a chapter, read `tutorials/MAINTAINING.md`: the writing rules, the review workflow, and how `tutorials/run_snapshots/` (small copies of the runs, their dataset files and the figures that need a checkpoint, at most 5 MB per file) keeps everything a rebuild needs in the repository.
 
 Each time a build ends, it writes `index.html` next to the series folders: one player per series, with its chapters and their scenes as links to their start.
 
@@ -1323,11 +1339,11 @@ The real files of this run measure 3.57 and 1.84 MB (`torch.save` of the state d
 
 `Exported Parameters` counts the parameters the forward pass reads, those the ONNX file and the engines keep: 438,368 of 571,104 for the SimCLR encoder of the tutorials, whose projector serves the training only (the PyTorch weights and the TorchScript file still hold it). The estimates take 0.1 to 0.8 seconds per tutorial run on the idle GPU and 0.2 to 5.0 seconds on the CPU (2026-11-22), up to 2.1 seconds for the Medium ImageNet classifier of 19.2 million parameters on a GPU other trainings shared, against 2 to 27 seconds for the real TorchScript, ONNX and PyTorch files of the tutorial runs, the ONNX export taking most of it, and from 5 seconds to 43 minutes for each TensorRT engine (the batch-16 engine of the instance segmenter). A forward pass or a trace that fails leaves its rows `failed` in red with the error under the table, and the training goes on.
 
-After a change to the exports or to their libraries, `scripts/deployment/check_export_size_estimates.py` exports the ten tutorial runs, prints every estimate against its real file and fits the constants again ([tools reference](documentation/reference/tools_reference.md#export-size-check)); with `--build-tensorrt-engines`, on an idle GPU, it also builds the 20 TensorRT engines through Triton, about two hours, to fit the TensorRT constants:
+After a change to the exports or to their libraries, `scripts/deployment/check_export_size_estimates.py` exports the ten tutorial runs, prints every estimate against its real file and fits the constants again ([tools reference](documentation/reference/tools_reference.md#export-size-check)); with `--build_tensorrt_engines`, on an idle GPU, it also builds the 20 TensorRT engines through Triton, about two hours, to fit the TensorRT constants:
 
 ```bash
 uv run python -m scripts.deployment.check_export_size_estimates
-uv run python -m scripts.deployment.check_export_size_estimates --device cuda --build-tensorrt-engines
+uv run python -m scripts.deployment.check_export_size_estimates --device cuda --build_tensorrt_engines
 ```
 
 ### Input Contract
@@ -1558,7 +1574,7 @@ To find your way in the code, the diagram follows the packages along the path of
 │   └── utilities/                     # File, tensor, mask and visualization helpers
 ├── scripts/                           # Configuration, data, deployment (serving benchmark, export size check), embedding, evaluation and model drawing scripts
 ├── tests/                             # Tests, mirroring vision_training/ and scripts/
-└── tutorials/                         # Narrated tutorial videos: storyboards, figure scripts, run snapshots, MAINTAINING.md
+└── tutorials/                         # Narrated tutorial videos: storyboards, figure scripts, run snapshots, README.md of the build
 ```
 
 ## Metrics Explained

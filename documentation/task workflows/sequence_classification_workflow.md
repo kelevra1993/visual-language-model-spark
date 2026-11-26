@@ -71,9 +71,9 @@ Before a first run of the task, the moving shapes are generated once, then the r
 
 ```bash
 # 1. Synthetic dataset: in the main block of vision_training/data/synthetic/create_synthetic_dataset.py, set
-#    task = "sequence_classification" and output_folders["sequence_classification"] (2,000 / 200 / 200 sequences of
-#    2 to 12 frames of 512 pixels, one shape moving left, right, up or down across the frames)
-uv run python -m vision_training.data.synthetic.create_synthetic_dataset
+#    task = "sequence_classification" (2,000 / 200 / 200 sequences of 2 to 12 frames of 512 pixels, one shape moving
+#    left, right, up or down across the frames), the dataset folder being required
+uv run python -m vision_training.data.synthetic.create_synthetic_dataset --output_folder="$HOME/Data/sequence_data/synthetic_moving_shapes"
 
 # 2. Training: set experiment_folder, the three data folders and Data.label_mapping.mapping_file_path first
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml"

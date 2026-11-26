@@ -8,14 +8,14 @@
 <ol class="points">
 <li>Install the locked environment with uv.</li>
 <li>Generate the synthetic dataset of the task.</li>
-<li>Train with its synthetic configuration.</li>
+<li>Point its configuration to it, then train.</li>
 </ol>
-<p class="code" style="background:#0F3046; border:4px solid #4CC9F0">uv sync<br>uv run python -m vision_training.data.\<br>synthetic.create_synthetic_dataset<br>uv run python -m vision_training.main \<br>--configuration_path=&lt;synthetic yaml&gt;</p>
+<p class="code" style="background:#0F3046; border:4px solid #4CC9F0">uv sync<br>uv run python -m vision_training.data.\<br>synthetic.create_synthetic_dataset \<br>--output_folder=&lt;dataset folder&gt;<br>uv run python -m vision_training.main \<br>--configuration_path=&lt;synthetic yaml&gt;</p>
 <p class="small">Every task ships a synthetic dataset, so a configuration or an installation is checked without any real data.</p>
 </div>
 <div class="figure">
 <img src="/_blob/07a81d0e9630a91d509fbdc398049eec" alt="Animated grid of synthetic samples of every task drawn with their labels; the sequence tiles play their frames" style="width:838px; height:603px; object-fit:contain">
 </div>
 </div>
-<aside>Three commands from a fresh clone to a running training. The synthetic generator covers every task: single shapes for classification, five or six shapes per image with their masks for detection and segmentation, stick figures and houses for keypoints, moving shapes for sequences.</aside>
+<aside>Three commands from a fresh clone to a running training: the generator writes the dataset into the folder it is given, and the synthetic configuration of the task names that folder before the training. The synthetic generator covers every task: single shapes for classification, five or six shapes per image with their masks for detection and segmentation, stick figures and houses for keypoints, moving shapes for sequences.</aside>
 </section>

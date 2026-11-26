@@ -51,7 +51,7 @@ BATCH_NORMALIZATION_OPERATORS = {"aten.batch_norm", "aten._batch_norm_impl_index
 # Constants of the estimates, fitted on the ten tutorial runs of every task with
 # scripts/deployment/check_export_size_estimates.py on 2026-11-21 (PyTorch 2.14, onnxscript 0.7.2), the TensorRT ones on
 # the six engines of the serving benchmark (CLS, DET and M2M in FP32 and FP16, Triton 26.01 with TensorRT 10.14) until
-# the engines of every task are built with --build-tensorrt-engines.
+# the engines of every task are built with --build_tensorrt_engines.
 # Bytes torch.save writes for a state dictionary besides the values of its tensors: per tensor (its zip records
 # aligned to 64 bytes and its entry in the pickled dictionary, the characters of its key added), and once (the pickle,
 # version and byte order records and the zip directory)
