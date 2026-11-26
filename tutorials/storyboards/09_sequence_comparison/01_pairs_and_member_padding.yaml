@@ -90,8 +90,8 @@ scenes:
     title: "Generate, convert, train"
     code_reference: "vision_training/data/sequence/pair_list_manifests.py · create_pair_list_manifests"
     lines:
-      - {role: comment, text: "# Synthetic pairs: task sequence_comparison and output folder in the main block"}
-      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset"}
+      - {role: comment, text: "# Synthetic pairs: task sequence_comparison in the main block, output folder as an argument"}
+      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset --output_folder=~/Data/sequence_data/synthetic_object_loss_pairs"}
       - {role: comment, text: "# Real pairs: one pair list file per split, converted to labels.json manifests"}
       - {role: command, text: "uv run python -m vision_training.data.sequence.pair_list_manifests"}
       - {role: comment, text: "# The training"}

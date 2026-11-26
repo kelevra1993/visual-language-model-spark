@@ -89,15 +89,32 @@ This README gives the commands and the settings that matter most. The details ar
 ## Prerequisites
 
 ### Package Requirements
-Before running any script, install Python 3.13+ and uv. An NVIDIA GPU with CUDA is expected (the CPU fallback is much slower), and Docker with the NVIDIA container runtime is only needed to serve the exported models with Triton and to train in the [Docker image](#docker-image).
+Before running any script, the machine needs uv, the Python 3.13 it installs, and an NVIDIA GPU with CUDA (the CPU fallback is much slower). Docker with the NVIDIA container runtime is only needed to serve the exported models with Triton and to train in the [Docker image](#docker-image).
+
+On a machine without uv, install it with its standalone installer, then open a new shell so that `uv` is on the `PATH`:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv --version
+```
+
+So that the repository runs on the Python it is developed and tested with, let uv download Python 3.13 and pin it for the project from the repository root. The download goes to uv's own folder and leaves the system Python untouched. `uv python pin` writes `.python-version` at the repository root, which `uv sync` and `uv run` read from then on; without it, uv takes the first Python it finds that satisfies `requires-python = ">=3.13"`, which may be a 3.14.
+
+```bash
+uv python install 3.13
+uv python pin 3.13
+```
+
+Once Python is pinned, `uv sync` creates `.venv` with that Python and installs the versions locked in `uv.lock`, then `uv run python --version` should print 3.13:
 
 ```bash
 uv sync
+uv run python --version
 ```
 
 Besides the dependencies, `uv sync` installs the `dev` group (pytest) and the `datasets` group (FiftyOne, for `data_retriever.py`), both left out of the Docker image.
 
-Every script runs as a module from the repository root. The training and the [configuration check](#configurations) (`vision_training.check_configuration`) take `--configuration_path`, the task being read from the file; the other scripts take no arguments, their settings being the variables of their `if __name__ == "__main__":` block.
+Every script runs as a module from the repository root. The training and the [configuration check](#configurations) (`vision_training.check_configuration`) take `--configuration_path`, the task being read from the file, and the [synthetic dataset script](#quick-start-with-synthetic-data) takes the `--output_folder` of the dataset; most other scripts take no arguments, their settings being the variables of their `if __name__ == "__main__":` block.
 
 <p align="center">
   <img src="README/scripts_and_requirements.png" width="100%" />
@@ -114,11 +131,12 @@ Should the backbones of classification, object detection or segmentation start f
 
 ## Quick Start With Synthetic Data
 In order to check the installation or a configuration within minutes, every task has a synthetic shapes dataset:
-1. Set `task` and its folder in `output_folders` in the main block of `vision_training/data/synthetic/create_synthetic_dataset.py`, then run `uv run python -m vision_training.data.synthetic.create_synthetic_dataset`.
+1. Set `task` in the main block of `vision_training/data/synthetic/create_synthetic_dataset.py`, then run it with the root folder of the dataset, which is required and receives the `train`, `validation` and `test` folders and `label_mapping.json` (existing splits of the same names are overwritten).
 2. Point `experiment_folder`, the three data folders and `Data.label_mapping.mapping_file_path` of the synthetic configuration of the task (table below, in `vision_training/configurations/`) to the generated dataset.
-3. Train with that configuration:
+3. Train with that configuration.
 
 ```bash
+uv run python -m vision_training.data.synthetic.create_synthetic_dataset --output_folder="$HOME/Data/classifier_data/synthetic_shapes"
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/classification/configuration_synthetic_shapes.yaml"
 ```
 

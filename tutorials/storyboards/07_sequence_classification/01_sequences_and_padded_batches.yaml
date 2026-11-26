@@ -91,14 +91,14 @@ scenes:
     title: "Generate, train, evaluate"
     code_reference: "vision_training/data/synthetic/create_synthetic_dataset.py · create_synthetic_dataset"
     lines:
-      - {role: comment, text: "# A moving shapes dataset: task and output folder in the main block of the script"}
-      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset"}
+      - {role: comment, text: "# A moving shapes dataset: task in the main block, output folder as an argument"}
+      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset --output_folder=~/Data/sequence_data/synthetic_moving_shapes"}
       - {role: comment, text: "# The training: data folders and label mapping set in the configuration"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml\""}
       - {role: comment, text: "# The evaluation of checkpoints, set in its main block, into <run>/Checkpoint_Evaluation/"}
       - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
     narration:
-      - "The synthetic generator writes such a data set once its task and output folder are set in its main block."
+      - "The synthetic generator writes such a data set once its task is set in its main block, its output folder given as an argument."
       - "It draws {{sequence_classification.dataset.generator_minimum_frames_words}} to {{sequence_classification.dataset.generator_maximum_frames_words}} frames of {{sequence_classification.dataset.generator_image_size}} pixels per sequence, one shape of {{constant:vision_training/data/synthetic/create_synthetic_dataset.py#OBJECT_MINIMUM_SIZE}} pixels or more crossing them in a straight line over a background shared by the frames."
       - "{{constant:vision_training/data/synthetic/create_synthetic_dataset.py#TEXTURED_BACKGROUND_PROBABILITY:percent_label}} of the sequences have a textured background, {{constant:vision_training/data/synthetic/create_synthetic_dataset.py#LOW_CONTRAST_PROBABILITY:percent_label}} of the others a shape color close to their flat background, and the border may cut the shape, which keeps at least {{constant:vision_training/data/synthetic/create_synthetic_dataset.py#SHAPE_MINIMUM_VISIBLE_FRACTION:percent_label}} of its pixels in every frame."
       - "The training takes the synthetic configuration, and the standalone evaluation script scores any checkpoint of the run again, its settings in its main block too."

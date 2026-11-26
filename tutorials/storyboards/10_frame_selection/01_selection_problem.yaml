@@ -195,7 +195,7 @@ scenes:
     code_reference: "vision_training/deployment/export_model.py"
     lines:
       - {role: comment, text: "# Data: task = \"frame_selection\" in the main block, {{frame_selection.dataset.training_sequences:,}} / {{frame_selection.dataset.validation_sequences}} / {{frame_selection.dataset.test_sequences}} sequences of {{frame_selection.dataset.image_size}} pixels"}
-      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset"}
+      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset --output_folder=~/Data/sequence_data/synthetic_selected_shapes"}
       - {role: comment, text: "# Training: its only argument is the configuration"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml\""}
       - {role: comment, text: "# Any checkpoint again, both decodings scored, set in the main block"}

@@ -98,7 +98,7 @@ scenes:
     literal_numbers: [three]
     lines:
       - {role: comment, text: "# One shape per {{classification.generator.image_size}} pixel image: task = \"classification\" in the main block"}
-      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset"}
+      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset --output_folder=~/Data/classifier_data/synthetic_shapes"}
       - {role: comment, text: "# Training: experiment_folder, the three data folders and the mapping file set first"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/classification/configuration_synthetic_shapes.yaml\""}
       - {role: comment, text: "# Checkpoints scored again, error images on: settings in the main block"}

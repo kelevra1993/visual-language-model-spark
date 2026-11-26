@@ -155,7 +155,7 @@ scenes:
     code_reference: "vision_training/deployment/export_model.py · export_experiment"
     lines:
       - {role: comment, text: "# Synthetic data set: task = \"semantic_segmentation\" in the main block of the script"}
-      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset"}
+      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset --output_folder=~/Data/segmentation_data/synthetic_shapes"}
       - {role: comment, text: "# Training: Ctrl+C stops it and saves a checkpoint"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml\""}
       - {role: comment, text: "# Evaluation into <run>/Checkpoint_Evaluation/: run and iteration in its main block"}

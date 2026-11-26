@@ -10,9 +10,11 @@ what the image shows: the detection labels leave out the shapes mostly hidden, a
 counts, compares or names their shapes are drawn again until every shape is visible enough. The counted shapes images of
 the self-supervised and multi-label configurations are drawn like the sequence labelling frames, so that their backbone
 can initialise the sequence labelling model, and the occlusion test split of the detection benchmark overlaps its
-objects more, partly in overlapping pairs of a class. Run as a script with the task set in its main block.
+objects more, partly in overlapping pairs of a class. Run as a script with the task set in its main block and the root
+folder of the dataset given by the required --output_folder argument.
 """
 
+import argparse
 import json
 import os
 import cv2
@@ -3386,6 +3388,18 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
 
 
 if __name__ == "__main__":
+    # Root folder of the created dataset, required on the command line so that every machine writes where its data
+    # lives: the folder the train, validation and test folders and label_mapping.json go to, which the data folders and
+    # the mapping file of the synthetic configuration of the task then point to. Existing images and labels of the same
+    # splits are overwritten
+    argument_parser = argparse.ArgumentParser(description="Creates the synthetic shapes dataset of the task set in the "
+                                                          "main block.")
+    argument_parser.add_argument("--output_folder", type=str, required=True,
+                                 help="Root folder of the created dataset, e.g. "
+                                      "~/Data/classifier_data/synthetic_shapes for the classification.")
+    arguments = argument_parser.parse_args()
+    output_folder = os.path.abspath(os.path.expanduser(arguments.output_folder))
+
     # Task of the dataset: "object_detection" (several shapes per image), "instance_segmentation" (several shapes per
     # image, with the visible part of every shape), "keypoint_detection" (several upright shapes per image, with the
     # keypoints of every shape), "classification" (one shape per image),
@@ -3398,22 +3412,6 @@ if __name__ == "__main__":
     # sequence labelling frame, labelled with their number of shapes and keeping the classes of their shapes) or
     # "multi_label_classification" (the same images, labelled with the distinct classes of their shapes)
     task = "classification"
-    # Root folder of the created dataset of every task, the ones expected by the synthetic configurations of
-    # vision_training/configurations/, the object detection configuration reading the instance segmentation dataset
-    # (the boxes of the visible part of every shape) and the object detection folder holding the images of the
-    # detection benchmark. Existing images and labels of the same splits are overwritten
-    output_folders = {"object_detection": "/home/robert_kelevra/Data/object_detection_data/synthetic_hard_shapes",
-                      "instance_segmentation": "/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes",
-                      "keypoint_detection": "/home/robert_kelevra/Data/keypoint_data/synthetic_shapes",
-                      "classification": "/home/robert_kelevra/Data/classifier_data/synthetic_shapes",
-                      "semantic_segmentation": "/home/robert_kelevra/Data/segmentation_data/synthetic_shapes",
-                      "sequence_classification": "/home/robert_kelevra/Data/sequence_data/synthetic_moving_shapes",
-                      "sequence_labelling": "/home/robert_kelevra/Data/sequence_data/synthetic_changing_shapes",
-                      "sequence_comparison": "/home/robert_kelevra/Data/sequence_data/synthetic_object_loss_pairs",
-                      "frame_selection": "/home/robert_kelevra/Data/sequence_data/synthetic_selected_shapes",
-                      "self_supervised": "/home/robert_kelevra/Data/self_supervised_data/synthetic_counted_shapes",
-                      "multi_label_classification":
-                          "/home/robert_kelevra/Data/classifier_data/synthetic_counted_shapes"}
     # Height and width of the square images in pixels, for every task
     image_sizes = {"object_detection": 1024, "instance_segmentation": 512, "keypoint_detection": 512,
                    "classification": 512, "semantic_segmentation": 512,
@@ -3481,14 +3479,15 @@ if __name__ == "__main__":
     # Number of worker processes generating the images
     number_workers = 8
 
-    # The instance segmentation benchmark dataset replaces the settings of the dataset of the synthetic configurations
+    # The instance segmentation benchmark dataset replaces the settings of the dataset of the synthetic configurations,
+    # its own folder included, which then replaces the --output_folder argument
     if task == "instance_segmentation" and instance_segmentation_benchmark_dataset:
-        output_folders[task] = instance_segmentation_benchmark_settings["output_folder"]
+        output_folder = instance_segmentation_benchmark_settings["output_folder"]
         image_sizes[task] = instance_segmentation_benchmark_settings["image_size"]
         split_sizes[task] = instance_segmentation_benchmark_settings["split_sizes"]
         maximum_objects[task] = instance_segmentation_benchmark_settings["maximum_objects"]
 
-    create_synthetic_dataset(output_folder=output_folders[task], image_size=image_sizes[task],
+    create_synthetic_dataset(output_folder=output_folder, image_size=image_sizes[task],
                              split_sizes=split_sizes[task], maximum_objects=maximum_objects[task],
                              minimum_frames=minimum_frames[task], maximum_frames=maximum_frames[task],
                              number_workers=number_workers, task=task,

@@ -110,13 +110,13 @@ scenes:
     lines:
       - {role: comment, text: "# The environment pinned by uv.lock"}
       - {role: command, text: "uv sync"}
-      - {role: comment, text: "# A synthetic dataset, task and folders set in the main block of the script"}
-      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset"}
+      - {role: comment, text: "# A synthetic dataset: task set in the main block, its folder given as an argument"}
+      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset --output_folder=~/Data/classifier_data/synthetic_shapes"}
       - {role: comment, text: "# A training: its only argument is the path of its configuration"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/classification/configuration_synthetic_shapes.yaml\""}
     narration:
       - "uv sync installs the environment pinned by the lock file, and every script then runs as a module from the repository root."
-      - "Say you want to try a task before any data is at hand: the synthetic data set script draws a shapes data set for it, with nothing to download; like almost every script but the training, it is set in its main block."
+      - "Say you want to try a task before any data is at hand: the synthetic data set script draws a shapes data set for it, with nothing to download; its task is set in its main block, like the settings of almost every script but the training, and its folder is its one argument."
       - "The training takes a single argument, the path of its configuration file, and that file alone defines the run."
 
   # The download prints nothing before it reaches the gated data set of Hugging Face, so the scene shows its commands
