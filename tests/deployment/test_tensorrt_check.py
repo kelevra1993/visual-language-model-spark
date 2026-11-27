@@ -2,12 +2,14 @@
 Tests of the TensorRT checks of an export (vision_training/deployment/tensorrt_check.py and their use by
 export_experiment of vision_training/deployment/export_model.py): the FP16 overflow scan flags a node output above
 65,504 with its node and op type, and lets pass a graph whose values stay below it, its infinities and integer values
-being left out; the engine check served by Triton (its server and client stood in for) fails on non-finite outputs
-and on differences above the tolerances, passes within them, records a model Triton cannot build or run with the
-errors of its log, and always stops its container; an export whose TensorRT check fails leaves the repository
-unchanged, a passing one installs the models, an FP16 engine being compared with the eager FP16 copy at the loosened
-tolerances, and --skip_tensorrt_check leaving the engine unchecked; an export needing the engine check on a machine
-without Docker stops before anything is written, naming --skip_tensorrt_check and --tensorrt_precision None.
+being left out; the engine check served by Triton (its server and client stood in for) fails on non-finite outputs and
+on differences above the tolerances, passes within them, records a model Triton cannot build or run with the errors of
+its log, and always stops its container; the TF32 tolerances follow the differences TF32 makes in the eager model, the
+tolerances of the specification staying the floor, and an FP32 engine missing those tolerances passes within the TF32
+ones; an export whose TensorRT check fails leaves the repository unchanged, a passing one installs the models, an FP32
+engine being given the eager outputs with TF32 on, an FP16 engine being compared with the eager FP16 copy at the
+loosened tolerances, and --skip_tensorrt_check leaving the engine unchecked; an export needing the engine check on a
+machine without Docker stops before anything is written, naming --skip_tensorrt_check and --tensorrt_precision None.
 """
 
 import re
@@ -18,17 +20,18 @@ import torch
 
 from onnx import TensorProto, helper
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from tests.deployment import test_input_contract
 from tests.deployment.test_export_model import read_repository_files
 from vision_training.deployment import export_model, tensorrt_check, triton_server
 from vision_training.deployment.export_model import (HALF_PRECISION_TOLERANCE_FACTOR, STAGING_FOLDER_PREFIX,
                                                      export_experiment)
-from vision_training.deployment.export_specifications import compare_probabilities
-from vision_training.deployment.tensorrt_check import (HALF_PRECISION_LARGEST_VALUE, check_tensorrt_engine,
-                                                       describe_half_precision_overflows,
-                                                       find_half_precision_overflows)
+from vision_training.deployment.export_specifications import compare_probabilities, compare_segmentations
+from vision_training.deployment.tensorrt_check import (HALF_PRECISION_LARGEST_VALUE, TF32_DIFFERENCE_FACTOR,
+                                                       TF32_DISAGREEMENT_FACTOR, check_tensorrt_engine,
+                                                       derive_tf32_tolerances, describe_half_precision_overflows,
+                                                       describe_tf32_tolerances, find_half_precision_overflows)
 from vision_training.deployment.triton_server import TritonServerError
 
 # Factor of the node of the overflow test graph, which takes its input above 65,504 when the input exceeds 65.504
@@ -37,6 +40,11 @@ SCALE_FACTOR = 1000.0
 # Specification of a classifier of three classes, as get_export_specification gives the comparison of its outputs
 PROBABILITY_SPECIFICATION = {"outputs": [{"name": "class_probabilities"}], "compare_outputs": compare_probabilities,
                              "comparison_tolerances": {"tolerance": 1e-4}}
+
+# Specification of a segmenter, its class maps compared by the share of equal pixels, for the TF32 share tests
+SEGMENTATION_SPECIFICATION = {"outputs": [{"name": "class_map"}, {"name": "class_probabilities"}],
+                              "compare_outputs": compare_segmentations,
+                              "comparison_tolerances": {"tolerance": 1e-4, "minimum_equal_share": 0.999}}
 
 # Eager probabilities of the engine check tests, a batch of two images
 REFERENCE_PROBABILITIES = np.array([[0.2, 0.3, 0.5], [0.6, 0.3, 0.1]], dtype=np.float32)
@@ -184,7 +192,8 @@ class StandInTritonServer:
 
 
 def run_engine_check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, engine_outputs: List[np.ndarray],
-                     load_error: str, tolerances: Dict[str, float]) -> Dict[str, Any]:
+                     load_error: str, tolerances: Dict[str, float],
+                     tf32_reference_outputs: Optional[List[np.ndarray]]) -> Dict[str, Any]:
     """
     Runs check_tensorrt_engine on the classifier specification with the Triton server and client stood in for.
 
@@ -194,6 +203,8 @@ def run_engine_check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, engine_out
         engine_outputs (List[np.ndarray]): The outputs the stand-in server answers.
         load_error (str): The error of the model load, empty for a model that loads.
         tolerances (Dict[str, float]): The tolerances of the comparison.
+        tf32_reference_outputs (Optional[List[np.ndarray]]): The eager outputs with TF32 on of an FP32 engine, None
+            for a comparison at the tolerances only.
 
     Returns:
         Dict[str, Any]: The result of the engine check, with the 'events' of the stand-in server.
@@ -211,7 +222,8 @@ def run_engine_check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, engine_out
                                          model_name="image_classifier_onnx",
                                          check_inputs={"images": np.zeros(shape=(2, 3, 4, 4), dtype=np.float32)},
                                          reference_outputs=[REFERENCE_PROBABILITIES],
-                                         specification=PROBABILITY_SPECIFICATION, tolerances=tolerances)
+                                         specification=PROBABILITY_SPECIFICATION, tolerances=tolerances,
+                                         tf32_reference_outputs=tf32_reference_outputs)
     return {**engine_check, "events": stand_in.events}
 
 
@@ -240,8 +252,9 @@ def test_engine_check_compares_the_served_outputs_with_the_eager_model(tmp_path:
     """
     engine_check = run_engine_check(tmp_path=tmp_path, monkeypatch=monkeypatch,
                                     engine_outputs=[engine_probabilities.astype(np.float32)], load_error="",
-                                    tolerances=tolerances)
+                                    tolerances=tolerances, tf32_reference_outputs=None)
     assert engine_check["mismatches"] == ([] if expected_mismatch is None else [expected_mismatch])
+    assert engine_check["tf32_comparison"] is None
     assert engine_check["events"] == ["start export-tensorrt-check-triton", "load image_classifier_onnx",
                                       "infer ['images']", "stop"]
     assert engine_check["engine_check_seconds"] >= 0 and engine_check["server_start_seconds"] >= 0
@@ -259,11 +272,87 @@ def test_engine_triton_cannot_build_is_a_mismatch_with_its_log(tmp_path: Path,
     """
     engine_check = run_engine_check(tmp_path=tmp_path, monkeypatch=monkeypatch, engine_outputs=[],
                                     load_error="Triton refused load: onnx runtime error 11\nsecond line",
-                                    tolerances={"tolerance": 1e-4})
+                                    tolerances={"tolerance": 1e-4}, tf32_reference_outputs=[REFERENCE_PROBABILITIES])
     assert engine_check["mismatches"] == ["Triton failed to build or run the engine: Triton refused load: onnx "
                                           "runtime error 11", f"  log: {ENGINE_LOG_ERROR}",
                                           f"  log: {ENGINE_LOG_CRASH}"]
     assert engine_check["events"] == ["start export-tensorrt-check-triton", "load image_classifier_onnx", "stop"]
+
+
+def test_tf32_tolerances_follow_the_differences_of_the_eager_model() -> None:
+    """
+    Verifies that derive_tf32_tolerances measures in multiples of the tolerances how far TF32 moves the eager outputs
+    and multiplies the tolerances by TF32_DIFFERENCE_FACTOR times that, that a minimum share of equal outputs allows
+    TF32_DISAGREEMENT_FACTOR times the share TF32 changes, measured within the tolerances TF32 needs (the probabilities
+    moved too, which the tolerances of the specification would refuse before the share is read), that the tolerances
+    of the specification stay the floor, and that outputs TF32 changes in shape keep them.
+    """
+    # Probabilities moved by 2e-4 by TF32: 2 x the tolerance of 1e-4, so a tolerance of 4 x 2e-4
+    tf32_probabilities = REFERENCE_PROBABILITIES + np.float32(2e-4)
+    probabilities_comparison = derive_tf32_tolerances(reference_outputs=[REFERENCE_PROBABILITIES],
+                                                      tf32_outputs=[tf32_probabilities],
+                                                      specification=PROBABILITY_SPECIFICATION,
+                                                      tolerances={"tolerance": 1e-4})
+    measured_difference = float(np.abs(tf32_probabilities - REFERENCE_PROBABILITIES).max())
+    assert probabilities_comparison["tf32_scale"] == pytest.approx(measured_difference / 1e-4, rel=1e-3)
+    assert probabilities_comparison["tolerances"]["tolerance"] == pytest.approx(
+        TF32_DIFFERENCE_FACTOR * measured_difference, rel=1e-3)
+
+    # Class maps of ten pixels, one changed by TF32, the probabilities moved by 3e-4: the share is read within 3 x the
+    # tolerance and drops to 1 - 2 x 0.1, the tolerance becoming 4 x 3e-4
+    class_map = np.zeros(shape=(1, 10), dtype=np.int64)
+    tf32_class_map = class_map.copy()
+    tf32_class_map[0, 3] = 1
+    probabilities = np.full(shape=(1, 2, 10), fill_value=0.5, dtype=np.float32)
+    segmentation_comparison = derive_tf32_tolerances(
+        reference_outputs=[class_map, probabilities], tf32_outputs=[tf32_class_map, probabilities + np.float32(3e-4)],
+        specification=SEGMENTATION_SPECIFICATION, tolerances={"tolerance": 1e-4, "minimum_equal_share": 0.999})
+    assert segmentation_comparison["tf32_shares"]["minimum_equal_share"] == pytest.approx(0.9, abs=1e-6)
+    assert segmentation_comparison["tolerances"]["minimum_equal_share"] == pytest.approx(
+        1.0 - TF32_DISAGREEMENT_FACTOR * 0.1, abs=1e-6)
+    assert segmentation_comparison["tolerances"]["tolerance"] == pytest.approx(TF32_DIFFERENCE_FACTOR * 3e-4, rel=1e-2)
+
+    # A TF32 difference far below the tolerance: the tolerance of the specification kept as the floor
+    floor_comparison = derive_tf32_tolerances(reference_outputs=[REFERENCE_PROBABILITIES],
+                                              tf32_outputs=[REFERENCE_PROBABILITIES + np.float32(1e-6)],
+                                              specification=PROBABILITY_SPECIFICATION, tolerances={"tolerance": 1e-4})
+    assert floor_comparison["tolerances"] == {"tolerance": 1e-4}
+
+    # Outputs of another shape: nothing measurable, the tolerances of the specification kept
+    shape_comparison = derive_tf32_tolerances(reference_outputs=[REFERENCE_PROBABILITIES],
+                                              tf32_outputs=[REFERENCE_PROBABILITIES[:1]],
+                                              specification=PROBABILITY_SPECIFICATION, tolerances={"tolerance": 1e-4})
+    assert shape_comparison == {"tf32_scale": None, "tf32_shares": {}, "tolerances": {"tolerance": 1e-4}}
+
+
+@pytest.mark.parametrize(argnames=("engine_shift", "expected_mismatches"), argvalues=[
+    (5e-4, []), (1e-2, ["class probabilities differ by up to 1.00e-02"])])
+def test_fp32_engine_is_accepted_within_the_tf32_differences(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                                             engine_shift: float,
+                                                             expected_mismatches: List[str]) -> None:
+    """
+    Verifies that an FP32 engine missing the tolerance of the specification (1e-4) is compared again within
+    TF32_DIFFERENCE_FACTOR times the difference TF32 makes in the eager model (2e-4 here): an engine 5e-4 away passes,
+    one 1e-2 away still fails, and both record what they missed at the tolerance of the specification.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        monkeypatch (pytest.MonkeyPatch): Replaces the Triton functions of the engine check.
+        engine_shift (float): The difference of the stand-in engine probabilities from the eager ones.
+        expected_mismatches (List[str]): The mismatches expected within the TF32 differences.
+    """
+    engine_probabilities = (REFERENCE_PROBABILITIES + np.float32(engine_shift)).astype(np.float32)
+    engine_check = run_engine_check(tmp_path=tmp_path, monkeypatch=monkeypatch, engine_outputs=[engine_probabilities],
+                                    load_error="", tolerances={"tolerance": 1e-4},
+                                    tf32_reference_outputs=[REFERENCE_PROBABILITIES + np.float32(2e-4)])
+    assert engine_check["mismatches"] == expected_mismatches
+    engine_difference = float(np.abs(engine_probabilities - REFERENCE_PROBABILITIES).max())
+    assert engine_check["tf32_comparison"]["tolerances_mismatches"] == [
+        f"class probabilities differ by up to {engine_difference:.2e}"]
+    assert engine_check["tf32_comparison"]["tolerances"]["tolerance"] == pytest.approx(TF32_DIFFERENCE_FACTOR * 2e-4,
+                                                                                       rel=1e-2)
+    assert describe_tf32_tolerances(tf32_comparison=engine_check["tf32_comparison"]).startswith(
+        "eager TF32 on vs off within 2.00 x the tolerances")
 
 
 class EngineCheckRecorder:
@@ -293,7 +382,8 @@ class EngineCheckRecorder:
             Dict[str, Any]: The result of the stand-in engine check.
         """
         self.calls.append(check_settings)
-        return {"mismatches": self.mismatches, "server_start_seconds": 1.0, "engine_check_seconds": 2.0}
+        return {"mismatches": self.mismatches, "tf32_comparison": None, "server_start_seconds": 1.0,
+                "engine_check_seconds": 2.0}
 
 
 def export_classifier(experiment_folder: Path, repository: Path, tensorrt_precision: str,
@@ -351,11 +441,16 @@ def test_failed_engine_check_blocks_the_installation(tmp_path: Path, monkeypatch
     assert fp32_call["model_name"] == "image_classifier_onnx" and fp32_call["tolerances"] == {"tolerance": 1e-4}
     assert fp32_call["staged_repository"].name == "models"
 
+    # The FP32 engine also gets the eager outputs with TF32 on, for the comparison within the TF32 roundings
+    assert [output.shape for output in fp32_call["tf32_reference_outputs"]] == [
+        output.shape for output in fp32_call["reference_outputs"]]
+
     # FP16: the scan of the graph passes, then the engine is compared with the eager FP16 copy at loosened tolerances
     export_classifier(experiment_folder=experiment_folder, repository=repository, tensorrt_precision="FP16",
                       skip_tensorrt_check=False)
     fp16_call = passing_check.calls[1]
     assert fp16_call["tolerances"] == {"tolerance": 1e-4 * HALF_PRECISION_TOLERANCE_FACTOR}
+    assert fp16_call["tf32_reference_outputs"] is None
     reference_difference = np.abs(fp16_call["reference_outputs"][0] - fp32_call["reference_outputs"][0]).max()
     assert 0 < reference_difference < 1e-2
 

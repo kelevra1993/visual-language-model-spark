@@ -46,7 +46,7 @@ from vision_training.deployment.input_contract import (build_input_contract, wri
                                                        write_preprocessing_file)
 from vision_training.deployment.keypoint_deployment import write_keypoint_channels_file
 from vision_training.deployment.tensorrt_check import (HALF_PRECISION_LARGEST_VALUE, check_tensorrt_engine,
-                                                       describe_half_precision_overflows,
+                                                       describe_half_precision_overflows, describe_tf32_tolerances,
                                                        find_half_precision_overflows)
 from vision_training.deployment.triton_configuration import (EXPORT_FORMATS, TENSORRT_PRECISIONS,
                                                              TORCHSCRIPT_FILE_NAMES, TORCHSCRIPT_PRECISIONS,
@@ -290,7 +290,9 @@ def check_tensorrt_export(model_path: Path, staging_folder: Path, model_name: st
     (deployment/tensorrt_check.py). In FP16, the graph is first scanned on the CPU for values above the largest FP16
     value, a value above it stopping the checks. Then, unless skip_tensorrt_check, the engine is built and run on the
     check batches by a temporary Triton container and compared with the eager model: an FP32 engine with the FP32 model
-    at the tolerances of the export specification, an FP16 engine with the FP16 copy of the network
+    at the tolerances of the export specification, or, missing them, within TF32_DIFFERENCE_FACTOR times the
+    differences TF32 makes in the eager model on the same batch (run_eager_with_tf32, TensorRT running FP32 engines
+    with TF32 allowed), an FP16 engine with the FP16 copy of the network
     (convert_to_half_precision) at the tolerances of the FP16 TorchScript check (scale_half_precision_tolerances). Every
     step prints what it checked and how long it took.
 
@@ -332,9 +334,13 @@ def check_tensorrt_export(model_path: Path, staging_folder: Path, model_name: st
                                            f"model", indent=1)
         return []
 
-    # Reference of the engine: the FP32 eager model, or its FP16 copy at the loosened tolerances of FP16
+    # Reference of the engine: the FP32 eager model, with its outputs with TF32 on for the TF32 roundings of an FP32
+    # engine, or its FP16 copy at the loosened tolerances of FP16
     reference_name, engine_reference_outputs = "Eager Model", reference_outputs
     tolerances = specification["comparison_tolerances"]
+    tf32_reference_outputs = None
+    if tensorrt_precision == "FP32":
+        tf32_reference_outputs = run_eager_with_tf32(inference_model=inference_model, check_inputs=check_inputs)
     if tensorrt_precision == "FP16":
         input_names = [input_specification["name"] for input_specification in specification["inputs"]]
         half_precision_model = convert_to_half_precision(inference_model=inference_model, input_names=input_names)
@@ -349,18 +355,54 @@ def check_tensorrt_export(model_path: Path, staging_folder: Path, model_name: st
                                          engine_cache_folder=staging_folder / STAGED_ENGINE_CACHE_FOLDER_NAME,
                                          log_path=staging_folder / TENSORRT_CHECK_LOG_NAME, model_name=model_name,
                                          check_inputs=numpy_inputs, reference_outputs=engine_reference_outputs,
-                                         specification=specification, tolerances=tolerances)
+                                         specification=specification, tolerances=tolerances,
+                                         tf32_reference_outputs=tf32_reference_outputs)
     timing_description = (f"{batch_description} served by Triton, engine built and checked in "
                           f"{engine_check['engine_check_seconds']:.1f} seconds, Triton started in "
                           f"{engine_check['server_start_seconds']:.1f} seconds")
+
+    # An FP32 engine missing the tolerances is named with the reference it was compared with again, the eager model
+    # within its TF32 roundings, and with what it missed at the tolerances
+    tf32_lines = []
+    if engine_check["tf32_comparison"] is not None:
+        reference_name = "Eager Model Within Its TF32 Roundings"
+        tf32_lines = [f"tolerances of the specification missed: "
+                      f"{'; '.join(engine_check['tf32_comparison']['tolerances_mismatches'])}",
+                      describe_tf32_tolerances(tf32_comparison=engine_check["tf32_comparison"])]
     if engine_check["mismatches"]:
         mismatch_lines = ([f"TensorRT {tensorrt_precision} Engine Fails Its Check Against The {reference_name} : "
-                           f"{timing_description}"] + engine_check["mismatches"])
+                           f"{timing_description}"] + tf32_lines + engine_check["mismatches"])
         print_color(color="red", output="\n".join(mismatch_lines), indent=1)
         return mismatch_lines
-    print_color(color="green", output=f"TensorRT {tensorrt_precision} Engine Matches The {reference_name} : "
-                                      f"{timing_description}", indent=1)
+    print_color(color="green", output="\n".join([f"TensorRT {tensorrt_precision} Engine Matches The {reference_name} : "
+                                                 f"{timing_description}"] + tf32_lines), indent=1)
     return []
+
+
+def run_eager_with_tf32(inference_model: nn.Module, check_inputs: Dict[str, torch.Tensor]) -> List[np.ndarray]:
+    """
+    Runs the eager inference model on the check batches with TF32 allowed, the precision TensorRT gives the
+    convolutions and matrix products of an FP32 engine, so that check_tensorrt_export measures how far TF32 alone moves
+    the outputs (derive_tf32_tolerances of deployment/tensorrt_check.py); the TF32 settings of the export (off) are
+    restored afterwards.
+
+    Args:
+        inference_model (nn.Module): The eager inference model of the export, on the GPU.
+        check_inputs (Dict[str, torch.Tensor]): The check batch of every input, keyed by input name.
+
+    Returns:
+        List[np.ndarray]: The outputs of the eager model with TF32 on, in the order of the export specification.
+    """
+    previous_cudnn_tf32, previous_matmul_tf32 = torch.backends.cudnn.allow_tf32, torch.backends.cuda.matmul.allow_tf32
+    torch.backends.cudnn.allow_tf32, torch.backends.cuda.matmul.allow_tf32 = True, True
+    try:
+        with torch.no_grad():
+            return convert_outputs_to_numpy(outputs=inference_model(**check_inputs))
+
+    # The TF32 settings of the export restored whether the model runs or raises
+    finally:
+        torch.backends.cudnn.allow_tf32, torch.backends.cuda.matmul.allow_tf32 = (previous_cudnn_tf32,
+                                                                                   previous_matmul_tf32)
 
 
 def export_experiment(experiment_folder: Path, iteration: Optional[int], use_averaged_weights: bool,
@@ -696,8 +738,8 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
 def read_tensorrt_precision_argument(value: str) -> Optional[str]:
     """
     Converts the --tensorrt_precision argument of the export script into a value of TENSORRT_PRECISIONS, 'None'
-    giving the ONNX model to ONNX Runtime CUDA without TensorRT (needed for a keypoint detector, whose TensorRT engine
-    crashes Triton), so that the command line reaches every TensorRT setting of export_experiment.
+    giving the ONNX model to ONNX Runtime CUDA without TensorRT, so that the command line reaches every TensorRT
+    setting of export_experiment.
 
     Args:
         value (str): The text given on the command line.
@@ -757,8 +799,8 @@ def parse_export_arguments(arguments: List[str]) -> argparse.Namespace:
     # The precisions of the served models, their inputs and outputs staying FP32
     parser.add_argument("--tensorrt_precision", type=read_tensorrt_precision_argument, choices=TENSORRT_PRECISIONS,
                         default=DEFAULT_EXPORT_SETTINGS["tensorrt_precision"],
-                        help="TensorRT precision of the ONNX model, None for ONNX Runtime CUDA without TensorRT, "
-                             "needed for a keypoint detector (default: %(default)s).")
+                        help="TensorRT precision of the ONNX model, None for ONNX Runtime CUDA "
+                             "without TensorRT (default: %(default)s).")
     parser.add_argument("--torchscript_precision", choices=TORCHSCRIPT_PRECISIONS,
                         default=DEFAULT_EXPORT_SETTINGS["torchscript_precision"],
                         help="Precision of the traced network: FP32 writes 'model.pt', FP16 'model_fp16.pt', about "

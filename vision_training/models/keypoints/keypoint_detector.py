@@ -155,7 +155,8 @@ def extract_keypoint_candidates(heatmaps: torch.Tensor, tags: torch.Tensor,
     ones kept, each placed within its cell along each axis at the vertex of the parabola through the log-heatmap at its
     cell and at its two neighbours (compute_peak_offsets, no move on the border), brought back to image pixels with the
     centre of cell j at (j + 0.5) x stride, the convention of build_keypoint_targets. Its score is the value of its cell
-    and its tag the tag of its channel at its cell. It is computed in float32.
+    and its tag the tag of its channel at its cell. It is computed in float32, the scores read at the kept cells and the
+    cells divided in integers, so that the ONNX export served with TensorRT returns every output in FP32 and FP16.
 
     Args:
         heatmaps (torch.Tensor): The [B, C, h, w] heatmaps at a quarter of the image resolution.
@@ -185,15 +186,21 @@ def extract_keypoint_candidates(heatmaps: torch.Tensor, tags: torch.Tensor,
     batch_size, number_channels, heatmap_height, heatmap_width = heatmaps.shape
     flat_heatmaps = heatmaps.reshape(batch_size, number_channels, heatmap_height * heatmap_width)
 
-    # Local maxima of every heatmap, the other cells set to zero, and the highest ones kept
+    # Local maxima of every heatmap, the other cells set to zero, and the highest ones kept. The scores are read back at
+    # the kept cells instead of being the values output of the top-k: ONNX Runtime's TensorRT execution provider (1.20
+    # to 1.23) leaves out of its engine a graph output that is one of several outputs of a node when the other outputs
+    # feed more nodes than the node has outputs, here the indices, so that Triton crashed on the missing scores
     window_maxima = torch_functional.max_pool2d(input=heatmaps, kernel_size=CANDIDATE_WINDOW_SIZE, stride=1,
                                                 padding=CANDIDATE_WINDOW_SIZE // 2)
     local_maxima = torch.where(heatmaps == window_maxima, heatmaps, torch.zeros_like(input=heatmaps))
+    flat_local_maxima = local_maxima.reshape(batch_size, number_channels, -1)
     number_candidates = min(maximum_candidates, heatmap_height * heatmap_width)
-    candidate_scores, flat_indices = local_maxima.reshape(batch_size, number_channels, -1).topk(k=number_candidates,
-                                                                                                dim=2)
+    _, flat_indices = flat_local_maxima.topk(k=number_candidates, dim=2)
+    candidate_scores = flat_local_maxima.gather(dim=2, index=flat_indices)
+
+    # Cell of every candidate by an integer division: in float32, the indices of a 256 x 256 heatmap overflow FP16
     columns = flat_indices % heatmap_width
-    rows = torch.div(flat_indices, heatmap_width, rounding_mode="floor")
+    rows = flat_indices // heatmap_width
 
     # Offsets of every candidate within its cell along each axis, from the values of its cell and of its two neighbours
     # read on the heatmaps before the suppression

@@ -463,7 +463,7 @@ uv run python -m vision_training.deployment.export_model --experiment_folder ~/D
 #   --show_warnings                           show the harmless library warnings
 ```
 
-With a TensorRT precision, the export also builds and runs the engine in a temporary Triton container, so Docker and a GPU are needed; `--skip_tensorrt_check` skips it. The export refuses a keypoint detector with TensorRT (an FP16 overflow, a crash in FP32): use `--tensorrt_precision None`. The TensorRT FP32 engines of the tutorial sequence models do not build beyond batch 1 (item 41 of `documentation/suggestions.md`).
+With a TensorRT precision, the export also builds and runs the engine in a temporary Triton container, so Docker and a GPU are needed; `--skip_tensorrt_check` skips it. TensorRT runs an FP32 engine with TF32. An FP32 engine missing the FP32 tolerances still passes within 4 times the difference TF32 makes in the eager model on the same batch; the console then reads `Matches The Eager Model Within Its TF32 Roundings`. The keypoint detector and the M2M and SEL tutorial runs pass this way. The FP16 engine of M2M fails its check (2.53e-02 against 1e-02): export it in FP32 (item 41 of `documentation/suggestions.md`).
 
 <p align="center">
   <img src="README/export_pipeline.png" width="100%" />
@@ -619,7 +619,7 @@ If you are looking for what deploys without new code, the table lists what `expo
 | In the process | checkpoint | FP32, TF32 convolutions | the reference |
 | TorchScript | `model.pt` | FP32 | yes |
 | ONNX Runtime CUDA (`--tensorrt_precision None`) | `model.onnx` | FP32 | yes |
-| ONNX with TensorRT FP32 (default) | `model.onnx` | FP32, TF32 allowed | yes, the engine |
+| ONNX with TensorRT FP32 (default) | `model.onnx` | FP32, TF32 allowed | yes, the engine, within 4 times the TF32 difference of the eager model when it misses the tolerances |
 | ONNX with TensorRT FP16 | `model.onnx` | FP16 where faster | yes, the engine against eager FP16, after a scan for values above 65,504 |
 
 Triton 26.01 refuses BF16, and native TensorRT engines (`model.plan`) are not implemented.

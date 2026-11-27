@@ -1,16 +1,17 @@
 """
 Tests of the model exports of vision_training/deployment/export_model.py and export_specifications.py: the TorchScript
 and ONNX exports of the recurrent comparison model and of the comparison model with sequence normalization match the
-eager model, a second recurrent export keeps its dynamic frames, the ONNX outputs of the bidirectional sequence
-labeller and frame selector keep their dynamic frames, the comparisons of the segmenter and keypoint detector outputs
-report their differences, the inference models match the training path on full sequences, the logit temperature of
-the classifier softens its probabilities in the eager model and both exports, the exports of the detector keep its
-DIoU-NMS, its greedy NMS beyond the size at which batched_nms changes its algorithm and its selection of the proposals
-level by level, its ONNX suppressions see the boxes of the image only, the exports of the instance segmenter keep
-the finer inputs of its mask heads and the mask head shared by its levels, the ONNX export keeps none of the debugging
-metadata of the exporter but the metadata of the model, and the FP16 TorchScript export of every task holds its
-convolution, linear and attention weights in FP16 with everything else in FP32, its FP32 inputs and outputs following
-the eager model, a model on the CPU being refused.
+eager model, a second recurrent export keeps its dynamic frames, the ONNX outputs of the bidirectional sequence labeller
+and frame selector keep their dynamic frames, the comparisons of the segmenter and keypoint detector outputs report
+their differences, the ONNX export of the keypoint detector computes every output with a node of a single output and
+never casts its top-k indices to floats (the graph TensorRT serves in FP32 and FP16), the inference models match the
+training path on full sequences, the logit temperature of the classifier softens its probabilities in the eager model
+and both exports, the exports of the detector keep its DIoU-NMS, its greedy NMS beyond the size at which batched_nms
+changes its algorithm and its selection of the proposals level by level, its ONNX suppressions see the boxes of the
+image only, the exports of the instance segmenter keep the finer inputs of its mask heads and the mask head shared by
+its levels, the ONNX export keeps none of the debugging metadata of the exporter but the metadata of the model, and the
+FP16 TorchScript export of every task holds its convolution, linear and attention weights in FP16 with everything else
+in FP32, its FP32 inputs and outputs following the eager model, a model on the CPU being refused.
 """
 
 import numpy as np
@@ -693,6 +694,43 @@ def test_keypoint_comparison_reports_the_differences() -> None:
     # Outputs of another shape are reported before any value is compared
     assert compare_keypoints(reference=[positions, scores, tags], candidate=[positions[:, :9], scores, tags],
                              **tolerances) == ["candidate position shapes differ: (4, 10, 5, 2) vs (4, 9, 5, 2)"]
+
+
+def test_keypoint_onnx_export_gives_tensorrt_every_output(tmp_path: Path) -> None:
+    """
+    Verifies that the ONNX export of the keypoint detector is a graph that ONNX Runtime's TensorRT execution provider
+    serves whole, in FP32 and FP16. Every graph output comes from a node of a single output: the provider of Triton
+    25.01 and 26.01 (ONNX Runtime 1.20.1 and 1.23.2) leaves out of its engine a graph output that is one of several
+    outputs of a node when the other outputs feed more nodes than the node has outputs, which the top-k values beside
+    the indices read by the peak refinement were, so that Triton crashed (signal 11) reading the missing scores. No
+    Cast turns the top-k indices into floats, as the floor division of torch.div did: they reach 65,535 on the 256 x
+    256 heatmaps of a 512 pixel detector, above the largest value of an FP16 engine.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    hide_known_export_warnings()
+    inference_model = build_inference_model(task="keypoint_detection", model=build_test_model(
+        task="keypoint_detection", temporal_type=None, fusion_type=None, global_pooling="average"))
+    specification = get_export_specification(task="keypoint_detection", inference_model=inference_model)
+    example_inputs = create_random_inputs(specification=specification, shape_name="example_shape",
+                                          maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE, device=torch.device("cpu"),
+                                          generator=torch.Generator().manual_seed(1))
+    model_path = tmp_path / "model.onnx"
+    export_onnx(inference_model=inference_model, example_inputs=example_inputs, output_path=model_path,
+                specification=specification, maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE)
+    model_proto = onnx.load(f=str(model_path), load_external_data=False)
+
+    # Every graph output is the only output of the node computing it
+    producers = {node_output: node for node in model_proto.graph.node for node_output in node.output}
+    assert {graph_output.name: len(producers[graph_output.name].output) for graph_output in
+            model_proto.graph.output} == {"candidate_positions": 1, "candidate_scores": 1, "candidate_tags": 1}
+
+    # The top-k indices are only read by integer and gather operators, never cast to floats
+    top_k_nodes = [node for node in model_proto.graph.node if node.op_type == "TopK"]
+    assert len(top_k_nodes) == 1
+    index_readers = [node.op_type for node in model_proto.graph.node if top_k_nodes[0].output[1] in node.input]
+    assert index_readers and "Cast" not in index_readers
 
 
 def test_second_recurrent_export_keeps_dynamic_frames(tmp_path: Path) -> None:

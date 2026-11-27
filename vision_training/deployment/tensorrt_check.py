@@ -7,7 +7,9 @@ reports the finite values above 65,504, the largest FP16 value, which the engine
 of the detectors overflowed this way before 2026-11-17, losing 7.88 points of mAP). Then, unless skipped, the staged
 model is served with its TensorRT config.pbtxt by a temporary Triton container (deployment/triton_server.py, as the
 test split parity of deployment/export_parity.py serves it), the check batches are sent and the outputs compared with
-the eager model by the comparison of the export specification of the task.
+the eager model by the comparison of the export specification of the task. An FP32 engine, which TensorRT runs with
+TF32 allowed, missing those tolerances is compared again within a factor of the differences TF32 makes in the eager
+model on the same batch.
 """
 
 import operator
@@ -21,7 +23,7 @@ import tritonclient.grpc as triton_client
 
 from pathlib import Path
 from tritonclient.utils import InferenceServerException
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from vision_training.deployment.deployment_utilities import get_triton_output_names, run_triton_inference
 from vision_training.deployment.triton_server import (TritonServerError, load_served_model,
@@ -43,6 +45,20 @@ OVERFLOWING_NODES_SHOWN = 10
 TENSORRT_CHECK_CONTAINER_PREFIX = "export-tensorrt-check-triton"
 SERVER_LOG_LINES_SHOWN = 10
 SERVER_LOG_FAILURE_WORDS = ["error", "signal"]
+
+# TensorRT runs an FP32 engine with TF32 allowed, which ONNX Runtime cannot switch off, while the reference of the
+# check is the eager model with TF32 off: an FP32 engine missing the tolerances of the export specification is
+# accepted when its differences stay within TF32_DIFFERENCE_FACTOR times those of the eager model with TF32 on
+# against TF32 off on the same check batch, and its share of differing outputs (1 - minimum_equal_share) within
+# TF32_DISAGREEMENT_FACTOR times that of the eager model, the tolerances of the specification staying the floor
+TF32_DIFFERENCE_FACTOR = 4
+TF32_DISAGREEMENT_FACTOR = 2
+
+# Range and bisection steps of the search of the factor of the tolerances within which TF32 moves the eager outputs,
+# from 1 / TF32_SEARCH_RANGE to TF32_SEARCH_RANGE; a difference beyond the range (another number of detections, a
+# shape) leaves the tolerances of the specification unchanged
+TF32_SEARCH_RANGE = 1e4
+TF32_SEARCH_STEPS = 40
 
 
 def list_floating_node_outputs(model_proto: onnx.ModelProto) -> List[Dict[str, str]]:
@@ -191,6 +207,189 @@ def compare_engine_outputs(reference_outputs: List[np.ndarray], engine_outputs: 
     return specification["compare_outputs"](reference=reference_outputs, candidate=engine_outputs, **tolerances)
 
 
+def compare_at_tolerances(reference_outputs: List[np.ndarray], candidate_outputs: List[np.ndarray],
+                          specification: Dict[str, Any], tolerances: Dict[str, float]) -> bool:
+    """
+    Tells whether two sets of outputs agree by the comparison of the export specification at the given tolerances, the
+    test repeated by the searches of the TF32 differences of the eager model (find_tf32_scale, find_tf32_share).
+
+    Args:
+        reference_outputs (List[np.ndarray]): The eager outputs with TF32 off.
+        candidate_outputs (List[np.ndarray]): The compared outputs, the eager ones with TF32 on.
+        specification (Dict[str, Any]): The export specification of the task, giving its 'compare_outputs'.
+        tolerances (Dict[str, float]): The tolerances of the comparison.
+
+    Returns:
+        bool: True when the comparison reports no mismatch.
+    """
+    return not specification["compare_outputs"](reference=reference_outputs, candidate=candidate_outputs, **tolerances)
+
+
+def scale_tolerances(tolerances: Dict[str, float], scale: float) -> Dict[str, float]:
+    """
+    Multiplies every difference tolerance of an export specification (the keys ending with 'tolerance') by one scale,
+    the minimum shares of equal outputs set to zero, the tolerances of the search of find_tf32_scale.
+
+    Args:
+        tolerances (Dict[str, float]): The comparison tolerances of the export specification.
+        scale (float): The factor of every difference tolerance.
+
+    Returns:
+        Dict[str, float]: The scaled tolerances, with the keys of the given ones.
+    """
+    return {name: value * scale if name.endswith("tolerance") else 0.0 for name, value in tolerances.items()}
+
+
+def find_tf32_scale(reference_outputs: List[np.ndarray], tf32_outputs: List[np.ndarray],
+                    specification: Dict[str, Any], tolerances: Dict[str, float]) -> Optional[float]:
+    """
+    Measures how far TF32 moves the eager outputs on the check batch, in multiples of the tolerances of the export
+    specification, for derive_tf32_tolerances: the smallest factor of every difference tolerance at once at which the
+    eager outputs with TF32 on agree with those with TF32 off, the shares of equal outputs set to zero, found by
+    bisection in log scale. One factor for all the tolerances keeps those that define what is compared (the position
+    pairing the keypoint candidates, the score pairing the detections) as tight as the others, which a search of one
+    tolerance with the others loosened would not.
+
+    Args:
+        reference_outputs (List[np.ndarray]): The eager outputs with TF32 off, the reference of the engine check.
+        tf32_outputs (List[np.ndarray]): The eager outputs with TF32 on, on the same check batch.
+        specification (Dict[str, Any]): The export specification of the task, giving its 'compare_outputs'.
+        tolerances (Dict[str, float]): The comparison tolerances of the export specification.
+
+    Returns:
+        Optional[float]: The factor, None when the outputs differ beyond TF32_SEARCH_RANGE times the tolerances or by
+            something no tolerance covers (a shape, a number of detections).
+    """
+    lower_scale, upper_scale = 1.0 / TF32_SEARCH_RANGE, TF32_SEARCH_RANGE
+    if not compare_at_tolerances(reference_outputs=reference_outputs, candidate_outputs=tf32_outputs,
+                                 specification=specification,
+                                 tolerances=scale_tolerances(tolerances=tolerances, scale=upper_scale)):
+        return None
+    if compare_at_tolerances(reference_outputs=reference_outputs, candidate_outputs=tf32_outputs,
+                             specification=specification,
+                             tolerances=scale_tolerances(tolerances=tolerances, scale=lower_scale)):
+        return lower_scale
+
+    # Bisection in log scale between a failing and a passing factor
+    for _ in range(TF32_SEARCH_STEPS):
+        middle_scale = float(np.sqrt(lower_scale * upper_scale))
+        if compare_at_tolerances(reference_outputs=reference_outputs, candidate_outputs=tf32_outputs,
+                                 specification=specification,
+                                 tolerances=scale_tolerances(tolerances=tolerances, scale=middle_scale)):
+            upper_scale = middle_scale
+        else:
+            lower_scale = middle_scale
+    return upper_scale
+
+
+def find_tf32_share(reference_outputs: List[np.ndarray], tf32_outputs: List[np.ndarray],
+                    specification: Dict[str, Any], tolerances: Dict[str, float], share_name: str) -> Optional[float]:
+    """
+    Measures the share of outputs TF32 leaves equal in the eager model on the check batch (keypoint candidates at the
+    same position with the same tag, pixels of the same class), for derive_tf32_tolerances: the largest value of one
+    minimum share at which the eager outputs with TF32 on agree with those with TF32 off, at the given difference
+    tolerances (those within which TF32 agrees, since they define what counts as equal) and the other shares set to
+    zero, found by bisection.
+
+    Args:
+        reference_outputs (List[np.ndarray]): The eager outputs with TF32 off, the reference of the engine check.
+        tf32_outputs (List[np.ndarray]): The eager outputs with TF32 on, on the same check batch.
+        specification (Dict[str, Any]): The export specification of the task, giving its 'compare_outputs'.
+        tolerances (Dict[str, float]): The difference tolerances the share is measured at, with the shares.
+        share_name (str): The share measured, a key not ending with 'tolerance' ('minimum_equal_share').
+
+    Returns:
+        Optional[float]: The share of equal outputs between TF32 on and off, None when the outputs differ by something
+            no share covers.
+    """
+    # Tolerances kept, every other share dropped
+    unshared = {name: value if name.endswith("tolerance") else 0.0 for name, value in tolerances.items()}
+    if not compare_at_tolerances(reference_outputs=reference_outputs, candidate_outputs=tf32_outputs,
+                                 specification=specification, tolerances={**unshared, share_name: 0.0}):
+        return None
+    lower_share, upper_share = 0.0, 1.0
+    if compare_at_tolerances(reference_outputs=reference_outputs, candidate_outputs=tf32_outputs,
+                             specification=specification, tolerances={**unshared, share_name: upper_share}):
+        return upper_share
+
+    # Bisection between a passing and a failing share
+    for _ in range(TF32_SEARCH_STEPS):
+        middle_share = (lower_share + upper_share) / 2.0
+        if compare_at_tolerances(reference_outputs=reference_outputs, candidate_outputs=tf32_outputs,
+                                 specification=specification, tolerances={**unshared, share_name: middle_share}):
+            lower_share = middle_share
+        else:
+            upper_share = middle_share
+    return lower_share
+
+
+def derive_tf32_tolerances(reference_outputs: List[np.ndarray], tf32_outputs: List[np.ndarray],
+                           specification: Dict[str, Any], tolerances: Dict[str, float]) -> Dict[str, Any]:
+    """
+    Gives the tolerances at which an FP32 TensorRT engine, run by TensorRT with TF32 allowed, is still accepted once it
+    missed those of the export specification: every difference tolerance multiplied by TF32_DIFFERENCE_FACTOR times
+    the factor TF32 needs in the eager model on the same check batch (find_tf32_scale), every minimum share of equal
+    outputs allowing TF32_DISAGREEMENT_FACTOR times the share TF32 changes at those TF32 tolerances (find_tf32_share),
+    the values of the specification staying the floor, and outputs TF32 changes beyond any tolerance keeping them.
+
+    Args:
+        reference_outputs (List[np.ndarray]): The eager outputs with TF32 off, the reference of the engine check.
+        tf32_outputs (List[np.ndarray]): The eager outputs with TF32 on, on the same check batch.
+        specification (Dict[str, Any]): The export specification of the task, giving its 'compare_outputs'.
+        tolerances (Dict[str, float]): The comparison tolerances of the export specification.
+
+    Returns:
+        Dict[str, Any]: The 'tf32_scale' (None when not measurable), the 'tf32_shares' measured for every minimum share
+            (None when not measurable) and the 'tolerances' of the TF32 comparison, with the keys of the given ones.
+    """
+    # Difference tolerances: TF32_DIFFERENCE_FACTOR times the factor TF32 needs, never below those of the specification
+    tf32_scale = find_tf32_scale(reference_outputs=reference_outputs, tf32_outputs=tf32_outputs,
+                                 specification=specification, tolerances=tolerances)
+    difference_scale = 1.0 if tf32_scale is None else max(1.0, TF32_DIFFERENCE_FACTOR * tf32_scale)
+    measured_scale = 1.0 if tf32_scale is None else max(1.0, tf32_scale)
+    tf32_tolerances = {name: value * difference_scale for name, value in tolerances.items()
+                       if name.endswith("tolerance")}
+
+    # Minimum shares: TF32_DISAGREEMENT_FACTOR times the share TF32 changes, measured within the TF32 tolerances
+    tf32_shares = {}
+    for name, value in tolerances.items():
+        if name.endswith("tolerance"):
+            continue
+        tf32_shares[name] = find_tf32_share(
+            reference_outputs=reference_outputs, tf32_outputs=tf32_outputs, specification=specification,
+            tolerances={**scale_tolerances(tolerances=tolerances, scale=measured_scale), name: value}, share_name=name)
+        tf32_tolerances[name] = (value if tf32_shares[name] is None else
+                                 min(value, max(0.0, 1.0 - TF32_DISAGREEMENT_FACTOR * (1.0 - tf32_shares[name]))))
+    return {"tf32_scale": tf32_scale, "tf32_shares": tf32_shares,
+            "tolerances": {name: tf32_tolerances[name] for name in tolerances}}
+
+
+def describe_tf32_tolerances(tf32_comparison: Dict[str, Any]) -> str:
+    """
+    Writes the console line of an FP32 engine compared within the TF32 roundings of the eager model: the factor TF32
+    needs in the eager model, then every tolerance or share the comparison used, a share with the one TF32 leaves.
+
+    Args:
+        tf32_comparison (Dict[str, Any]): The 'tf32_comparison' of check_tensorrt_engine, from derive_tf32_tolerances.
+
+    Returns:
+        str: The line, such as 'eager TF32 on vs off within 2.37 x the tolerances, compared at 4 x that: tolerance
+            9.48e-04'.
+    """
+    scale = tf32_comparison["tf32_scale"]
+    measured = "beyond any tolerance" if scale is None else f"within {scale:.2f} x the tolerances"
+    descriptions = []
+    for name, value in tf32_comparison["tolerances"].items():
+        share_description = ""
+        if name in tf32_comparison["tf32_shares"]:
+            share = tf32_comparison["tf32_shares"][name]
+            share_description = (" (eager TF32 on vs off not measurable)" if share is None else
+                                 f" (eager TF32 on vs off {share:.3f})")
+        descriptions.append(f"{name} {value:.2e}{share_description}")
+    return (f"eager TF32 on vs off {measured}, compared at {TF32_DIFFERENCE_FACTOR} x that and "
+            f"{TF32_DISAGREEMENT_FACTOR} x its disagreement: " + ", ".join(descriptions))
+
+
 def read_server_log_errors(log_path: Path) -> List[str]:
     """
     Gives the last lines of a saved Triton log reporting an error or a signal, quoted in the mismatch of an engine
@@ -211,13 +410,15 @@ def read_server_log_errors(log_path: Path) -> List[str]:
 
 def check_tensorrt_engine(staged_repository: Path, engine_cache_folder: Path, log_path: Path, model_name: str,
                           check_inputs: Dict[str, np.ndarray], reference_outputs: List[np.ndarray],
-                          specification: Dict[str, Any], tolerances: Dict[str, float]) -> Dict[str, Any]:
+                          specification: Dict[str, Any], tolerances: Dict[str, float],
+                          tf32_reference_outputs: Optional[List[np.ndarray]]) -> Dict[str, Any]:
     """
     Serves the staged ONNX model of an export with its TensorRT config.pbtxt by a temporary Triton container on free
     ports, sends the check batches in one request, which builds the engine (ONNX Runtime builds it at the first request
-    of a shape), and compares the outputs with the eager reference (compare_engine_outputs). A model Triton fails to
-    load, build or run is a mismatch quoting the error and the error lines of the server log. The container is removed
-    whatever happens.
+    of a shape), and compares the outputs with the eager reference (compare_engine_outputs). An FP32 engine missing the
+    tolerances is compared again within the TF32 roundings of the eager model (derive_tf32_tolerances) when the eager
+    outputs with TF32 on are given. A model Triton fails to load, build or run is a mismatch quoting the error and the
+    error lines of the server log. The container is removed whatever happens.
 
     Args:
         staged_repository (Path): The model repository of the staged export, served read only.
@@ -228,9 +429,13 @@ def check_tensorrt_engine(staged_repository: Path, engine_cache_folder: Path, lo
         reference_outputs (List[np.ndarray]): The eager outputs on the check batches.
         specification (Dict[str, Any]): The export specification of the task.
         tolerances (Dict[str, float]): The tolerances of the comparison.
+        tf32_reference_outputs (Optional[List[np.ndarray]]): The eager outputs with TF32 on, for an FP32 engine, or
+            None for an engine compared at the tolerances only (FP16).
 
     Returns:
-        Dict[str, Any]: The 'mismatches' (empty when the engine agrees), the 'server_start_seconds' and the
+        Dict[str, Any]: The 'mismatches' (empty when the engine agrees), the 'tf32_comparison' (None when the
+            tolerances decided, otherwise the 'tolerances_mismatches' at the tolerances and the 'tf32_scale',
+            'tf32_shares' and 'tolerances' of derive_tf32_tolerances), the 'server_start_seconds' and the
             'engine_check_seconds' (model load, engine build, request and comparison).
     """
     output_names = [output["name"] for output in specification["outputs"]]
@@ -241,7 +446,7 @@ def check_tensorrt_engine(staged_repository: Path, engine_cache_folder: Path, lo
 
     # The request builds the engine and runs it, a failure of Triton being recorded with its first line
     check_start_time = time.time()
-    server_error = None
+    server_error, tf32_comparison = None, None
     try:
         try:
             load_served_model(server=server, model_name=model_name, configuration=None)
@@ -253,6 +458,17 @@ def check_tensorrt_engine(staged_repository: Path, engine_cache_folder: Path, lo
             mismatches = compare_engine_outputs(reference_outputs=reference_outputs, engine_outputs=engine_outputs,
                                                 output_names=output_names, specification=specification,
                                                 tolerances=tolerances)
+
+            # An FP32 engine missing the tolerances, compared again within the TF32 roundings of the eager model
+            if mismatches and tf32_reference_outputs is not None:
+                tf32_comparison = derive_tf32_tolerances(reference_outputs=reference_outputs,
+                                                         tf32_outputs=tf32_reference_outputs,
+                                                         specification=specification, tolerances=tolerances)
+                tf32_comparison["tolerances_mismatches"] = mismatches
+                mismatches = compare_engine_outputs(reference_outputs=reference_outputs,
+                                                    engine_outputs=engine_outputs, output_names=output_names,
+                                                    specification=specification,
+                                                    tolerances=tf32_comparison["tolerances"])
         except (TritonServerError, InferenceServerException, urllib.error.URLError) as error:
             server_error = str(error).strip().splitlines()[0] if str(error).strip() else type(error).__name__
     finally:
@@ -263,5 +479,6 @@ def check_tensorrt_engine(staged_repository: Path, engine_cache_folder: Path, lo
     if server_error is not None:
         mismatches = [f"Triton failed to build or run the engine: {server_error}"]
         mismatches += [f"  log: {line}" for line in read_server_log_errors(log_path=log_path)]
-    return {"mismatches": mismatches, "server_start_seconds": server_start_seconds,
+    return {"mismatches": mismatches, "tf32_comparison": tf32_comparison,
+            "server_start_seconds": server_start_seconds,
             "engine_check_seconds": engine_check_seconds}

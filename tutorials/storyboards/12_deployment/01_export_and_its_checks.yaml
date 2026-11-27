@@ -53,7 +53,7 @@ scenes:
     source:
       file: vision_training/deployment/export_model.py
       start: "^    # The run and the checkpoint to export"
-      end: "needed for a keypoint detector"
+      end: 'without TensorRT \(default'
     highlights:
       - {match: 'add_argument\("--experiment_folder"|add_argument\("--iteration"|add_argument\("--use_averaged_weights"', sentences: [0]}
       - {match: 'add_argument\("--formats"|add_argument\("--repository"|add_argument\("--model_version"', sentences: [1]}
@@ -135,6 +135,7 @@ scenes:
       - "An instance segmenter adds its masks, compared within {{deployment.tolerances.instance_segmentation.mask_tolerance}}."
       - "Classifiers and sequence models compare probabilities within {{deployment.tolerances.classification.tolerance}}, and a segmenter must agree on a share of {{deployment.tolerances.semantic_segmentation.minimum_equal_share}} of its pixels, a keypoint detector on {{deployment.tolerances.keypoint_detection.minimum_equal_share}} of its candidates."
       - "The ONNX check runs on the CPU, so with a TensorRT precision the export also runs the engine in a temporary Triton and, in FP16, first scans the graph for overflows."
+      - "TensorRT runs an FP32 engine with TF32, so an engine missing these tolerances still passes within {{constant:vision_training/deployment/tensorrt_check.py#TF32_DIFFERENCE_FACTOR:words}} times the difference TF32 makes in the eager model on the same batch."
       - "That engine check came after a detector lost points of mAP in FP16 without the export noticing, the story of the third chapter."
 
   - kind: code
@@ -167,7 +168,7 @@ scenes:
           - {match: "dims:", sentences: [1]}
           - {match: "^dynamic_batching|^instance_group", sentences: [2]}
           - {match: "^version_policy", sentences: [0]}
-          - {match: "precision_mode|max_workspace_size_bytes|trt_engine_cache", sentences: [3]}
+          - {match: "precision_mode|trt_engine_cache", sentences: [3]}
       - {type: text, position: [1150, 20], text: "TorchScript of the run_9 detector: outputs", font: diagram_small, colour: dim, anchor: lm, appear: 4}
       - type: listing
         box: [1140, 50, 1750, 200]
@@ -183,7 +184,7 @@ scenes:
       - "Write Triton configuration gives each model its platform, pytorch libtorch or onnxruntime onnx, the max batch size of the export, and a version policy serving the exported version only."
       - "The inputs and outputs come from the export specification, without the batch dimension, and stay float32 whatever the precision of the engine, so a request keeps its size."
       - "Every model gets dynamic batching with a queue delay of {{deployment.triton.queue_delay_microseconds}} microseconds, and {{deployment.triton.instance_count:words}} instance on the GPU; the third chapter measures what that costs."
-      - "With a TensorRT precision, the ONNX model gets the TensorRT accelerator with a workspace of {{deployment.triton.workspace_gigabytes:.0f}} gigabytes and an engine cache in the temporary folder of the container, lost whenever the container is recreated."
+      - "With a TensorRT precision, the ONNX model gets the TensorRT accelerator without a workspace limit and an engine cache in the temporary folder of the container, lost whenever the container is recreated."
       - "A TorchScript model names its outputs after their index, as the PyTorch backend of Triton wants them, which get served output names writes for the clients and the ensembles."
       - "And the number of detections, one value per image, is exposed as a vector of one and reshaped to a scalar for the model."
 
