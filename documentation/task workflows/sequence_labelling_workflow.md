@@ -116,7 +116,7 @@ Whenever a checkpoint of the labeller is evaluated, the run folder, TensorBoard 
 
 ### Pitfalls
 In case a run looks good or bad for the wrong reason, check these.
-- **`no_change` everywhere keeps a fair frame accuracy.** The `experiments/readme_screenshots` run (this configuration, 2000 iterations from scratch, 2026-10-23, October dataset, deleted since) gives Accuracy 46.97 % (the share of `no_change` frames), Balanced Accuracy 1.41 % (1/71), Macro F1 0.90 % and Sequence Exact Match 5.89 % (the 589 sequences without change). Read the balanced accuracy, the macro F1 and the segment metrics. That run has no class weights; in the plan, a launch without them stayed at the macro F1 of an all-`no_change` model for 6000 iterations, so the plan kept `class_weighting: "balanced"`.
+- **`no_change` everywhere keeps a fair frame accuracy.** The former README run (`readme_screenshots`, this configuration, 2000 iterations from scratch, 2026-10-23, October dataset, deleted since) gave Accuracy 46.97 % (the share of `no_change` frames), Balanced Accuracy 1.41 % (1/71), Macro F1 0.90 % and Sequence Exact Match 5.89 % (the 589 sequences without change). Read the balanced accuracy, the macro F1 and the segment metrics. That run has no class weights; in the plan, a launch without them stayed at the macro F1 of an all-`no_change` model for 6000 iterations, so the plan kept `class_weighting: "balanced"`.
 - **Unmapped categories get the label -100.** They are left out of the loss and the metrics, and end a segment. A sequence without one category per frame is refused (Step 2.8). A batch without labelled frame gives a loss of 0; a test sequence without one is left out of `Sequence Exact Match` and of `<S> Test Sequences`.
 - **`label_smoothing` above 0 with `class_weighting: "balanced"`** pulls every frame towards the rarest classes: on the October training split, `no_change` would weigh 0.030 against 1.82 to 1.89 for a change class (819,173 of 1,749,690 frames).
 - **`test_10000` copies the labels and links the frames** of `synthetic_changing_shapes/test`: generating the dataset again makes its labels name other frames without error. The full 50,000 test sequences took 26 minutes to evaluate at 256 pixels.
@@ -348,7 +348,7 @@ Saved right after the training step of iterations 3, 6, 9 and 12, so checkpoint 
 Weights/Iteration_3/model_000003.pt   3,345,255 bytes   (the same for 6, 9 and 12)
 model_state: 90 tensors, the first 'class_weights'      format_version 2
 ```
-The sizes predate the label dictionary in checkpoints; with it, the `experiments/readme_screenshots` checkpoint holds 3,348,821 bytes.
+The sizes predate the label dictionary in checkpoints; with it, a checkpoint of the deleted README run held 3,348,821 bytes.
 
 ### Step 3.4 — `run_test_evaluation()`
 At iterations 6 and 12, last in the iteration (`classification_workflow.md`, Step 3.7); see Stage 4.
@@ -442,7 +442,7 @@ The evaluation files sent to MLflow are listed in `TRACKED_EVALUATION_FILES` of 
 
 > Real outputs of the evaluation of iterations 6 and 12 of the Stage 3 run on its test split (60 sequences, 427 labelled frames), with `error_dumps` on and `maximum_per_class_pair: 2`. Iteration 6 gives `disappearing_hollow_ellipse` to every frame; iteration 12 gives `no_change` to 307 frames and `disappearing_hollow_ellipse` to 120.
 >
-> They predate the ROC and precision-recall curves (2026-10-20) and the recall intervals (2026-11-01). With `per_class_report`, the current code adds per class the curves (`compute_class_score_curves()`, `classification_workflow.md`, Steps 4.14 and 4.15), `Macro ROC AUC` and `Macro Average Precision`, the `ROC AUC` and `Average Precision` columns and scalars, `recall_lower` and `recall_upper`, and a `Per Class Recall` table.
+> They predate the ROC and precision-recall curves (2026-10-20) and the recall intervals (2026-11-01). With `per_class_report`, the current code adds per class the curves (`compute_class_score_curves()`, `classification_workflow.md`, Steps 4.14 and 4.15), `Macro ROC AUC` and `Macro Average Precision`, the `ROC AUC` and `Average Precision` columns and scalars, and a `Per Class Recall` table; `recall_lower` and `recall_upper` are written whatever the setting.
 
 ### Step 4.1 — `run_test_evaluation()`
 The evaluation loop of every task (`classification_workflow.md`, Step 4.1).
@@ -494,7 +494,7 @@ metrics           = {'Accuracy': 0.2787, 'Balanced Accuracy': 0.0084, 'Macro F1'
                      'Segment F1@50': 0.0384}
 class_scalars     = 213 (71 classes x 3): Precision/no_change, Recall/no_change, F1/no_change, ...
 ```
-With the curves, a class needs test frames for its `ROC AUC` and `Average Precision`, and frames of other classes for the ROC AUC. The `experiments/readme_screenshots` run gives `'Macro ROC AUC': 0.5826, 'Macro Average Precision': 0.0194` and 366 Test scalars (11 global, 5 for each of the 71 classes).
+With the curves, a class needs test frames for its `ROC AUC` and `Average Precision`, and frames of other classes for the ROC AUC. The deleted README run gave `'Macro ROC AUC': 0.5826, 'Macro Average Precision': 0.0194` and 366 Test scalars (11 global, 5 for each of the 71 classes).
 
 ### Step 4.8 — the frame metrics: `compute_confusion_matrix()` + `compute_metrics_from_confusion_matrix()` + `compute_top_k_accuracy()`
 The metrics of the classification (`classification_workflow.md`, Steps 4.9 to 4.11), every labelled frame being one sample. Above 1,000 classes (`MAXIMUM_DENSE_CONFUSION_CLASSES`), only the non-zero cells are kept, as `confusion_cells.csv`.
@@ -577,7 +577,7 @@ Iteration 12 · 60 Test Sequences, 427 Labelled Frames · 2026-10-18 08:48 ─�
    no_change                             206     38.76 %   57.77 %   46.39 %      0.0201    0.97 %
 ```
 
-The `experiments/readme_screenshots` run (iteration 2000, October `test_10000`, 69,918 labelled frames) reads Accuracy 46.97 %, Macro ROC AUC 58.26 %, Edit Score 25.81 % and `Segments : 58133 true and 10000 predicted`: it gives `no_change` to every frame. With its wider columns, `build_table_renderable()` narrows the class column from 32 to 30 characters (`disappearing_hollow_parallelo…`).
+The deleted README run (iteration 2000, October `test_10000`, 69,918 labelled frames) read Accuracy 46.97 %, Macro ROC AUC 58.26 %, Edit Score 25.81 % and `Segments : 58133 true and 10000 predicted`: it gave `no_change` to every frame. With its wider columns, `build_table_renderable()` narrows the class column from 32 to 30 characters (`disappearing_hollow_parallelo…`).
 
 TensorBoard `Test/` received 222 scalars (9 global + 213 per class) and 9 images; MLflow 233 metrics. `sanitise_metric_name()` writes `Segment F1@10` as `Segment F1_at_10` for MLflow (originals in `metric_names.json`). Then `update_evaluation_curves()` runs as for every task (`classification_workflow.md`, Step 4.18): it adds the row to `Evaluation/evaluation_summary.csv` and redraws `evaluation_curves.png` with the `Accuracy` of every iteration.
 
@@ -585,7 +585,7 @@ TensorBoard `Test/` received 222 scalars (9 global + 213 per class) and 9 images
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> Real outputs of `scripts/evaluation/evaluate_checkpoint.py` on the Stage 3 run (checkpoints 3, 6, 9 and 12, the first three captured before their training step), with `iteration = "all"`, `batch_size = 16` and a test folder of the first 20 test sequences. Captured before the recall intervals.
+> Real outputs of `scripts/evaluation/evaluate_checkpoint.py` on the Stage 3 run (checkpoints 3, 6, 9 and 12, the first three captured before their training step), with `--iteration all`, `--batch_size 16` and a `--test_data_folder` of the first 20 test sequences. Captured before the recall intervals.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
 The same script for every task (`classification_workflow.md`, Stage 5). Test sequences are read with the `sequence_settings` of the run, so a longer sequence is left out with the warnings of Step 2.8.
@@ -618,7 +618,7 @@ iteration,Accuracy,Balanced Accuracy,Macro F1,Top-2 Accuracy,Sequence Exact Matc
 3,0.0,0.0,0.0,0.012422360248447204,0.0,0.0,0.0,0.0,0.0, ...
 12,0.2981366459627329,0.01309328968903437,0.010264086389393778,0.36024844720496896,0.0,0.12883116883116885, ...
 ```
-The file has 223 columns: the iteration, 9 global metrics, then precision, recall and F1 of the 71 classes (the current code adds the curve columns, `build_summary_columns()`). It is written in `<run name>/Checkpoint_Evaluation/`, rows in increasing iteration order (`classification_workflow.md` Step 5.5).
+The file has 223 columns: the iteration, 9 global metrics, then precision, recall and F1 of the 71 classes (the current code adds the curve columns, `build_summary_columns()`). It is written in `<run name>/Checkpoint_Evaluation/` (`Checkpoint_Evaluation_split_<parent folder>_<split folder>/` for another split, such as this one), rows in increasing iteration order (`classification_workflow.md` Step 5.5).
 
 ### Step 5.6 — `run_test_evaluation()` for each checkpoint
 The block has the layout of Step 4.13. On the 20 sequences, iteration 12 reads Accuracy 29.81 %, Edit Score 12.88 % and `Segments : 128 true and 38 predicted in 20 test sequences`; header and segment note count the same 20 sequences.
