@@ -11,12 +11,15 @@ reference setting of the stage below; the figures are written to
 documentation/architecture_benchmarking/figures/<experiment>/ and linked from the experiment plans. Every compared
 metric is a rate written as the percentages of the reports (labels "85.81 %", gaps "+0.95 points", axes "86 %"): the
 accuracy of the classification, the macro F1 of the sequence labelling, the mAP of the detection and the mask mAP of
-the instance segmentation.
+the instance segmentation. Run as a script with the registry, the figures folder, the experiment and the stage given as
+optional arguments (parse_comparison_arguments), every stage of every experiment being drawn when none is given.
 """
 
+import argparse
 import csv
 import re
 import statistics
+import sys
 import textwrap
 import yaml
 
@@ -33,6 +36,11 @@ from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Folder of the experiment plans, their results files, the comparison registry and the figures
 BENCHMARKING_FOLDER = Path(__file__).resolve().parents[2] / "documentation" / "architecture_benchmarking"
+
+# Registry of the compared stages, next to the results files it reads, and folder of the figures, one subfolder per
+# experiment, the experiment plans linking every figure: the defaults of the command line of the script
+DEFAULT_REGISTRY_PATH = BENCHMARKING_FOLDER / "experiment_comparisons.yaml"
+DEFAULT_OUTPUT_FOLDER = BENCHMARKING_FOLDER / "figures"
 
 # Titles of the experiments, of the test metric of their results files (the prefix of the metric columns) and of the
 # evaluated weights, in the order of the figure columns
@@ -498,19 +506,62 @@ def plot_registry(registry_path: Path, output_folder: Path, experiment: Optional
                             output_folder=output_folder) for comparison in selected_comparisons]
 
 
+def parse_comparison_arguments(arguments: List[str]) -> argparse.Namespace:
+    """
+    Reads the settings of plot_registry from the command line of the script, so that the figure of a new stage is drawn
+    without editing the file: the registry and the figures folder default to DEFAULT_REGISTRY_PATH and
+    DEFAULT_OUTPUT_FOLDER, those of the repository, and without an experiment and a stage every stage of every
+    experiment is drawn again. A '~' left by the shell at the start of a path ('--registry_path=~/...') is expanded to
+    the home folder.
+
+    Args:
+        arguments (List[str]): The command line arguments, without the script name.
+
+    Returns:
+        argparse.Namespace: The registry_path, output_folder, experiment and stage of plot_registry.
+
+    Raises:
+        SystemExit: After printing the help with --help, or the usage and the error when the experiment is not one of
+            EXPERIMENT_TITLES.
+    """
+    # The description and the examples keep their line breaks, argparse wrapping the help of every argument
+    parser = argparse.ArgumentParser(
+        prog="uv run python -m scripts.evaluation.plot_experiment_comparisons",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Draws the figure of every compared stage of the hyperparameter experiments, from the results\n"
+                    "files next to the experiment plans and the stages of the comparison registry.",
+        epilog="Example, stage 3 of the instance segmentation experiment alone:\n"
+               "  uv run python -m scripts.evaluation.plot_experiment_comparisons \\\n"
+               "      --experiment instance_segmentation --stage 3")
+    # The registry of the stages and the folder of the figures
+    parser.add_argument("--registry_path", type=Path, default=DEFAULT_REGISTRY_PATH,
+                        help="Registry of the compared stages, the results files being read from its folder (default: "
+                             "documentation/architecture_benchmarking/experiment_comparisons.yaml of the repository).")
+    parser.add_argument("--output_folder", type=Path, default=DEFAULT_OUTPUT_FOLDER,
+                        help="Folder of the figures, one subfolder per experiment (default: "
+                             "documentation/architecture_benchmarking/figures of the repository).")
+    # The stages drawn
+    parser.add_argument("--experiment", choices=list(EXPERIMENT_TITLES), default=None,
+                        help="Experiment whose stages are drawn alone (default: every experiment).")
+    parser.add_argument("--stage", default=None,
+                        help="Stage drawn alone, as the registry names it, such as 3 or 2b (default: every stage).")
+    parsed_arguments = parser.parse_args(args=arguments)
+
+    # A '~' the shell leaves after '=' points to the home folder, as in the other scripts of the repository
+    for path_name in ["registry_path", "output_folder"]:
+        setattr(parsed_arguments, path_name, getattr(parsed_arguments, path_name).expanduser())
+    return parsed_arguments
+
+
 if __name__ == "__main__":
-    # Registry of the compared stages, next to the results files it reads (documentation/architecture_benchmarking)
-    registry_path = BENCHMARKING_FOLDER / "experiment_comparisons.yaml"
-    # Folder of the figures, one subfolder per experiment, the experiment plans linking every figure
-    output_folder = BENCHMARKING_FOLDER / "figures"
-    # Experiment ("classification", "sequence_labelling", "object_detection" or "instance_segmentation") and stage (such
-    # as "3" or "2b") to draw alone after a new stage, None drawing every stage of every experiment
-    experiment = None
-    stage = None
+    # Registry, figures folder, experiment and stage read from the command line, every stage of every experiment drawn
+    # when none is given
+    comparison_arguments = parse_comparison_arguments(arguments=sys.argv[1:])
 
     # Draw the figures and print a link to each
-    figure_paths = plot_registry(registry_path=registry_path, output_folder=output_folder, experiment=experiment,
-                                 stage=stage)
+    figure_paths = plot_registry(registry_path=comparison_arguments.registry_path,
+                                 output_folder=comparison_arguments.output_folder,
+                                 experiment=comparison_arguments.experiment, stage=comparison_arguments.stage)
     print_color(color="green", output=f"{len(figure_paths)} comparison figures written:")
     for written_path in figure_paths:
         print_color(color="blue", output=format_path_link(path=written_path), indent=1)

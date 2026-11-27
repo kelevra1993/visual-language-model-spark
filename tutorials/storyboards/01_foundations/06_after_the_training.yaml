@@ -97,15 +97,15 @@ scenes:
 
   - kind: code
     title: "Comparing launches"
-    code_reference: "scripts/evaluation/collect_experiment_results.py"
+    code_reference: "scripts/evaluation/collect_experiment_results.py · parse_collection_arguments"
     source:
       file: scripts/evaluation/collect_experiment_results.py
-      start: "^    # Folder of the hyperparameter experiment of every task"
-      end: "output_path = experiment_folder"
+      start: '^    parser = argparse\.ArgumentParser\('
+      end: 'f"experiment folder\)\."\)'
     highlights:
-      - {match: "^    experiments_root_folder = ", sentences: [0]}
-      - {match: "^    metrics = |^    number_last_evaluations = ", sentences: [1]}
-      - {match: "^    output_path = ", sentences: [1]}
+      - {match: 'add_argument\("--task"|add_argument\("--experiment_folder"', sentences: [0]}
+      - {match: 'add_argument\("--number_last_evaluations"', sentences: [1]}
+      - {match: 'add_argument\("--output_path"', sentences: [1]}
     # The folder names run_2 and run_23b read aloud, and the advice of two launches per setting
     literal_numbers: [two, twenty three]
     narration:

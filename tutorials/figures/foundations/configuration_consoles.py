@@ -4,7 +4,8 @@ file: the check of configuration files without training (python -m vision_traini
 on the synthetic classification configuration and on a copy holding two mistakes, then on a copy holding a
 misspelled key, which the check refuses alone, and the conversion of the files
 written before a setting was removed (scripts/configuration_processing/convert_fixed_settings.py), whose file is first
-refused by the same check and then listed by convert_fixed_settings with write_files False. The copies are written into
+refused by the same check and then listed by convert_fixed_settings without writing files, with the backup suffix the
+script takes when its command line gives none (DEFAULT_BACKUP_SUFFIX). The copies are written into
 temporary folders from the synthetic configuration as it is in the repository, so that the consoles follow its keys
 and the checks; their label mapping is the one the configuration names, read from the committed dataset files of the
 run snapshots when the build reads them (resolve_dataset_path), so that the check, which loads the label mapping, never
@@ -19,10 +20,10 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from scripts.configuration_processing.convert_fixed_settings import (FIXED_SETTINGS, FIXED_VALUES, KEY_LINE_PATTERN,
+from scripts.configuration_processing.convert_fixed_settings import (DEFAULT_BACKUP_SUFFIX, FIXED_SETTINGS,
+                                                                     FIXED_VALUES, KEY_LINE_PATTERN,
                                                                      convert_fixed_settings, find_key_paths)
 from tutorials.figures.figure_utilities import is_snapshot_folder, resolve_dataset_path
-from tutorials.figures.foundations.code_values import read_main_block_value
 from tutorials.figures.foundations.listings import capture_printed_text
 from tutorial_builder.figure_context import find_repository_root
 from vision_training.configuration_processing.common_checks import REMOVED_SETTINGS
@@ -195,7 +196,7 @@ def make_configuration_consoles(run_folder: Path, configuration_path: Path) -> D
     configuration and gives their consoles as facts: the check of the configuration and of a copy holding the mistakes
     of MISTAKEN_KEY_PATHS, the check refusing a copy whose MISSPELLED_KEY_PATH is written MISSPELLED_KEY, then the
     check refusing a copy holding the removed setting OLD_REMOVED_SETTING and the
-    listing of convert_fixed_settings with write_files False, searching a launch folder holding that copy alone.
+    listing of convert_fixed_settings without writing files, searching a launch folder holding that copy alone.
 
     Args:
         run_folder (Path): The folder of the classification run, real or read from the snapshots, telling whether the
@@ -278,11 +279,9 @@ def make_configuration_consoles(run_folder: Path, configuration_path: Path) -> D
                 old_block["problems"][0]:
             raise ValueError(f"Expected {OLD_CONFIGURATION_NAME} refused for {OLD_REMOVED_SETTING} alone, got: "
                              f"{old_check_lines}")
-        backup_suffix = read_main_block_value(
-            script_path=find_repository_root() / "scripts" / "configuration_processing" / "convert_fixed_settings.py",
-            variable_name="backup_suffix")
         conversion_text = capture_printed_text(printing_function=lambda: convert_fixed_settings(
-            run_roots=[], configuration_folders=[launch_folder], write_files=False, backup_suffix=backup_suffix))
+            run_roots=[], configuration_folders=[launch_folder], write_files=False,
+            backup_suffix=DEFAULT_BACKUP_SUFFIX))
         conversion_lines = clean_console_lines(console_text=conversion_text, removed_prefix=f"{launch_folder}/")
         if len(conversion_lines) != 1 or not conversion_lines[0].startswith("To convert"):
             raise ValueError(f"Expected one line listing {OLD_CONFIGURATION_NAME} to convert, got: {conversion_lines}")

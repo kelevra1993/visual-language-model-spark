@@ -7,12 +7,16 @@ folder (run_<n><letters> for a repeat launch of the same settings, such as run_2
 every evaluated checkpoint and whose training_configuration.yaml gives the swept settings; a launch keeping a moving
 average of its weights also gets the rows of its averaged weights from its Tensorboard/Test_EMA curves. The launches of
 the same settings are followed by their mean row, whose mean column decides the setting kept for the next stage, next to
-the mean of the last evaluations, which compares where the settings end whatever their start.
+the mean of the last evaluations, which compares where the settings end whatever their start. Run as a script with the
+task given as an argument and the experiment folder, the number of last evaluations and the results file as optional
+ones (parse_collection_arguments), its help printed when none is given.
 """
 
+import argparse
 import csv
 import re
 import statistics
+import sys
 import yaml
 
 from pathlib import Path
@@ -66,6 +70,31 @@ OBJECT_DETECTION_SWEPT_SETTINGS = {
 TASK_SWEPT_SETTINGS = {"classification": CLASSIFICATION_SWEPT_SETTINGS,
                        "sequence_labelling": SEQUENCE_LABELLING_SWEPT_SETTINGS,
                        "object_detection": OBJECT_DETECTION_SWEPT_SETTINGS}
+
+# Folder of the hyperparameter experiment of every task, holding a run_<n> or run_<n><letters> folder per launch (the
+# experiment_folder of every launch configuration file): the git-ignored hyperparameter_experiments folder of the
+# repository for the classification, its sequence_labelling and object_detection subfolders for the others
+EXPERIMENTS_ROOT_FOLDER = Path(__file__).absolute().parents[2] / "hyperparameter_experiments"
+TASK_EXPERIMENT_FOLDERS = {"classification": EXPERIMENTS_ROOT_FOLDER,
+                           "sequence_labelling": EXPERIMENTS_ROOT_FOLDER / "sequence_labelling",
+                           "object_detection": EXPERIMENTS_ROOT_FOLDER / "object_detection"}
+
+# Test curve compared between the launches of every task, one of the scalars of Tensorboard/Test: the accuracy for the
+# classification task, the Macro F1 for the sequence labelling task, which weighs the frames of every change as much as
+# the far more frequent frames without change, and the mean average precision over the intersection over union
+# thresholds 0.5 to 0.95 (the area under the precision recall curves) for the object detection task. The metric columns
+# of the results file are named after the metric of every task
+TASK_METRICS = {"classification": "Accuracy", "sequence_labelling": "Macro F1",
+                "object_detection": "mAP@[0.5:0.95]/area"}
+TASK_METRIC_COLUMNS = {"classification": "accuracy", "sequence_labelling": "macro_f1", "object_detection": "map_50_95"}
+
+# Number of last iterations evaluated in the experiment averaged by the <metric>_last_<n>_mean column unless the
+# command line gives another one, 4 giving the mean of iterations 1250 to 2000 when the launches are evaluated every
+# 250 iterations up to 2000 (the classification and the sequence labelling experiments)
+DEFAULT_NUMBER_LAST_EVALUATIONS = 4
+
+# Results file written in the experiment folder unless the command line gives another file
+RESULTS_FILE_NAME = "results.csv"
 
 # Launch name of the row averaging the launches of the same settings
 MEAN_ROW_NAME = "mean"
@@ -291,42 +320,86 @@ def write_results(columns: List[str], rows: List[Dict[str, Any]], output_path: P
                              for column in columns})
 
 
-if __name__ == "__main__":
-    # Task of the experiment: "classification", "sequence_labelling" or "object_detection"
-    task = "sequence_labelling"
-    # Folder of the hyperparameter experiment of every task, holding a run_<n> or run_<n><letters> folder per launch
-    # (the experiment_folder of every launch configuration file)
-    experiments_root_folder = Path(__file__).absolute().parents[2] / "hyperparameter_experiments"
-    experiment_folders = {"classification": experiments_root_folder,
-                          "sequence_labelling": experiments_root_folder / "sequence_labelling",
-                          "object_detection": experiments_root_folder / "object_detection"}
-    # Test curve compared between the launches of every task, one of the scalars of Tensorboard/Test: "Accuracy",
-    # "Balanced Accuracy", "Macro F1" or "Top-5 Accuracy" for the classification task, the same and "Sequence Exact
-    # Match", "Edit Score" or "Segment F1@50" for the sequence labelling task, whose Macro F1 weighs the frames of
-    # every change as much as the far more frequent frames without change, and the mean average precision over the
-    # intersection over union thresholds 0.5 to 0.95 ("mAP@[0.5:0.95]/area", the area under the precision recall
-    # curves) for the object detection task. The metric columns are named after the metric of every task
-    metrics = {"classification": "Accuracy", "sequence_labelling": "Macro F1",
-               "object_detection": "mAP@[0.5:0.95]/area"}
-    metric_columns = {"classification": "accuracy", "sequence_labelling": "macro_f1", "object_detection": "map_50_95"}
-    experiment_folder = experiment_folders[task]
-    metric = metrics[task]
-    # Number of last iterations evaluated in the experiment averaged by the <metric>_last_<n>_mean column, 4 giving the
-    # mean of iterations 1250 to 2000 when the launches are evaluated every 250 iterations up to 2000 (the
-    # classification and the sequence labelling experiments)
-    number_last_evaluations = 4
-    # Results file, written again from all the launches at every run, so that it can be refreshed while launches train
-    output_path = experiment_folder / "results.csv"
+def parse_collection_arguments(arguments: List[str]) -> argparse.Namespace:
+    """
+    Reads the settings of a collection from the command line of the script, so that the results file of a stage is
+    written again without editing the file: the task is required and chooses the swept settings (TASK_SWEPT_SETTINGS)
+    and the compared metric (TASK_METRICS), the experiment folder defaults to the folder of the task
+    (TASK_EXPERIMENT_FOLDERS), the number of last evaluations to DEFAULT_NUMBER_LAST_EVALUATIONS and the results file to
+    RESULTS_FILE_NAME in the experiment folder. Launched without any argument, the script prints the help of every
+    argument and stops. A '~' left by the shell at the start of a path ('--experiment_folder=~/...') is expanded to the
+    home folder.
 
-    # Read every launch, group the launches of the same settings and write the file
-    launches = collect_launches(experiment_folder=experiment_folder, metric=metric,
-                                swept_settings=TASK_SWEPT_SETTINGS[task])
-    columns, rows = build_result_rows(launches=launches, metric_column=metric_columns[task],
-                                      number_last_evaluations=number_last_evaluations,
-                                      swept_settings=TASK_SWEPT_SETTINGS[task])
-    write_results(columns=columns, rows=rows, output_path=output_path, swept_settings=TASK_SWEPT_SETTINGS[task])
+    Args:
+        arguments (List[str]): The command line arguments, without the script name.
+
+    Returns:
+        argparse.Namespace: The task, experiment_folder, number_last_evaluations and output_path, the default paths
+            filled in.
+
+    Raises:
+        SystemExit: After printing the help when no argument is given, or the usage and the error when the task is
+            missing or a value is not one the collection accepts.
+    """
+    # The description and the example keep their line breaks, argparse wrapping the help of every argument
+    parser = argparse.ArgumentParser(
+        prog="uv run python -m scripts.evaluation.collect_experiment_results",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Gathers the test metric of every launch of a hyperparameter experiment, one run_<n> folder per\n"
+                    "launch, into one CSV file with a mean row per setting, to choose the setting of every stage.",
+        epilog="Example, the sequence labelling experiment written to the results.csv of its folder:\n"
+               "  uv run python -m scripts.evaluation.collect_experiment_results --task sequence_labelling")
+    # The experiment, its folder of launches and the metric compared
+    task_metrics = ", ".join(f"{task}: {metric}" for task, metric in TASK_METRICS.items())
+    parser.add_argument("--task", choices=list(TASK_SWEPT_SETTINGS), required=True,
+                        help=f"Experiment, choosing the swept settings and the compared test curve ({task_metrics}) "
+                             f"(required).")
+    parser.add_argument("--experiment_folder", type=Path, default=None,
+                        help="Folder of the run_<n> launch folders (default: hyperparameter_experiments of the "
+                             "repository for classification, its <task> subfolder for the other tasks).")
+    # The second mean column and the written file
+    parser.add_argument("--number_last_evaluations", type=int, default=DEFAULT_NUMBER_LAST_EVALUATIONS,
+                        help="Last evaluations averaged by the <metric>_last_<n>_mean column (default: %(default)s).")
+    parser.add_argument("--output_path", type=Path, default=None,
+                        help=f"CSV file, written again from every launch (default: {RESULTS_FILE_NAME} in the "
+                             f"experiment folder).")
+
+    # Without any argument, the script describes its arguments instead of failing on the missing task
+    if not arguments:
+        parser.print_help()
+        parser.exit(status=0)
+    parsed_arguments = parser.parse_args(args=arguments)
+
+    # Folder of the task and results file inside it unless given, a '~' the shell leaves after '=' pointing to the home
+    # folder
+    if parsed_arguments.experiment_folder is None:
+        parsed_arguments.experiment_folder = TASK_EXPERIMENT_FOLDERS[parsed_arguments.task]
+    parsed_arguments.experiment_folder = parsed_arguments.experiment_folder.expanduser()
+    if parsed_arguments.output_path is None:
+        parsed_arguments.output_path = parsed_arguments.experiment_folder / RESULTS_FILE_NAME
+    parsed_arguments.output_path = parsed_arguments.output_path.expanduser()
+    return parsed_arguments
+
+
+if __name__ == "__main__":
+    # Task, experiment folder, number of last evaluations and results file read from the command line, the help
+    # printed when none is given
+    collection_arguments = parse_collection_arguments(arguments=sys.argv[1:])
+    swept_settings = TASK_SWEPT_SETTINGS[collection_arguments.task]
+    metric = TASK_METRICS[collection_arguments.task]
+
+    # Read every launch, group the launches of the same settings and write the file, written again from all the
+    # launches at every run so that it can be refreshed while launches train
+    launches = collect_launches(experiment_folder=collection_arguments.experiment_folder, metric=metric,
+                                swept_settings=swept_settings)
+    columns, rows = build_result_rows(launches=launches, metric_column=TASK_METRIC_COLUMNS[collection_arguments.task],
+                                      number_last_evaluations=collection_arguments.number_last_evaluations,
+                                      swept_settings=swept_settings)
+    write_results(columns=columns, rows=rows, output_path=collection_arguments.output_path,
+                  swept_settings=swept_settings)
+
     # Launches counted once, whatever the number of weights they evaluate
     trained_launches = [launch for launch in launches if launch["settings"][EVALUATED_WEIGHTS_COLUMN] == "trained"]
     number_finished = sum(launch["finished"] for launch in trained_launches)
     print_color(color="green", output=f"Test {metric} of {len(trained_launches)} launches ({number_finished} finished) "
-                                      f"written to {format_path_link(path=output_path)}")
+                                      f"written to {format_path_link(path=collection_arguments.output_path)}")

@@ -6,11 +6,16 @@ setting without moving average standing in the averaged-weights column, and the 
 registry, with one column per kind of weights evaluated for every launch of the stage, whatever its number of launches,
 every compared metric (the classification accuracy, the sequence labelling macro F1, the detection and mask mAP)
 written as a percentage with its gaps in points, and the reference stage of the instance segmentation experiment drawn
-from its test mask mAP.
+from its test mask mAP. The script reads every setting of plot_registry from its command line, the registry and the
+figures folder of the repository and every stage for those not given, refuses an unknown experiment, and draws the
+stage its arguments name.
 """
 
 import csv
+import inspect
 import pytest
+import runpy
+import sys
 import yaml
 
 from matplotlib.figure import Figure
@@ -19,9 +24,16 @@ from PIL import Image
 from typing import Any, Dict, List
 from unittest.mock import patch
 
-from scripts.evaluation.plot_experiment_comparisons import (LAUNCH_LINE_STYLES, collect_setting_curves,
-                                                            compute_gap_curve, compute_mean_curve, draw_weights_column,
-                                                            plot_registry, read_results_curves, wrap_verdict)
+from scripts.evaluation import plot_experiment_comparisons
+from scripts.evaluation.plot_experiment_comparisons import (BENCHMARKING_FOLDER, DEFAULT_OUTPUT_FOLDER,
+                                                            DEFAULT_REGISTRY_PATH, LAUNCH_LINE_STYLES,
+                                                            collect_setting_curves, compute_gap_curve,
+                                                            compute_mean_curve, draw_weights_column,
+                                                            parse_comparison_arguments, plot_registry,
+                                                            read_results_curves, wrap_verdict)
+
+# Every argument of the comparison script, which its help must describe
+COMPARISON_SCRIPT_ARGUMENTS = ["--registry_path", "--output_folder", "--experiment", "--stage"]
 
 # Columns of the fake results file, as collect_experiment_results.py writes them: the metric at every evaluation, its
 # means, the swept settings and the run folder
@@ -352,3 +364,88 @@ def test_plot_registry_draws_an_instance_segmentation_reference_of_one_setting(t
 
     assert figure_paths == [tmp_path / "figures" / "instance_segmentation" / "stage_0_reference.png"]
     assert figure_paths[0].is_file()
+
+
+def test_comparison_script_help_describes_every_argument(capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the help of the comparison script describes every one of its arguments and stops without drawing.
+
+    Args:
+        capsys (pytest.CaptureFixture): The captured console output.
+    """
+    with pytest.raises(expected_exception=SystemExit) as exit_information:
+        parse_comparison_arguments(arguments=["--help"])
+    assert exit_information.value.code == 0
+    help_text = capsys.readouterr().out
+    assert [argument for argument in COMPARISON_SCRIPT_ARGUMENTS if argument not in help_text] == []
+
+
+def test_comparison_arguments_default_to_every_stage_of_the_repository() -> None:
+    """
+    Verifies that the comparison script launched without arguments draws every stage of every experiment of the
+    registry of the repository (DEFAULT_REGISTRY_PATH) into its figures folder (DEFAULT_OUTPUT_FOLDER), both in
+    documentation/architecture_benchmarking, and that its arguments are the parameters of plot_registry, so that the
+    main block passes them all.
+    """
+    parsed_arguments = parse_comparison_arguments(arguments=[])
+    assert vars(parsed_arguments) == {"registry_path": DEFAULT_REGISTRY_PATH, "output_folder": DEFAULT_OUTPUT_FOLDER,
+                                      "experiment": None, "stage": None}
+    assert set(vars(parsed_arguments)) == set(inspect.signature(plot_registry).parameters)
+    assert DEFAULT_REGISTRY_PATH == BENCHMARKING_FOLDER / "experiment_comparisons.yaml"
+    assert DEFAULT_OUTPUT_FOLDER == BENCHMARKING_FOLDER / "figures"
+    assert DEFAULT_REGISTRY_PATH.is_file()
+
+
+def test_comparison_arguments_reach_every_setting(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that every setting of plot_registry can be given on the command line, paths starting with a '~' the shell
+    leaves after '=' being expanded to the home folder.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, standing for the home folder.
+        monkeypatch (pytest.MonkeyPatch): Sets the home folder.
+    """
+    monkeypatch.setenv(name="HOME", value=str(tmp_path))
+    parsed_arguments = parse_comparison_arguments(arguments=[
+        "--registry_path=~/experiment_comparisons.yaml", "--output_folder=~/figures", "--experiment",
+        "instance_segmentation", "--stage", "3b"])
+    assert vars(parsed_arguments) == {"registry_path": tmp_path / "experiment_comparisons.yaml",
+                                      "output_folder": tmp_path / "figures", "experiment": "instance_segmentation",
+                                      "stage": "3b"}
+
+
+def test_comparison_script_refuses_an_unknown_experiment(capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the comparison script stops with its usage and the error, before any figure is drawn, when the
+    experiment is not one of EXPERIMENT_TITLES.
+
+    Args:
+        capsys (pytest.CaptureFixture): The captured console output.
+    """
+    with pytest.raises(expected_exception=SystemExit) as exit_information:
+        parse_comparison_arguments(arguments=["--experiment", "keypoint_detection"])
+    assert exit_information.value.code == 2
+    assert "error:" in capsys.readouterr().err
+
+
+def test_comparison_script_draws_the_stage_of_its_arguments(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that the main block of the comparison script passes every argument to plot_registry: of a registry of two
+    stages, only the stage asked for is drawn, into the figures folder of the arguments.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, holding the results file, the registry and the figures.
+        monkeypatch (pytest.MonkeyPatch): Sets the command line of the script.
+    """
+    write_results_file(results_path=tmp_path / "results.csv", rows=TWO_SETTING_ROWS, columns=RESULTS_COLUMNS)
+    write_registry(registry_path=tmp_path / "experiment_comparisons.yaml",
+                   comparisons=[TWO_SETTING_COMPARISON, {**TWO_SETTING_COMPARISON, "stage": "3", "title": "Repeat"}])
+
+    # The script run as a module would run it, with every argument given
+    monkeypatch.setattr(target=sys, name="argv", value=[
+        plot_experiment_comparisons.__file__, "--registry_path", str(tmp_path / "experiment_comparisons.yaml"),
+        "--output_folder", str(tmp_path / "figures"), "--experiment", "classification", "--stage", "3"])
+    runpy.run_path(path_name=plot_experiment_comparisons.__file__, run_name="__main__")
+
+    assert sorted(tmp_path.joinpath("figures").rglob("*.png")) == [
+        tmp_path / "figures" / "classification" / "stage_3_repeat.png"]

@@ -111,13 +111,22 @@ The predictions file has the columns of the `predictions.csv` of `evaluate_check
 ## Comparing Launches
 To decide which setting of a stage of a hyperparameter experiment to keep, `scripts/evaluation/collect_experiment_results.py` gathers every launch of the experiment into one CSV file. Every launch trains in its own `run_<n>` folder, a repeat launch in `run_<n><letters>` (`run_23b`).
 
-| Setting | Meaning |
+```bash
+# List every argument with its default
+uv run python -m scripts.evaluation.collect_experiment_results
+
+# Write the results.csv of the sequence labelling experiment
+uv run python -m scripts.evaluation.collect_experiment_results --task sequence_labelling
+```
+
+Say you collect another experiment, or launches kept elsewhere: the arguments set them.
+
+| Argument | Meaning |
 |---|---|
-| `task` | the experiment, `"classification"`, `"sequence_labelling"` or `"object_detection"`, which chooses the folder, the metric and the swept settings below |
-| `experiment_folders` | the folder of the `run_<n>` folders of every experiment: `<repository>/hyperparameter_experiments` for the classification, its `sequence_labelling/` and `object_detection/` subfolders for the others |
-| `metrics`, `metric_columns` | the compared test curve of every experiment, `"Accuracy"`, `"Macro F1"` and `"mAP@[0.5:0.95]/area"`, and the prefix of its columns, `accuracy`, `macro_f1` and `map_50_95` |
-| `number_last_evaluations` | the last evaluations averaged in a second mean column, 4 |
-| `output_path` | the CSV file, `<experiment_folder>/results.csv` |
+| `--task` | required: `classification`, `sequence_labelling` or `object_detection`. It picks the swept settings, the compared test curve (`Accuracy`, `Macro F1`, `mAP@[0.5:0.95]/area`) and its column prefix (`accuracy`, `macro_f1`, `map_50_95`) |
+| `--experiment_folder` | the folder of the `run_<n>` folders. Default: `<repository>/hyperparameter_experiments` for classification, its `<task>/` subfolder for the others |
+| `--number_last_evaluations` | the last evaluations averaged in a second mean column, 4 by default |
+| `--output_path` | the CSV file, `<experiment_folder>/results.csv` by default |
 
 Every row is a launch and its weights (`evaluated_weights`: `trained`, or `ema` from `Tensorboard/Test_EMA` for a launch keeping a moving average). It gives the metric at every evaluated iteration, its mean, the mean of the last evaluations (`<metric column>_last_<n>_mean`, which ignores how fast a launch starts), whether the launch finished, the swept settings of the experiment (`TASK_SWEPT_SETTINGS`) and the run folder. The launches of the same settings and weights are grouped in the order of their first launch, followed by a `mean` row. Settings given as lists, such as the `[layers, channels]` of the mask heads or the backbone blocks of their skips, which the driver of the instance segmentation experiment adds to the swept settings of the detection, are compared by their values (`make_hashable`) and written as the configuration gives them (`[4, 64]`). A launch still training leaves its future cells empty, so the file can be written at any time.
 
@@ -158,11 +167,21 @@ A run not evaluated yet is printed in yellow and left out. A missing curve or co
 ### Drawing The Comparison Of Every Stage
 After a stage of a hyperparameter experiment, `scripts/evaluation/plot_experiment_comparisons.py` draws its figure next to its experiment plan, from the copy of its results file in `documentation/architecture_benchmarking` (`results.csv` for classification, `<task>_results.csv` for the others) and its entry in `experiment_comparisons.yaml`.
 
-| Setting | Meaning |
+```bash
+# Draw every stage of every experiment again
+uv run python -m scripts.evaluation.plot_experiment_comparisons
+
+# Draw one stage alone
+uv run python -m scripts.evaluation.plot_experiment_comparisons --experiment instance_segmentation --stage 3
+```
+
+Should you need another registry, figures folder or stage, the arguments name them:
+
+| Argument | Meaning |
 |---|---|
-| `registry_path` | the registry of the compared stages, `documentation/architecture_benchmarking/experiment_comparisons.yaml` by default, the results files being read from its folder |
-| `output_folder` | the folder of the figures, one subfolder per experiment, `documentation/architecture_benchmarking/figures` by default |
-| `experiment`, `stage` | the experiment (`"classification"`, `"sequence_labelling"`, `"object_detection"`, `"instance_segmentation"`) and stage (`"3"`, `"2b"`, `"repeat"`) to draw alone, `None` for every stage |
+| `--registry_path` | the registry of the compared stages, the results files being read from its folder. Default: `documentation/architecture_benchmarking/experiment_comparisons.yaml` |
+| `--output_folder` | the folder of the figures, one subfolder per experiment. Default: `documentation/architecture_benchmarking/figures` |
+| `--experiment`, `--stage` | the experiment (`classification`, `sequence_labelling`, `object_detection`, `instance_segmentation`) and stage (`3`, `2b`, `repeat`) to draw alone. Default: every stage |
 
 Every entry of the registry gives the results file, the stage and its title, the iteration and weights the plan compares (`last_iteration`, `compared_weights`), the verdict, and the compared settings (`arms`): their label, their launches as written in the results file, whether they are the reference, and `trained_as_averaged` for a setting trained without moving average whose trained weights stand in the column of the averaged weights. A figure has a column per kind of weights evaluated for every launch of the stage; every launch is a thin line, the mean of the launches of every setting a thick one labelled at the compared iteration, and the lower panel gives the gap of every setting to the reference. Every compared metric (`PERCENT_METRICS`: the accuracy of the classification, the macro F1 of the sequence labelling, the mAP of the detection and the mask mAP of the instance segmentation) is written as the percentages of the reports: labels such as `85.81 %` on axes such as `86 %`, gaps in points such as `+0.95 points`, the gap axis named `Gap to <reference>` with `(points)` on a line of its own. The verdict under the title is wrapped by `wrap_verdict`, which keeps every number with its unit (`85.81 %`, `+0.95 points`) on one line. A stage without exactly one reference stops the script.
 

@@ -10,7 +10,7 @@ ast.literal_eval refuses), the pixel range given by the input normalization, and
 classification configuration that need a conversion or a computation (its number of iterations written 1e10, the steps
 averaged by its moving average). The storyboards quote them as {{foundations.<name>}}, so that a sentence follows the
 code when it changes. The readers of main blocks are also used by the classification figures for the settings of the
-synthetic dataset script, and by configuration_consoles.py for the backup suffix of the conversion.
+synthetic dataset script.
 """
 
 import ast
