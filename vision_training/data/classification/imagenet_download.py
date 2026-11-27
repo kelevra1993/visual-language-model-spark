@@ -8,14 +8,17 @@ published validation shards included, goes to training; one image per class of a
 the test split, which is also the validation split: 'manifests/validation' and 'manifests/test' describe the same
 images. The split is redone from wherever the images sit, so a run on a folder split another way moves the images
 instead of downloading them again. The class folder manifests and label mapping written at the end are read by the
-classification configurations (write_class_folder_manifests). Run as a script with the settings of its main block.
+classification configurations (write_class_folder_manifests). Run as a script with the dataset folder and the settings
+given as arguments (parse_download_arguments), its help printed when none is given.
 """
 
+import argparse
 import hashlib
 import json
 import multiprocessing
 import os
 import shutil
+import sys
 import tarfile
 import time
 
@@ -71,6 +74,13 @@ RETRIED_STATUS_CODES = (408, 429)
 
 # Factor applied to the number of workers to give the number of tasks queued in the process pool
 QUEUED_TASKS_PER_WORKER = 2
+
+# Settings taken when the command line of the script (parse_download_arguments) does not give them, the free space,
+# held-out images and minimum class size being quoted by the foundations tutorial: no new shard below 100 GB free, and
+# one image of every class of at least 50 images held out as the validation and test split (the same images), the
+# smaller classes keeping all their images for training
+DEFAULT_DOWNLOAD_SETTINGS = {"minimum_free_gigabytes": 100, "held_out_images_per_class": 1,
+                             "minimum_held_out_class_size": 50, "number_workers": 16}
 
 
 def get_free_gigabytes(folder: Path) -> float:
@@ -611,19 +621,79 @@ def download_imagenet_22k(dataset_folder: Path, minimum_free_gigabytes: float, h
                               minimum_held_out_class_size=minimum_held_out_class_size)
 
 
-if __name__ == "__main__":
-    # Folder of the dataset, read by the classification configurations. It needs about 1.2 TB of original images
-    # (1,100 GiB measured, 83 KB per image on average), plus the shards being processed
-    dataset_folder = Path.home() / "Data" / "classifier_data" / "imagenet-22k"
-    # Free disk space in GB below which no new shard is started, the next run resuming from there
-    minimum_free_gigabytes = 100
-    # Images of every class of at least 50 images held out as the validation and test split (the same images), the
-    # smaller classes keeping all their images for training
-    held_out_images_per_class = 1
-    minimum_held_out_class_size = 50
-    # Number of worker processes downloading the shards and writing their images
-    number_workers = 16
+def parse_download_arguments(arguments: List[str]) -> argparse.Namespace:
+    """
+    Reads the settings of the ImageNet-22k download from the command line of the script, so that the 1.3 TB download
+    starts only on a folder the command names: the dataset folder is required, the other settings default to
+    DEFAULT_DOWNLOAD_SETTINGS. Launched without any argument, the script prints the help of every argument and stops
+    without downloading anything. Held-out images that could leave a class without training images are refused before
+    the download, instead of at the split that follows it. A '~' left by the shell at the start of the folder
+    ('--dataset_folder=~/Data/...') is expanded to the home folder.
 
-    download_imagenet_22k(dataset_folder=dataset_folder, minimum_free_gigabytes=minimum_free_gigabytes,
-                          held_out_images_per_class=held_out_images_per_class,
-                          minimum_held_out_class_size=minimum_held_out_class_size, number_workers=number_workers)
+    Args:
+        arguments (List[str]): The command line arguments, without the script name.
+
+    Returns:
+        argparse.Namespace: The arguments of download_imagenet_22k.
+
+    Raises:
+        SystemExit: After printing the help when no argument is given, or the usage and the error when the dataset
+            folder is missing or a value is not one the download accepts.
+    """
+    # The description and the example keep their line breaks, argparse wrapping the help of every argument
+    parser = argparse.ArgumentParser(
+        prog="uv run python -m vision_training.data.classification.imagenet_download",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Downloads ImageNet-22k from Hugging Face (about 1.3 TB, resumed shard by shard) and writes the\n"
+                    "manifests of its train, validation and test splits read by the classification configurations.",
+        epilog="Example, into the folder the example classification configurations read:\n"
+               "  uv run python -m vision_training.data.classification.imagenet_download \\\n"
+               "      --dataset_folder ~/Data/classifier_data/imagenet-22k")
+    # The folder of the dataset, about 1.2 TB of original images (1,100 GiB measured, 83 KB per image on average), and
+    # the free space kept on its disk
+    parser.add_argument("--dataset_folder", type=Path, required=True,
+                        help="Folder of the dataset, holding its images, its progress and its manifests; it needs "
+                             "about 1.2 TB of original images plus the shards being processed (required).")
+    parser.add_argument("--minimum_free_gigabytes", type=float,
+                        default=DEFAULT_DOWNLOAD_SETTINGS["minimum_free_gigabytes"],
+                        help="Free disk space in gigabytes below which no new shard is started, the next run resuming "
+                             "from there (default: %(default)s).")
+    # The held-out split and the worker processes
+    parser.add_argument("--held_out_images_per_class", type=int,
+                        default=DEFAULT_DOWNLOAD_SETTINGS["held_out_images_per_class"],
+                        help="Images of every large enough class held out as the validation and test split, the same "
+                             "images (default: %(default)s).")
+    parser.add_argument("--minimum_held_out_class_size", type=int,
+                        default=DEFAULT_DOWNLOAD_SETTINGS["minimum_held_out_class_size"],
+                        help="Images below which a class gives no held-out image and keeps all its images for "
+                             "training (default: %(default)s).")
+    parser.add_argument("--number_workers", type=int, default=DEFAULT_DOWNLOAD_SETTINGS["number_workers"],
+                        help="Worker processes downloading the shards and writing their images (default: "
+                             "%(default)s).")
+
+    # Without any argument, the script describes its arguments instead of failing on the missing dataset folder
+    if not arguments:
+        parser.print_help()
+        parser.exit(status=0)
+    parsed_arguments = parser.parse_args(args=arguments)
+
+    # The split rule of split_imagenet_22k_images checked before the download rather than after it
+    if not 1 <= parsed_arguments.held_out_images_per_class < parsed_arguments.minimum_held_out_class_size:
+        parser.error(f"--held_out_images_per_class must be at least 1 and below --minimum_held_out_class_size, got "
+                     f"{parsed_arguments.held_out_images_per_class} and "
+                     f"{parsed_arguments.minimum_held_out_class_size}")
+
+    # A '~' the shell leaves after '=' points to the home folder, as in the other scripts of the repository
+    parsed_arguments.dataset_folder = parsed_arguments.dataset_folder.expanduser()
+    return parsed_arguments
+
+
+if __name__ == "__main__":
+    # Dataset folder and download settings read from the command line, the help printed when none is given
+    download_arguments = parse_download_arguments(arguments=sys.argv[1:])
+
+    download_imagenet_22k(dataset_folder=download_arguments.dataset_folder,
+                          minimum_free_gigabytes=download_arguments.minimum_free_gigabytes,
+                          held_out_images_per_class=download_arguments.held_out_images_per_class,
+                          minimum_held_out_class_size=download_arguments.minimum_held_out_class_size,
+                          number_workers=download_arguments.number_workers)

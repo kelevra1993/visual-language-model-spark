@@ -23,18 +23,19 @@ Should you need the pre-trained backbones of the classification configurations (
 ### Downloading ImageNet-22k
 Before the first shard is fetched, the script checks that this machine is logged in with an account that accepted the terms of the dataset, and it stops when the disk runs low:
 1. Accept the terms of [timm/imagenet-22k-wds](https://huggingface.co/datasets/timm/imagenet-22k-wds) (non-commercial research and education only), then log in with `uv run hf auth login`.
-2. Keep about 1.3 TB free on the disk of `dataset_folder` (main block of the script, `~/Data/classifier_data/imagenet-22k` by default); the download stops below 100 GB free.
-3. Run it. It resumes shard by shard after an interruption, at about 1,500 shards an hour with 16 workers on a DGX Spark.
+2. Keep about 1.3 TB free on the disk of `--dataset_folder`, its only required argument; the download stops below 100 GB free (`--minimum_free_gigabytes`).
+3. Run it. It resumes shard by shard after an interruption, at about 1,500 shards an hour with 16 workers on a DGX Spark (`--number_workers`). Launched without arguments, it prints its help.
 
 ```bash
-uv run python -m vision_training.data.classification.imagenet_download
+# The folder the example classification configurations read
+uv run python -m vision_training.data.classification.imagenet_download --dataset_folder ~/Data/classifier_data/imagenet-22k
 ```
 
 <p align="center">
   <img src="../../README/imagenet_22k_download.png" width="100%" />
 </p>
 
-So that a configuration trains on the download, point its `train_data_folder`, `validation_data_folder`, `test_data_folder` and `Data.label_mapping.mapping_file_path` to `manifests/train`, `manifests/validation`, `manifests/test` and `manifests/label_mapping.json` of `dataset_folder`, and its `experiment_folder` to the folder of your runs.
+So that a configuration trains on the download, point its `train_data_folder`, `validation_data_folder`, `test_data_folder` and `Data.label_mapping.mapping_file_path` to `manifests/train`, `manifests/validation`, `manifests/test` and `manifests/label_mapping.json` of `--dataset_folder`, and its `experiment_folder` to the folder of your runs.
 
 ### Validation And Test Splits
 In case you compare its scores with other results, the held-out images (18,846) are both the validation and the test split, so a setting chosen on the validation curves is chosen on the test images, and the scores cannot be compared with published ImageNet-1k accuracies (shorter side of the images at most 600 pixels in the source, person classes kept). The split sizes and the retries of the download are in the [tasks reference](tasks_reference.md#classification-cls).
