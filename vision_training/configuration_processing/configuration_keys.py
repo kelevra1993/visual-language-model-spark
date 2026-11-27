@@ -33,7 +33,8 @@ PRETRAINED_SECTION_TASKS = {"Backbone": ALL_TASKS, "TemporalModel": tuple(SEQUEN
                             "ClassificationHead": CLASSIFICATION_LIKE_TASKS,
                             "SegmentationDecoder": ("semantic_segmentation",), "RegionProposal": DETECTION_TASKS,
                             "Detector": DETECTION_TASKS, "MaskHead": ("instance_segmentation",),
-                            "HRNet": ("keypoint_detection",), "KeypointHead": ("keypoint_detection",)}
+                            "HRNet": ("keypoint_detection",), "KeypointHead": ("keypoint_detection",),
+                            "Neck": DETECTION_TASKS}
 
 # Every key path the code reads, by the tasks reading it. A path ends at a value: a value that is a dictionary keyed
 # by names checked by the task (the blocks of 'Backbone.convolutions', the losses of 'Optimization.loss_weights', the

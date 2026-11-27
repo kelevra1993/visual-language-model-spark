@@ -180,8 +180,10 @@ def check_neck_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the 'Neck' section, the layers between the backbone blocks of the detection levels and the region
     proposal, detection and mask heads: its type, the channels of every level after the neck and their normalization,
-    all read even without neck so that switching the type is the only change of a run with a neck. The sizes of the
-    levels, which must be whole multiples of each other, are checked by FeatureNeck once the backbone is built.
+    all read even without neck so that switching the type is the only change of a run with a neck, and the
+    'pretrained' settings initialising the neck with the one of another run, which a run without neck ('none') has no
+    layer to receive. The sizes of the levels, which must be whole multiples of each other, are checked by FeatureNeck
+    once the backbone is built.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'Neck' section.
@@ -202,6 +204,14 @@ def check_neck_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     if feature_map_normalization not in VALID_FEATURE_MAP_NORMALIZATIONS:
         errors.append(f"'Neck.normalization.feature_map_normalization' must be one of "
                       f"{VALID_FEATURE_MAP_NORMALIZATIONS}, got {feature_map_normalization!r}.")
+
+    # Neck initialised by the one of another run, which needs layers to load
+    errors += check_pretrained_configuration(model_configuration=model_configuration, section_name="Neck")
+    neck_source_folder = get_configuration_value(configuration=model_configuration,
+                                                 key_path="Neck.pretrained.experiment_folder")
+    if neck_type == "none" and neck_source_folder is not None:
+        errors.append("'Neck.pretrained.experiment_folder' must be null when 'Neck.type' is \"none\": a run without "
+                      "neck has no layer to load.")
     return errors
 
 

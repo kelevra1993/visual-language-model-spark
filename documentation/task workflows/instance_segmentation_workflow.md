@@ -225,7 +225,7 @@ MaskHead: {"mask_resolution": 28, "upsampling": "transposed",
            "inference": {"mask_threshold": 0.5},
            "pretrained": {"experiment_folder": null, "iteration": null, "freeze": false, "learning_rate_multiplier": 1.0}}
 ```
-The current file also has a `Neck` section (`type: "none"`), `original_resolution: False` in `evaluation` (Step 4.7), `mask_loss: 1.0` in the loss weights, the finer inputs off and `shared: False` in `MaskHead`, `class_layers: False` in the `pretrained` blocks of `Detector` and `MaskHead`, and `instance_index_maps: True` in `Data` (Step 2.9). The loader adds the runtime key `standalone_evaluation_folder` (`None` in training, set by Stage 5).
+The current file also has a `Neck` section (`type: "none"`), `original_resolution: False` in `evaluation` (Step 4.7), `mask_loss: 1.0` in the loss weights, the finer inputs off and `shared: False` in `MaskHead`, `class_layers: False` in the `pretrained` blocks of `Detector` and `MaskHead`, a `pretrained` block in `Neck`, and `instance_index_maps: True` in `Data` (Step 2.9). The loader adds the runtime key `standalone_evaluation_folder` (`None` in training, set by Stage 5).
 
 ### Step 1.3 — `load_configuration()`
 It reads the YAML with the top-level keys of Step 1.2; values such as `number_iterations: '1e10'` are still strings here.
@@ -443,7 +443,7 @@ mask head 7: pool 14, upsamplings 1, upsampled 28, mask 28, spatial scale 0.0156
 ```
 
 ### Step 2.14 — `initialise_pretrained_components()` + `build_optimizer()` + `get_tracked_metrics()`
-Four components can come from another run: `Backbone`, `RegionProposal`, `Detector` and `MaskHead`. Source mask heads must match in every `MaskHead` setting and per-level `mask_head` (`compare_detection_heads()`). With `MaskHead.pretrained.class_layers: False` (default, `MRCL` in the run name) the predictor keeps random weights; with `True` it takes each source class row by order or name (`compare_class_names()`, `object_detection_workflow.md`, Step 2.17). The image branch is not transferred. `get_tracked_metrics()` adds `mask_loss` to the five metrics of DET.
+Four components can come from another run: `Backbone`, `RegionProposal`, `Detector` and `MaskHead`. Source mask heads must match in every `MaskHead` setting and per-level `mask_head` (`compare_detection_heads()`). With `MaskHead.pretrained.class_layers: False` (default, `MRCL` in the run name) the predictor keeps random weights; with `True` it takes each source class row by order or name (`compare_class_names()`, `object_detection_workflow.md`, Step 2.17). The image branch is not transferred. `get_tracked_metrics()` adds `mask_loss` to the five metrics of DET. The current code also transfers the `Neck`, so the dictionary below ends with `'Neck': None`; the heads need the same neck type and channels in both runs (`object_detection_workflow.md`, Step 2.17).
 
 **Example output**
 ```text
@@ -553,7 +553,7 @@ MLflow Run Created In The Experiment 'instance_segmentation' : 4c0f509b4cfd43cca
 The identifiers go to `<run>/mlflow_run.json`, so a resumed run logs to the same MLflow run and a standalone evaluation tags its run with it (`evaluation_of`, Stage 5).
 
 ### Step 3.4 — `save_model()` → `save_checkpoint()`
-Saved right after the training step of every multiple of 250, so checkpoint N holds N steps (`classification_workflow.md`, Step 3.6). It names the source run of the four transferable components (`pretrained_backbone`, `pretrained_region_proposer_dictionary`, `pretrained_detector_heads_dictionary`, `pretrained_mask_heads_dictionary`, None here) and saves `exponential_moving_average_state`.
+Saved right after the training step of every multiple of 250, so checkpoint N holds N steps (`classification_workflow.md`, Step 3.6). It names the source run of the four transferable components (`pretrained_backbone`, `pretrained_region_proposer_dictionary`, `pretrained_detector_heads_dictionary`, `pretrained_mask_heads_dictionary`, None here) and saves `exponential_moving_average_state`. Current checkpoints also name the source run of the neck (`pretrained_neck`).
 
 **Example: the checkpoints and the keys of the last one**
 ```text

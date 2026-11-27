@@ -121,7 +121,8 @@ PRETRAINED_COMPONENT_NAMES = {"Backbone": "backbone", "TemporalModel": "temporal
                               "ClassificationHead": "classification head",
                               "SegmentationDecoder": "segmentation decoder", "RegionProposal": "region proposal heads",
                               "Detector": "detection heads", "MaskHead": "mask heads",
-                              "HRNet": "high resolution network", "KeypointHead": "keypoint head"}
+                              "HRNet": "high resolution network", "KeypointHead": "keypoint head",
+                              "Neck": "neck"}
 
 # Flag of the 'pretrained' block of the sections whose component has class layers, False by default: True loads the
 # class layers with the component (every source class then having to be a class of the new run, or every keypoint
@@ -471,16 +472,17 @@ def check_backbone_configuration(model_configuration: Dict[str, Any]) -> List[st
 def check_pretrained_configuration(model_configuration: Dict[str, Any], section_name: str) -> List[str]:
     """
     Verifies the 'pretrained' settings of a section (Backbone, TemporalModel, ClassificationHead, SegmentationDecoder,
-    RegionProposal, Detector, MaskHead, HRNet or KeypointHead), which initialise its component with the trained one of
-    another run: the source run folder or null, the checkpoint iteration or null for the last one, the freeze flag,
-    only meaningful with a source run, and the learning rate multiplier of the transferred component. For the backbone,
-    the 'freeze_normalization_parameters' flag keeps the scale and shift of its normalization layers fixed, which needs
-    a source run that is not frozen anyway and a backbone with normalization layers. For the segmentation decoder, the
-    'class_layers' flag also loads the segmentation head and the deep supervision heads, and for the classification
-    head ('class_layer'), the detection heads, the mask heads and the keypoint head (PRETRAINED_CLASS_LAYER_KEYS) the
-    flag loads their class layers with them, True needing a source run. A classification head loaded without its class
-    layer needs hidden layers ('fully_connected' not empty), and a keypoint head loaded without its keypoint channel
-    layers a hidden width or the higher resolution branch, the only other layers they have.
+    RegionProposal, Detector, MaskHead, HRNet, KeypointHead or Neck), which initialise its component with the trained
+    one of another run: the source run folder or null, the checkpoint iteration or null for the last one, the freeze
+    flag, only meaningful with a source run, and the learning rate multiplier of the transferred component. For the
+    backbone, the 'freeze_normalization_parameters' flag keeps the scale and shift of its normalization layers fixed,
+    which needs a source run that is not frozen anyway and a backbone with normalization layers. For the segmentation
+    decoder, the 'class_layers' flag also loads the segmentation head and the deep supervision heads, and for the
+    classification head ('class_layer'), the detection heads, the mask heads and the keypoint head
+    (PRETRAINED_CLASS_LAYER_KEYS) the flag loads their class layers with them, True needing a source run. A
+    classification head loaded without its class layer needs hidden layers ('fully_connected' not empty), and a keypoint
+    head loaded without its keypoint channel layers a hidden width or the higher resolution branch, the only other
+    layers they have.
     The source run itself is only read when a new training starts, so that a trained run can still be evaluated and
     exported once its source run is gone.
 

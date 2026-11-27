@@ -288,6 +288,7 @@ If one wishes to start a component from a trained run, set the `pretrained` bloc
 | `TemporalModel` | temporal module | M2O, M2M, CMP, SEL |
 | `ClassificationHead` | classification head, class layer with `class_layer: True` | CLS, M2O, M2M, CMP, SEL |
 | `SegmentationDecoder` | U-Net decoder, class layers with `class_layers: True` | SEG |
+| `Neck` | feature pyramid or path aggregation neck | DET, INS |
 | `RegionProposal` | region proposal heads | DET, INS |
 | `Detector` | detection heads, class layers with `class_layers: True` | DET, INS |
 | `MaskHead` | mask heads, class layers with `class_layers: True` | INS |
@@ -301,12 +302,14 @@ The settings defining the layers must match, which is checked at launch. The ima
 | Backbone | `input_channels`, `convolutions`, `modules`, `normalization`, `last_max_pooling`; when one backbone's blocks start the other's, the shared blocks are loaded |
 | Classification head | `fully_connected`, `fully_connected_normalization`, the image size after `flatten` |
 | Transformer with positional embedding | `maximum_sequence_length` |
-| Region proposal, detection and mask heads | detection levels and their head settings, anchors per position, normalization, modules, `Neck.type` `none` in both runs; the mask image branch is not transferred and stays `[0, 0]` |
+| Neck | `type` (not `none`), `output_channels`, `normalization`, the detection levels and the channels of their backbone blocks |
+| Region proposal, detection and mask heads | detection levels and their head settings, anchors per position, normalization, modules, the same `Neck.type` and, with a neck, `Neck.output_channels`; the mask image branch is not transferred and stays `[0, 0]` |
 | High resolution network | `base_width`, `modules_per_stage`, `blocks_per_branch`, `modules`, `normalization`, channels of the last stem block |
 | Keypoint head | `higher_resolution`, `hidden_width`, `HRNet.base_width`; with `class_layers: True`, every channel must predict the same keypoint of the same class |
 
 The transfer follows these rules:
 - A detection run can initialise an instance segmentation run, whose mask heads train alone with the rest frozen.
+- Heads trained behind a neck read its outputs. Load the neck from the same run and iteration (`Neck.pretrained`); otherwise the launch warns that the heads read another neck.
 - A deeper backbone starts with the source blocks; its next blocks stay random. `freeze`, `freeze_normalization_parameters` and `learning_rate_multiplier` apply to the loaded blocks only, stored as `pretrained_backbone_blocks` in every checkpoint.
 - A resumed run does not load the pretrained component again.
 - The averaged weights of the source are loaded when it kept a [moving average](#moving-average-of-the-weights) and the new run has one on.
