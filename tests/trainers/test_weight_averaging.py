@@ -1,9 +1,10 @@
 """
 Tests of the exponential moving average of the weights of vision_training/trainers/weight_averaging.py, kept by the
-trainers next to the trained weights: the update formula with its decay of the first updates, and the averaged and
-copied buffers.
+trainers next to the trained weights: the update formula with its decay of the first updates, the averaged and copied
+buffers, and the foreach update giving exactly the values of one update per tensor.
 """
 
+import copy
 import pytest
 import torch
 
@@ -85,3 +86,34 @@ def test_update_averages_parameters_and_statistics_and_copies_the_other_buffers(
     # The averaged model is never trained
     assert not averaged_model.training
     assert not any(parameter.requires_grad for parameter in averaged_model.parameters())
+
+
+def test_update_matches_one_lerp_per_tensor() -> None:
+    """
+    Verifies that the foreach update of the average gives exactly the values of one lerp_ per parameter and running
+    statistic and one copy_ per other buffer, over updates of changing decays and random weights.
+    """
+    model = build_model()
+    moving_average = ExponentialMovingAverage(model=model, decay=0.99)
+    reference_model = copy.deepcopy(moving_average.averaged_model)
+    generator = torch.Generator().manual_seed(0)
+    for _ in range(3):
+        # Random weights and statistics, one more batch counted, as a training step would leave them
+        with torch.no_grad():
+            for tensor in [*model.parameters(), model[1].running_mean, model[1].running_var]:
+                tensor.copy_(torch.randn(size=tensor.shape, generator=generator))
+            model[1].num_batches_tracked += 1
+
+        # Reference update, one call per tensor, with the decay of the coming update
+        weight = 1.0 - moving_average.get_current_decay()
+        with torch.no_grad():
+            for reference_parameter, parameter in zip(reference_model.parameters(), model.parameters()):
+                reference_parameter.lerp_(end=parameter, weight=weight)
+            for (buffer_name, reference_buffer), buffer in zip(reference_model.named_buffers(), model.buffers()):
+                if buffer_name.endswith(("running_mean", "running_var")):
+                    reference_buffer.lerp_(end=buffer, weight=weight)
+                else:
+                    reference_buffer.copy_(buffer)
+        moving_average.update(model=model)
+        assert all(torch.equal(input=averaged_tensor, other=reference_tensor) for averaged_tensor, reference_tensor in
+                   zip(moving_average.averaged_model.state_dict().values(), reference_model.state_dict().values()))

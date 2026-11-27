@@ -14,6 +14,50 @@ from typing import Dict, List, Optional, Tuple
 from vision_training.models.detection.box_operations import (BOX_REGRESSION_WEIGHTS, get_box_dimensions_and_centers,
                                                              get_intersection_over_union)
 
+# Most (image, object, anchor) overlaps the anchor target assignments hold at once, about 2.7 GB at the 40 bytes per
+# overlap of get_intersection_over_union: the objects of a crowded batch are matched to the anchors in chunks below it
+MAXIMUM_ANCHOR_OVERLAPS = 2 ** 26
+
+
+def count_objects_per_chunk(batch_size: int, number_anchors: int) -> int:
+    """
+    Gives the number of objects that the anchor target assignments (batch_assign_targets_to_anchors and
+    compute_best_anchor_overlaps) match against all the anchors at once, so that their overlap tensors stay under
+    MAXIMUM_ANCHOR_OVERLAPS whatever the number of objects of the most crowded image of a training batch. An Open
+    Images image holds up to hundreds of boxes, whose overlaps with the 330,240 anchors of its detectors would
+    otherwise take tens of GB; a batch of few anchors or objects is matched in a single chunk.
+
+    Args:
+        batch_size (int): The number of images of the batch.
+        number_anchors (int): The number of anchors every object is matched against.
+
+    Returns:
+        int: The objects of a chunk, at least 1.
+    """
+    return max(1, MAXIMUM_ANCHOR_OVERLAPS // max(1, batch_size * number_anchors))
+
+
+def compute_best_anchor_overlaps(padded_boxes: torch.Tensor, anchors: torch.Tensor) -> torch.Tensor:
+    """
+    Gives the best overlap of every object of a training batch with the anchors of one detection level, read by
+    add_ground_truth_proposals to give every ground truth box added to the proposals the level of its best anchor. The
+    objects are matched in chunks (count_objects_per_chunk), so that a crowded image never holds the overlaps of all
+    its objects with all the anchors at once; the overlaps are those of a single pass.
+
+    Args:
+        padded_boxes (torch.Tensor): The [B, G, 4] padded ground truth boxes of the batch (pad_ground_truths).
+        anchors (torch.Tensor): The [A, 4] anchors of the level, of the type of the boxes.
+
+    Returns:
+        torch.Tensor: The [B, G] best overlap of every object with the anchors of the level.
+    """
+    objects_per_chunk = count_objects_per_chunk(batch_size=padded_boxes.shape[0], number_anchors=anchors.shape[0])
+
+    # Best overlap of the objects of every chunk, of shape [B, objects of the chunk], joined in the order of the objects
+    return torch.cat(tensors=[get_intersection_over_union(
+        boxes_1=padded_boxes[:, chunk_start:chunk_start + objects_per_chunk], boxes_2=anchors).amax(dim=-1)
+        for chunk_start in range(0, padded_boxes.shape[1], objects_per_chunk)], dim=1)
+
 
 def pad_ground_truths(batched_ground_truth_boxes: List[torch.Tensor],
                       batched_ground_truth_labels: Optional[List[torch.Tensor]] = None
@@ -98,11 +142,12 @@ def add_ground_truth_proposals(batched_ground_truth_boxes: List[torch.Tensor], b
         min=0, max=padded_boxes.shape[1] - 1)
     slot_boxes = torch.gather(input=padded_boxes, dim=1, index=object_positions.unsqueeze(dim=-1).expand(-1, -1, 4))
 
-    # Best anchor overlap of every object in every level, of shape [B, G, levels], the levels in increasing order
+    # Best anchor overlap of every object in every level, of shape [B, G, levels], the levels in increasing order and
+    # the objects matched in chunks (compute_best_anchor_overlaps)
     levels = sorted(level_anchors)
-    best_level_overlaps = torch.stack(tensors=[
-        get_intersection_over_union(boxes_1=padded_boxes, boxes_2=level_anchors[level].to(
-            dtype=padded_boxes.dtype)).amax(dim=-1) for level in levels], dim=-1)
+    best_level_overlaps = torch.stack(tensors=[compute_best_anchor_overlaps(
+        padded_boxes=padded_boxes, anchors=level_anchors[level].to(dtype=padded_boxes.dtype)) for level in levels],
+        dim=-1)
 
     # Level of the best anchor of every object, read for the object of every written slot
     level_numbers = torch.tensor(data=levels, dtype=torch.int64, device=batched_proposals.device)
@@ -124,11 +169,13 @@ def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tenso
 
     This function sits at the heart of the RPN training pipeline. It computes the IoU between every anchor and every
     ground truth box of its image, for all the images at once (the ground truths padded with empty boxes, which
-    overlap nothing), categorizing each anchor as foreground (positive object), background (negative), or grey zone
-    (ignored during training). The best anchor of every ground truth box is also made positive, so that objects with
-    no anchor above the foreground threshold still train, but it regresses to the box it overlaps the most, as in
-    torchvision and Detectron2: a box whose best anchor overlaps another box more, or a box overlapping no anchor,
-    gets no positive anchor. The anchors of an image without ground truth are all background.
+    overlap nothing) and for chunks of objects (count_objects_per_chunk), so that a crowded image of hundreds of
+    objects never holds all its overlaps at once, the targets being those of a single pass. It categorizes each
+    anchor as foreground (positive object), background (negative), or grey zone (ignored during training). The best
+    anchor of every ground truth box is also made positive, so that objects with no anchor above the foreground
+    threshold still train, but it regresses to the box it overlaps the most, as in torchvision and Detectron2: a box
+    whose best anchor overlaps another box more, or a box overlapping no anchor, gets no positive anchor. The anchors
+    of an image without ground truth are all background.
 
     Args:
         batched_ground_truth_boxes (List[torch.Tensor]): A list of length batch_size, where each tensor contains the
@@ -146,14 +193,51 @@ def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tenso
               -1.0 = ignored), shape [batch_size, number_of_anchors].
     """
     padded_boxes, _, valid_ground_truths = pad_ground_truths(batched_ground_truth_boxes=batched_ground_truth_boxes)
+    objects_per_chunk = count_objects_per_chunk(batch_size=padded_boxes.shape[0],
+                                                number_anchors=batched_anchors.shape[-2])
 
-    # Shape: [batch_size, number_of_ground_truths, number_of_anchors], the padding rows overlapping nothing
-    intersection_over_union_matrix = get_intersection_over_union(boxes_1=padded_boxes, boxes_2=batched_anchors)
-    intersection_over_union_matrix = intersection_over_union_matrix.masked_fill(
-        mask=~valid_ground_truths.unsqueeze(dim=-1), value=0.0)
+    # The objects are matched to the anchors in chunks (count_objects_per_chunk), the best object of every anchor and
+    # the anchors forced foreground being gathered over the chunks, so that a crowded batch never holds the overlaps of
+    # all its objects with all the anchors at once
+    best_match_ground_truth_iou, best_match_ground_truth_index, resurrected_anchors = None, None, None
+    for chunk_start in range(0, padded_boxes.shape[1], objects_per_chunk):
+        chunk_end = chunk_start + objects_per_chunk
 
-    # For every anchor, find the ground truth box that has the highest IoU with it
-    best_match_ground_truth_iou, best_match_ground_truth_index = intersection_over_union_matrix.max(dim=1)
+        # Shape: [batch_size, objects of the chunk, number_of_anchors], the padding rows overlapping nothing
+        intersection_over_union_matrix = get_intersection_over_union(boxes_1=padded_boxes[:, chunk_start:chunk_end],
+                                                                     boxes_2=batched_anchors)
+        intersection_over_union_matrix = intersection_over_union_matrix.masked_fill(
+            mask=~valid_ground_truths[:, chunk_start:chunk_end].unsqueeze(dim=-1), value=0.0)
+
+        # For every anchor, find the ground truth box of the chunk that has the highest IoU with it
+        chunk_best_iou, chunk_best_index = intersection_over_union_matrix.max(dim=1)
+
+        # Forcing the best anchor of every ground truth box positive, even below the foreground threshold
+        # Get the best iou value for each ground truth box across all the anchors of its image, shape [batch, chunk]
+        best_match_anchor_iou, _ = intersection_over_union_matrix.max(dim=2)
+
+        # This gives us all the anchors that tie for the highest iou for each ground truth box.
+        # We use torch.isclose to safely handle float32 truncation artifacts where mathematically
+        # identical bounding box areas might differ by ~1e-6.
+        # We also enforce a strict > 0.0 threshold to prevent the "Zero-IoU Explosion",
+        # preventing a ground truth box with no overlap (or a padding row) from resurrecting thousands of anchors.
+        is_best_anchor = (torch.isclose(input=intersection_over_union_matrix,
+                                        other=best_match_anchor_iou.unsqueeze(dim=-1), atol=1e-6)
+                          & (best_match_anchor_iou.unsqueeze(dim=-1) > 0.0))
+        chunk_resurrected_anchors = is_best_anchor.any(dim=1)
+
+        # The first chunk starts the matches, a later one takes the anchors it overlaps strictly more, so that the
+        # first best object stays on ties, as the max over all the objects at once returns the first one
+        if best_match_ground_truth_iou is None:
+            best_match_ground_truth_iou, best_match_ground_truth_index = chunk_best_iou, chunk_best_index
+            resurrected_anchors = chunk_resurrected_anchors
+            continue
+        is_better_match = chunk_best_iou > best_match_ground_truth_iou
+        best_match_ground_truth_iou = torch.where(condition=is_better_match, input=chunk_best_iou,
+                                                  other=best_match_ground_truth_iou)
+        best_match_ground_truth_index = torch.where(condition=is_better_match, input=chunk_best_index + chunk_start,
+                                                    other=best_match_ground_truth_index)
+        resurrected_anchors = resurrected_anchors | chunk_resurrected_anchors
 
     # Store a pristine copy of the best matches before we corrupt it with negative labels
     # It gives the box that the forced best anchors of the ground truths regress to
@@ -176,20 +260,6 @@ def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tenso
     # Label the background anchors -1 and the grey zone anchors -2, with masked fills that never wait for the GPU
     best_match_ground_truth_index = best_match_ground_truth_index.masked_fill(mask=background_indices, value=-1)
     best_match_ground_truth_index = best_match_ground_truth_index.masked_fill(mask=grey_zone_indices, value=-2)
-
-    # Forcing the best anchor of every ground truth box positive, even below the foreground threshold
-    # Get the best iou value for each ground truth box across all the anchors of its image, shape [batch, GT]
-    best_match_anchor_iou, _ = intersection_over_union_matrix.max(dim=2)
-
-    # This gives us all the anchors that tie for the highest iou for each ground truth box.
-    # We use torch.isclose to safely handle float32 truncation artifacts where mathematically
-    # identical bounding box areas might differ by ~1e-6.
-    # We also enforce a strict > 0.0 threshold to prevent the "Zero-IoU Explosion",
-    # preventing a ground truth box with no overlap (or a padding row) from resurrecting thousands of anchors.
-    is_best_anchor = (torch.isclose(input=intersection_over_union_matrix,
-                                    other=best_match_anchor_iou.unsqueeze(dim=-1), atol=1e-6)
-                      & (best_match_anchor_iou.unsqueeze(dim=-1) > 0.0))
-    resurrected_anchors = is_best_anchor.any(dim=1)
 
     # We recover the positive labels for the anchors that had the highest IoU for each ground truth box.
     # IMPORTANT QUIRK: Notice that we are assigning the anchor to its absolute best match overall
