@@ -173,8 +173,8 @@ scenes:
     # (documentation/architecture_benchmarking/sequence_labelling_experiment_plan.md), which no file records as a value
     literal_numbers: ["26", "256"]
     lines:
-      - {role: comment, text: "# Data: task = \"sequence_labelling\" in the main block, {{sequence_labelling.generator.train_sequences:,}} / {{sequence_labelling.generator.validation_sequences:,}} / {{sequence_labelling.generator.test_sequences:,}} sequences"}
-      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset --output_folder=~/Data/sequence_data/synthetic_changing_shapes"}
+      - {role: comment, text: "# Data: task as an argument, {{sequence_labelling.generator.train_sequences:,}} / {{sequence_labelling.generator.validation_sequences:,}} / {{sequence_labelling.generator.test_sequences:,}} sequences set in the main block"}
+      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=sequence_labelling --output_folder=~/Data/sequence_data/synthetic_changing_shapes"}
       - {role: comment, text: "# test_{{sequence_labelling.subset.sequence_count}}: {{sequence_labelling.subset.sequence_count:,}} test sequences drawn with the seed {{sequence_labelling.subset.seed}}, linked to the test frames"}
       - {role: command, text: "uv run python -m scripts.data.create_sequence_split_subset"}
       - {role: comment, text: "# Training: its only argument is the configuration"}
@@ -182,10 +182,10 @@ scenes:
       - {role: comment, text: "# Any checkpoint again: run_name, iteration and test folder in the main block"}
       - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
     narration:
-      - "The data set is written by the synthetic data set script, its task set to sequence labeling in its main block."
+      - "The synthetic generator writes the data set, given sequence labeling as its task argument."
       - "Its full test split of {{sequence_labelling.generator.test_sequences:,}} sequences took 26 minutes to evaluate at 256 pixels, so the split subset script draws test {{sequence_labelling.subset.sequence_count:words}}, a fixed subset of {{sequence_labelling.subset.sequence_count:,}} sequences drawn with the seed {{sequence_labelling.subset.seed:words}}, whose labels file links to the frames of the full split."
       - "The training takes a configuration file alone; the run of this series took the settings kept by the experiment plan, with a pre-trained backbone, and trained {{sequence_labelling.training.last_iteration:,}} iterations, tested on that subset."
-      - "And any checkpoint can be evaluated again with the evaluation script, set in its main block like the generator."
+      - "And any checkpoint can be evaluated again with the evaluation script, set in its main block like the split sizes of the generator."
 
   - kind: summary
     title: "Recap"

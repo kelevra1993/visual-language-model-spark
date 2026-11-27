@@ -249,8 +249,8 @@ scenes:
     title: "Generate, train, evaluate"
     code_reference: "vision_training/data/synthetic/create_synthetic_dataset.py · create_synthetic_dataset"
     lines:
-      - {role: comment, text: "# The same data set as the detection: task = \"instance_segmentation\" in the main block"}
-      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset --output_folder=~/Data/instance_segmentation_data/synthetic_shapes"}
+      - {role: comment, text: "# The same data set as the detection, its task given as an argument"}
+      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=instance_segmentation --output_folder=~/Data/instance_segmentation_data/synthetic_shapes"}
       - {role: comment, text: "# {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#ExperimentConfiguration.number_iterations}} iterations as shipped; run shown: mask heads {{instance_segmentation.geometry.convolutions_text}}, anchors {{instance_segmentation.run.smallest_anchor}} to {{instance_segmentation.run.largest_anchor}}"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml\""}
       - {role: comment, text: "# A checkpoint evaluated again: run_name, iteration ... in the main block"}

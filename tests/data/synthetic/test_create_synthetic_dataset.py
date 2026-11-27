@@ -20,8 +20,11 @@ import itertools
 import json
 import cv2
 import numpy as np
+import os
 import pytest
 import re
+import subprocess
+import sys
 
 from pathlib import Path
 from rich.console import Console
@@ -43,7 +46,7 @@ from vision_training.data.synthetic.create_synthetic_dataset import (
     SAME_CLASS_NEIGHBOUR_MINIMUM_INTERSECTION_OVER_UNION, SAME_CLASS_NEIGHBOUR_SIZE_RATIO_RANGE, SELECTION_CATEGORIES,
     SELECTION_LARGEST_MINIMUM_SIZE, SELECTION_SMALLER_AREA_RATIO, SELECTION_SMALLER_SIZE_RATIO, SELECTION_WANTED_SHAPES,
     SHAPE_CATEGORIES, SHAPE_COLOUR_MINIMUM_DIFFERENCE, SHAPE_COUNT_CATEGORIES, SHAPE_DRAWING_FUNCTIONS,
-    SHAPE_MINIMUM_SIZES, SHAPE_MINIMUM_VISIBLE_FRACTION, SUMMARY_PANEL_WIDTH, TEXTURE_AMPLITUDE,
+    SHAPE_MINIMUM_SIZES, SHAPE_MINIMUM_VISIBLE_FRACTION, SUMMARY_PANEL_WIDTH, TASK_SAMPLE_NAMES, TEXTURE_AMPLITUDE,
     build_class_count_table, create_synthetic_dataset, draw_background, draw_shape_descriptor, draw_shape_descriptors,
     find_neighbour_centre_distance, format_generation_rate, generate_counted_shapes_image, generate_image,
     generate_moving_shape_sequence, generate_object_loss_pair, generate_selection_sequence,
@@ -51,6 +54,9 @@ from vision_training.data.synthetic.create_synthetic_dataset import (
     keep_visible_objects)
 
 IMAGE_SIZE = 256
+
+# Root of the repository, from which the generator runs as a module like in the README
+REPOSITORY_FOLDER = Path(__file__).absolute().parents[3]
 
 # Side of the images and frames of the tests following the drawing of the samples, the number of frames of their
 # sequences, and the largest number of shapes of a sample of every task drawn by draw_task_sample
@@ -790,6 +796,37 @@ def test_created_dataset_prints_a_panel_per_split_and_the_generation_times(tmp_p
     total_samples = sum(split_sizes.values())
     assert re.search(rf"│ +Total +{total_samples} .*\d\d:\d\d:\d\d \(\d+\.\d seconds\)", output)
     assert all(len(line) <= SUMMARY_PANEL_WIDTH for line in output.splitlines() if line.startswith(("│", "╭", "╰")))
+
+
+@pytest.mark.parametrize("arguments, expected_message",
+                         [(["--output_folder", "dataset"], "the following arguments are required: --task"),
+                          (["--task", "classifier", "--output_folder", "dataset"],
+                           "argument --task: invalid choice: 'classifier'"),
+                          (["--task", "classification"], "the following arguments are required: --output_folder")])
+def test_generator_takes_its_task_and_folder_from_the_command_line(tmp_path: Path, arguments: List[str],
+                                                                   expected_message: str) -> None:
+    """
+    Verifies the command line of the generator, which takes the task of the dataset as a required argument instead of
+    a variable of its main block: a missing task, a task that is not one of the generator and a missing folder stop
+    it before anything is written, and its help lists every task of the generator.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, the folder the refused commands run from.
+        arguments (List[str]): The arguments given to the generator.
+        expected_message (str): The start of the error printed by its argument parser.
+    """
+    command = [sys.executable, "-m", "vision_training.data.synthetic.create_synthetic_dataset"]
+    # Run from the temporary folder, the repository on the module path, so that a dataset written by mistake lands there
+    completed_process = subprocess.run(args=command + arguments, cwd=tmp_path, capture_output=True, text=True,
+                                       env={**os.environ, "PYTHONPATH": str(REPOSITORY_FOLDER)})
+    assert completed_process.returncode == 2
+    assert expected_message in completed_process.stderr
+    assert list(tmp_path.iterdir()) == []
+
+    # The help lists the eleven tasks of the generator as the choices of --task
+    help_process = subprocess.run(args=command + ["--help"], cwd=REPOSITORY_FOLDER, capture_output=True, text=True)
+    assert help_process.returncode == 0
+    assert all(task in help_process.stdout for task in TASK_SAMPLE_NAMES)
 
 
 def test_class_count_table_fits_the_panel_and_marks_the_empty_classes() -> None:

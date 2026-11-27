@@ -68,10 +68,9 @@ Should you need to change one part of the task, this table gives the file holdin
 In order to train on the synthetic pairs, generate them first, then launch the training; the third command evaluates saved checkpoints again.
 
 ```bash
-# 1. Synthetic dataset: in the main block of vision_training/data/synthetic/create_synthetic_dataset.py, set
-#    task = "sequence_comparison" (2,000 / 200 / 200 pairs, members of 2 to 12 frames of 512 pixels, 2 to 6 objects
-#    in the before member), the dataset folder being required
-uv run python -m vision_training.data.synthetic.create_synthetic_dataset --output_folder="$HOME/Data/sequence_data/synthetic_object_loss_pairs"
+# 1. Synthetic dataset: the sequence_comparison task (2,000 / 200 / 200 pairs, members of 2 to 12 frames of 512
+#    pixels, 2 to 6 objects in the before member), its task and dataset folder being required
+uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=sequence_comparison --output_folder="$HOME/Data/sequence_data/synthetic_object_loss_pairs"
 
 # 2. Training: set experiment_folder, the three data folders and Data.label_mapping.mapping_file_path first
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/sequence_comparison/configuration_synthetic_pairs.yaml"

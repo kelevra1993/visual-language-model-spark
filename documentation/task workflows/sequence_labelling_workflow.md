@@ -49,10 +49,10 @@ Evaluation/Iteration_<n>/   class_metrics.csv   class_thresholds.json   confusio
 
 ### Run It
 ```bash
-# Dataset: set task = "sequence_labelling" in the main block of vision_training/data/synthetic/create_synthetic_dataset.py,
-# whose image_sizes and split_sizes give 512 pixel frames, 250,000 / 50,000 / 50,000 sequences of 2 to 12 frames,
-# written into the required dataset folder
-uv run python -m vision_training.data.synthetic.create_synthetic_dataset --output_folder="$HOME/Data/sequence_data/synthetic_changing_shapes"
+# Dataset: the sequence_labelling task of vision_training/data/synthetic/create_synthetic_dataset.py, whose image_sizes and
+# split_sizes give 512 pixel frames, 250,000 / 50,000 / 50,000 sequences of 2 to 12 frames, written into the
+# required dataset folder
+uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=sequence_labelling --output_folder="$HOME/Data/sequence_data/synthetic_changing_shapes"
 
 # Training, after setting experiment_folder, the three data folders and Data.label_mapping.mapping_file_path
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml"

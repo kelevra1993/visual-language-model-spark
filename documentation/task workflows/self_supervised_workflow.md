@@ -67,11 +67,10 @@ Should you need to change one part of the task, this table gives the file holdin
 In order to train and evaluate the task on the synthetic shapes from scratch, run these commands from the root of the repository, after setting the values of their main blocks and of the configuration.
 
 ```bash
-# 1. Synthetic dataset: in the main block of vision_training/data/synthetic/create_synthetic_dataset.py, set
-#    task = "classification" (500,000 / 50,000 / 50,000 images of 512 pixels) with its required dataset folder,
-#    the dataset of configuration_synthetic_shapes.yaml; task = "self_supervised" creates the counted shapes of
-#    configuration_counted_shapes_simclr.yaml and configuration_counted_shapes_barlow_twins.yaml
-uv run python -m vision_training.data.synthetic.create_synthetic_dataset --output_folder="$HOME/Data/classifier_data/synthetic_shapes"
+# 1. Synthetic dataset: the classification task (500,000 / 50,000 / 50,000 images of 512 pixels) with its required
+#    dataset folder, the dataset of configuration_synthetic_shapes.yaml; --task=self_supervised creates the counted
+#    shapes of configuration_counted_shapes_simclr.yaml and configuration_counted_shapes_barlow_twins.yaml
+uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=classification --output_folder="$HOME/Data/classifier_data/synthetic_shapes"
 
 # 2. Training: set experiment_folder, the three data folders and Data.label_mapping.mapping_file_path first;
 #    diagnosis_modes.view_input_images: True shows the two views of the training images instead (needs a display)

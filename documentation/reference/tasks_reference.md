@@ -18,14 +18,14 @@ Details of every task, completing the [Tasks](../../README.md#tasks) section of 
 - [Self-Supervised Learning (SSL)](#self-supervised-learning-ssl)
 
 ## Synthetic Datasets
-`vision_training/data/synthetic/create_synthetic_dataset.py` generates the dataset of every task. Its configuration is listed in the [Quick Start](../../README.md#quick-start-with-synthetic-data).
+`vision_training/data/synthetic/create_synthetic_dataset.py` generates the dataset of every task, given by its required `--task` argument with the root folder of the dataset (`--output_folder`). Its configuration is listed in the [Quick Start](../../README.md#quick-start-with-synthetic-data).
 
 | Task | Content | Classes |
 |---|---|---|
 | CLS | one shape per image | the 35 shapes |
-| CLS | 5 to 10 shapes per image drawn like an M2M frame, labelled with the sorted distinct categories of its shapes in `category_ids` (`task = "multi_label_classification"`, 512,000 / 50,000 / 50,000 images), trained in the `multi_label` output mode with the backbone of the M2M launches (`classification/configuration_synthetic_counted_shapes.yaml`) so it can initialise them | the 35 shapes |
-| DET | the INS dataset (`task = "instance_segmentation"`), boxes around the visible part of every shape | the 35 shapes |
-| DET | the images of the detection benchmark (`task = "object_detection"`): 5 to 12 shapes per 1024 pixel image (512,000 / 50,000 / 50,000 images), labelled with their whole box clipped to the image; with `task = "instance_segmentation"` and `instance_segmentation_benchmark_dataset = True`, the same kind of images labelled with the compressed run length encoding of the visible part of every shape, in the folder of `instance_segmentation_benchmark_settings` (512,000 / 50,000 / 10,000 images) | the 35 shapes |
+| CLS | 5 to 10 shapes per image drawn like an M2M frame, labelled with the sorted distinct categories of its shapes in `category_ids` (`--task=multi_label_classification`, 512,000 / 50,000 / 50,000 images), trained in the `multi_label` output mode with the backbone of the M2M launches (`classification/configuration_synthetic_counted_shapes.yaml`) so it can initialise them | the 35 shapes |
+| DET | the INS dataset (`--task=instance_segmentation`), boxes around the visible part of every shape | the 35 shapes |
+| DET | the images of the detection benchmark (`--task=object_detection`): 5 to 12 shapes per 1024 pixel image (512,000 / 50,000 / 50,000 images), labelled with their whole box clipped to the image; with `--task=instance_segmentation` and `instance_segmentation_benchmark_dataset = True` in the main block, the same kind of images labelled with the compressed run length encoding of the visible part of every shape, in the folder of `instance_segmentation_benchmark_settings` (512,000 / 50,000 / 10,000 images) | the 35 shapes |
 | INS | 5 to 6 shapes per image, with the compressed run length encoding of their visible part | the 35 shapes |
 | KPT | 2 to 5 upright objects per image, some keypoints hidden (v = 1) or outside the image | 33 classes: the shapes with keypoints, `stick_figure`, `house` |
 | SEG | 5 to 6 shapes per image, with the class mask | the 35 shapes and the background |
@@ -34,7 +34,7 @@ Details of every task, completing the [Tasks](../../README.md#tasks) section of 
 | CMP | before and after members of 2 to 12 frames, 2 to 6 shapes before | `loss_of_object`, `same_number_of_objects` |
 | SEL | one shape per frame over 4 to 12 frames, the largest circle, triangle and star to select | `unselected`, `circle`, `triangle`, `star` |
 | SSL | the CLS dataset, its classes only used by the k-NN evaluation | the 35 shapes |
-| SSL | 5 to 10 shapes per image labelled by their count (`task = "self_supervised"`, 500,000 training images, the shape categories in `shape_category_ids`), with the backbone of the M2M launches (`sequence_labelling_experiment_plan.md`) so it can initialise them | `5_shapes` to `10_shapes` |
+| SSL | 5 to 10 shapes per image labelled by their count (`--task=self_supervised`, 500,000 training images, the shape categories in `shape_category_ids`), with the backbone of the M2M launches (`sequence_labelling_experiment_plan.md`) so it can initialise them | `5_shapes` to `10_shapes` |
 
 - **The 35 shapes**: square, circle, triangle, rectangle, pentagon, hexagon, plus sign, star, octagon, rhombus, parallelogram, trapezoid, kite, heptagon, nonagon, ellipse, semicircle, annulus, capsule, L-shape, and the hollow `hollow_<shape>` of square, triangle, rectangle, pentagon, hexagon, octagon, rhombus, parallelogram, trapezoid, kite, heptagon, nonagon, ellipse, semicircle and capsule.
 - **Sizes**: log-uniform from 16 pixels (`OBJECT_MINIMUM_SIZE`) to 80 % of the image side (`OBJECT_MAXIMUM_SIZE_FRACTION`), drawn from the largest to the smallest so that the small shapes lie over the large ones. The KPT objects start at 32 pixels (`KEYPOINT_OBJECT_MINIMUM_SIZE`), the pentagon to the nonagon at 21 to 67 pixels (`SHAPE_MINIMUM_SIZES`), and the shapes of an M2M frame, a CMP member or a counted shapes image stop at the size at which their largest number would cover the frame (`get_frame_shape_size_range`). A hollow shape measures at least 16 pixels (`HOLLOW_MINIMUM_SIZE`); its hole is the shape scaled by 0.4 to 0.6 (`HOLLOW_INNER_SIZE_RATIO_RANGE`) inside walls of at least 2 pixels (`HOLLOW_MINIMUM_WALL_PIXELS`).

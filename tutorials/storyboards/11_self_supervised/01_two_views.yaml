@@ -73,14 +73,14 @@ scenes:
     title: "Generate, train, evaluate"
     code_reference: "vision_training/data/synthetic/create_synthetic_dataset.py · create_synthetic_dataset"
     lines:
-      - {role: comment, text: "# The synthetic shapes of the classifier: task = \"classification\" in the main block"}
-      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset --output_folder=~/Data/classifier_data/synthetic_shapes"}
+      - {role: comment, text: "# The synthetic shapes of the classifier: the classification task as an argument"}
+      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=classification --output_folder=~/Data/classifier_data/synthetic_shapes"}
       - {role: comment, text: "# SimCLR on the synthetic shapes: data folders and label mapping set in the file"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml\""}
       - {role: comment, text: "# The checkpoints scored again: run and iteration set in its main block"}
       - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
     narration:
-      - "The synthetic configuration reads the shapes data set of the classifier, so the generator runs with its task set to classification; set to self supervised, it draws the counted shapes of the SimCLR and Barlow Twins counted shapes configurations instead."
+      - "The synthetic configuration reads the shapes data set of the classifier, so the generator runs with classification as its task argument; given self supervised, it draws the counted shapes of the SimCLR and Barlow Twins counted shapes configurations instead."
       - "The training takes the self-supervised configuration, and the standalone evaluation scores its checkpoints again, as the last chapter shows."
       - "The run of this series is that configuration stopped at {{self_supervised.run.number_iterations:,}} iterations, with batches of {{self_supervised.run.batch_size}} images of {{self_supervised.run.image_size}} pixels."
       - "It evaluated a checkpoint every {{self_supervised.run.early_evaluation_step}} iterations up to iteration {{self_supervised.run.evaluation_step_change_iteration:,}}, then every {{self_supervised.run.late_evaluation_step:,}} once its training was extended."

@@ -308,7 +308,7 @@ The synthetic counted shapes dataset (`/home/robert_kelevra/Data/self_supervised
 labelling frames) and its two configurations (`self_supervised/configuration_counted_shapes_simclr.yaml` and
 `configuration_counted_shapes_barlow_twins.yaml`, the backbone and flattened feature map of the launches of
 `sequence_labelling_experiment_plan.md`) were written, but no run has been trained on them, and the dataset folder
-was empty on 2026-11-20: the dataset is to be generated again first (`task = "self_supervised"` of
+was empty on 2026-11-20: the dataset is to be generated again first (`--task=self_supervised` of
 `create_synthetic_dataset.py`). The goal is to see whether the self-supervised backbone learns not only how many shapes
 an image holds but also which ones.
 
