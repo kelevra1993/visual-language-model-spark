@@ -238,9 +238,9 @@ def test_comparison_arguments_default_to_the_default_columns() -> None:
 def test_comparison_arguments_reach_every_setting(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """
     Verifies that every setting of compare_best_evaluations and the output file can be given on the command line of
-    the script: the columns in their order, titles given as COLUMN=TITLE replacing the default ones (a title holding
-    '=' kept whole), the weights alone, and paths starting with a '~' the shell left unexpanded (after '=' or quoted)
-    pointing to the home folder.
+    the script: the columns in their order, titles given as COLUMN=TITLE replacing those of their columns only (a
+    title holding '=' kept whole), the weights alone, and paths starting with a '~' the shell left unexpanded (after
+    '=' or quoted) pointing to the home folder.
 
     Args:
         tmp_path (Path): The pytest temporary directory, standing for the home folder.
@@ -257,7 +257,8 @@ def test_comparison_arguments_reach_every_setting(tmp_path: Path, monkeypatch: p
                                       "best_metric": "Validation Loss", "higher_is_better": False,
                                       "evaluated_weights": ["ema"], "columns": ["run", "Validation Loss",
                                                                                "Recall/{class}"],
-                                      "column_titles": {"Recall/{class}": "Recall {class}", "run": "Run = Folder"},
+                                      "column_titles": {**DEFAULT_COLUMN_TITLES, "Recall/{class}": "Recall {class}",
+                                                        "run": "Run = Folder"},
                                       "table_grouping": "columns", "number_decimals": 5, "curves_in_percent": False,
                                       "output_path": tmp_path / "tables.md"}
 
@@ -265,7 +266,7 @@ def test_comparison_arguments_reach_every_setting(tmp_path: Path, monkeypatch: p
 def test_parsed_comparison_arguments_compare_the_runs(tmp_path: Path) -> None:
     """
     Verifies that the arguments read from a command line compare the runs of an experiment folder as the main block
-    passes them, the titles given replacing the default ones.
+    passes them, a title given replacing that of its column only, the other columns keeping their default titles.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -275,12 +276,12 @@ def test_parsed_comparison_arguments_compare_the_runs(tmp_path: Path) -> None:
                    averaged_curves=build_curves(balanced_accuracies={200: 0.75, 400: 0.9}), counted_classes=True)
     parsed_arguments = parse_comparison_arguments(arguments=[
         "--experiment_folders", str(tmp_path / "experiments"), "--evaluated_weights", "trained", "--columns",
-        "best_iteration", "Balanced Accuracy", "Recall/{class}", "--column_titles", "best_iteration=Best Iteration"])
+        "best_iteration", "Balanced Accuracy", "Recall/{class}", "--column_titles", "best_iteration=Iteration"])
 
     table = compare_best_evaluations(**{name: value for name, value in vars(parsed_arguments).items()
                                         if name != "output_path"})
 
-    assert table.splitlines()[2:] == ["| Best Iteration | Balanced Accuracy | Recall/cat | Recall/dog |",
+    assert table.splitlines()[2:] == ["| Iteration | Balanced Accuracy | Recall cat | Recall dog |",
                                       "|---|---|---|---|", "| 400 | 85.00 % | 90.00 % | 80.00 % |"]
 
 

@@ -154,7 +154,7 @@ Before trusting a gap between two settings, compare it with the spread of the la
 | `--best_metric`, `--lower_is_better` | the test curve choosing the best evaluation, `Balanced Accuracy` by default, its highest value kept unless `--lower_is_better` is given |
 | `--evaluated_weights` | `trained ema` (default) or one of them; a win of the averaged weights is marked ` (EMA)` |
 | `--columns` | `experiment`, `run`, `best_iteration`; a test curve (`Recall/{class}` gives one column per class); a setting (`configuration:Data.image_settings.size`); a count of `data.json`, `<split>_<unit>` or `<split>_<unit>/{class}` (unit `images`, `annotations`, `sequences`, `frames` or `pairs`); by default `DEFAULT_COLUMNS`: the image size, the best iteration, the best metric, the recall of every class, and the validation and training images in total and per class |
-| `--column_titles` | the titles of the columns as `COLUMN=TITLE`, `{class}` being replaced by the class name, e.g. `"Recall/{class}=Recall {class}"`; `DEFAULT_COLUMN_TITLES` by default, replaced as a whole when given |
+| `--column_titles` | the titles of the columns as `COLUMN=TITLE`, `{class}` being replaced by the class name, e.g. `"Recall/square=Recall square"`; a title given replaces that of its column only, the others keeping `DEFAULT_COLUMN_TITLES` |
 | `--table_grouping` | `run` (default) for one table per run, `columns` for one table per set of column titles |
 | `--rates_as_decimals`, `--number_decimals`, `--output_path` | the curves that are rates are written as the percentages of the reports, `89.80 %`, unless `--rates_as_decimals` is given; the decimals of the other curves (3 by default): the mean true frame rank, effective rank, standard deviation, proposals per image and keypoint pixel error of `NON_RATE_CURVE_NAMES`, or every curve with `--rates_as_decimals`; and a Markdown file receiving the tables (by default they are only printed) |
 
@@ -168,8 +168,7 @@ uv run python -m scripts.evaluation.compare_best_evaluations \
     --columns configuration:ExperimentConfiguration.learning_rate best_iteration "Balanced Accuracy" \
         Recall/square Recall/circle validation_images train_images \
     --column_titles "configuration:ExperimentConfiguration.learning_rate=Learning Rate" \
-        "best_iteration=Best Iteration" "Recall/square=Recall square" "Recall/circle=Recall circle" \
-        "validation_images=Validation Images" "train_images=Train Images"
+        "Recall/square=Recall square" "Recall/circle=Recall circle"
 ```
 
 It prints:

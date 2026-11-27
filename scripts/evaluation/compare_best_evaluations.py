@@ -467,7 +467,7 @@ def parse_comparison_arguments(arguments: List[str]) -> argparse.Namespace:
     Reads the runs to compare and the settings of the comparison tables from the command line of the script, so that
     runs are compared without editing the file: the experiment folders are required, the other settings default to
     DEFAULT_BEST_METRIC, DEFAULT_COLUMNS (the chosen best metric taking the place of DEFAULT_BEST_METRIC) and
-    DEFAULT_COLUMN_TITLES. Launched without any argument, the script prints the help of every argument and stops. A '~'
+    DEFAULT_COLUMN_TITLES, a title given replacing that of its column only. Launched without any argument, the script prints the help of every argument and stops. A '~'
     left by the shell at the start of a path ('--output_path=~/tables.md') is expanded to the home folder.
 
     Args:
@@ -514,8 +514,8 @@ def parse_comparison_arguments(arguments: List[str]) -> argparse.Namespace:
     parser.add_argument("--column_titles", type=read_key_value_argument, nargs="+", default=None,
                         metavar="COLUMN=TITLE",
                         help="Titles of the columns not titled by themselves, '{class}' replaced by the class name, "
-                             "e.g. 'Recall/{class}=Recall {class}' (default: the titles of the default columns, "
-                             "DEFAULT_COLUMN_TITLES).")
+                             "e.g. 'Recall/square=Recall square', each replacing the title of its column only "
+                             "(default: the titles of the default columns, DEFAULT_COLUMN_TITLES).")
     parser.add_argument("--table_grouping", choices=TABLE_GROUPINGS, default="run",
                         help="run for one table per run, columns for one table gathering the runs of the same column "
                              "titles, the same classes (default: %(default)s).")
@@ -541,18 +541,19 @@ def parse_comparison_arguments(arguments: List[str]) -> argparse.Namespace:
     if parsed_arguments.output_path is not None:
         parsed_arguments.output_path = parsed_arguments.output_path.expanduser()
 
-    # Default columns with the chosen best metric, and the default titles unless others are given, a column given
-    # two titles being refused
+    # Default columns with the chosen best metric
     if parsed_arguments.columns is None:
         parsed_arguments.columns = [parsed_arguments.best_metric if column == DEFAULT_BEST_METRIC else column
                                     for column in DEFAULT_COLUMNS]
-    if parsed_arguments.column_titles is None:
-        parsed_arguments.column_titles = dict(DEFAULT_COLUMN_TITLES)
-    else:
-        column_titles = dict(parsed_arguments.column_titles)
-        if len(column_titles) != len(parsed_arguments.column_titles):
+
+    # Default titles, the titles given replacing those of their columns only, a column given two titles being refused
+    column_titles = dict(DEFAULT_COLUMN_TITLES)
+    if parsed_arguments.column_titles is not None:
+        given_titles = dict(parsed_arguments.column_titles)
+        if len(given_titles) != len(parsed_arguments.column_titles):
             parser.error(message="argument --column_titles: a column is given two titles")
-        parsed_arguments.column_titles = column_titles
+        column_titles.update(given_titles)
+    parsed_arguments.column_titles = column_titles
     return parsed_arguments
 
 
