@@ -26,7 +26,6 @@
 - [Tutorials](#tutorials)
 - [Deployment](#deployment)
   - [From A Checkpoint To A Served Model](#from-a-checkpoint-to-a-served-model)
-  - [The Same Values In Every Format](#the-same-values-in-every-format)
   - [Export](#export)
   - [Input Contract](#input-contract)
   - [Triton Server](#triton-server)
@@ -344,7 +343,7 @@ To watch them, download the [tutorial videos folder](https://drive.google.com/dr
 </p>
 
 ## Deployment
-In order to serve a trained run to other programs, read these parts in order: [From A Checkpoint To A Served Model](#from-a-checkpoint-to-a-served-model), [The Same Values In Every Format](#the-same-values-in-every-format), then [Export](#export), [Input Contract](#input-contract), [Triton Server](#triton-server) and [Serving Formats](#serving-formats-and-precision).
+In order to serve a trained run to other programs, read these parts in order: [From A Checkpoint To A Served Model](#from-a-checkpoint-to-a-served-model), then [Export](#export), [Input Contract](#input-contract), [Triton Server](#triton-server) and [Serving Formats](#serving-formats-and-precision).
 
 ### From A Checkpoint To A Served Model
 The figure below shows the four ways to run the checkpoint of the README classifier:
@@ -435,26 +434,6 @@ To find your way among these paths, find your situation in the table: it gives t
 | The most images per second on one known GPU | ONNX with TensorRT FP16, after checking its metric | `model.onnx` |
 | No PyTorch, or C# or Java | ONNX Runtime, CPU or GPU | `model.onnx` |
 | Many clients or models behind one endpoint | Triton, serving either file; on a known GPU, `model.onnx` with TensorRT FP16 after checking its metric | `model.pt` or `model.onnx` |
-
-### The Same Values In Every Format
-Before you pick the precision of a served model ([export](#export)), see what FP32, TF32, BF16 and FP16 store for typical values of the repository (PyTorch 2.14, up to 6 significant digits; TF32 rounds the FP32 mantissa to 10 bits, ties to even):
-
-| Value of the repository | FP32 | TF32 | BF16 | FP16 |
-|---|---|---|---|---|
-| Class threshold 0.999 | 0.999 | 0.999023 | **1** | 0.999023 |
-| Pixel coordinate 1000.3 of a 1024-pixel input | 1,000.3 | 1,000.5 | 1,000 | 1,000.5 |
-| Area of a 256 x 256 box, 65,536 | 65,536 | 65,536 | 65,536 | **inf** |
-| Area of a 300 x 300 box, 90,000 | 90,000 | 89,984 | 90,112 | inf |
-| Box offset 0.1 | 0.1 | 0.0999756 | 0.100098 | 0.0999756 |
-| Weight update 1e-6 | 1e-6 | 1.00024e-6 | 9.98378e-7 | 1.01328e-6 (subnormal) |
-| Weight 0.1 after that update | **0.100001** | 0.0999756 | 0.100098 | 0.0999756 |
-
-The figure below puts the same values on the number line of each format:
-
-<p align="center">
-  <img src="README/number_format_values.png" width="100%" />
-</p>
-<p align="center"><em>One lane per format: the ticks are the values it holds, the dot the stored value, and an arrow a value stored as inf (FP16 above 65,504).</em></p>
 
 ### Export
 Once a run is ready to be served, `vision_training/deployment/export_model.py` writes it to the Triton model repository as TorchScript and ONNX. It replaces the served models only when every format matches the eager model.
@@ -556,7 +535,7 @@ uv run python -m vision_training.deployment.run_inference --experiment_folder <r
 ```
 
 ### Serving Formats And Precision
-Before a model goes to production, its serving path and [number format](#the-same-values-in-every-format) set its speed, memory and drift from the FP32 model. The numbers come from the [serving benchmark](documentation/architecture_benchmarking/serving_benchmark_plan.md) on the DGX Spark, Triton 26.01.
+Before a model goes to production, its serving path and [number format](documentation/reference/tools_reference.md#the-same-values-in-every-format) set its speed, memory and drift from the FP32 model. The numbers come from the [serving benchmark](documentation/architecture_benchmarking/serving_benchmark_plan.md) on the DGX Spark, Triton 26.01.
 
 #### What Is Exported Today
 If you are looking for what deploys without new code, the table lists what `export_model.py` writes. Inputs and outputs stay float32 whatever the precision.
