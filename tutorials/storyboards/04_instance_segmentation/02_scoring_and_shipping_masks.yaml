@@ -250,7 +250,7 @@ scenes:
       - "So that the client letterboxes its images as the evaluation did, the export also writes the colour order, resize, size, interpolation, padding, layout and value range of the run in the preprocessing file next to the model and in the ONNX metadata."
       - "The client pastes the masks itself with paste instance masks, at the boxes brought back to the original image, and keeps the pixels from the mask threshold, which the export does not apply."
       - "Take an object at the border of a letterboxed photo: the model clips its box to the photo before the mask head, so its mask fills the clipped box, and the client pastes it at that box restored."
-      - "With every image the client sends its window, the region of the resized photo in the input, and the segmenter keeps the detections of every class from the mask threshold of its evaluation."
+      - "With every image the client sends its window, the region of the resized photo in the input, and the segmenter keeps the detections of every class from the score threshold its evaluation found on the masks."
 
   - kind: text_panel
     title: "Pitfalls"
