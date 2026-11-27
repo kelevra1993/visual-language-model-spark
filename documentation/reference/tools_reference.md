@@ -1,6 +1,6 @@
 # Tools Reference
 
-Settings and outputs of the scripts run after a training, completing the [Evaluating Checkpoints](../../README.md#evaluating-checkpoints) and [Deployment](../../README.md#deployment) sections of the README. Every setting is a variable of the main block of its script.
+Settings and outputs of the scripts run after a training, completing the [Evaluating Checkpoints](../../README.md#evaluating-checkpoints) and [Deployment](../../README.md#deployment) sections of the README. Every setting is a command line argument of its script, which prints its help when launched without any.
 
 ## Table Of Content
 - [Evaluating Checkpoints](#evaluating-checkpoints)
@@ -98,7 +98,7 @@ It writes, drawn in the Inter font of the reports when it is installed in `/usr/
 <p align="center"><em>The precision-recall curves and the training curves drawn for the classifier above at iteration 2000 (test balanced accuracy 81.65 %), the curves shown for the first nine of its 35 classes (the script draws one panel per class): a dot marks the threshold reaching 99 % precision, reached by these nine and never by trapezoid, hollow parallelogram and hollow kite, at a logit temperature of 1 since no temperature was saved. The confusion matrix of the report is the one shown above; the chart of the groups needs a group manifest, which the synthetic shapes do not have.</em></p>
 
 ### Scoring A Large Split
-Say a rare class must be mined from a split far larger than a test split: `scripts/evaluation/score_image_split.py` scores every image of it with one checkpoint, without the metrics, error images and second weights of `evaluate_checkpoint.py`. Its settings are command line options, not variables of its main block.
+Say a rare class must be mined from a split far larger than a test split: `scripts/evaluation/score_image_split.py` scores every image of it with one checkpoint, without the metrics, error images and second weights of `evaluate_checkpoint.py`.
 
 | Option | Meaning |
 |---|---|

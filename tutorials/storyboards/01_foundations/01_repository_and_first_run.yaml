@@ -336,7 +336,7 @@ scenes:
       - {text: "Everything a run writes stays in its run folder", sentences: [6]}
     narration:
       - "To recap: the {{foundations.repository.task_count:words}} tasks share the same backbone code, training loop, configuration format, evaluation report and export, so this series holds for each of them."
-      - "uv sync installs the environment pinned by the lock file, and every script runs as a module from the repository root, most of them set in their main block."
+      - "uv sync installs the environment pinned by the lock file, and every script runs as a module from the repository root, its settings given as arguments."
       - "The Dockerfile builds the trainer image in named stages, with no CUDA image underneath, so each machine, a cloud pod or the DGX Spark, builds it for its own architecture."
       - "One YAML file defines the run, without defaults; its checks run at launch, or alone with the check configuration module, which lists every problem and refuses unknown keys."
       - "The length of a run, its checkpoints, evaluations and summaries are all counted in iterations; epochs only appear in the launch information."

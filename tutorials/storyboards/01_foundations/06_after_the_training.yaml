@@ -1,8 +1,8 @@
 # Foundations, chapter 6: what comes after a training, shared by every task: evaluating checkpoints again, the evaluation
 # curves every evaluation draws, comparing launches and runs, clustering the image embeddings of a trained run, an
 # overview of the export to Triton (the deployment series covers the export, its checks, the Triton serving and the
-# serving benchmark), the tests and the map of the repository. The settings shown are the live main blocks of the
-# scripts; the spread between launches is the one of benchmark.py, the evaluation curves those of the detection run
+# serving benchmark), the tests and the map of the repository. The settings shown are the live command line
+# arguments of the scripts; the spread between launches is the one of benchmark.py, the evaluation curves those of the detection run
 # drawn by evaluation_curves.py, and the counts of the repository those of listings.py of tutorials/figures/foundations.
 series: foundations
 series_title: "Foundations"
