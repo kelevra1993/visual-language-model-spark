@@ -105,7 +105,7 @@ scenes:
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/classification/configuration_synthetic_counted_shapes.yaml\""}
     narration:
       - "With classification as its task argument, the synthetic data set script draws one shape per {{classification.generator.image_size}} pixel image, and this run trains on {{classification.data.train_images:,}} of them, of {{classification.data.class_count:words}} classes, with {{classification.data.validation_images:,}} for validation and {{classification.data.test_images:,}} for test."
-      - "The training takes the synthetic configuration once its folders and mapping file are set, and the evaluate checkpoint script scores any checkpoint again, with the error images when asked."
+      - "The training takes the synthetic configuration once its folders and mapping file are set, and the evaluate checkpoint script scores any checkpoint again, saving its error images by default."
       - "To try the multi label mode, the generator given the multi label classification task draws {{constant:vision_training/data/synthetic/create_synthetic_dataset.py#LABELLING_MINIMUM_OBJECTS:words}} to {{classification.generator.multi_label_maximum_objects:words}} shapes per image, each labelled with the distinct classes of its shapes, for the counted shapes configuration."
 
   - kind: html
