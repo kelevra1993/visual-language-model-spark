@@ -442,7 +442,7 @@ The evaluation files sent to MLflow are listed in `TRACKED_EVALUATION_FILES` of 
 
 > Real outputs of the evaluation of iterations 6 and 12 of the Stage 3 run on its test split (60 sequences, 427 labelled frames), with `error_dumps` on and `maximum_per_class_pair: 2`. Iteration 6 gives `disappearing_hollow_ellipse` to every frame; iteration 12 gives `no_change` to 307 frames and `disappearing_hollow_ellipse` to 120.
 >
-> They predate the ROC and precision-recall curves (2026-10-20) and the recall intervals (2026-11-01). With `per_class_report`, the current code adds per class the curves (`compute_class_score_curves()`, `classification_workflow.md`, Steps 4.14 and 4.15), `Macro ROC AUC` and `Macro Average Precision`, the `ROC AUC` and `Average Precision` columns and scalars, `recall_lower` and `recall_upper`, and a `Per Class Recall` table.
+> They predate the ROC and precision-recall curves (2026-10-20) and the recall intervals (2026-11-01). With `per_class_report`, the current code adds per class the curves (`compute_class_score_curves()`, `classification_workflow.md`, Steps 4.14 and 4.15), `Macro ROC AUC` and `Macro Average Precision`, the `ROC AUC` and `Average Precision` columns and scalars, and a `Per Class Recall` table; `recall_lower` and `recall_upper` are written whatever the setting.
 
 ### Step 4.1 — `run_test_evaluation()`
 The evaluation loop of every task (`classification_workflow.md`, Step 4.1).
@@ -585,7 +585,7 @@ TensorBoard `Test/` received 222 scalars (9 global + 213 per class) and 9 images
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> Real outputs of `scripts/evaluation/evaluate_checkpoint.py` on the Stage 3 run (checkpoints 3, 6, 9 and 12, the first three captured before their training step), with `iteration = "all"`, `batch_size = 16` and a test folder of the first 20 test sequences. Captured before the recall intervals.
+> Real outputs of `scripts/evaluation/evaluate_checkpoint.py` on the Stage 3 run (checkpoints 3, 6, 9 and 12, the first three captured before their training step), with `--iteration all`, `--batch_size 16` and a `--test_data_folder` of the first 20 test sequences. Captured before the recall intervals.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
 The same script for every task (`classification_workflow.md`, Stage 5). Test sequences are read with the `sequence_settings` of the run, so a longer sequence is left out with the warnings of Step 2.8.
@@ -618,7 +618,7 @@ iteration,Accuracy,Balanced Accuracy,Macro F1,Top-2 Accuracy,Sequence Exact Matc
 3,0.0,0.0,0.0,0.012422360248447204,0.0,0.0,0.0,0.0,0.0, ...
 12,0.2981366459627329,0.01309328968903437,0.010264086389393778,0.36024844720496896,0.0,0.12883116883116885, ...
 ```
-The file has 223 columns: the iteration, 9 global metrics, then precision, recall and F1 of the 71 classes (the current code adds the curve columns, `build_summary_columns()`). It is written in `<run name>/Checkpoint_Evaluation/`, rows in increasing iteration order (`classification_workflow.md` Step 5.5).
+The file has 223 columns: the iteration, 9 global metrics, then precision, recall and F1 of the 71 classes (the current code adds the curve columns, `build_summary_columns()`). It is written in `<run name>/Checkpoint_Evaluation/` (`Checkpoint_Evaluation_split_<parent folder>_<split folder>/` for another split, such as this one), rows in increasing iteration order (`classification_workflow.md` Step 5.5).
 
 ### Step 5.6 — `run_test_evaluation()` for each checkpoint
 The block has the layout of Step 4.13. On the 20 sequences, iteration 12 reads Accuracy 29.81 %, Edit Score 12.88 % and `Segments : 128 true and 38 predicted in 20 test sequences`; header and segment note count the same 20 sequences.
