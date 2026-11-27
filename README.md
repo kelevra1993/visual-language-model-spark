@@ -509,8 +509,8 @@ The figure below shows the path of one request through Triton:
 Whenever you want to compare in-process and Triton speed, `run_inference.py` sends the images of `vision_training/deployment/inference_data/` both ways, one image per request:
 
 ```bash
-# Print the throughput in the process and through Triton
-uv run python -m vision_training.deployment.run_inference
+# Print the throughput of a run in the process and through Triton
+uv run python -m vision_training.deployment.run_inference --experiment_folder <run folder>
 ```
 
 ### Serving Formats And Precision

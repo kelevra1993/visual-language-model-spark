@@ -19,6 +19,7 @@ pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [deployment]
 references:
+  - "vision_training/deployment/run_inference.py · measure_inference_throughput"
   - "vision_training/deployment/deployment_utilities.py · run_triton_inference"
   - "vision_training/deployment/deployment_utilities.py · create_triton_input_shared_memory"
   - "vision_training/deployment/deployment_utilities.py · measure_triton_throughput"
@@ -114,16 +115,16 @@ scenes:
 
   - kind: code
     title: "Measuring a model with run_inference"
-    code_reference: "vision_training/deployment/run_inference.py"
+    code_reference: "vision_training/deployment/run_inference.py · parse_inference_arguments"
     source:
       file: vision_training/deployment/run_inference.py
-      start: "^    # Folder of the images sent to the models"
-      end: "^    iteration = None"
+      start: "^    # The run measured and the images sent to its models"
+      end: "Untimed requests sent first while TensorRT and CUDA initialise"
     highlights:
-      - {match: "^    image_folder = ", sentences: [0]}
-      - {match: "^    url = ", sentences: [0]}
-      - {match: "^    use_shared_memory = ", sentences: [1]}
-      - {match: "^    number_iterations = |^    number_warmup_iterations = ", sentences: [2, 3]}
+      - {match: 'add_argument\("--experiment_folder"|add_argument\("--image_folder"', sentences: [0]}
+      - {match: 'add_argument\("--url"', sentences: [0]}
+      - {match: 'add_argument\("--use_shared_memory"', sentences: [1]}
+      - {match: 'add_argument\("--number_iterations"|add_argument\("--number_warmup_iterations"', sentences: [2, 3]}
     narration:
       - "Run inference sends the images of the inference data folder to the model of a run, first in the process, then through Triton in TorchScript and in ONNX, and prints the throughput of each."
       - "Use shared memory switches its requests from gRPC to the shared memory region, which the third chapter shows is decisive for large images."

@@ -26,14 +26,13 @@ from matplotlib import pyplot
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from scripts.deployment.benchmark_serving_formats import IN_PROCESS_ITERATIONS, IN_PROCESS_WARMUP_ITERATIONS
 from tutorials.figures.figure_utilities import (CHART_WIDTH, DOTS_PER_INCH, GRID_COLOUR, POINTS_PER_PIXEL,
                                                 SURFACE_COLOUR, TEXT_PRIMARY_COLOUR, TEXT_SECONDARY_COLOUR,
                                                 compute_pixel_box, find_repository_file, find_run_folder,
                                                 format_thousands, read_run_configuration, register_fonts, round_fact,
                                                 save_figure, style_chart_panel)
-from tutorial_builder.figure_context import find_repository_root
 from tutorial_builder.layout import NAMED_COLOURS
-from tutorials.figures.foundations.code_values import read_main_block_value
 
 # Models of the benchmark in the order of the plan, with their short name on the figures and in the facts, and the
 # run of tutorial_sources.yaml every model was exported from: the classifier measured is the run of the 9-class
@@ -41,9 +40,6 @@ from tutorials.figures.foundations.code_values import read_main_block_value
 MODEL_NAMES = {"classification": "CLS", "object_detection": "DET", "sequence_labelling": "M2M"}
 MODEL_RUN_KEYS = {"CLS": "classification_nine_classes", "DET": "object_detection_benchmark_joint_a",
                   "M2M": "sequence_labelling"}
-
-# Driver of the benchmark, whose main block sets the calls of the rows in the process
-BENCHMARK_SCRIPT = Path("scripts") / "deployment" / "benchmark_serving_formats.py"
 
 # Class index of the background in the label dictionary of a detector, not a class of its detections
 BACKGROUND_CLASS_INDEX = 0
@@ -434,7 +430,8 @@ def describe_group_offsets(detection_run_folder: Path) -> Dict[str, Any]:
 def describe_benchmark_models(experiments_folder: Path) -> Dict[str, Any]:
     """
     Gives the input size and the classes of the three models of the benchmark, read from their runs (the background of
-    the detector left out), and the calls of the rows in the process from the main block of the driver.
+    the detector left out), and the calls of the rows in the process from the constants of the driver
+    (IN_PROCESS_ITERATIONS and IN_PROCESS_WARMUP_ITERATIONS of benchmark_serving_formats.py).
 
     Args:
         experiments_folder (Path): The folder of the real runs.
@@ -452,11 +449,8 @@ def describe_benchmark_models(experiments_folder: Path) -> Dict[str, Any]:
         facts[f"models.{model_name}.image_size"] = read_run_configuration(run_folder=run_folder)["Data"][
             "image_settings"]["size"]
         facts[f"models.{model_name}.class_count"] = len(class_indices)
-    script_path = find_repository_root() / BENCHMARK_SCRIPT
-    facts["in_process.timed_calls"] = read_main_block_value(script_path=script_path,
-                                                            variable_name="number_in_process_iterations")
-    facts["in_process.warmup_calls"] = read_main_block_value(script_path=script_path,
-                                                             variable_name="number_in_process_warmup_iterations")
+    facts["in_process.timed_calls"] = IN_PROCESS_ITERATIONS
+    facts["in_process.warmup_calls"] = IN_PROCESS_WARMUP_ITERATIONS
     return facts
 
 

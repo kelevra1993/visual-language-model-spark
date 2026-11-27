@@ -4,23 +4,42 @@ of the server given at load time (dynamic batching and instances) leave the expo
 perf_analyzer report is read in milliseconds, the test sample is linked in its frame order, results.csv keeps every
 measurement so that a relaunch skips the recorded ones, every row gets the loads of its groups, the FP16 TorchScript
 model has a setting, a served row and an in-process row of its own, and the gRPC loads read the metrics and statistics
-of the server.
+of the server. The driver prints its help when launched without arguments, reads the folders of the machine and the
+phases from its command line, places the runs and test splits of BENCHMARKED_MODELS in those folders, and refuses a
+missing folder, an unknown phase or a setting of the plan, which stays in the constants of the module and still plans
+every measurement of the committed results.
 """
 
+import csv
+import inspect
 import json
 import numpy as np
 import pytest
 
 from pathlib import Path
+from typing import List
 
-from scripts.deployment.benchmark_serving_formats import (RESULT_COLUMNS, append_result,
-                                                          average_server_microseconds, build_result_key,
+from scripts.deployment.benchmark_serving_formats import (BATCH_SIZES, BENCHMARK_PHASES, BENCHMARKED_MODELS,
+                                                          LOAD_GROUPS, PRECISION_SETTINGS, RESULT_COLUMNS,
+                                                          append_result, average_server_microseconds,
+                                                          build_benchmarked_models, build_result_key,
                                                           build_server_configuration, count_frames_per_sample,
                                                           get_repository_formats, get_row_name,
                                                           get_torchscript_precision, list_in_process_rows,
-                                                          parse_perf_analyzer_report, parse_triton_gpu_metrics,
-                                                          plan_served_loads, read_completed_keys, repeat_request,
+                                                          parse_benchmark_arguments, parse_perf_analyzer_report,
+                                                          parse_triton_gpu_metrics, plan_served_loads,
+                                                          read_completed_keys, repeat_request, run_serving_benchmark,
                                                           select_test_sample)
+
+# Committed copy of the results.csv of the sweep, whose measurements the plan of the driver must still list
+COMMITTED_RESULTS_PATH = Path("documentation") / "architecture_benchmarking" / "serving_benchmark_results.csv"
+
+# Rows of the FP16 TorchScript model, planned since 2026-11-25 and not measured in the committed results
+UNMEASURED_ROWS = {"in_process_torchscript_fp16", "triton_torchscript_fp16"}
+
+# Folders of the machine given on the command line, never read by the parser
+FOLDER_ARGUMENTS = ["--benchmark_folder", "serving_benchmark", "--runs_folder", "tutorial_runs",
+                    "--data_folder", "data"]
 
 # Configuration of an exported model as the configuration endpoint of Triton returns it, reduced to the fields the
 # server settings change
@@ -248,3 +267,110 @@ def test_gpu_metrics_and_server_times_of_a_grpc_load() -> None:
                             "server_compute_microseconds": pytest.approx(5000.0)}
     with pytest.raises(ValueError, match="requests executed"):
         average_server_microseconds(statistics_before=statistics_before, statistics_after=statistics_before)
+
+
+def test_benchmark_script_without_arguments_prints_its_help(capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the benchmark driver launched without any argument prints the help of its folders and phases and
+    stops without measuring, instead of failing on the missing folders.
+
+    Args:
+        capsys (pytest.CaptureFixture): The captured console output.
+    """
+    with pytest.raises(expected_exception=SystemExit) as exit_information:
+        parse_benchmark_arguments(arguments=[])
+    assert exit_information.value.code == 0
+    help_text = capsys.readouterr().out
+    assert [argument for argument in ["--benchmark_folder", "--runs_folder", "--data_folder", "--phases"]
+            if argument not in help_text] == []
+
+
+def test_benchmark_arguments_run_every_phase_by_default() -> None:
+    """
+    Verifies that the benchmark driver given only the folders of the machine runs every phase, and that every phase
+    names a run_<phase> switch of run_serving_benchmark, so that the main block reaches each of them.
+    """
+    parsed_arguments = parse_benchmark_arguments(arguments=FOLDER_ARGUMENTS)
+    assert vars(parsed_arguments) == {"benchmark_folder": Path("serving_benchmark"),
+                                      "runs_folder": Path("tutorial_runs"), "data_folder": Path("data"),
+                                      "phases": BENCHMARK_PHASES}
+    assert {f"run_{phase}" for phase in BENCHMARK_PHASES} <= set(inspect.signature(run_serving_benchmark).parameters)
+
+
+def test_benchmark_arguments_reach_the_folders_and_phases(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that the folders of the benchmark driver starting with a '~' the shell leaves after '=' are expanded to
+    the home folder, that some phases can be run alone, and that the runs and test splits of BENCHMARKED_MODELS are
+    placed under the runs and data folders given, the rest of every model kept.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, standing for the home folder.
+        monkeypatch (pytest.MonkeyPatch): Sets the home folder.
+    """
+    monkeypatch.setenv(name="HOME", value=str(tmp_path))
+    parsed_arguments = parse_benchmark_arguments(arguments=[
+        "--benchmark_folder=~/serving_benchmark", "--runs_folder=~/tutorial_runs", "--data_folder=~/data", "--phases",
+        "in_process", "triton"])
+    assert vars(parsed_arguments) == {"benchmark_folder": tmp_path / "serving_benchmark",
+                                      "runs_folder": tmp_path / "tutorial_runs", "data_folder": tmp_path / "data",
+                                      "phases": ["in_process", "triton"]}
+    models = build_benchmarked_models(runs_folder=parsed_arguments.runs_folder,
+                                      data_folder=parsed_arguments.data_folder)
+    assert models == [{"name": model["name"], "iteration": model["iteration"],
+                       "sequence_length": model["sequence_length"],
+                       "experiment_folder": tmp_path / "tutorial_runs" / model["run"],
+                       "test_data_folder": tmp_path / "data" / model["test_split"]} for model in BENCHMARKED_MODELS]
+
+
+@pytest.mark.parametrize(argnames="arguments", argvalues=[
+    ["--runs_folder", "tutorial_runs", "--data_folder", "data"],
+    ["--benchmark_folder", "serving_benchmark", "--data_folder", "data"],
+    FOLDER_ARGUMENTS + ["--phases", "speed"],
+    FOLDER_ARGUMENTS + ["--maximum_batch_size", "8"]])
+def test_benchmark_script_refuses_a_missing_folder_or_unknown_values(arguments: List[str],
+                                                                    capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the benchmark driver stops with its usage and the error, before anything is measured, when a folder
+    of the machine is missing, a phase is unknown, or a setting of the plan, kept in the constants of the module, is
+    given.
+
+    Args:
+        arguments (List[str]): The command line arguments.
+        capsys (pytest.CaptureFixture): The captured console output.
+    """
+    with pytest.raises(expected_exception=SystemExit) as exit_information:
+        parse_benchmark_arguments(arguments=arguments)
+    assert exit_information.value.code == 2
+    assert "error:" in capsys.readouterr().err
+
+
+def test_plan_lists_every_committed_measurement() -> None:
+    """
+    Verifies that the constants of the driver (BENCHMARKED_MODELS, PRECISION_SETTINGS, BATCH_SIZES and LOAD_GROUPS)
+    still plan every measurement of the committed results.csv, and nothing else than the FP16 TorchScript rows not
+    measured yet, since the keys of results.csv hold neither the calls nor the loads a relaunch must keep.
+    """
+    with open(COMMITTED_RESULTS_PATH, newline="") as results_file:
+        committed_keys = {build_result_key(result=row) for row in csv.DictReader(results_file)}
+
+    # Measurements of every model: its in-process rows, then the first requests and loads of its served rows
+    planned_keys = set()
+    for model in BENCHMARKED_MODELS:
+        for row_name, _ in list_in_process_rows(model_repositories=Path("model_repositories"),
+                                                served_model_name="served_model",
+                                                precision_settings=list(PRECISION_SETTINGS)):
+            planned_keys |= {build_result_key(result={
+                "model": model["name"], "row": row_name, "kind": "load", "dynamic_batching": "", "instance_count": "",
+                "transport": "in_process", "batch_size": batch_size, "concurrency": 1}) for batch_size in BATCH_SIZES}
+        for precision_setting in PRECISION_SETTINGS:
+            for export_format in get_repository_formats(precision_setting=precision_setting):
+                row_name = get_row_name(precision_setting=precision_setting, export_format=export_format)
+                planned_keys |= {build_result_key(result={
+                    "model": model["name"], "row": row_name, "kind": "first_request", "dynamic_batching": "",
+                    "instance_count": "", "transport": "grpc", "batch_size": batch_size, "concurrency": 1})
+                    for batch_size in BATCH_SIZES}
+                planned_keys |= {build_result_key(result=load) for load in plan_served_loads(
+                    load_groups=LOAD_GROUPS, precision_setting=precision_setting,
+                    common_columns={"model": model["name"], "row": row_name})}
+    assert committed_keys - planned_keys == set()
+    assert {key[1] for key in planned_keys - committed_keys} <= UNMEASURED_ROWS

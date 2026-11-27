@@ -6,17 +6,22 @@ model alone in the torchscript_fp16 setting), times the inference model in the p
 FP16), then serves every exported model alone in a Triton container and times it under several server settings, batch
 sizes and concurrencies, through system shared memory with perf_analyzer of the Triton SDK image and over gRPC with a
 tritonclient client (the client of run_inference.py), with the time of the first requests (TensorRT engine builds)
-and the memory taken by the model. Every output stays outside the repository, under the benchmark folder of the main
-block, and every measurement is one line of its results.csv, read again at a relaunch so that a
-stopped sweep restarts where it stopped. Run as a script from the repository root, its settings in the main block.
+and the memory taken by the model. Every output stays outside the repository, under the benchmark folder given on the
+command line, and every measurement is one line of its results.csv, read again at a relaunch so that a stopped sweep
+restarts where it stopped. Run as a script from the repository root with the benchmark, runs and data folders of the
+machine given as arguments (parse_benchmark_arguments), its help printed when none is given; the plan of the sweep
+(models, precision settings, loads and calls) is in the constants of this module, which evaluate_served_formats.py
+reads too.
 """
 
+import argparse
 import csv
 import json
 import multiprocessing
 import os
 import shutil
 import subprocess
+import sys
 import time
 import urllib.request
 import numpy as np
@@ -104,6 +109,52 @@ RESULT_COLUMNS = KEY_COLUMNS + ["status", "load_client", "p50_milliseconds", "p9
                                 "gpu_power_watts", "first_request_seconds", "memory_gigabytes",
                                 "allocator_peak_gigabytes", "other_gpu_processes", "duration_seconds", "raw_file",
                                 "error", "timestamp"]
+
+# Plan of the sweep behind the committed results, kept in the code because the keys of results.csv hold neither the
+# calls nor the loads, so that a relaunch resuming a sweep measures it as it started. Trained runs, their folders
+# relative to --runs_folder and their test splits relative to --data_folder: the 9-class README classifier, the
+# reference of the detection benchmark (run_9) and the sequence labelling tutorial run, with the served checkpoint and
+# the frames of the sample sent to the models (None for images). The test splits were drawn again after the benchmark
+# of 2026-11-17 (classification with 35 categories, of which the loaders keep the 9 of the run), so a new run measures
+# the same shapes on other images
+BENCHMARKED_MODELS = [
+    {"name": "classification", "iteration": 1500, "sequence_length": None,
+     "run": "readme_screenshots/CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9",
+     "test_split": "classifier_data/synthetic_shapes/test"},
+    {"name": "object_detection", "iteration": 15000, "sequence_length": None,
+     "run": "hyperparameter_experiments/object_detection/run_9/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32."
+            "5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35",
+     "test_split": "object_detection_data/synthetic_hard_shapes/test_10000"},
+    {"name": "sequence_labelling", "iteration": 2000, "sequence_length": 7,
+     "run": "tutorials/M2M_IN-KAR-256_SE-RES-BN-B1x16.2x16.2x16.4x32.5x32.5x32-PT_T50_LSTM2x96-BI_HFLAT.96.96-HLN-"
+            "CWB_MC71",
+     "test_split": "sequence_data/synthetic_changing_shapes/test_10000"}]
+# Precision settings, one model repository and one server each: the TensorRT precision of the export (None for ONNX
+# Runtime CUDA and torchscript_fp16, the FP16 TorchScript model alone) and the server environment. BF16 is left out:
+# the ONNX Runtime backend of Triton 26.01 refuses precision_mode "BF16" and ignores ORT_TENSORRT_BF16_ENABLE
+PRECISION_SETTINGS = {"onnxruntime_cuda": {"tensorrt_precision": None, "environment": {}},
+                      "tensorrt_fp32": {"tensorrt_precision": "FP32", "environment": {}},
+                      "tensorrt_fp16": {"tensorrt_precision": "FP16", "environment": {}},
+                      "torchscript_fp16": {"tensorrt_precision": None, "environment": {}}}
+# Batch sizes of the in-process rows and of the first requests of the served rows
+BATCH_SIZES = [1, 4, 16]
+# Loads of the served rows (focused scope, user decision 2026-11-17): the exported configuration (dynamic batching on,
+# 1 instance) for every row over the whole grid, and the other server settings (dynamic batching, instance count) for
+# TensorRT FP16 only, at batch 1, where several clients sending at once is where they can matter
+LOAD_GROUPS = [{"precision_settings": list(PRECISION_SETTINGS), "server_settings": [(True, 1)],
+                "transports": ["grpc", "system_shared_memory"], "batch_sizes": [1, 4, 16],
+                "concurrencies": [1, 4, 16]},
+               {"precision_settings": ["tensorrt_fp16"], "server_settings": [(False, 1), (True, 2), (False, 2)],
+                "transports": ["grpc", "system_shared_memory"], "batch_sizes": [1], "concurrencies": [1, 4, 16]}]
+# Largest batch size of the exports and of the Triton configurations, also that of the test loaders of
+# evaluate_served_formats.py
+MAXIMUM_BATCH_SIZE = 16
+# Timed and untimed calls of the in-process rows per batch size
+IN_PROCESS_ITERATIONS = 200
+IN_PROCESS_WARMUP_ITERATIONS = 20
+
+# Phases of the benchmark, run in this order, each skipping what results.csv or the model repositories already hold
+BENCHMARK_PHASES = ["exports", "in_process", "triton"]
 
 
 def read_available_gigabytes() -> float:
@@ -1206,60 +1257,98 @@ def run_serving_benchmark(models: List[Dict[str, Any]], benchmark_folder: Path,
             stop_triton_server(server=BENCHMARK_SERVER, log_path=log_path)
 
 
-if __name__ == "__main__":
-    # Folder of every output of the benchmark, outside the repository (whose files not committed are cleaned)
-    benchmark_folder = Path.home() / "Data" / "serving_benchmark"
-    # Trained runs, from their copies outside the repository: the 9-class README classifier, the reference of the
-    # detection benchmark (run_9) and the sequence labelling tutorial run, with the served checkpoint, the test split
-    # giving the sample sent to the models and the number of frames of that sample (None for images). The three test
-    # splits were drawn again after the benchmark of 2026-11-17 (classification with 35 categories, of which the loaders
-    # keep the 9 of the run), so a new run measures the same shapes on other images
-    tutorial_runs_folder = Path.home() / "Data" / "tutorial_runs"
-    data_folder = Path.home() / "Data"
-    models = [
-        {"name": "classification", "iteration": 1500, "sequence_length": None,
-         "experiment_folder": tutorial_runs_folder / "readme_screenshots" /
-                              "CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9",
-         "test_data_folder": data_folder / "classifier_data" / "synthetic_shapes" / "test"},
-        {"name": "object_detection", "iteration": 15000, "sequence_length": None,
-         "experiment_folder": tutorial_runs_folder / "hyperparameter_experiments" / "object_detection" / "run_9" /
-                              "DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768."
-                              "d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35",
-         "test_data_folder": data_folder / "object_detection_data" / "synthetic_hard_shapes" / "test_10000"},
-        {"name": "sequence_labelling", "iteration": 2000, "sequence_length": 7,
-         "experiment_folder": tutorial_runs_folder / "tutorials" /
-                              "M2M_IN-KAR-256_SE-RES-BN-B1x16.2x16.2x16.4x32.5x32.5x32-PT_T50_LSTM2x96-BI_HFLAT.96.96-"
-                              "HLN-CWB_MC71",
-         "test_data_folder": data_folder / "sequence_data" / "synthetic_changing_shapes" / "test_10000"}]
-    # Precision settings, one model repository and one server each: the TensorRT precision of the export (None for ONNX
-    # Runtime CUDA and torchscript_fp16, the FP16 TorchScript model alone) and the server environment. BF16 is left out:
-    # the ONNX Runtime backend of Triton 26.01 refuses precision_mode "BF16" and ignores ORT_TENSORRT_BF16_ENABLE
-    precision_settings = {"onnxruntime_cuda": {"tensorrt_precision": None, "environment": {}},
-                          "tensorrt_fp32": {"tensorrt_precision": "FP32", "environment": {}},
-                          "tensorrt_fp16": {"tensorrt_precision": "FP16", "environment": {}},
-                          "torchscript_fp16": {"tensorrt_precision": None, "environment": {}}}
-    # Batch sizes of the in-process rows and of the first requests of the served rows
-    batch_sizes = [1, 4, 16]
-    # Loads of the served rows (focused scope, user decision 2026-11-17): the exported configuration (dynamic batching
-    # on, 1 instance) for every row over the whole grid, and the other server settings (dynamic batching, instance
-    # count) for TensorRT FP16 only, at batch 1, where several clients sending at once is where they can matter
-    load_groups = [{"precision_settings": list(precision_settings), "server_settings": [(True, 1)],
-                    "transports": ["grpc", "system_shared_memory"], "batch_sizes": [1, 4, 16],
-                    "concurrencies": [1, 4, 16]},
-                   {"precision_settings": ["tensorrt_fp16"], "server_settings": [(False, 1), (True, 2), (False, 2)],
-                    "transports": ["grpc", "system_shared_memory"], "batch_sizes": [1], "concurrencies": [1, 4, 16]}]
-    # Largest batch size of the exports and of the Triton configurations
-    maximum_batch_size = 16
-    # Timed and untimed calls of the in-process rows per batch size
-    number_in_process_iterations = 200
-    number_in_process_warmup_iterations = 20
-    # Phases run, each skipping what results.csv or the model repositories already hold
-    run_exports = True
-    run_in_process = True
-    run_triton = True
+def build_benchmarked_models(runs_folder: Path, data_folder: Path) -> List[Dict[str, Any]]:
+    """
+    Places the models of BENCHMARKED_MODELS on this machine, their run folders under the runs folder and their test
+    splits under the data folder given on the command line, so that the plan of the sweep stays in the repository and
+    only the folders change from one machine to another; both drivers of the benchmark measure these models.
 
-    run_serving_benchmark(models=models, benchmark_folder=benchmark_folder, precision_settings=precision_settings,
-                          load_groups=load_groups, batch_sizes=batch_sizes, maximum_batch_size=maximum_batch_size,
-                          number_in_process_iterations=number_in_process_iterations,
-                          number_in_process_warmup_iterations=number_in_process_warmup_iterations,
-                          run_exports=run_exports, run_in_process=run_in_process, run_triton=run_triton)
+    Args:
+        runs_folder (Path): The folder holding the trained runs, outside the repository.
+        data_folder (Path): The folder holding the data sets of their test splits.
+
+    Returns:
+        List[Dict[str, Any]]: The models with their 'name', 'iteration', 'sequence_length', 'experiment_folder' and
+            'test_data_folder'.
+    """
+    return [{"name": model["name"], "iteration": model["iteration"], "sequence_length": model["sequence_length"],
+             "experiment_folder": runs_folder / model["run"], "test_data_folder": data_folder / model["test_split"]}
+            for model in BENCHMARKED_MODELS]
+
+
+def add_benchmark_folder_arguments(parser: argparse.ArgumentParser) -> None:
+    """
+    Adds the folders of the machine to the command line of a driver of the benchmark, the only settings that leave the
+    code, so that both drivers read the same model repositories, runs and test splits.
+
+    Args:
+        parser (argparse.ArgumentParser): The parser of the driver, extended.
+    """
+    parser.add_argument("--benchmark_folder", type=Path, required=True,
+                        help="Folder of the benchmark, outside the repository: the model repositories, the TensorRT "
+                             "engine caches, results.csv and test_metrics.csv (required).")
+    parser.add_argument("--runs_folder", type=Path, required=True,
+                        help="Folder the run folders of BENCHMARKED_MODELS are relative to (required).")
+    parser.add_argument("--data_folder", type=Path, required=True,
+                        help="Folder the test splits of BENCHMARKED_MODELS are relative to (required).")
+
+
+def parse_benchmark_arguments(arguments: List[str]) -> argparse.Namespace:
+    """
+    Reads the folders of the machine and the phases of the sweep from the command line of the script, the plan of the
+    sweep staying in the constants of this module: the three folders are required, every phase runs by default.
+    Launched without any argument, the script prints the help of every argument and stops. A '~' left by the shell at
+    the start of a path ('--benchmark_folder=~/Data/...') is expanded to the home folder.
+
+    Args:
+        arguments (List[str]): The command line arguments, without the script name.
+
+    Returns:
+        argparse.Namespace: The benchmark_folder, runs_folder, data_folder and phases.
+
+    Raises:
+        SystemExit: After printing the help when no argument is given, or the usage and the error when a folder is
+            missing or a phase is unknown.
+    """
+    # The description and the example keep their line breaks, argparse wrapping the help of every argument
+    parser = argparse.ArgumentParser(
+        prog="uv run python -m scripts.deployment.benchmark_serving_formats",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Exports the runs of BENCHMARKED_MODELS once per precision setting, times them in the process,\n"
+                    "then served by Triton, one line per measurement in <benchmark_folder>/results.csv.",
+        epilog="Example, the whole sweep, resumed where a stopped one stopped:\n"
+               "  uv run python -m scripts.deployment.benchmark_serving_formats \\\n"
+               "      --benchmark_folder ~/Data/serving_benchmark --runs_folder ~/Data/tutorial_runs \\\n"
+               "      --data_folder ~/Data")
+    # The folders of this machine, then the phases run
+    add_benchmark_folder_arguments(parser=parser)
+    parser.add_argument("--phases", nargs="+", choices=BENCHMARK_PHASES, default=list(BENCHMARK_PHASES),
+                        help="Phases run, each skipping what results.csv or the model repositories already hold "
+                             f"(default: {' '.join(BENCHMARK_PHASES)}).")
+
+    # Without any argument, the script describes its arguments instead of failing on the missing folders
+    if not arguments:
+        parser.print_help()
+        parser.exit(status=0)
+    parsed_arguments = parser.parse_args(args=arguments)
+
+    # A '~' the shell leaves after '=' points to the home folder, as in the other scripts of the repository
+    for path_name in ["benchmark_folder", "runs_folder", "data_folder"]:
+        setattr(parsed_arguments, path_name, getattr(parsed_arguments, path_name).expanduser())
+    return parsed_arguments
+
+
+if __name__ == "__main__":
+    # Folders of this machine and phases read from the command line, the help printed when none is given
+    benchmark_arguments = parse_benchmark_arguments(arguments=sys.argv[1:])
+
+    # The plan of the sweep from the constants of this module, its models placed in the folders of this machine
+    run_serving_benchmark(models=build_benchmarked_models(runs_folder=benchmark_arguments.runs_folder,
+                                                          data_folder=benchmark_arguments.data_folder),
+                          benchmark_folder=benchmark_arguments.benchmark_folder, precision_settings=PRECISION_SETTINGS,
+                          load_groups=LOAD_GROUPS, batch_sizes=BATCH_SIZES, maximum_batch_size=MAXIMUM_BATCH_SIZE,
+                          number_in_process_iterations=IN_PROCESS_ITERATIONS,
+                          number_in_process_warmup_iterations=IN_PROCESS_WARMUP_ITERATIONS,
+                          run_exports="exports" in benchmark_arguments.phases,
+                          run_in_process="in_process" in benchmark_arguments.phases,
+                          run_triton="triton" in benchmark_arguments.phases)

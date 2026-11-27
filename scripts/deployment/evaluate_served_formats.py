@@ -10,11 +10,15 @@ the same requests (the real frames of each sequence alone for a sequence model) 
 detector returns, so that the gap to the eager row measures the format and the precision only. Every
 output stays outside the repository, in the benchmark folder: the evaluation files of every row and test_metrics.csv,
 one line per scalar of every row, read again at a relaunch so that the rows already measured are skipped. Run as a
-script from the repository root, its settings in the main block, on a machine where the speed sweep is not running.
+script from the repository root, on a machine where the speed sweep is not running, with the benchmark, runs and data
+folders of the machine given as arguments (parse_evaluation_arguments), its help printed when none is given; the
+models, precision settings and largest request are the constants of benchmark_serving_formats.py.
 """
 
+import argparse
 import csv
 import functools
+import sys
 import time
 import numpy as np
 import torch
@@ -23,7 +27,9 @@ import tritonclient.grpc as triton_client
 from pathlib import Path
 from typing import Any, Callable, Dict, List
 
-from scripts.deployment.benchmark_serving_formats import (BENCHMARK_SERVER, get_repository_formats, get_row_name,
+from scripts.deployment.benchmark_serving_formats import (BENCHMARK_SERVER, MAXIMUM_BATCH_SIZE, PRECISION_SETTINGS,
+                                                          add_benchmark_folder_arguments, build_benchmarked_models,
+                                                          get_repository_formats, get_row_name,
                                                           read_served_model_name, wait_for_idle_machine)
 from vision_training.deployment.deployment_utilities import (get_triton_output_names, load_local_inference_model,
                                                              run_local_inference, run_triton_inference)
@@ -198,34 +204,56 @@ def run_served_evaluations(models: List[Dict[str, Any]], benchmark_folder: Path,
         torch.cuda.empty_cache()
 
 
-if __name__ == "__main__":
-    # Folder of the benchmark, outside the repository, holding the model repositories of
-    # scripts/deployment/benchmark_serving_formats.py and receiving test_metrics.csv
-    benchmark_folder = Path.home() / "Data" / "serving_benchmark"
-    # Benchmarked runs, as in the main block of benchmark_serving_formats.py: the served checkpoint and its test split,
-    # drawn again after the benchmark of 2026-11-17, so that a new evaluation scores other images than test_metrics.csv
-    tutorial_runs_folder = Path.home() / "Data" / "tutorial_runs"
-    data_folder = Path.home() / "Data"
-    models = [
-        {"name": "classification", "iteration": 1500,
-         "experiment_folder": tutorial_runs_folder / "readme_screenshots" /
-                              "CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9",
-         "test_data_folder": data_folder / "classifier_data" / "synthetic_shapes" / "test"},
-        {"name": "object_detection", "iteration": 15000,
-         "experiment_folder": tutorial_runs_folder / "hyperparameter_experiments" / "object_detection" / "run_9" /
-                              "DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768."
-                              "d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35",
-         "test_data_folder": data_folder / "object_detection_data" / "synthetic_hard_shapes" / "test_10000"},
-        {"name": "sequence_labelling", "iteration": 2000,
-         "experiment_folder": tutorial_runs_folder / "tutorials" /
-                              "M2M_IN-KAR-256_SE-RES-BN-B1x16.2x16.2x16.4x32.5x32.5x32-PT_T50_LSTM2x96-BI_HFLAT.96.96-"
-                              "HLN-CWB_MC71",
-         "test_data_folder": data_folder / "sequence_data" / "synthetic_changing_shapes" / "test_10000"}]
-    # Precision settings of the served rows, one model repository and one server each (torchscript_fp16 added
-    # 2026-11-25, not measured yet)
-    precision_settings = ["onnxruntime_cuda", "tensorrt_fp32", "tensorrt_fp16", "torchscript_fp16"]
-    # Largest batch size of the served models, also the batch size of the test loaders
-    maximum_request_size = 16
+def parse_evaluation_arguments(arguments: List[str]) -> argparse.Namespace:
+    """
+    Reads the folders of the machine from the command line of the script, the same as those of
+    benchmark_serving_formats.py, whose constants give the models (BENCHMARKED_MODELS), the precision settings and the
+    largest request of the evaluation, so that it scores the model repositories the speed sweep wrote. Launched without
+    any argument, the script prints the help of every argument and stops. A '~' left by the shell at the start of a
+    path ('--benchmark_folder=~/Data/...') is expanded to the home folder.
 
-    run_served_evaluations(models=models, benchmark_folder=benchmark_folder, precision_settings=precision_settings,
-                           maximum_request_size=maximum_request_size)
+    Args:
+        arguments (List[str]): The command line arguments, without the script name.
+
+    Returns:
+        argparse.Namespace: The benchmark_folder, runs_folder and data_folder.
+
+    Raises:
+        SystemExit: After printing the help when no argument is given, or the usage and the error when a folder is
+            missing.
+    """
+    # The description and the example keep their line breaks, argparse wrapping the help of every argument
+    parser = argparse.ArgumentParser(
+        prog="uv run python -m scripts.deployment.evaluate_served_formats",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Scores the test split of every run of the serving benchmark through the eager model, then\n"
+                    "through every served format, one line per scalar in <benchmark_folder>/test_metrics.csv.",
+        epilog="Example, after benchmark_serving_formats.py, with the same folders:\n"
+               "  uv run python -m scripts.deployment.evaluate_served_formats \\\n"
+               "      --benchmark_folder ~/Data/serving_benchmark --runs_folder ~/Data/tutorial_runs \\\n"
+               "      --data_folder ~/Data")
+    # The folders of this machine, those of the speed sweep
+    add_benchmark_folder_arguments(parser=parser)
+
+    # Without any argument, the script describes its arguments instead of failing on the missing folders
+    if not arguments:
+        parser.print_help()
+        parser.exit(status=0)
+    parsed_arguments = parser.parse_args(args=arguments)
+
+    # A '~' the shell leaves after '=' points to the home folder, as in the other scripts of the repository
+    for path_name in ["benchmark_folder", "runs_folder", "data_folder"]:
+        setattr(parsed_arguments, path_name, getattr(parsed_arguments, path_name).expanduser())
+    return parsed_arguments
+
+
+if __name__ == "__main__":
+    # Folders of this machine read from the command line, the help printed when none is given
+    evaluation_arguments = parse_evaluation_arguments(arguments=sys.argv[1:])
+
+    # The models, precision settings and largest request of the speed sweep, its models placed in the folders of this
+    # machine
+    run_served_evaluations(models=build_benchmarked_models(runs_folder=evaluation_arguments.runs_folder,
+                                                           data_folder=evaluation_arguments.data_folder),
+                           benchmark_folder=evaluation_arguments.benchmark_folder,
+                           precision_settings=list(PRECISION_SETTINGS), maximum_request_size=MAXIMUM_BATCH_SIZE)
