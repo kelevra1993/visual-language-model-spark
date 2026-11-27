@@ -19,7 +19,7 @@ To find your way in this reference, the sections are:
 - [Self-Supervised Learning (SSL)](#self-supervised-learning-ssl)
 
 ## Synthetic Datasets
-Before using real data, `vision_training/data/synthetic/create_synthetic_dataset.py` generates a dataset for every task, chosen by `--task`, into `--output_folder`. Its configurations are listed in the [Quick Start](../../README.md#quick-start-with-synthetic-data). The table shows what each dataset holds.
+Before using real data, `vision_training/data/synthetic/create_synthetic_dataset.py` generates a dataset for every task, chosen by the required `--task`, into the required `--output_folder`. `--split_sizes` writes other sizes or only some splits (`train=300 validation=30 test=30`, `test=5000`). The image size, shapes per image and frames of every task are its `TASK_*` constants. Its configurations are listed in the [Quick Start](../../README.md#quick-start-with-synthetic-data). The table shows what each dataset holds.
 
 | Task | Content | Classes |
 |---|---|---|
@@ -154,11 +154,11 @@ Suppose you need boxes around objects: DET is a two-stage detector. Every entry 
 - `random_zoom_out` shrinks the image to 50 to 100 % of each side, so the finest levels also see large objects. It is on in the DET and INS example configurations (probability 0.25).
 - `random_translation` leaves a black border, ignored in class masks and background in instance masks.
 
-**Converting a dataset.** Should you need COCO 2017, `vision_training/data/data_retriever.py` downloads it with FiftyOne (about 25 GB, `datasets` dependency group). Set the folder and `maximum_samples` in its main block first.
+**Converting a dataset.** Should you need COCO 2017, `vision_training/data/data_retriever.py` downloads it with FiftyOne (about 25 GB, `datasets` dependency group). It writes into the repository `datasets` folder unless `--dataset_directory` is given, and keeps 1,000 images per split unless `--maximum_samples` changes it.
 
 ```bash
-# Download COCO 2017
-uv run python -m vision_training.data.data_retriever
+# Download every image of COCO 2017
+uv run python -m vision_training.data.data_retriever --dataset_name coco-2017 --maximum_samples None
 ```
 
 **Configuration**

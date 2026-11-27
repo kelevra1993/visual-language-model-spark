@@ -274,11 +274,14 @@ The table gives what `labels.json` holds for every task. Its reference shows an 
 Before a first launch on your own data, write its label files as the examples of your task in its reference show.
 
 ## Evaluating Checkpoints
-Each time the checkpoints of a run must be scored again (another split, batch size or NMS), set the main block of `scripts/evaluation/evaluate_checkpoint.py` ([details](documentation/reference/tools_reference.md#evaluating-checkpoints)):
+Each time the checkpoints of a run must be scored again (another split, batch size or NMS), run `scripts/evaluation/evaluate_checkpoint.py`. It writes into `<run>/Checkpoint_Evaluation/` and leaves the training files untouched ([details](documentation/reference/tools_reference.md#evaluating-checkpoints)).
 
 ```bash
-# Writes into <run>/Checkpoint_Evaluation/, the training files left untouched
+# List every argument with its default
 uv run python -m scripts.evaluation.evaluate_checkpoint
+
+# Evaluate every checkpoint of a run with the class thresholds at three precisions
+uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder ~/Data/<run> --iteration all --target_precisions 0.99 0.95 0.90
 ```
 
 <p align="center">
@@ -509,8 +512,8 @@ The figure below shows the path of one request through Triton:
 Whenever you want to compare in-process and Triton speed, `run_inference.py` sends the images of `vision_training/deployment/inference_data/` both ways, one image per request:
 
 ```bash
-# Print the throughput in the process and through Triton
-uv run python -m vision_training.deployment.run_inference
+# Print the throughput of a run in the process and through Triton
+uv run python -m vision_training.deployment.run_inference --experiment_folder <run folder>
 ```
 
 ### Serving Formats And Precision

@@ -12,10 +12,12 @@ the object placed before them by an IoU from 0.5 to that cap, with its class and
 placement is refused where it would have no effect. The shapes stay inside their square, every hollow shape is its
 filled shape with one hole cut inside it, and the regular polygons keep the size at which their sides stay apart. The
 console describes every split in a panel with its class counts and generation time, and closes with a panel of the
-whole dataset.
+whole dataset. The command line takes the task and the folder, and optionally the split sizes, the workers and the
+overlap settings, the other settings coming from the constants of the task, and prints its help without arguments.
 """
 
 import copy
+import inspect
 import itertools
 import json
 import cv2
@@ -37,26 +39,35 @@ from vision_training.data.segmentation.segmentation_dataset import SegmentationD
 from vision_training.data.sequence.sequence_dataset import SequenceDataset
 from vision_training.data.synthetic import create_synthetic_dataset as synthetic_dataset_module
 from vision_training.data.synthetic.create_synthetic_dataset import (
-    CHANGE_CATEGORIES, HOLLOW_CLASS_NAMES, HOLLOW_DISTRACTOR_SHAPE_NAMES, HOLLOW_INNER_KEYPOINT_SHAPE_NAMES,
-    HOLLOW_MINIMUM_SIZE, KEYPOINT_DRAWING_FUNCTIONS, KEYPOINT_MINIMUM_OBJECTS, KEYPOINT_NAMES,
-    KEYPOINT_OBJECT_MINIMUM_SIZE, LABELLING_MINIMUM_OBJECTS, LOW_CONTRAST_DIFFERENCE_RANGE,
-    MAXIMUM_OBJECT_INTERSECTION_OVER_UNION, MINIMUM_COLOUR_DIFFERENCE, MINIMUM_OBJECTS_PER_IMAGE,
-    MINIMUM_VISIBLE_OBJECT_PIXELS, MOVEMENT_CATEGORIES, MOVEMENT_DIRECTIONS, OBJECT_MAXIMUM_SIZE_FRACTION,
-    OBJECT_MINIMUM_SIZE, OBJECT_MINIMUM_VISIBLE_FRACTION, PAIR_CATEGORIES, PAIR_MINIMUM_OBJECTS,
-    SAME_CLASS_NEIGHBOUR_MINIMUM_INTERSECTION_OVER_UNION, SAME_CLASS_NEIGHBOUR_SIZE_RATIO_RANGE, SELECTION_CATEGORIES,
-    SELECTION_LARGEST_MINIMUM_SIZE, SELECTION_SMALLER_AREA_RATIO, SELECTION_SMALLER_SIZE_RATIO, SELECTION_WANTED_SHAPES,
-    SHAPE_CATEGORIES, SHAPE_COLOUR_MINIMUM_DIFFERENCE, SHAPE_COUNT_CATEGORIES, SHAPE_DRAWING_FUNCTIONS,
-    SHAPE_MINIMUM_SIZES, SHAPE_MINIMUM_VISIBLE_FRACTION, SUMMARY_PANEL_WIDTH, TASK_SAMPLE_NAMES, TEXTURE_AMPLITUDE,
-    build_class_count_table, create_synthetic_dataset, draw_background, draw_shape_descriptor, draw_shape_descriptors,
-    find_neighbour_centre_distance, format_generation_rate, generate_counted_shapes_image, generate_image,
-    generate_moving_shape_sequence, generate_object_loss_pair, generate_selection_sequence,
-    generate_shape_change_sequence, get_canvas_windows, get_intersection_over_union, get_mask_bounding_box,
-    keep_visible_objects)
+    CHANGE_CATEGORIES, DEFAULT_NUMBER_WORKERS, DEFAULT_SAME_CLASS_NEIGHBOUR_PROBABILITY, HOLLOW_CLASS_NAMES,
+    HOLLOW_DISTRACTOR_SHAPE_NAMES, HOLLOW_INNER_KEYPOINT_SHAPE_NAMES, HOLLOW_MINIMUM_SIZE, KEYPOINT_DRAWING_FUNCTIONS,
+    KEYPOINT_MINIMUM_OBJECTS, KEYPOINT_NAMES, KEYPOINT_OBJECT_MINIMUM_SIZE, LABELLING_MINIMUM_OBJECTS,
+    LOW_CONTRAST_DIFFERENCE_RANGE, MAXIMUM_OBJECT_INTERSECTION_OVER_UNION, MINIMUM_COLOUR_DIFFERENCE,
+    MINIMUM_OBJECTS_PER_IMAGE, MINIMUM_VISIBLE_OBJECT_PIXELS, MOVEMENT_CATEGORIES, MOVEMENT_DIRECTIONS,
+    OBJECT_MAXIMUM_SIZE_FRACTION, OBJECT_MINIMUM_SIZE, OBJECT_MINIMUM_VISIBLE_FRACTION, PAIR_CATEGORIES,
+    PAIR_MINIMUM_OBJECTS, SAME_CLASS_NEIGHBOUR_MINIMUM_INTERSECTION_OVER_UNION, SAME_CLASS_NEIGHBOUR_SIZE_RATIO_RANGE,
+    SELECTION_CATEGORIES, SELECTION_LARGEST_MINIMUM_SIZE, SELECTION_SMALLER_AREA_RATIO, SELECTION_SMALLER_SIZE_RATIO,
+    SELECTION_WANTED_SHAPES, SHAPE_CATEGORIES, SHAPE_COLOUR_MINIMUM_DIFFERENCE, SHAPE_COUNT_CATEGORIES,
+    SHAPE_DRAWING_FUNCTIONS, SHAPE_MINIMUM_SIZES, SHAPE_MINIMUM_VISIBLE_FRACTION, SPLIT_NAMES, SUMMARY_PANEL_WIDTH,
+    TASK_IMAGE_SIZES, TASK_MAXIMUM_FRAMES, TASK_MAXIMUM_OBJECTS, TASK_MINIMUM_FRAMES, TASK_SAMPLE_NAMES,
+    TASK_SPLIT_SIZES, TEXTURE_AMPLITUDE, build_class_count_table, create_synthetic_dataset, draw_background,
+    draw_shape_descriptor, draw_shape_descriptors, find_neighbour_centre_distance, format_generation_rate,
+    generate_counted_shapes_image, generate_image, generate_moving_shape_sequence, generate_object_loss_pair,
+    generate_selection_sequence, generate_shape_change_sequence, get_canvas_windows, get_intersection_over_union,
+    get_mask_bounding_box, keep_visible_objects, parse_synthetic_dataset_arguments)
 
 IMAGE_SIZE = 256
 
 # Root of the repository, from which the generator runs as a module like in the README
 REPOSITORY_FOLDER = Path(__file__).absolute().parents[3]
+
+# Arguments of the command line of the generator, every one described by its help
+GENERATOR_SCRIPT_ARGUMENTS = ["--task", "--output_folder", "--split_sizes", "--number_workers",
+                              "--maximum_object_intersection_over_union", "--same_class_neighbour_probability"]
+
+# Parameters of create_synthetic_dataset given by the constants of the task rather than by the command line
+TASK_CONSTANT_PARAMETERS = {"image_size": TASK_IMAGE_SIZES, "maximum_objects": TASK_MAXIMUM_OBJECTS,
+                            "minimum_frames": TASK_MINIMUM_FRAMES, "maximum_frames": TASK_MAXIMUM_FRAMES}
 
 # Side of the images and frames of the tests following the drawing of the samples, the number of frames of their
 # sequences, and the largest number of shapes of a sample of every task drawn by draw_task_sample
@@ -807,8 +818,9 @@ def test_generator_takes_its_task_and_folder_from_the_command_line(tmp_path: Pat
                                                                    expected_message: str) -> None:
     """
     Verifies the command line of the generator, which takes the task of the dataset as a required argument instead of
-    a variable of its main block: a missing task, a task that is not one of the generator and a missing folder stop
-    it before anything is written, and its help lists every task of the generator.
+    a variable edited in the file: a missing task, a task that is not one of the generator and a missing folder stop it
+    before anything is written, its help lists every task of the generator, and launched without any argument it
+    prints that help and stops without writing anything.
 
     Args:
         tmp_path (Path): The pytest temporary directory, the folder the refused commands run from.
@@ -827,6 +839,109 @@ def test_generator_takes_its_task_and_folder_from_the_command_line(tmp_path: Pat
     help_process = subprocess.run(args=command + ["--help"], cwd=REPOSITORY_FOLDER, capture_output=True, text=True)
     assert help_process.returncode == 0
     assert all(task in help_process.stdout for task in TASK_SAMPLE_NAMES)
+
+    # Without any argument, the main block prints the same help and leaves the folder empty
+    bare_process = subprocess.run(args=command, cwd=tmp_path, capture_output=True, text=True,
+                                  env={**os.environ, "PYTHONPATH": str(REPOSITORY_FOLDER)})
+    assert bare_process.returncode == 0
+    assert bare_process.stdout == help_process.stdout
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_generator_without_arguments_prints_its_help(capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the generator launched without any argument prints the help of every one of its arguments and stops
+    without generating anything, instead of failing on the missing task.
+
+    Args:
+        capsys (pytest.CaptureFixture): The captured console output.
+    """
+    with pytest.raises(expected_exception=SystemExit) as exit_information:
+        parse_synthetic_dataset_arguments(arguments=[])
+    assert exit_information.value.code == 0
+    help_text = capsys.readouterr().out
+    assert [argument for argument in GENERATOR_SCRIPT_ARGUMENTS if argument not in help_text] == []
+
+
+def test_generator_arguments_default_to_the_task_constants() -> None:
+    """
+    Verifies that the generator given only the task and the folder writes the splits of the task in TASK_SPLIT_SIZES
+    with DEFAULT_NUMBER_WORKERS and the overlap defaults of create_synthetic_dataset, that every parsed argument is a
+    parameter of create_synthetic_dataset, the other parameters coming from the constants of the task that every task
+    has an entry in, so that the main block passes them all.
+    """
+    parsed_arguments = parse_synthetic_dataset_arguments(arguments=["--task=keypoint_detection",
+                                                                    "--output_folder=dataset"])
+    assert vars(parsed_arguments) == {
+        "task": "keypoint_detection", "output_folder": Path("dataset"),
+        "split_sizes": TASK_SPLIT_SIZES["keypoint_detection"], "number_workers": DEFAULT_NUMBER_WORKERS,
+        "maximum_object_intersection_over_union": MAXIMUM_OBJECT_INTERSECTION_OVER_UNION,
+        "same_class_neighbour_probability": DEFAULT_SAME_CLASS_NEIGHBOUR_PROBABILITY}
+
+    # Command line and task constants together give every parameter of the generator, with its defaults
+    generator_parameters = inspect.signature(create_synthetic_dataset).parameters
+    assert set(vars(parsed_arguments)) | set(TASK_CONSTANT_PARAMETERS) == set(generator_parameters)
+    assert not set(vars(parsed_arguments)) & set(TASK_CONSTANT_PARAMETERS)
+    for parameter_name in ["maximum_object_intersection_over_union", "same_class_neighbour_probability"]:
+        assert getattr(parsed_arguments, parameter_name) == generator_parameters[parameter_name].default
+    for task_constants in [TASK_SPLIT_SIZES, *TASK_CONSTANT_PARAMETERS.values()]:
+        assert list(task_constants) == list(TASK_SAMPLE_NAMES)
+    assert all(list(split_sizes) == SPLIT_NAMES for split_sizes in TASK_SPLIT_SIZES.values())
+
+
+def test_generator_arguments_reach_every_setting(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that every setting the command line of the generator takes reaches its parsed value: a test split alone
+    for the occlusion test split of the detection benchmark with its overlap settings, the workers, a folder starting
+    with a '~' the shell leaves after '=' expanded to the home folder, and several splits given in any order kept in
+    the order of SPLIT_NAMES.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, standing for the home folder.
+        monkeypatch (pytest.MonkeyPatch): Sets the home folder.
+    """
+    monkeypatch.setenv(name="HOME", value=str(tmp_path))
+    parsed_arguments = parse_synthetic_dataset_arguments(arguments=[
+        "--task", "object_detection", "--output_folder=~/occlusion", "--split_sizes", "test=5000",
+        "--number_workers", "2", "--maximum_object_intersection_over_union", "0.6",
+        "--same_class_neighbour_probability", "0.5"])
+    assert vars(parsed_arguments) == {"task": "object_detection", "output_folder": tmp_path / "occlusion",
+                                      "split_sizes": {"test": 5000}, "number_workers": 2,
+                                      "maximum_object_intersection_over_union": 0.6,
+                                      "same_class_neighbour_probability": 0.5}
+
+    # Every split given, in another order than the one they are generated in
+    parsed_arguments = parse_synthetic_dataset_arguments(arguments=[
+        "--task", "classification", "--output_folder", "dataset", "--split_sizes", "test=30", "train=300",
+        "validation=30"])
+    assert list(parsed_arguments.split_sizes.items()) == [("train", 300), ("validation", 30), ("test", 30)]
+
+
+@pytest.mark.parametrize(argnames="arguments", argvalues=[
+    ["--output_folder", "dataset"],
+    ["--task", "classification"],
+    ["--task", "classification", "--output_folder", "dataset", "--split_sizes", "evaluation=30"],
+    ["--task", "classification", "--output_folder", "dataset", "--split_sizes", "train:300"],
+    ["--task", "classification", "--output_folder", "dataset", "--split_sizes", "train=many"],
+    ["--task", "classification", "--output_folder", "dataset", "--split_sizes", "train=0"],
+    ["--task", "classification", "--output_folder", "dataset", "--split_sizes", "train=300", "train=30"],
+    ["--task", "classification", "--output_folder", "dataset", "--split_sizes"],
+    ["--task", "classification", "--output_folder", "dataset", "--number_workers", "eight"],
+    ["--task", "classification", "--output_folder", "dataset", "--same_class_neighbour_probability", "half"]])
+def test_generator_refuses_missing_or_malformed_arguments(arguments: List[str], capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the generator stops with its usage and the error, before anything is drawn, when the task or the
+    folder is missing, a split pair names an unknown split, has no '=', a count that is not a whole number of at least
+    one sample or a split given twice, --split_sizes has no pair, or a number is not a number.
+
+    Args:
+        arguments (List[str]): The command line arguments.
+        capsys (pytest.CaptureFixture): The captured console output.
+    """
+    with pytest.raises(expected_exception=SystemExit) as exit_information:
+        parse_synthetic_dataset_arguments(arguments=arguments)
+    assert exit_information.value.code == 2
+    assert "error:" in capsys.readouterr().err
 
 
 def test_class_count_table_fits_the_panel_and_marks_the_empty_classes() -> None:

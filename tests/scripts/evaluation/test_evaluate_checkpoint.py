@@ -8,18 +8,24 @@ of every evaluated sample is turned on or off for the tasks writing one, the oth
 limit turns the error images on for the tasks saving them, a configuration without 'evaluation' section being refused.
 Another labelled split is evaluated into a folder of its own, a folder holding the evaluations of another split being
 refused, and a run without checkpoint, or a given iteration without one, stops the script before anything is written.
+The script prints its help when launched without arguments, reads every setting of evaluate_run from its command line,
+DEFAULT_EVALUATION_SETTINGS or None for those not given, and refuses a missing run folder or a value the evaluation
+does not accept before anything is loaded.
 """
 
+import inspect
 import json
 import pytest
 
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-from scripts.evaluation.evaluate_checkpoint import (apply_error_image_limit, apply_nms_criterion,
-                                                    apply_save_predictions, apply_target_precisions,
-                                                    apply_test_data_folder, check_evaluation_folder_split,
-                                                    list_evaluated_iterations, point_to_checkpoint_evaluation)
+from scripts.evaluation.evaluate_checkpoint import (DEFAULT_EVALUATION_SETTINGS, apply_error_image_limit,
+                                                    apply_nms_criterion, apply_save_predictions,
+                                                    apply_target_precisions, apply_test_data_folder,
+                                                    check_evaluation_folder_split, evaluate_run,
+                                                    list_evaluated_iterations, parse_evaluation_arguments,
+                                                    point_to_checkpoint_evaluation)
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.data_record import DATA_RECORD_FILE_NAME
 from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
@@ -29,6 +35,14 @@ from tests.trainers.test_base_trainer import build_dummy_trainer
 # Detection configuration of the run whose final NMS is replaced, set to the greedy NMS ("iou", exponent 1.0) of the
 # runs trained before DIoU-NMS was kept
 DETECTION_CONFIGURATION_PATH = "vision_training/configurations/object_detection/configuration_example.yaml"
+
+# Run folder given to the command line of the script, never read by the parser
+RUN_NAME = "CLS_TEST_MC3"
+
+# Every argument of the evaluation script, which its help must describe
+EVALUATION_SCRIPT_ARGUMENTS = ["--experiment_folder", "--iteration", "--test_data_folder", "--batch_size",
+                               "--track_evaluation", "--save_predictions", "--maximum_error_images_per_class_pair",
+                               "--target_precisions", "--nms_criterion", "--nms_distance_exponent"]
 
 
 def load_greedy_detection_configuration() -> Dict[str, Any]:
@@ -346,3 +360,90 @@ def test_evaluated_iterations_need_a_checkpoint_on_the_disk(tmp_path: Path) -> N
         get_checkpoint_file(weights_directory=weights_directory, iteration=iteration).unlink()
     with pytest.raises(expected_exception=FileNotFoundError, match="No checkpoint to evaluate"):
         list_evaluated_iterations(weights_directory=weights_directory, iteration="all")
+
+
+def test_evaluation_script_without_arguments_prints_its_help(capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the evaluation script launched without any argument prints the help of every one of its arguments
+    and stops without evaluating, instead of failing on the missing run folder.
+
+    Args:
+        capsys (pytest.CaptureFixture): The captured console output.
+    """
+    with pytest.raises(expected_exception=SystemExit) as exit_information:
+        parse_evaluation_arguments(arguments=[])
+    assert exit_information.value.code == 0
+    help_text = capsys.readouterr().out
+    assert [argument for argument in EVALUATION_SCRIPT_ARGUMENTS if argument not in help_text] == []
+
+
+def test_evaluation_arguments_default_to_the_evaluation_settings() -> None:
+    """
+    Verifies that the evaluation script given only the run folder evaluates its last checkpoint on its test split with
+    DEFAULT_EVALUATION_SETTINGS, every other setting None to keep the one of the run, and that the parsed arguments are
+    exactly the parameters of evaluate_run, so that the main block passes them all.
+    """
+    parsed_arguments = parse_evaluation_arguments(arguments=["--experiment_folder", RUN_NAME])
+    assert vars(parsed_arguments) == {"experiment_folder": Path(RUN_NAME), "iteration": None, "test_data_folder": None,
+                                      "track_evaluation": None, "save_predictions": None, "target_precisions": None,
+                                      "nms_criterion": None, "nms_distance_exponent": None,
+                                      **DEFAULT_EVALUATION_SETTINGS}
+    assert set(vars(parsed_arguments)) == set(inspect.signature(evaluate_run).parameters)
+
+
+@pytest.mark.parametrize(argnames=("arguments", "expected_settings"), argvalues=[
+    (["--iteration", "all", "--batch_size", "None", "--maximum_error_images_per_class_pair", "None",
+      "--track_evaluation", "False", "--save_predictions", "True", "--target_precisions", "0.95"],
+     {"iteration": "all", "batch_size": None, "maximum_error_images_per_class_pair": None, "track_evaluation": False,
+      "save_predictions": True, "target_precisions": 0.95}),
+    (["--iteration", "2000", "--batch_size", "64", "--maximum_error_images_per_class_pair", "10",
+      "--track_evaluation", "True", "--save_predictions", "False", "--target_precisions", "0.99", "0.95", "0.90",
+      "--nms_criterion", "distance_iou", "--nms_distance_exponent", "0.6"],
+     {"iteration": 2000, "batch_size": 64, "maximum_error_images_per_class_pair": 10, "track_evaluation": True,
+      "save_predictions": False, "target_precisions": [0.99, 0.95, 0.90], "nms_criterion": "distance_iou",
+      "nms_distance_exponent": 0.6})])
+def test_evaluation_arguments_reach_every_setting(arguments: List[str], expected_settings: Dict[str, Any],
+                                                  tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that every setting of evaluate_run can be given on the command line of the evaluation script: 'all' or a
+    number as iteration, 'None' keeping the batch size or the error images of the run, the words True and False, one
+    target precision given as a number and several as a list, and paths starting with a '~' the shell leaves after '='
+    expanded to the home folder.
+
+    Args:
+        arguments (List[str]): The command line arguments after the run folder and the split.
+        expected_settings (Dict[str, Any]): The parsed settings they give, the others keeping their defaults.
+        tmp_path (Path): The pytest temporary directory, standing for the home folder.
+        monkeypatch (pytest.MonkeyPatch): Sets the home folder.
+    """
+    monkeypatch.setenv(name="HOME", value=str(tmp_path))
+    parsed_arguments = parse_evaluation_arguments(arguments=[f"--experiment_folder=~/{RUN_NAME}",
+                                                             "--test_data_folder=~/synthetic_shapes/validation",
+                                                             *arguments])
+    assert vars(parsed_arguments) == {"experiment_folder": tmp_path / RUN_NAME,
+                                      "test_data_folder": tmp_path / "synthetic_shapes" / "validation",
+                                      "nms_criterion": None, "nms_distance_exponent": None, **expected_settings}
+
+
+@pytest.mark.parametrize(argnames="arguments", argvalues=[
+    ["--iteration", "all"],
+    ["--experiment_folder", RUN_NAME, "--nms_criterion", "soft_nms"],
+    ["--experiment_folder", RUN_NAME, "--iteration", "last"],
+    ["--experiment_folder", RUN_NAME, "--batch_size", "0"],
+    ["--experiment_folder", RUN_NAME, "--track_evaluation", "yes"],
+    ["--experiment_folder", RUN_NAME, "--target_precisions", "high"]])
+def test_evaluation_script_refuses_a_missing_run_or_unknown_values(arguments: List[str],
+                                                                  capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the evaluation script stops with its usage and the error, before anything is loaded, when the run
+    folder is missing or an iteration, an NMS criterion, a batch size, a boolean or a precision is not one the
+    evaluation accepts.
+
+    Args:
+        arguments (List[str]): The command line arguments.
+        capsys (pytest.CaptureFixture): The captured console output.
+    """
+    with pytest.raises(expected_exception=SystemExit) as exit_information:
+        parse_evaluation_arguments(arguments=arguments)
+    assert exit_information.value.code == 2
+    assert "error:" in capsys.readouterr().err

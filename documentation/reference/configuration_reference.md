@@ -105,11 +105,19 @@ Should a file still hold one of these removed settings, it is refused before any
 
 `Data.view_augmentation`, `ClassificationHead.view_losses` and `SegmentationDecoder.pretrained.load_class_layers` (renamed `class_layers`) are refused the same way.
 
-If one wishes to update older files, `scripts/configuration_processing/convert_fixed_settings.py` removes the fixed settings from the run folders and launch files of its main block. It adds the keys a task now requires, with the values its runs trained with (`ADDED_SECTIONS`, `ADDED_SETTINGS`, `RENAMED_SETTINGS`).
-- Each converted file is first copied to a backup named with the `backup_suffix` of the main block.
+If one wishes to update older files, `scripts/configuration_processing/convert_fixed_settings.py` removes the fixed settings from the run folders under its `--run_roots` and the launch files under its `--configuration_folders`, at least one folder being needed. It adds the keys a task now requires, with the values its runs trained with (`ADDED_SECTIONS`, `ADDED_SETTINGS`, `RENAMED_SETTINGS`).
+- Each converted file is first copied to a backup named with `--backup_suffix`, the latest suffix by default.
 - A file with another value than the fixed one is listed with the values its runs change to.
 - A setting the code no longer trains (`RECORD_ONLY_SETTINGS`) is reported and the file left as it is.
-- `write_files = False` only lists the files to convert.
+- Without `--write_files`, it only lists the files to convert.
+
+```bash
+# List the files to convert in a folder of runs and a launch folder
+uv run python -m scripts.configuration_processing.convert_fixed_settings --run_roots ~/Data/<runs> --configuration_folders vision_training/configurations/object_detection
+
+# Convert them, each copied to its backup first
+uv run python -m scripts.configuration_processing.convert_fixed_settings --run_roots ~/Data/<runs> --configuration_folders vision_training/configurations/object_detection --write_files
+```
 
 The figure shows a refused configuration.
 

@@ -3,15 +3,30 @@ Tests of scripts/evaluation/collect_experiment_results.py, which gathers the lau
 into the results file read by the experiment plans and their figures: the settings given as lists (the [layers,
 channels] of the mask heads and the backbone blocks of their skips in the instance segmentation experiment) group the
 launches by their values like the scalar settings, one mean row per setting, and are written to the file as they are
-in the configuration.
+in the configuration. The script prints its help when launched without arguments, reads the task, the experiment
+folder, the number of last evaluations and the results file from its command line, the folder of the task and its
+results.csv for those not given, refuses a missing task or an unknown value, and writes the results file its arguments
+name.
 """
 
 import csv
+import pytest
+import runpy
+import sys
+import yaml
 
 from pathlib import Path
+from torch.utils.tensorboard import SummaryWriter
 from typing import Any, Dict, List
 
-from scripts.evaluation.collect_experiment_results import build_result_rows, make_hashable, write_results
+from scripts.evaluation import collect_experiment_results
+from scripts.evaluation.collect_experiment_results import (DEFAULT_NUMBER_LAST_EVALUATIONS, RESULTS_FILE_NAME,
+                                                           TASK_EXPERIMENT_FOLDERS, TASK_METRIC_COLUMNS, TASK_METRICS,
+                                                           TASK_SWEPT_SETTINGS, build_result_rows, make_hashable,
+                                                           parse_collection_arguments, write_results)
+
+# Every argument of the collection script, which its help must describe
+COLLECTION_SCRIPT_ARGUMENTS = ["--task", "--experiment_folder", "--number_last_evaluations", "--output_path"]
 
 # Swept settings of the fake experiment: a scalar one, the convolutions of the mask heads and the skips of their
 # finer inputs, both lists, and the averaged weights flag every experiment reads
@@ -107,3 +122,119 @@ def test_results_file_writes_list_settings_as_in_the_configuration(tmp_path: Pat
     assert [row["mask_convolutions"] for row in written_rows] == ["[3, 32]"] * 3 + ["[4, 64]"] * 5
     assert [row["mask_skip_blocks_at_pool_size"] for row in written_rows] == ["[]"] * 6 + ["[4]"] * 2
     assert [row["mask_map_50_95_2000"] for row in written_rows][:3] == ["0.800000", "0.820000", "0.810000"]
+
+
+def test_collection_script_without_arguments_prints_its_help(capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the collection script launched without any argument prints the help of every one of its arguments
+    and stops without reading any launch, instead of failing on the missing task.
+
+    Args:
+        capsys (pytest.CaptureFixture): The captured console output.
+    """
+    with pytest.raises(expected_exception=SystemExit) as exit_information:
+        parse_collection_arguments(arguments=[])
+    assert exit_information.value.code == 0
+    help_text = capsys.readouterr().out
+    assert [argument for argument in COLLECTION_SCRIPT_ARGUMENTS if argument not in help_text] == []
+
+
+@pytest.mark.parametrize(argnames="task", argvalues=list(TASK_SWEPT_SETTINGS))
+def test_collection_arguments_default_to_the_folder_of_the_task(task: str) -> None:
+    """
+    Verifies that the collection script given only the task reads the experiment folder of the task in the
+    hyperparameter_experiments folder of the repository (TASK_EXPERIMENT_FOLDERS), averages the
+    DEFAULT_NUMBER_LAST_EVALUATIONS last evaluations and writes the RESULTS_FILE_NAME of that folder, and that every
+    task has its folder, metric and metric column.
+
+    Args:
+        task (str): The task of the experiment.
+    """
+    parsed_arguments = parse_collection_arguments(arguments=["--task", task])
+    assert vars(parsed_arguments) == {"task": task, "experiment_folder": TASK_EXPERIMENT_FOLDERS[task],
+                                      "number_last_evaluations": DEFAULT_NUMBER_LAST_EVALUATIONS,
+                                      "output_path": TASK_EXPERIMENT_FOLDERS[task] / RESULTS_FILE_NAME}
+    assert set(TASK_EXPERIMENT_FOLDERS) == set(TASK_METRICS) == set(TASK_METRIC_COLUMNS) == set(TASK_SWEPT_SETTINGS)
+    repository_folder = Path(collect_experiment_results.__file__).absolute().parents[2]
+    assert TASK_EXPERIMENT_FOLDERS[task].is_relative_to(repository_folder / "hyperparameter_experiments")
+
+
+def test_collection_arguments_reach_every_setting(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that every setting of the collection can be given on the command line, paths starting with a '~' the shell
+    leaves after '=' being expanded to the home folder, and that a given experiment folder without a results file
+    writes the RESULTS_FILE_NAME of that folder.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, standing for the home folder.
+        monkeypatch (pytest.MonkeyPatch): Sets the home folder.
+    """
+    monkeypatch.setenv(name="HOME", value=str(tmp_path))
+    parsed_arguments = parse_collection_arguments(arguments=[
+        "--task", "classification", "--experiment_folder=~/experiment", "--number_last_evaluations", "2",
+        "--output_path=~/stage_results.csv"])
+    assert vars(parsed_arguments) == {"task": "classification", "experiment_folder": tmp_path / "experiment",
+                                      "number_last_evaluations": 2, "output_path": tmp_path / "stage_results.csv"}
+    parsed_arguments = parse_collection_arguments(arguments=["--task", "object_detection",
+                                                             "--experiment_folder=~/experiment"])
+    assert parsed_arguments.output_path == tmp_path / "experiment" / RESULTS_FILE_NAME
+
+
+@pytest.mark.parametrize(argnames="arguments", argvalues=[
+    ["--experiment_folder", "experiment"],
+    ["--task", "instance_segmentation"],
+    ["--task", "classification", "--number_last_evaluations", "four"]])
+def test_collection_script_refuses_a_missing_task_or_unknown_values(arguments: List[str],
+                                                                    capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the collection script stops with its usage and the error, before any launch is read, when the task
+    is missing or is not one of TASK_SWEPT_SETTINGS, or the number of last evaluations is not a number.
+
+    Args:
+        arguments (List[str]): The command line arguments.
+        capsys (pytest.CaptureFixture): The captured console output.
+    """
+    with pytest.raises(expected_exception=SystemExit) as exit_information:
+        parse_collection_arguments(arguments=arguments)
+    assert exit_information.value.code == 2
+    assert "error:" in capsys.readouterr().err
+
+
+def test_collection_script_writes_the_results_file_of_its_arguments(tmp_path: Path,
+                                                                    monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that the main block of the collection script passes every argument to the collection: two launches of
+    the same settings of a detection experiment are written with their mean row and the mean of their last evaluation
+    to the results file of --output_path, nothing being written in the experiment folder.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, holding the experiment and the results file.
+        monkeypatch (pytest.MonkeyPatch): Sets the command line of the script.
+    """
+    # Two launches of the same settings, each with the configuration and the test curve of its run folder
+    experiment_folder = tmp_path / "experiment"
+    for launch_name, curve in [("run_1", {500: 0.25, 1000: 0.5}), ("run_2", {500: 0.75, 1000: 1.0})]:
+        run_folder = experiment_folder / launch_name / f"DET_{launch_name}"
+        run_folder.mkdir(parents=True)
+        configuration = {"ExperimentConfiguration": {"learning_rate": 0.001, "number_iterations": 1000},
+                         "Optimization": {"exponential_moving_average": {"activated": False}}}
+        (run_folder / "training_configuration.yaml").write_text(data=yaml.safe_dump(data=configuration),
+                                                                encoding="utf-8")
+        writer = SummaryWriter(log_dir=str(run_folder / "Tensorboard" / "Test"))
+        for iteration, value in curve.items():
+            writer.add_scalar(tag=TASK_METRICS["object_detection"], scalar_value=value, global_step=iteration)
+        writer.close()
+
+    # The script run as a module would run it, with every argument given
+    output_path = tmp_path / "stage_results.csv"
+    monkeypatch.setattr(target=sys, name="argv", value=[
+        collect_experiment_results.__file__, "--task", "object_detection", "--experiment_folder",
+        str(experiment_folder), "--number_last_evaluations", "1", "--output_path", str(output_path)])
+    runpy.run_path(path_name=collect_experiment_results.__file__, run_name="__main__")
+
+    with output_path.open(encoding="utf-8", newline="") as results_file:
+        written_rows = list(csv.DictReader(f=results_file))
+    assert [row["launch"] for row in written_rows] == ["run_1", "run_2", "mean"]
+    assert [row["map_50_95_last_1_mean"] for row in written_rows] == ["0.500000", "1.000000", "0.750000"]
+    assert [row["finished"] for row in written_rows] == ["True", "True", "True"]
+    assert not (experiment_folder / RESULTS_FILE_NAME).exists()

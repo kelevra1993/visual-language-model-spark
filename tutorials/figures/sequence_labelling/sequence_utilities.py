@@ -6,17 +6,14 @@ batched by its collate function, its checkpoint rebuilt on the CPU, the paramete
 the last evaluation block of an iteration read from Results.txt for the listings of the report scenes (its headline
 metrics read back between 0 and 1, whether the report wrote them as percentages or with decimals), and the frames of a
 sequence drawn as captioned thumbnails on the card colour of the videos, so that every figure shows the files and the
-code of the repository as they are. The settings typed in the main block of a script of the repository (the synthetic
-dataset generator, the split subset script) are read from its source, so that the narration quoting them follows the
-script, and the facts of the expensive figures are reused only when the previous build wrote every fact a series needs
-from the same run and the same unchanged files. A run read from the committed snapshots (tutorials/run_snapshots) reads
-its dataset files under datasets/ of the snapshot folder and reuses the committed facts of those figures as they are; a
-real run whose dataset folder was generated again after its training (labels.json files differing from the SHA-256
-its data.json recorded) reads those committed dataset files too (reads_committed_dataset), so that its figures show
-the sequences it was trained and evaluated on.
+code of the repository as they are. The facts of the expensive figures are reused only when the previous build wrote
+every fact a series needs from the same run and the same unchanged files. A run read from the committed snapshots
+(tutorials/run_snapshots) reads its dataset files under datasets/ of the snapshot folder and reuses the committed facts
+of those figures as they are; a real run whose dataset folder was generated again after its training (labels.json files
+differing from the SHA-256 its data.json recorded) reads those committed dataset files too (reads_committed_dataset),
+so that its figures show the sequences it was trained and evaluated on.
 """
 
-import ast
 import functools
 import hashlib
 import json
@@ -31,7 +28,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from tutorial_builder.layout import (CARD_COLOUR, DIM_TEXT_COLOUR, MONOSPACE_FONT_PATH, SANS_FONT_PATH,
                                      SANS_SEMIBOLD_FONT_PATH)
-from tutorial_builder.figure_context import find_repository_root, read_thread_count
+from tutorial_builder.figure_context import read_thread_count
 from tutorials.figures.figure_utilities import (compute_file_fingerprint, find_snapshot_root, is_snapshot_folder,
                                                 read_reused_facts, remap_recorded_dataset_paths, resolve_dataset_path)
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
@@ -463,49 +460,6 @@ def draw_figure_header(canvas: Image.Image, text: str, fonts: Dict[str, ImageFon
         fonts (Dict[str, ImageFont.FreeTypeFont]): The fonts of load_thumbnail_fonts.
     """
     ImageDraw.Draw(im=canvas).text(xy=(12, 14), text=text, fill=DIM_TEXT_COLOUR, font=fonts["monospace"])
-
-
-def read_main_block_settings(script_path: str, setting_names: List[str]) -> Dict[str, Any]:
-    """
-    Reads settings typed in the main block of a script of the repository (the `if __name__ == "__main__":` block of the
-    synthetic dataset generator or of the split subset script), every one a literal assigned to a plain name, from the
-    source of the script with ast.literal_eval and without running it, so that the narration quoting what the script
-    writes (split sizes, frame ranges, the size and seed of a subset) follows the script rather than a typed number.
-
-    Args:
-        script_path (str): The script, relative to the repository root, e.g.
-            "vision_training/data/synthetic/create_synthetic_dataset.py".
-        setting_names (List[str]): The names assigned in the main block, e.g. ["split_sizes", "maximum_frames"].
-
-    Returns:
-        Dict[str, Any]: The value of every setting, keyed by its name.
-
-    Raises:
-        ValueError: If the script has no main block, or a setting is not assigned a literal in it.
-    """
-    source_path = find_repository_root() / script_path
-    module = ast.parse(source=source_path.read_text(encoding="utf-8"), filename=str(source_path))
-
-    # The main block: an if statement comparing __name__ with "__main__" at the top level of the module
-    main_blocks = [statement for statement in module.body if isinstance(statement, ast.If) and
-                   ast.unparse(ast_obj=statement.test).replace("'", '"') == '__name__ == "__main__"']
-    if not main_blocks:
-        raise ValueError(f"No `if __name__ == \"__main__\":` block in {source_path}.")
-
-    # Every plain assignment of the block whose target is one of the settings, the last one winning
-    settings = {}
-    for statement in main_blocks[0].body:
-        if isinstance(statement, ast.Assign) and len(statement.targets) == 1 and \
-                isinstance(statement.targets[0], ast.Name) and statement.targets[0].id in setting_names:
-            try:
-                settings[statement.targets[0].id] = ast.literal_eval(node_or_string=statement.value)
-            except ValueError as error:
-                raise ValueError(f"The setting {statement.targets[0].id} of the main block of {source_path} is not a "
-                                 f"literal: {error}") from error
-    missing_names = [setting_name for setting_name in setting_names if setting_name not in settings]
-    if missing_names:
-        raise ValueError(f"The main block of {source_path} assigns no literal to {missing_names}.")
-    return settings
 
 
 def read_complete_reused_facts(facts_path: Path, required_paths: List[Path], required_fact_names: List[str],

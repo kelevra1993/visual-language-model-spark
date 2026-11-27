@@ -74,9 +74,9 @@ To find your way in the code, the table below maps each role to its file and mai
 ### Run It
 Suppose you want to train and evaluate an instance segmenter from nothing: these three commands do it.
 
-The dataset script writes 128,000 / 20,000 / 20,000 images of 512 pixels with 5 to 6 shapes, each segmented by a compressed RLE (`image_sizes`, `split_sizes`, `maximum_objects` of its main block). Shapes come from the 35 `SHAPE_CATEGORIES` (`MC35`; [tasks reference](../reference/tasks_reference.md#synthetic-datasets)); the runs below used 20 (`MC20`). Should you need the dataset of the finished INS benchmark, set the main block to 1024 pixels and 512,000 / 50,000 / 10,000 images of 5 to 12 shapes (`documentation/architecture_benchmarking/instance_segmentation_experiment_plan.md`); it is on this machine (35 classes, test cut to 10,000 images, 84,922 objects).
+The dataset script writes 128,000 / 20,000 / 20,000 images of 512 pixels with 5 to 6 shapes, each segmented by a compressed RLE (its `instance_segmentation` entries of `TASK_IMAGE_SIZES`, `TASK_SPLIT_SIZES`, `TASK_MAXIMUM_OBJECTS`). Shapes come from the 35 `SHAPE_CATEGORIES` (`MC35`; [tasks reference](../reference/tasks_reference.md#synthetic-datasets)); the runs below used 20 (`MC20`). Should you need the dataset of the finished INS benchmark, copy the `object_detection` entries of `TASK_IMAGE_SIZES` and `TASK_MAXIMUM_OBJECTS` (1024 pixels, 5 to 12 shapes) into the `instance_segmentation` ones, then add `--split_sizes train=512000 validation=50000 test=10000` (`documentation/architecture_benchmarking/instance_segmentation_experiment_plan.md`); it is on this machine (35 classes, test cut to 10,000 images, 84,922 objects).
 
-Before training, point the three data folders, `Data.label_mapping.mapping_file_path` and `experiment_folder` of the configuration to absolute paths. To evaluate again, set `run_name`, `experiment_folder`, `iteration` (`None` for the last, a number, or `"all"`), `test_data_folder`, `batch_size`, `track_evaluation` and `maximum_error_images_per_class_pair` in the main block of `scripts/evaluation/evaluate_checkpoint.py`; the optional settings are in Step 5.1. It writes in `<run>/Checkpoint_Evaluation/`.
+Before training, point the three data folders, `Data.label_mapping.mapping_file_path` and `experiment_folder` of the configuration to absolute paths. To evaluate again, only `--experiment_folder` of `scripts/evaluation/evaluate_checkpoint.py` is required; `--iteration` (the last checkpoint by default, a number, or `all`) and the other arguments are in Step 5.1, those of the run kept when not given. It writes in `<run>/Checkpoint_Evaluation/`.
 
 ```bash
 # Generate the synthetic instance segmentation dataset
@@ -85,8 +85,8 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=
 # Train with the synthetic configuration
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml"
 
-# Evaluate a checkpoint again
-uv run python -m scripts.evaluation.evaluate_checkpoint
+# Evaluate the last checkpoint again (run it without arguments for its help)
+uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder <run folder>
 ```
 
 ### Configuration Keys To Know First
@@ -913,10 +913,10 @@ MLflow writes `@` as `_at_`. `best_` keeps the best headline value, its iteratio
 > The examples come from the script on the 5000-iteration run (20 checkpoints) with `iteration = "all"`, `batch_size = 64`, `track_evaluation = False`, on the first 200 test images (709 annotations), in 25 minutes. Step 5.4 comes from a tracked evaluation of the CPU run. They predate the per-class recall intervals.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-The same script for every task (`classification_workflow.md`, Stage 5): set `run_name`, choose the iterations and run it. The main block settings work as listed below.
-- `maximum_error_images_per_class_pair = 100000` (default) turns error images on; `None` keeps `evaluation.error_dumps`.
-- `target_precisions` replaces the target precision by one value (no list for detection tasks).
-- `nms_criterion` and `nms_distance_exponent` replace the final NMS, e.g. `"distance_iou"` with 0.6, written to `<run>/Checkpoint_Evaluation_nms_<criterion>[_<exponent>]/` (`apply_nms_criterion()`); `None` keeps the run's.
+The same script for every task (`classification_workflow.md`, Stage 5): give the run folder as `--experiment_folder`, choose the iterations with `--iteration` and run it. Its arguments work as listed below.
+- `--maximum_error_images_per_class_pair` (`100000` by default) turns error images on; `None` keeps `evaluation.error_dumps`.
+- `--target_precisions` replaces the target precision by one value (no list for detection tasks).
+- `--nms_criterion` and `--nms_distance_exponent` replace the final NMS, e.g. `distance_iou` with 0.6, written to `<run>/Checkpoint_Evaluation_nms_<criterion>[_<exponent>]/` (`apply_nms_criterion()`); without them the run's is kept.
 
 ### Step 5.2 — trainer construction
 The trainer is built from the run's `training_configuration.yaml`, with the classes of its `label_dictionary.json`, writing in `<run>/Checkpoint_Evaluation/`.
@@ -924,7 +924,7 @@ The trainer is built from the run's `training_configuration.yaml`, with the clas
 The launch information then shows `Test Data Folder : test_reduced_200 (200 images, 709 annotations)`.
 
 ### Step 5.3 — `get_checkpoint_iterations()`
-With `iteration = "all"` it returns the 20 checkpoints from newest to oldest: `[5000, 4750, ..., 500, 250]`.
+With `--iteration all` it returns the 20 checkpoints from newest to oldest: `[5000, 4750, ..., 500, 250]`.
 
 ### Step 5.4 — `evaluate_checkpoints()` → `start_evaluation_tracking()`
 With tracking on, the evaluations go to their own MLflow run, `<run name>-evaluation`, tagged with the training run (`evaluation_of`, Step 3.3), the folder, test split and iterations.

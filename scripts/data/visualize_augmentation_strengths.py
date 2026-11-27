@@ -5,11 +5,15 @@ as the data loaders give them to the network, one figure per type holds the imag
 at the strengths of the supervised tasks (SUPERVISED_AUGMENTATION_STRENGTHS), then at those of the views of the
 self-supervised task (SELF_SUPERVISED_AUGMENTATION_STRENGTHS), the values drawn for each written under it. Two more
 figures explain the aspect ratio of the random resized crop of the views and the levels of the noise. Every figure is
-written as '<type>.png' in the output folder, the explanations as '<type>_..._explained.png' next to their type.
+written as '<type>.png' in the output folder, the explanations as '<type>_..._explained.png' next to their type. The
+split and the output folder are required arguments, the configuration, the number of images and the seed optional
+(DEFAULT_CONFIGURATION_PATH, DEFAULT_EXAMPLE_SETTINGS), the help being printed when no argument is given.
 """
 
+import argparse
 import math
 import random
+import sys
 
 import cv2
 import numpy as np
@@ -49,6 +53,13 @@ REGION_COLOURS = [(0, 0, 230), (0, 170, 0), (230, 0, 0)]
 # Noise levels explained, standard deviations in levels of the [0, 255] images, the columns of the levels of the
 # supervised tasks and of the views being named after them (name_noise_level)
 EXPLAINED_NOISE_LEVELS = [10.0, 20.0, 30.0, 40.0]
+
+# Configuration giving the input size, the padding and the black-out grid by default, the synthetic shapes classifier
+# of the repository, and the number of example images (one per row of every figure) and the seed of their choice and of
+# the draws by default
+DEFAULT_CONFIGURATION_PATH = (Path(__file__).absolute().parents[2] / "vision_training" / "configurations" /
+                              "classification" / "configuration_synthetic_shapes.yaml")
+DEFAULT_EXAMPLE_SETTINGS = {"number_images": 4, "seed": 0}
 
 
 def select_example_images(split_folder: Path, number_images: int, seed: int) -> List[Dict[str, Any]]:
@@ -440,18 +451,73 @@ def visualize_augmentation_strengths(configuration_path: Path, split_folder: Pat
     return written_paths
 
 
-if __name__ == "__main__":
-    # Configuration giving the input size, the padding and the black-out grid: the synthetic shapes classifier
-    configuration_path = (Path(__file__).absolute().parents[2] / "vision_training" / "configurations" /
-                          "classification" / "configuration_synthetic_shapes.yaml")
-    # Split the example images are chosen in, and the folder of the figures
-    split_folder = Path.home() / "Data" / "classifier_data" / "synthetic_shapes" / "validation"
-    output_folder = Path.home() / "Data" / "augmentation_examples" / "synthetic_shapes"
-    # Number of example images, one per row of every figure, and the seed of their choice and of the draws
-    number_images = 4
-    seed = 0
+def parse_augmentation_strengths_arguments(arguments: List[str]) -> argparse.Namespace:
+    """
+    Reads the settings of the augmentation figures from the command line of the script, so that the figures of a split
+    are written without editing the file: the split and the output folder are required, the configuration defaults to
+    DEFAULT_CONFIGURATION_PATH and the number of images and the seed to DEFAULT_EXAMPLE_SETTINGS. Launched without any
+    argument, the script prints the help of every argument and stops. A '~' left by the shell at the start of a path
+    ('--split_folder=~/Data/...') is expanded to the home folder.
 
-    written_paths = visualize_augmentation_strengths(configuration_path=configuration_path, split_folder=split_folder,
-                                                     output_folder=output_folder, number_images=number_images,
-                                                     seed=seed)
-    print_color(color="green", output=f"{len(written_paths)} figures written to {format_path_link(path=output_folder)}")
+    Args:
+        arguments (List[str]): The command line arguments, without the script name.
+
+    Returns:
+        argparse.Namespace: The arguments of visualize_augmentation_strengths.
+
+    Raises:
+        SystemExit: After printing the help when no argument is given, or the usage and the error when a folder is
+            missing or a number is not a whole number.
+    """
+    # The description and the example keep their line breaks, argparse wrapping the help of every argument
+    parser = argparse.ArgumentParser(
+        prog="uv run python -m scripts.data.visualize_augmentation_strengths",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Writes one figure per augmentation type, a few images of a split with the type applied alone at\n"
+                    "the supervised and the self-supervised strengths, and the figures explaining the crop aspect\n"
+                    "ratios and the noise levels.",
+        epilog="Example, the validation split of the synthetic shapes:\n"
+               "  uv run python -m scripts.data.visualize_augmentation_strengths \\\n"
+               "      --split_folder ~/Data/classifier_data/synthetic_shapes/validation \\\n"
+               "      --output_folder ~/Data/augmentation_examples/synthetic_shapes")
+    # The split the example images are chosen in, the folder of the figures and the configuration of the input
+    parser.add_argument("--split_folder", type=Path, required=True,
+                        help="Split the example images are chosen in, holding 'data/' and a 'labels.json' of "
+                             "samples with a category (required).")
+    parser.add_argument("--output_folder", type=Path, required=True,
+                        help="Folder of the figures, created if missing, the figures of a previous run being replaced "
+                             "(required).")
+    parser.add_argument("--configuration_path", type=Path, default=DEFAULT_CONFIGURATION_PATH,
+                        help="Configuration giving Data.image_settings and Data.data_augmentation (default: the "
+                             "synthetic shapes classifier of the repository, "
+                             "classification/configuration_synthetic_shapes.yaml of vision_training/configurations).")
+    # The number of example images and the seed of their choice and of the draws
+    parser.add_argument("--number_images", type=int, default=DEFAULT_EXAMPLE_SETTINGS["number_images"],
+                        help="Number of example images, one per row of every figure (default: %(default)s).")
+    parser.add_argument("--seed", type=int, default=DEFAULT_EXAMPLE_SETTINGS["seed"],
+                        help="Seed of the choice of the images and of the draws (default: %(default)s).")
+
+    # Without any argument, the script describes its arguments instead of failing on the missing folders
+    if not arguments:
+        parser.print_help()
+        parser.exit(status=0)
+    parsed_arguments = parser.parse_args(args=arguments)
+
+    # A '~' the shell leaves after '=' points to the home folder, as in the other scripts of the repository
+    for path_name in ["split_folder", "output_folder", "configuration_path"]:
+        setattr(parsed_arguments, path_name, getattr(parsed_arguments, path_name).expanduser())
+    return parsed_arguments
+
+
+if __name__ == "__main__":
+    # Split, output folder, configuration, number of images and seed read from the command line, the help printed when
+    # none is given
+    figure_arguments = parse_augmentation_strengths_arguments(arguments=sys.argv[1:])
+
+    written_paths = visualize_augmentation_strengths(configuration_path=figure_arguments.configuration_path,
+                                                     split_folder=figure_arguments.split_folder,
+                                                     output_folder=figure_arguments.output_folder,
+                                                     number_images=figure_arguments.number_images,
+                                                     seed=figure_arguments.seed)
+    print_color(color="green", output=f"{len(written_paths)} figures written to "
+                                      f"{format_path_link(path=figure_arguments.output_folder)}")

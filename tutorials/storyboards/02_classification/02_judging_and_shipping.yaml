@@ -232,9 +232,10 @@ scenes:
     page: diagram
     title: "Figures of a research report"
     code_reference: "scripts/evaluation/draw_report_figures.py · draw_report_figures"
-    # The training curves drawn by draw_training_curves_figure of the script for the kept checkpoint of its main block,
-    # and the accuracies of its confusion matrix (tutorials/figures/classification/report_figures.py); the
-    # precision-recall figure is named, not shown, since it needs the class_logits.npz the snapshots leave out
+    # The training curves drawn by draw_training_curves_figure of the script for the last evaluated checkpoint of the
+    # run with its default weights, and the accuracies of its confusion matrix
+    # (tutorials/figures/classification/report_figures.py); the precision-recall figure is named, not shown, since it
+    # needs the class_logits.npz the snapshots leave out
     elements:
       - {type: text, position: [20, 24], text: "draw_report_figures.py → <run>/Checkpoint_Evaluation/Iteration_<n>[/EMA]/Report_Figures/", font: diagram_monospace_small, colour: dim}
       - {type: image, path: "figures:classification/report/training_curves.png", box: [20, 80, 1060, 565], border: border, caption: "training_curves.png · iteration {{classification.report.iteration}}, {{classification.report.weights}} weights", highlight: [3]}
@@ -243,7 +244,7 @@ scenes:
       - {type: box, box: [1120, 420, 1740, 565], text: "report_values.json\nevery number shown, for the tables\nkept balanced accuracy in training: {{classification.report.kept_balanced_accuracy:percent}}", font: diagram_small, outline: yellow, appear: 3, highlight: [3]}
       - {type: text, position: [880, 690], text: "every input read and checked before the first figure: a wrong input writes nothing", font: diagram_small, colour: dim, anchor: mm}
     narration:
-      - "Once the temperature of the export is saved, the draw report figures script redraws the figures of a research report from the run folder, for the kept checkpoint its main block names."
+      - "Once the temperature of the export is saved, the draw report figures script redraws the figures of a research report from the run folder, for the kept checkpoint its iteration and weights arguments name."
       - "Its confusion matrix writes the accuracy and the balanced accuracy in its title, {{classification.report.accuracy:percent}} and {{classification.report.balanced_accuracy:percent}} at iteration {{classification.report.iteration}}."
       - "Its precision recall curves score the images at the saved temperature, one when none was saved, and write the threshold of every target precision next to its point."
       - "Its training curves ring the kept checkpoint on the balanced accuracy of every evaluation of the training, and report values json keeps every number shown, for the tables of the report."

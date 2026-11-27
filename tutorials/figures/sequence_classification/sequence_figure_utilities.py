@@ -13,9 +13,7 @@ configuration with random weights, and the checkpoint sizes the narration quotes
 Weights folder the snapshot holds.
 """
 
-import ast
 import csv
-import inspect
 import json
 import re
 import shutil
@@ -36,7 +34,6 @@ from tutorial_builder.layout import (CARD_COLOUR, DIM_TEXT_COLOUR, MONOSPACE_FON
                                      SANS_BOLD_FONT_PATH, SANS_FONT_PATH, TERMINAL_COLOUR, TEXT_COLOUR)
 from tutorial_builder.figure_context import find_sources_file, read_thread_count
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
-from vision_training.data.synthetic import create_synthetic_dataset
 from vision_training.models.model_loading import load_trained_model
 from vision_training.models.model_registry import MODEL_DTYPE, TASK_MODEL_CLASSES
 from vision_training.models.task_model import TaskModel
@@ -587,38 +584,6 @@ def extract_launch_block(log_path: Path, last_line_start: str) -> List[str]:
     if end_index is None:
         raise ValueError(f"No line starting with {last_line_start!r} after the launch information of {log_path}.")
     return lines[heading_index:end_index + 1]
-
-
-def read_generator_setting(setting_name: str, task: str) -> Any:
-    """
-    Reads a setting of the main block of the synthetic generator
-    (vision_training/data/synthetic/create_synthetic_dataset.py), a dictionary keyed by task assigned under
-    `if __name__ == "__main__":`, from the source of the module with ast.literal_eval, without running it, so that the
-    facts of the current generator (the size and the range of frames of its sequences) follow the script.
-
-    Args:
-        setting_name (str): The name of the dictionary in the main block, e.g. "image_sizes".
-        task (str): The task whose entry is read.
-
-    Returns:
-        Any: The value of the task in that dictionary.
-
-    Raises:
-        ValueError: If the main block assigns no literal dictionary of that name holding the task.
-    """
-    tree = ast.parse(source=Path(inspect.getsourcefile(create_synthetic_dataset)).read_text(encoding="utf-8"))
-    for node in tree.body:
-        # The main block, then its assignments of a single name
-        if not (isinstance(node, ast.If) and "__main__" in ast.unparse(node.test)):
-            continue
-        for statement in node.body:
-            if isinstance(statement, ast.Assign) and len(statement.targets) == 1 and \
-                    isinstance(statement.targets[0], ast.Name) and statement.targets[0].id == setting_name:
-                setting = ast.literal_eval(node_or_string=statement.value)
-                if task not in setting:
-                    raise ValueError(f"The setting {setting_name} of the generator has no entry for {task}.")
-                return setting[task]
-    raise ValueError(f"No literal setting {setting_name} in the main block of the synthetic generator.")
 
 
 # Words of the small numbers, which the voice reads and the speech recognition writes as words, so that the narration

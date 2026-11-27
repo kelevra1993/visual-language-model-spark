@@ -77,8 +77,8 @@ scenes:
       - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=classification --output_folder=~/Data/classifier_data/synthetic_shapes"}
       - {role: comment, text: "# SimCLR on the synthetic shapes: data folders and label mapping set in the file"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml\""}
-      - {role: comment, text: "# The checkpoints scored again: run and iteration set in its main block"}
-      - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
+      - {role: comment, text: "# The checkpoints scored again: the run folder and the iteration as arguments"}
+      - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder=<run folder>"}
     narration:
       - "The synthetic configuration reads the shapes data set of the classifier, so the generator runs with classification as its task argument; given self supervised, it draws the counted shapes of the SimCLR and Barlow Twins counted shapes configurations instead."
       - "The training takes the self-supervised configuration, and the standalone evaluation scores its checkpoints again, as the last chapter shows."

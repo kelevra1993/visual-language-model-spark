@@ -53,17 +53,17 @@ Whenever a part of the task has to change, this table gives the file holding it 
 | Export and deployment | `vision_training/deployment/export_model.py`, `frame_selection_deployment.py`, `frame_selection_decoder_backend.py`, `deployment_utilities.py` | `export_experiment`, `install_staged_models`, `build_decoding_settings`, `find_class_thresholds_path`, `export_frame_selection_decoding`, `TritonPythonModel` of the decoder |
 
 ### Run It
-In order to generate the dataset, then train, evaluate and export the task, set the main blocks and the configuration, then run these commands from the repository root.
+In order to generate the dataset, then train, evaluate and export the task, set the configuration, then run these commands from the repository root.
 
 ```bash
-# Generate 2,000 / 200 / 200 sequences of 4 to 12 frames of 256 pixels, one shape per frame
+# Generate 2,000 / 200 / 200 sequences of 4 to 12 frames of 256 pixels, one shape per frame (other sizes with --split_sizes)
 uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=frame_selection --output_folder="$HOME/Data/sequence_data/synthetic_selected_shapes"
 
 # Train, after setting experiment_folder, the three data folders and Data.label_mapping.mapping_file_path
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml"
 
-# Evaluate checkpoints into <run>/Checkpoint_Evaluation/; target_precisions is None or a single number for this task
-uv run python -m scripts.evaluation.evaluate_checkpoint
+# Evaluate every checkpoint into <run>/Checkpoint_Evaluation/; --target_precisions takes a single number for this task
+uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder <run folder> --iteration all
 
 # Export the networks, the decoder and the ensembles (run it without arguments for its help)
 uv run python -m vision_training.deployment.export_model --experiment_folder <run folder> --iteration <iteration>

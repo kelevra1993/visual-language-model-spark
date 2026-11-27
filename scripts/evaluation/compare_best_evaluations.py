@@ -2,17 +2,20 @@
 When run, compares the best test evaluation of several trained runs (vision_training/main.py) in Markdown tables, e.g.
 the same dataset trained at two image sizes or two datasets trained with the same settings: for every run folder of a
 list of experiment folders, the evaluation with the best value of a chosen test curve over the trained weights
-(Tensorboard/Test) and the averaged weights (Tensorboard/Test_EMA), with the columns set in their order in the main
-block: the curves at that evaluation (global metrics, and per-class metrics expanded to one column per class), the
-settings of its training_configuration.yaml (the image size, the learning rate), and the totals and per-class counts of
-its splits read from its data.json (recomputed from the labels.json of the splits for the runs written before the
-classes were counted, after checking that the labels did not change since the run). The curves that are rates, every
-test curve but the ranks, standard deviations, proposal counts and pixel errors of NON_RATE_CURVE_NAMES, are written
-as the percentages of the reports ("94.03 %"); the others keep their decimals.
+(Tensorboard/Test) and the averaged weights (Tensorboard/Test_EMA), with the columns given in their order: the curves
+at that evaluation (global metrics, and per-class metrics expanded to one column per class), the settings of its
+training_configuration.yaml (the image size, the learning rate), and the totals and per-class counts of its splits read
+from its data.json (recomputed from the labels.json of the splits for the runs written before the classes were
+counted, after checking that the labels did not change since the run). The curves that are rates, every test curve but
+the ranks, standard deviations, proposal counts and pixel errors of NON_RATE_CURVE_NAMES, are written as the
+percentages of the reports ("94.03 %"); the others keep their decimals. Run as a script, the experiment folders and the
+settings of the tables given as arguments (parse_comparison_arguments), its help printed when none is given.
 """
 
+import argparse
 import hashlib
 import re
+import sys
 import yaml
 
 from pathlib import Path
@@ -50,6 +53,19 @@ TABLE_GROUPINGS = ["run", "columns"]
 # error of the keypoints
 NON_RATE_CURVE_NAMES = {"Mean True Frame Rank", "Effective Rank", "Representation Standard Deviation",
                         "Proposals Per Image", "Keypoint Accuracy/Mean Keypoint Error (pixels)"}
+
+# Test curve choosing the best evaluation when the command line gives none, and the columns of the tables when it gives
+# none, the chosen curve taking the place of DEFAULT_BEST_METRIC: the image size, the best iteration, the curve, the
+# recall of every class and the validation and training images, in total and per class
+DEFAULT_BEST_METRIC = "Balanced Accuracy"
+DEFAULT_COLUMNS = ["configuration:Data.image_settings.size", "best_iteration", DEFAULT_BEST_METRIC, "Recall/{class}",
+                   "validation_images", "validation_images/{class}", "train_images", "train_images/{class}"]
+
+# Titles of the default columns not titled by themselves, {class} being replaced by the class name
+DEFAULT_COLUMN_TITLES = {"configuration:Data.image_settings.size": "Image Size", "best_iteration": "Best Iteration",
+                         "Recall/{class}": "Recall {class}", "validation_images": "Validation Images",
+                         "validation_images/{class}": "Validation {class}", "train_images": "Train Images",
+                         "train_images/{class}": "Train {class}"}
 
 
 def find_run_folders(experiment_folders: List[Path]) -> List[Path]:
@@ -424,53 +440,138 @@ def compare_best_evaluations(experiment_folders: List[Path], best_metric: str, h
     return "\n\n".join(markdown_tables)
 
 
-if __name__ == "__main__":
-    repository_folder = Path(__file__).absolute().parents[2]
-    # Experiment folders (the 'experiment_folder' of the configurations) whose run folders are compared, or run folders,
-    # here the synthetic shapes classifier trained at four learning rates, told apart by their run name suffix
-    run_name = "CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9"
-    experiment_folders = [repository_folder / "experiments" / "readme_screenshots" / f"{run_name}{suffix}"
-                          for suffix in ["", "_lr-0.001", "_lr-0.0005", "_lr-0.0001"]]
-    # Test curve choosing the best evaluation of every run, one of the scalars of Tensorboard/Test, e.g. "Accuracy",
-    # "Balanced Accuracy" or "Macro F1" for the classification, and True when a higher value is better
-    best_metric = "Balanced Accuracy"
-    higher_is_better = True
-    # Weights whose evaluations compete for the best: "trained" (Tensorboard/Test) and "ema" (Tensorboard/Test_EMA, for
-    # the runs keeping a moving average of their weights), the best iteration ending with ' (EMA)' when they win
-    evaluated_weights = ["trained", "ema"]
-    # Columns of the tables, in their order of appearance:
-    # - "experiment", "run": the experiment folder and the run folder; "best_iteration": the best evaluated iteration
-    # - a test curve at the best evaluation, e.g. "Accuracy", "Balanced Accuracy", "Macro F1", "Recall/{class}",
-    #   "Precision/{class}", "F1/{class}", {class} giving one column per class of the run having the curve
-    # - "configuration:<keys joined by dots>": a setting of training_configuration.yaml, e.g.
-    #   "configuration:Data.image_settings.size", "configuration:ExperimentConfiguration.learning_rate"
-    # - "<split>_<unit>" and "<split>_<unit>/{class}": the total and the per-class counts of a split from data.json,
-    #   the split being train, validation or test and the unit images (classification, self-supervised, semantic
-    #   segmentation, detection tasks), annotations (detection tasks), sequences (sequence classification), frames
-    #   (sequence labelling, frame selection) or pairs (sequence comparison)
-    columns = ["configuration:Data.image_settings.size", "best_iteration", best_metric, "Recall/{class}",
-               "validation_images", "validation_images/{class}", "train_images", "train_images/{class}"]
-    # Titles of the columns not titled by themselves, {class} being replaced by the class name
-    column_titles = {"configuration:Data.image_settings.size": "Image Size", "best_iteration": "Best Iteration",
-                     "Recall/{class}": "Recall {class}", "validation_images": "Validation Images",
-                     "validation_images/{class}": "Validation {class}", "train_images": "Train Images",
-                     "train_images/{class}": "Train {class}"}
-    # "run" for one table per run, "columns" for one table gathering the runs of the same column titles (same classes)
-    table_grouping = "run"
-    # Whether the curves that are rates are written as the percentages of the reports ("94.03 %"), and the number of
-    # decimals of the other curves (the ranks, deviations, counts and errors of NON_RATE_CURVE_NAMES, or every curve
-    # when curves_in_percent is False)
-    curves_in_percent = True
-    number_decimals = 3
-    # Markdown file receiving the tables, None to only print them
-    output_path = None
+def read_key_value_argument(value: str) -> Tuple[str, str]:
+    """
+    Splits a 'KEY=VALUE' command line argument at its first '=', the form in which the evaluation scripts take a
+    mapping (the column titles of the comparison tables, the names shown for the classes of the report figures), so
+    that a value may hold spaces and '=' once quoted by the shell.
 
-    markdown_text = compare_best_evaluations(experiment_folders=experiment_folders, best_metric=best_metric,
-                                             higher_is_better=higher_is_better, evaluated_weights=evaluated_weights,
-                                             columns=columns, column_titles=column_titles,
-                                             table_grouping=table_grouping, number_decimals=number_decimals,
-                                             curves_in_percent=curves_in_percent)
+    Args:
+        value (str): The text given on the command line, e.g. 'Recall/{class}=Recall {class}'.
+
+    Returns:
+        Tuple[str, str]: The key and the value.
+
+    Raises:
+        argparse.ArgumentTypeError: If the text has no '=' or an empty key or value, argparse then stopping with the
+            usage and the error.
+    """
+    key, separator, mapped_value = value.partition("=")
+    if not separator or not key or not mapped_value:
+        raise argparse.ArgumentTypeError(f"expected KEY=VALUE, got {value!r}")
+    return key, mapped_value
+
+
+def parse_comparison_arguments(arguments: List[str]) -> argparse.Namespace:
+    """
+    Reads the runs to compare and the settings of the comparison tables from the command line of the script, so that
+    runs are compared without editing the file: the experiment folders are required, the other settings default to
+    DEFAULT_BEST_METRIC, DEFAULT_COLUMNS (the chosen best metric taking the place of DEFAULT_BEST_METRIC) and
+    DEFAULT_COLUMN_TITLES, a title given replacing that of its column only. Launched without any argument, the script prints the help of every argument and stops. A '~'
+    left by the shell at the start of a path ('--output_path=~/tables.md') is expanded to the home folder.
+
+    Args:
+        arguments (List[str]): The command line arguments, without the script name.
+
+    Returns:
+        argparse.Namespace: The arguments of compare_best_evaluations, with output_path.
+
+    Raises:
+        SystemExit: After printing the help when no argument is given, or the usage and the error when the experiment
+            folders are missing, a value is not one the comparison accepts or a column is given two titles.
+    """
+    # The description and the example keep their line breaks, argparse wrapping the help of every argument
+    parser = argparse.ArgumentParser(
+        prog="uv run python -m scripts.evaluation.compare_best_evaluations",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Prints Markdown tables comparing the best test evaluation of trained runs, over their trained\n"
+                    "and averaged weights, with test curves, settings and image counts as columns.",
+        epilog="Example, every run of an experiment folder, one table for the runs of the same classes:\n"
+               "  uv run python -m scripts.evaluation.compare_best_evaluations \\\n"
+               "      --experiment_folders ~/Data/<experiments> --table_grouping columns")
+    # The runs compared, and the evaluation kept for every run
+    parser.add_argument("--experiment_folders", type=Path, nargs="+", required=True,
+                        help="Experiment folders (the 'experiment_folder' of the configurations), whose subfolders "
+                             "holding a training_configuration.yaml are compared, or run folders (required).")
+    parser.add_argument("--best_metric", default=DEFAULT_BEST_METRIC,
+                        help="Test curve choosing the best evaluation of every run, a scalar of Tensorboard/Test, e.g. "
+                             "'Accuracy' or 'Macro F1' (default: %(default)s).")
+    parser.add_argument("--lower_is_better", dest="higher_is_better", action="store_false",
+                        help="Keep the lowest value of the curve, for a loss (default: the highest).")
+    parser.add_argument("--evaluated_weights", nargs="+", choices=list(TEST_FOLDERS), default=list(TEST_FOLDERS),
+                        help="Weights whose evaluations compete: trained (Tensorboard/Test) and ema "
+                             "(Tensorboard/Test_EMA), a win of the averaged weights marked ' (EMA)' (default: "
+                             f"{' '.join(TEST_FOLDERS)}).")
+    # The columns of the tables and their titles
+    parser.add_argument("--columns", nargs="+", default=None,
+                        help="Columns in their order: experiment, run, best_iteration; a test curve, '{class}' giving "
+                             "one column per class having it ('Recall/{class}'); 'configuration:<keys joined by "
+                             "dots>', a setting of training_configuration.yaml; '<split>_<unit>' or "
+                             "'<split>_<unit>/{class}', a count of data.json, the split train, validation or test and "
+                             "the unit images, annotations, sequences, frames or pairs (default: the image size, "
+                             "best_iteration, the best metric, Recall/{class}, and validation_images and train_images "
+                             "in total and per class, DEFAULT_COLUMNS).")
+    parser.add_argument("--column_titles", type=read_key_value_argument, nargs="+", default=None,
+                        metavar="COLUMN=TITLE",
+                        help="Titles of the columns not titled by themselves, '{class}' replaced by the class name, "
+                             "e.g. 'Recall/square=Recall square', each replacing the title of its column only "
+                             "(default: the titles of the default columns, DEFAULT_COLUMN_TITLES).")
+    parser.add_argument("--table_grouping", choices=TABLE_GROUPINGS, default="run",
+                        help="run for one table per run, columns for one table gathering the runs of the same column "
+                             "titles, the same classes (default: %(default)s).")
+    # How the values are written, and where the tables go
+    parser.add_argument("--number_decimals", type=int, default=3,
+                        help="Decimals of the curves that are not rates (ranks, deviations, counts and errors of "
+                             "NON_RATE_CURVE_NAMES), of every curve with --rates_as_decimals (default: %(default)s).")
+    parser.add_argument("--rates_as_decimals", dest="curves_in_percent", action="store_false",
+                        help="Write the curves that are rates with --number_decimals decimals instead of as the "
+                             "percentages of the reports ('94.03 %%').")
+    parser.add_argument("--output_path", type=Path, default=None,
+                        help="Markdown file receiving the tables (default: the tables are only printed).")
+
+    # Without any argument, the script describes its arguments instead of failing on the missing experiment folders
+    if not arguments:
+        parser.print_help()
+        parser.exit(status=0)
+    parsed_arguments = parser.parse_args(args=arguments)
+
+    # A '~' the shell leaves after '=' points to the home folder, as in the other scripts of the repository
+    parsed_arguments.experiment_folders = [experiment_folder.expanduser()
+                                           for experiment_folder in parsed_arguments.experiment_folders]
+    if parsed_arguments.output_path is not None:
+        parsed_arguments.output_path = parsed_arguments.output_path.expanduser()
+
+    # Default columns with the chosen best metric
+    if parsed_arguments.columns is None:
+        parsed_arguments.columns = [parsed_arguments.best_metric if column == DEFAULT_BEST_METRIC else column
+                                    for column in DEFAULT_COLUMNS]
+
+    # Default titles, the titles given replacing those of their columns only, a column given two titles being refused
+    column_titles = dict(DEFAULT_COLUMN_TITLES)
+    if parsed_arguments.column_titles is not None:
+        given_titles = dict(parsed_arguments.column_titles)
+        if len(given_titles) != len(parsed_arguments.column_titles):
+            parser.error(message="argument --column_titles: a column is given two titles")
+        column_titles.update(given_titles)
+    parsed_arguments.column_titles = column_titles
+    return parsed_arguments
+
+
+if __name__ == "__main__":
+    # Experiment folders and settings of the tables read from the command line, the help printed when none is given
+    comparison_arguments = parse_comparison_arguments(arguments=sys.argv[1:])
+
+    markdown_text = compare_best_evaluations(
+        experiment_folders=comparison_arguments.experiment_folders, best_metric=comparison_arguments.best_metric,
+        higher_is_better=comparison_arguments.higher_is_better,
+        evaluated_weights=comparison_arguments.evaluated_weights, columns=comparison_arguments.columns,
+        column_titles=comparison_arguments.column_titles, table_grouping=comparison_arguments.table_grouping,
+        number_decimals=comparison_arguments.number_decimals,
+        curves_in_percent=comparison_arguments.curves_in_percent)
+
+    # Tables printed, and written to the Markdown file when one is given
     print(markdown_text)
+    output_path = comparison_arguments.output_path
     if output_path is not None:
-        Path(output_path).write_text(data=markdown_text + "\n", encoding="utf-8")
-        print_color(color="green", output=f"Tables written to {format_path_link(path=Path(output_path))}")
+        output_path.write_text(data=markdown_text + "\n", encoding="utf-8")
+        print_color(color="green", output=f"Tables written to {format_path_link(path=output_path)}")

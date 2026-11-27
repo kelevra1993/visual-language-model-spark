@@ -3,9 +3,12 @@ Tests of vision_training/data/classification/imagenet_download.py on small files
 network: the Hugging Face client settings, the retried shard download, a fake ImageNet-22k shard written with its
 original bytes into the train split, the free space stop, the split rule, the split moving the images from wherever they
 sit, the checks, manifests (validation equal to test) and summary built from the stored images, and the class folder
-manifests read by the classification dataset.
+manifests read by the classification dataset. The download script prints its help when launched without arguments,
+reads every setting of download_imagenet_22k from its command line, DEFAULT_DOWNLOAD_SETTINGS for those not given, and
+refuses a missing dataset folder, an unknown value or held-out images that could empty a class before any download.
 """
 
+import inspect
 import io
 import json
 import tarfile
@@ -23,9 +26,17 @@ from typing import Any, Dict, List
 from vision_training.data.classification import imagenet_download
 from vision_training.data.classification.classification_dataset import ClassificationDataset
 from vision_training.data.classification.imagenet_download import (
-    build_imagenet_22k_splits, choose_held_out_file_names, compute_file_name_hash, configure_hugging_face_downloads,
-    download_shard, is_transient_download_error, process_imagenet_22k_shard, run_tasks_with_free_space_check,
-    split_imagenet_22k_images, write_class_folder_manifests, write_records)
+    DEFAULT_DOWNLOAD_SETTINGS, build_imagenet_22k_splits, choose_held_out_file_names, compute_file_name_hash,
+    configure_hugging_face_downloads, download_imagenet_22k, download_shard, is_transient_download_error,
+    parse_download_arguments, process_imagenet_22k_shard, run_tasks_with_free_space_check, split_imagenet_22k_images,
+    write_class_folder_manifests, write_records)
+
+# Every argument of the download script, which its help must describe
+DOWNLOAD_SCRIPT_ARGUMENTS = ["--dataset_folder", "--minimum_free_gigabytes", "--held_out_images_per_class",
+                             "--minimum_held_out_class_size", "--number_workers"]
+
+# Dataset folder given to the parser tests of the script, which download nothing
+SCRIPT_DATASET_FOLDER = "imagenet-22k"
 
 
 class ScriptedDownload:
@@ -403,3 +414,75 @@ def test_write_class_folder_manifests(tmp_path: Path) -> None:
                                     keep_ratio=True, label_dictionary={1: 0, 2: 1}, output_mode="multi_class",
                                     shuffle=False)
     assert [int(dataset[sample_index]["labels"]) for sample_index in range(len(dataset))] == [0, 1, 1]
+
+
+def test_download_script_without_arguments_prints_its_help(capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the download script launched without any argument prints the help of every one of its arguments
+    and stops, so that a bare launch never starts the 1.3 TB download.
+
+    Args:
+        capsys (pytest.CaptureFixture): The captured console output.
+    """
+    with pytest.raises(expected_exception=SystemExit) as exit_information:
+        parse_download_arguments(arguments=[])
+    assert exit_information.value.code == 0
+    help_text = capsys.readouterr().out
+    assert [argument for argument in DOWNLOAD_SCRIPT_ARGUMENTS if argument not in help_text] == []
+
+
+def test_download_arguments_default_to_the_download_settings() -> None:
+    """
+    Verifies that the download script given only the dataset folder takes DEFAULT_DOWNLOAD_SETTINGS (the values the
+    foundations tutorial quotes), and that the parsed arguments are exactly the parameters of download_imagenet_22k,
+    so that the main block passes them all.
+    """
+    parsed_arguments = parse_download_arguments(arguments=["--dataset_folder", SCRIPT_DATASET_FOLDER])
+    assert vars(parsed_arguments) == {"dataset_folder": Path(SCRIPT_DATASET_FOLDER), **DEFAULT_DOWNLOAD_SETTINGS}
+    assert set(vars(parsed_arguments)) == set(inspect.signature(download_imagenet_22k).parameters)
+
+
+def test_download_arguments_reach_every_setting(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that every setting of download_imagenet_22k can be given on the command line of the download script, a
+    dataset folder starting with a '~' the shell leaves after '=' being expanded to the home folder.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, standing for the home folder.
+        monkeypatch (pytest.MonkeyPatch): Sets the home folder.
+    """
+    monkeypatch.setenv(name="HOME", value=str(tmp_path))
+    parsed_arguments = parse_download_arguments(arguments=[
+        f"--dataset_folder=~/{SCRIPT_DATASET_FOLDER}", "--minimum_free_gigabytes", "250.5",
+        "--held_out_images_per_class", "2", "--minimum_held_out_class_size", "20", "--number_workers", "4"])
+    assert vars(parsed_arguments) == {"dataset_folder": tmp_path / SCRIPT_DATASET_FOLDER,
+                                      "minimum_free_gigabytes": 250.5, "held_out_images_per_class": 2,
+                                      "minimum_held_out_class_size": 20, "number_workers": 4}
+
+
+@pytest.mark.parametrize(argnames=("arguments", "error_text"), argvalues=[
+    (["--number_workers", "4"], "the following arguments are required: --dataset_folder"),
+    (["--dataset_folder", SCRIPT_DATASET_FOLDER, "--minimum_free_gigabytes", "lots"],
+     "argument --minimum_free_gigabytes: invalid float value"),
+    (["--dataset_folder", SCRIPT_DATASET_FOLDER, "--number_workers", "many"],
+     "argument --number_workers: invalid int value"),
+    (["--dataset_folder", SCRIPT_DATASET_FOLDER, "--held_out_images_per_class", "0"],
+     "--held_out_images_per_class must be at least 1 and below --minimum_held_out_class_size"),
+    (["--dataset_folder", SCRIPT_DATASET_FOLDER, "--held_out_images_per_class", "50"],
+     "--held_out_images_per_class must be at least 1 and below --minimum_held_out_class_size")])
+def test_download_script_refuses_a_missing_folder_or_unknown_values(arguments: List[str], error_text: str,
+                                                                   capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the download script stops with its usage and the error, before anything is downloaded, when the
+    dataset folder is missing, a number is not one, or the held-out images could leave a class without training
+    images, which the split would otherwise only find once every shard is downloaded.
+
+    Args:
+        arguments (List[str]): The command line arguments.
+        error_text (str): A part of the expected error message.
+        capsys (pytest.CaptureFixture): The captured console output.
+    """
+    with pytest.raises(expected_exception=SystemExit) as exit_information:
+        parse_download_arguments(arguments=arguments)
+    assert exit_information.value.code == 2
+    assert error_text in capsys.readouterr().err

@@ -181,11 +181,12 @@ The other types have the same strength in both:
 - `random_blur`: 9x9 Gaussian, sigma 2.5. `random_motion_blur`: line of 5 to 15 pixels, angle 0 to 180 degrees.
 - `random_erasing`: black rectangle of 2 % to 15 % of the area.
 
-Should you need to see a type at both strengths, `scripts/data/visualize_augmentation_strengths.py` writes one `<type>.png` per type. Set the configuration, split and output folder in its main block first.
+Should you need to see a type at both strengths, `scripts/data/visualize_augmentation_strengths.py` writes one `<type>.png` per type. `--split_folder` and `--output_folder` are required; the configuration defaults to the synthetic shapes classifier, with 4 images and the seed 0.
 
 ```bash
-# Draw every augmentation type at both strengths
-uv run python -m scripts.data.visualize_augmentation_strengths
+# Draw every augmentation type at both strengths on 4 validation images
+uv run python -m scripts.data.visualize_augmentation_strengths \
+    --split_folder ~/Data/classifier_data/synthetic_shapes/validation --output_folder ~/Data/augmentation_examples
 ```
 
 ## Viewing The Input Images

@@ -63,7 +63,7 @@ Should you need to change one part of the task, this table gives the file holdin
 
 ### Run It
 
-In order to train and evaluate the task on the synthetic shapes from scratch, set the values of the main blocks and of the configuration, then run these commands from the repository root.
+In order to train and evaluate the task on the synthetic shapes from scratch, set the values of the configuration, then run these commands from the repository root.
 
 ```bash
 # Create the synthetic dataset of configuration_synthetic_shapes.yaml (500,000 / 50,000 / 50,000 images of 512 pixels);
@@ -73,9 +73,8 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=
 # Train: set experiment_folder, the three data folders and Data.label_mapping.mapping_file_path first
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml"
 
-# Evaluate checkpoints: set run_name, experiment_folder, iteration, test_data_folder, batch_size and track_evaluation
-# in the main block first; the evaluation is written in <run>/Checkpoint_Evaluation/ (Step 5.1)
-uv run python -m scripts.evaluation.evaluate_checkpoint
+# Evaluate every checkpoint into <run>/Checkpoint_Evaluation/ (Step 5.1)
+uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder <run folder> --iteration all
 ```
 
 With `diagnosis_modes.view_input_images: True`, the training command shows the two views of the training images instead (needs a display). The dataset on disk, generated on 2026-11-18, holds 35 classes (a k-NN chance level of 1/35). The examples of this document have the 9 classes of the older datasets.
@@ -838,7 +837,7 @@ After the two evaluations, `Tensorboard/Test` holds 32 scalars (5 global + 27 pe
 > The examples below are real outputs of `scripts/evaluation/evaluate_checkpoint.py` on the Stage 3 run (checkpoints 3, 6, 9 and 12), with `iteration = "all"`, `batch_size = 16` and the first 200 test images (`test_200`). A second evaluation of iteration 12 uses the same images without categories (`test_unlabelled_200`). As in Stage 4, the k-NN numbers come from the old leave-one-out vote and the recall table is missing. The folder names are those of the current `<run>/Checkpoint_Evaluation/`.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-The script of every task (`classification_workflow.md`, Stage 5), set in its main block: `run_name`, `experiment_folder` (the run folder), `iteration` (`None` for the last, an integer or `"all"`) and `test_data_folder`. The task has no `evaluation.error_dumps` section, so `maximum_error_images_per_class_pair` is skipped with a yellow warning. `save_predictions`, `target_precisions`, `nms_criterion` and `nms_distance_exponent` are skipped the same way. A run saved before the reference training images lacks `evaluation.number_reference_images_per_class`, which the checks refuse: add the key to its `training_configuration.yaml` first. The split needs no labels (Step 5.6).
+The script of every task (`classification_workflow.md`, Stage 5), set by its arguments: `--experiment_folder` (the run folder, required), `--iteration` (an integer or `all`, the last checkpoint by default) and `--test_data_folder`. The task has no `evaluation.error_dumps` section, so `--maximum_error_images_per_class_pair` is skipped with a yellow warning. `--save_predictions`, `--target_precisions`, `--nms_criterion` and `--nms_distance_exponent` are skipped the same way when given. A run saved before the reference training images lacks `evaluation.number_reference_images_per_class`, which the checks refuse: add the key to its `training_configuration.yaml` first. The split needs no labels (Step 5.6).
 
 ### Step 5.2 — trainer construction
 The script loads the run's `training_configuration.yaml` with the classes of its `label_dictionary.json`. `point_to_checkpoint_evaluation()` sends the files to `<run name>/Checkpoint_Evaluation/`, or `<run name>/Checkpoint_Evaluation_split_<parent folder>_<split folder>/` for another split such as `test_200`. Then `disable_pretrained_settings()` runs and a `SelfSupervisedTrainer` is built inside `read_manifests_once()`. `tracking_root` keeps the experiments root folder, so the evaluation is tracked in the backend of the run.

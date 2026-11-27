@@ -100,7 +100,7 @@ scenes:
       - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=classification --output_folder=~/Data/classifier_data/synthetic_shapes"}
       - {role: comment, text: "# Training once its folders and mapping file are set, then any checkpoint scored again"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/classification/configuration_synthetic_shapes.yaml\""}
-      - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
+      - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder=<run folder>"}
       - {role: comment, text: "# Several shapes per image, multi_label: generated with --task=multi_label_classification"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/classification/configuration_synthetic_counted_shapes.yaml\""}
     narration:

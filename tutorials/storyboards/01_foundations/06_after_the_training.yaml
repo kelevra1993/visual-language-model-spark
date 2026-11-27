@@ -1,8 +1,8 @@
 # Foundations, chapter 6: what comes after a training, shared by every task: evaluating checkpoints again, the evaluation
 # curves every evaluation draws, comparing launches and runs, clustering the image embeddings of a trained run, an
 # overview of the export to Triton (the deployment series covers the export, its checks, the Triton serving and the
-# serving benchmark), the tests and the map of the repository. The settings shown are the live main blocks of the
-# scripts; the spread between launches is the one of benchmark.py, the evaluation curves those of the detection run
+# serving benchmark), the tests and the map of the repository. The settings shown are the live command line
+# arguments of the scripts; the spread between launches is the one of benchmark.py, the evaluation curves those of the detection run
 # drawn by evaluation_curves.py, and the counts of the repository those of listings.py of tutorials/figures/foundations.
 series: foundations
 series_title: "Foundations"
@@ -13,7 +13,7 @@ pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [foundations]
 references:
-  - "scripts/evaluation/evaluate_checkpoint.py"
+  - "scripts/evaluation/evaluate_checkpoint.py · parse_evaluation_arguments"
   - "vision_training/evaluation/checkpoint_evaluation.py · evaluate_checkpoints"
   - "vision_training/evaluation/evaluation_curves.py · draw_summary_curves"
   - "scripts/evaluation/collect_experiment_results.py"
@@ -38,31 +38,31 @@ scenes:
 
   - kind: code
     title: "Evaluating checkpoints"
-    code_reference: "scripts/evaluation/evaluate_checkpoint.py"
+    code_reference: "scripts/evaluation/evaluate_checkpoint.py · parse_evaluation_arguments"
     source:
       file: scripts/evaluation/evaluate_checkpoint.py
-      start: "^if __name__ == \"__main__\":"
-      end: "^    track_evaluation = "
+      start: "^    # The run and the checkpoints to evaluate"
+      end: "its training run \\(default: the tracking.activated"
     highlights:
-      - {match: "^    run_name = |^    experiment_folder = ", sentences: [0]}
-      - {match: "^    iteration = |^    test_data_folder = |^    batch_size = |^    track_evaluation = ", sentences: [1]}
+      - {match: 'add_argument\("--experiment_folder"', sentences: [0]}
+      - {match: 'add_argument\("--iteration"|add_argument\("--test_data_folder"|add_argument\("--batch_size"|add_argument\("--track_evaluation"', sentences: [1]}
     narration:
-      - "Imagine you want to evaluate a trained run again, on another labelled split or with a larger batch: set the run name and its folder in the main block of the evaluate checkpoint script; the files of the run are only read."
-      - "The iteration is None for the last checkpoint, a number, or all for every checkpoint, and the evaluation can be tracked in an MLflow run of its own, tagged with its training run."
+      - "Imagine you want to evaluate a trained run again, on another labelled split or with a larger batch: give its folder as the argument of the evaluate checkpoint script; the files of the run are only read."
+      - "Without an iteration the last checkpoint is evaluated, a number picks another one and all evaluates every checkpoint, and the evaluation can be tracked in an MLflow run of its own, tagged with its training run."
 
   - kind: code
     title: "Error images and thresholds"
-    code_reference: "scripts/evaluation/evaluate_checkpoint.py · apply_target_precisions"
+    code_reference: "scripts/evaluation/evaluate_checkpoint.py · parse_evaluation_arguments"
     source:
       file: scripts/evaluation/evaluate_checkpoint.py
-      start: "^    # Largest number of error images saved"
-      end: "^    target_precisions = "
+      start: "^    # The error images and the class thresholds"
+      end: "evaluation.target_precision of the run"
     highlights:
-      - {match: "^    maximum_error_images_per_class_pair = ", sentences: [0]}
-      - {match: "^    target_precisions = ", sentences: [1]}
+      - {match: 'add_argument\("--maximum_error_images_per_class_pair"', sentences: [0]}
+      - {match: 'add_argument\("--target_precisions"', sentences: [1]}
     narration:
       - "The maximum number of error images per pair of classes turns the error images on, and the tasks without error images skip it with a yellow warning."
-      - "Target precisions replaces the precision of the class thresholds, a list giving the classifiers the threshold of every class at each precision; then run the script as a module with uv."
+      - "Target precisions replaces the precision of the class thresholds, several values giving the classifiers the threshold of every class at each precision; launched without any argument, the script prints this help."
 
   - kind: html
     page: diagram
@@ -97,15 +97,15 @@ scenes:
 
   - kind: code
     title: "Comparing launches"
-    code_reference: "scripts/evaluation/collect_experiment_results.py"
+    code_reference: "scripts/evaluation/collect_experiment_results.py · parse_collection_arguments"
     source:
       file: scripts/evaluation/collect_experiment_results.py
-      start: "^    # Folder of the hyperparameter experiment of every task"
-      end: "output_path = experiment_folder"
+      start: '^    parser = argparse\.ArgumentParser\('
+      end: 'f"experiment folder\)\."\)'
     highlights:
-      - {match: "^    experiments_root_folder = ", sentences: [0]}
-      - {match: "^    metrics = |^    number_last_evaluations = ", sentences: [1]}
-      - {match: "^    output_path = ", sentences: [1]}
+      - {match: 'add_argument\("--task"|add_argument\("--experiment_folder"', sentences: [0]}
+      - {match: 'add_argument\("--number_last_evaluations"', sentences: [1]}
+      - {match: 'add_argument\("--output_path"', sentences: [1]}
     # The folder names run_2 and run_23b read aloud, and the advice of two launches per setting
     literal_numbers: [two, twenty three]
     narration:
@@ -116,14 +116,14 @@ scenes:
 
   - kind: code
     title: "Comparing runs"
-    code_reference: "scripts/evaluation/compare_best_evaluations.py · compare_best_evaluations"
+    code_reference: "scripts/evaluation/compare_best_evaluations.py · parse_comparison_arguments"
     source:
       file: scripts/evaluation/compare_best_evaluations.py
-      start: "^if __name__ == \"__main__\":"
-      end: "^    evaluated_weights = "
+      start: "^    # The runs compared, and the evaluation kept for every run"
+      end: 'join\(TEST_FOLDERS\)'
     highlights:
-      - {match: "^    experiment_folders = ", sentences: [0]}
-      - {match: "^    best_metric = |^    higher_is_better = |^    evaluated_weights = ", sentences: [1]}
+      - {match: 'add_argument\("--experiment_folders"', sentences: [0]}
+      - {match: 'add_argument\("--best_metric"|add_argument\("--lower_is_better"|add_argument\("--evaluated_weights"', sentences: [1]}
     narration:
       - "To compare finished runs, the compare best evaluations script reads every run folder of some experiment folders."
       - "It picks the best evaluation of every run by one test curve, over the trained weights, the averaged weights or both, and prints markdown tables with any setting of the configurations and the image counts of every split as columns."

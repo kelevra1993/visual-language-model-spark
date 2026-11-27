@@ -63,7 +63,7 @@ If you are looking for the code of a step, the table lists the files of the task
 
 ### Run It
 
-In order to generate, train, evaluate and export the synthetic shapes segmenter from scratch, run these commands from the repository root. Before training, set `experiment_folder`, the three data folders, `Data.label_mapping.mapping_file_path` and `number_iterations` (1e10 in this file; 2000 for the 9-class run of `experiments/readme_screenshots`). Before evaluating, set `run_name`, `experiment_folder`, `iteration` (None, an integer or "all"), `test_data_folder`, `batch_size`, `track_evaluation` and `maximum_error_images_per_class_pair = None` (Step 5.1) in the main block of the script.
+In order to generate, train, evaluate and export the synthetic shapes segmenter from scratch, run these commands from the repository root. Before training, set `experiment_folder`, the three data folders, `Data.label_mapping.mapping_file_path` and `number_iterations` (1e10 in this file; 2000 for the 9-class run of `experiments/readme_screenshots`).
 
 ```bash
 # Generate the dataset: 50,000 / 200 / 200 images of 512 pixels, up to 6 of the 35 shapes, with class masks
@@ -72,8 +72,8 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=
 # Train (Ctrl+C saves a checkpoint)
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml"
 
-# Evaluate checkpoints into <run>/Checkpoint_Evaluation/
-uv run python -m scripts.evaluation.evaluate_checkpoint
+# Evaluate every checkpoint into <run>/Checkpoint_Evaluation/, without error images (Step 5.1)
+uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder <run folder> --iteration all --maximum_error_images_per_class_pair None
 
 # Export (CUDA only; run without arguments for the help)
 uv run python -m vision_training.deployment.export_model --experiment_folder <run folder> --iteration <iteration>
@@ -694,7 +694,7 @@ Iteration 6 predicted `square` almost everywhere (pixel accuracy 1.96 %, square 
 > The examples below come from `scripts/evaluation/evaluate_checkpoint.py` on the Stage 3 run (checkpoints 3, 6, 9 and 12, the first three saved before their training step) with `iteration = "all"`, `batch_size = 16`, on the first 40 test images. They predate the per-class recall intervals and the curves.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-The same script for every task (`classification_workflow.md`, Stage 5): set `run_name`, `experiment_folder`, and `test_data_folder` for another labelled split (`labels.json`, `data/`, `masks/`). `maximum_error_images_per_class_pair`, `save_predictions`, `target_precisions`, `nms_criterion` and `nms_distance_exponent` are skipped with a yellow warning: the task has no error images, predictions file, class thresholds or `Detector`. The evaluation goes to `Checkpoint_Evaluation/` of the run (`Checkpoint_Evaluation_split_<parent folder>_<split folder>/` for another split).
+The same script for every task (`classification_workflow.md`, Stage 5): give the run as `--experiment_folder`, and `--test_data_folder` for another labelled split (`labels.json`, `data/`, `masks/`). `--maximum_error_images_per_class_pair` unless it is `None`, and `--save_predictions`, `--target_precisions`, `--nms_criterion` and `--nms_distance_exponent` when given, are skipped with a yellow warning: the task has no error images, predictions file, class thresholds or `Detector`. The evaluation goes to `Checkpoint_Evaluation/` of the run (`Checkpoint_Evaluation_split_<parent folder>_<split folder>/` for another split).
 
 ### Step 5.2 — trainer construction
 The script loads the run's `training_configuration.yaml` with the classes of its `label_dictionary.json`, points it to `Checkpoint_Evaluation/`, the split and the batch size, and builds a `SegmentationTrainer`. With `class_weighting: "balanced"` it would count the training mask pixels again, the cache living in the trainer's folder.

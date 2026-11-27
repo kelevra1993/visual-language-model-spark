@@ -79,14 +79,14 @@ To find your way in the code, the table below lists the file and main functions 
 If one wishes to run the whole task, generate the data, train, evaluate, then export.
 
 ```bash
-# Generate 250,000 / 50,000 / 50,000 images of 512 pixels (lower split_sizes["keypoint_detection"] in the script main block for a first try)
+# Generate 250,000 / 50,000 / 50,000 images of 512 pixels (add --split_sizes train=300 validation=30 test=30 for a first try)
 uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=keypoint_detection --output_folder="$HOME/Data/keypoint_data/synthetic_shapes"
 
 # Train, after setting experiment_folder, the three data folders and Data.label_mapping.mapping_file_path
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml"
 
-# Evaluate checkpoints into <run>/Checkpoint_Evaluation/, after setting its main block, with maximum_error_images_per_class_pair = None (Step 5.1)
-uv run python -m scripts.evaluation.evaluate_checkpoint
+# Evaluate every checkpoint into <run>/Checkpoint_Evaluation/, error images off since the task draws none (Step 5.1)
+uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder <run folder> --iteration all --maximum_error_images_per_class_pair None
 
 # Export on CUDA only (Step 6.1); --tensorrt_precision None, since Triton crashes on the default FP32 TensorRT configuration (Step 6.5)
 uv run python -m vision_training.deployment.export_model --experiment_folder <run folder> --iteration <iteration> --tensorrt_precision None
@@ -719,7 +719,7 @@ The averaged weights lag a few iterations behind (decay min(0.999, (1 + n) / (10
 > Real outputs of `scripts/evaluation/evaluate_checkpoint.py` pointed at the Stage 3 run (checkpoints 15, 30, 45 and 60, the first three captured before their training step), with `iteration = "all"`, `batch_size = 16`, the whole test split, on CPU with MLflow on. The four checkpoints with their averaged weights took 2 min 27 s, about 17 s per evaluation. Captured before the per-class recall intervals.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-The script of every task (`classification_workflow.md`, Stage 5). The keypoint configurations have no `evaluation.error_dumps`, so `maximum_error_images_per_class_pair` is skipped with a yellow warning. `save_predictions`, `target_precisions`, `nms_criterion` and `nms_distance_exponent` would be skipped the same way: no predictions file, no class thresholds, no `Detector` section.
+The script of every task (`classification_workflow.md`, Stage 5). The keypoint configurations have no `evaluation.error_dumps`, so `--maximum_error_images_per_class_pair` is skipped with a yellow warning unless it is `None`. `--save_predictions`, `--target_precisions`, `--nms_criterion` and `--nms_distance_exponent`, not given by default, would be skipped the same way when given: no predictions file, no class thresholds, no `Detector` section.
 
 ### Step 5.2 — trainer construction
 Built from the `training_configuration.yaml` of the run, with the classes of its `label_dictionary.json` (`classification_workflow.md`, Step 5.2). The panels of Steps 2.10 and 2.11 are printed again; with batches of 16, an epoch is 19 iterations.

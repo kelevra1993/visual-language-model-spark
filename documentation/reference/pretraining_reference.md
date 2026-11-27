@@ -21,14 +21,14 @@ To find your way in this reference, the sections are:
 Should you need the pre-trained backbones of the classification or self-supervised configurations, download ImageNet-22k with `vision_training/data/classification/imagenet_download.py`. It reads `timm/imagenet-22k-wds` from Hugging Face (fall11 release, 21,841 classes, 4,608 shards) and writes the `labels.json` manifests and `label_mapping.json`.
 
 ### Downloading ImageNet-22k
-Before the first shard is fetched, accept the terms of [timm/imagenet-22k-wds](https://huggingface.co/datasets/timm/imagenet-22k-wds) (non-commercial research and education only). Keep about 1.3 TB free on the disk of `dataset_folder` (`~/Data/classifier_data/imagenet-22k` by default); the download stops below 100 GB free. It resumes after an interruption and fetches about 1,500 shards an hour on a DGX Spark.
+Before the first shard is fetched, accept the terms of [timm/imagenet-22k-wds](https://huggingface.co/datasets/timm/imagenet-22k-wds) (non-commercial research and education only). Keep about 1.3 TB free on the disk of `--dataset_folder`, the only required argument; the download stops below 100 GB free (`--minimum_free_gigabytes`). It resumes after an interruption and fetches about 1,500 shards an hour with 16 workers on a DGX Spark (`--number_workers`). Without arguments, it prints its help.
 
 ```bash
 # Log in with the account that accepted the terms
 uv run hf auth login
 
-# Download the shards and write the manifests
-uv run python -m vision_training.data.classification.imagenet_download
+# Download the shards into the folder the example classification configurations read
+uv run python -m vision_training.data.classification.imagenet_download --dataset_folder ~/Data/classifier_data/imagenet-22k
 ```
 
 The figure shows the download in progress.
@@ -37,7 +37,7 @@ The figure shows the download in progress.
   <img src="../../README/imagenet_22k_download.png" width="100%" />
 </p>
 
-So that a configuration trains on the download, point `train_data_folder`, `validation_data_folder`, `test_data_folder` and `Data.label_mapping.mapping_file_path` to `manifests/train`, `manifests/validation`, `manifests/test` and `manifests/label_mapping.json` of `dataset_folder`.
+So that a configuration trains on the download, point `train_data_folder`, `validation_data_folder`, `test_data_folder` and `Data.label_mapping.mapping_file_path` to `manifests/train`, `manifests/validation`, `manifests/test` and `manifests/label_mapping.json` of `--dataset_folder`.
 
 ### Validation And Test Splits
 In case you compare scores with other results, note that the 18,846 held-out images are both the validation and the test split. The scores do not compare with published ImageNet-1k accuracies. Split sizes are in the [tasks reference](tasks_reference.md#classification-cls).

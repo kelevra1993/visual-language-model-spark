@@ -3,14 +3,13 @@ Values of the code and of the files of the repository that the foundations chapt
 {{constant:...}} or {{config:...}} placeholder of a storyboard can read, gathered at every build by
 tutorials/figures/foundations/figures.py into the facts of the series: a keyword argument of a call (the momentum of
 SGD in BaseTrainer.create_optimizer, the data type of the mixed precision autocast in BaseTrainer.run_model_iteration),
-a setting of the main block of a script (the PCA dimensions of cluster_image_embeddings.py, the free disk space and
-held-out images of imagenet_download.py), the host ports of the Triton docker compose file (strings such as
+a default argument of a script (the PCA dimensions of cluster_image_embeddings.py, the free disk space and held-out
+images of imagenet_download.py), the host ports of the Triton docker compose file (strings such as
 "8000:8000"), the strengths of the supervised and self-supervised augmentation (tables holding computed values, which
 ast.literal_eval refuses), the pixel range given by the input normalization, and values of the synthetic
 classification configuration that need a conversion or a computation (its number of iterations written 1e10, the steps
 averaged by its moving average). The storyboards quote them as {{foundations.<name>}}, so that a sentence follows the
-code when it changes. The readers of main blocks are also used by the classification figures for the settings of the
-synthetic dataset script, and by configuration_consoles.py for the backup suffix of the conversion.
+code when it changes.
 """
 
 import ast
@@ -21,9 +20,11 @@ import yaml
 from pathlib import Path
 from typing import Any, Dict
 
+from scripts.embedding.cluster_image_embeddings import DEFAULT_CLUSTERING_SETTINGS
 from vision_training.configuration_processing.configuration_loader import load_configuration
 from vision_training.data.augmentations import (SELF_SUPERVISED_AUGMENTATION_STRENGTHS,
                                                 SUPERVISED_AUGMENTATION_STRENGTHS)
+from vision_training.data.classification.imagenet_download import DEFAULT_DOWNLOAD_SETTINGS
 from vision_training.models.components.input_normalization import InputNormalizer
 
 # Ports of the Triton container for its HTTP, gRPC and metrics endpoints, the defaults of Triton, which the docker
@@ -110,36 +111,6 @@ def read_call_keyword(module_path: Path, function_name: str, called_name: str, k
     return values[0]
 
 
-def read_main_block_value(script_path: Path, variable_name: str) -> Any:
-    """
-    Reads a setting assigned as a literal in the main block of a script (if __name__ == "__main__":), without running
-    it, for the facts of the settings the scripts of the repository keep in their main block (the PCA dimensions of
-    the clustering script, the image size of the synthetic dataset script), which no constant placeholder can read.
-
-    Args:
-        script_path (Path): The Python script.
-        variable_name (str): The variable assigned in its main block.
-
-    Returns:
-        Any: The literal value of its last assignment in the main block.
-
-    Raises:
-        ValueError: If the script has no main block, the variable is not assigned in it, or the value is not a literal.
-    """
-    tree = ast.parse(source=script_path.read_text(encoding="utf-8"), filename=str(script_path))
-    main_blocks = [node for node in tree.body if isinstance(node, ast.If) and
-                   ast.unparse(ast_obj=node.test).replace("'", '"') == '__name__ == "__main__"']
-    if not main_blocks:
-        raise ValueError(f"No main block in {script_path}.")
-
-    # Last assignment of the variable at the top of the main block, as the script would leave it before its calls
-    assignments = [node for node in main_blocks[-1].body if isinstance(node, ast.Assign) and
-                   any(isinstance(target, ast.Name) and target.id == variable_name for target in node.targets)]
-    if not assignments:
-        raise ValueError(f"No assignment of {variable_name} in the main block of {script_path}.")
-    return ast.literal_eval(node_or_string=assignments[-1].value)
-
-
 def read_triton_host_ports(compose_path: Path) -> Dict[str, int]:
     """
     Reads the ports of the machine that the docker compose file of Triton maps to the HTTP, gRPC and metrics ports of
@@ -185,7 +156,7 @@ def describe_code_values(repository_folder: Path, configuration_path: Path) -> D
     Returns:
         Dict[str, Any]: The facts, named optimization.*, scripts.*, triton.*, data.* and configuration.*.
     """
-    # Values passed inline by the code and settings of the main blocks of the scripts
+    # Values passed inline by the code and default PCA dimensions of the clustering script
     base_trainer_path = repository_folder / "vision_training" / "trainers" / "base_trainer.py"
     facts = {"optimization.sgd_momentum": read_call_keyword(
                  module_path=base_trainer_path, function_name="create_optimizer", called_name="SGD",
@@ -193,18 +164,13 @@ def describe_code_values(repository_folder: Path, configuration_path: Path) -> D
              "optimization.mixed_precision_dtype": read_call_keyword(
                  module_path=base_trainer_path, function_name="run_model_iteration", called_name="autocast",
                  keyword="dtype"),
-             "scripts.cluster_pca_dimensions": read_main_block_value(
-                 script_path=repository_folder / "scripts" / "embedding" / "cluster_image_embeddings.py",
-                 variable_name="pca_dimensions")}
+             "scripts.cluster_pca_dimensions": DEFAULT_CLUSTERING_SETTINGS["pca_dimensions"]}
 
-    # Settings of the main block of the ImageNet-22k download quoted by the first chapter: the free disk space below
-    # which no new shard starts, and the held-out images of every large enough class, both the validation and the test
-    # split
-    imagenet_download_path = repository_folder / "vision_training" / "data" / "classification" / "imagenet_download.py"
-    facts.update({f"scripts.imagenet_{variable_name}": read_main_block_value(script_path=imagenet_download_path,
-                                                                            variable_name=variable_name)
-                  for variable_name in ["minimum_free_gigabytes", "held_out_images_per_class",
-                                        "minimum_held_out_class_size"]})
+    # Default arguments of the ImageNet-22k download quoted by the first chapter: the free disk space below which no new
+    # shard starts, and the held-out images of every large enough class, both the validation and the test split
+    facts.update({f"scripts.imagenet_{setting_name}": DEFAULT_DOWNLOAD_SETTINGS[setting_name]
+                  for setting_name in ["minimum_free_gigabytes", "held_out_images_per_class",
+                                       "minimum_held_out_class_size"]})
     triton_ports = read_triton_host_ports(
         compose_path=repository_folder / "vision_training" / "deployment" / "triton" / "docker-compose.yml")
     facts.update({f"triton.{endpoint}_port": port for endpoint, port in triton_ports.items()})

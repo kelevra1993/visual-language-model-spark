@@ -73,10 +73,15 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=
 # Train, after setting experiment_folder, the three data folders and Data.label_mapping.mapping_file_path
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml"
 
-# Evaluate checkpoints into <run>/Checkpoint_Evaluation/, after setting run_name, iteration and the other values of its main block
-uv run python -m scripts.evaluation.evaluate_checkpoint
+# Evaluate every checkpoint into <run>/Checkpoint_Evaluation/ (split, batch size and the other settings are arguments too)
+uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder <run folder> --iteration all
 ```
 `scripts/data/create_sequence_split_subset.py` writes `test_10000` (10,000 of the 50,000 test sequences, seed 0), the test split of `documentation/architecture_benchmarking/sequence_labelling_experiment_plan.md`.
+
+```bash
+# Write the subset, its frames linked to those of the test split (--number_sequences and --seed change the draw)
+uv run python -m scripts.data.create_sequence_split_subset --source_split_folder="$HOME/Data/sequence_data/synthetic_changing_shapes/test" --output_split_folder="$HOME/Data/sequence_data/synthetic_changing_shapes/test_10000"
+```
 
 Should you start on sequences of your own, `configuration_example.yaml` holds the settings kept by that plan: learning rate 1e-3, `class_weighting: "balanced"`, a bidirectional LSTM of 2 layers of 256, `flatten` frame pooling, batch normalization. The plan kept 2 layers and `flatten` with a pretrained backbone (1 layer and `max` from scratch); the example leaves it off (`Backbone.pretrained.experiment_folder: null`). Its 384 pixel frames end at 64 x 6 x 6, 2,304 values per frame, for `M2M_IN-KAR-384_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.4x64-LMP_T50_LSTM2x256-BI_HFLAT.256-CWB_MC71` and 7,486,375 parameters (backbone 512,864, LSTM 6,823,936, head 149,575). The plan trained 256 pixel frames.
 

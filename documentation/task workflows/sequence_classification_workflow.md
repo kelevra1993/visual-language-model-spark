@@ -72,9 +72,9 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=
 # Train: set experiment_folder, the three data folders and Data.label_mapping.mapping_file_path first
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml"
 
-# Evaluate checkpoints: set run_name, experiment_folder, iteration, test_data_folder, batch_size, track_evaluation,
-# save_predictions, maximum_error_images_per_class_pair and target_precisions in the main block first
-uv run python -m scripts.evaluation.evaluate_checkpoint
+# Evaluate every checkpoint into <run>/Checkpoint_Evaluation/ (split, batch size, tracking, predictions,
+# error images and target precisions are arguments too)
+uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder <run folder> --iteration all
 ```
 
 ### Configuration Keys To Know First
@@ -794,7 +794,7 @@ The short run of Stage 3 gives at iteration 12 `Accuracy 23.50 %`, `Top-2 Accura
 > The examples below are real outputs of `scripts/evaluation/evaluate_checkpoint.py` on the Stage 3 run (checkpoints 3, 6, 9 and 12), with `iteration = "all"`, `batch_size = 16` and the first 40 test sequences (`labels.json` reduced, `data/` linked). They were recorded on 2026-10-18 with `top_k: 2`, before the curves and the recall intervals. Paths and rates are shown as the current code writes them, in `<run>/Checkpoint_Evaluation/`.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-The script of every task (`classification_workflow.md`, Stage 5). Set `run_name`, `experiment_folder` and, if needed, another labelled `test_data_folder` (with `labels.json` and `data/`). `maximum_error_images_per_class_pair` turns the error images on; `target_precisions` (a list such as `[0.99, 0.95, 0.90]`) replaces the target precision of the run; the NMS settings are for detection only. The evaluation is written in `Checkpoint_Evaluation/` (`Checkpoint_Evaluation_split_<parent folder>_<split folder>/` for another split). Sequences longer than the run's `maximum_sequence_length` are left out with the red warnings of Step 2.9.
+The script of every task (`classification_workflow.md`, Stage 5). Give the run as `--experiment_folder` and, if needed, another labelled split as `--test_data_folder` (with `labels.json` and `data/`). `--maximum_error_images_per_class_pair` turns the error images on; `--target_precisions` (several such as `0.99 0.95 0.90`) replaces the target precision of the run; the NMS settings are for detection only. The evaluation is written in `Checkpoint_Evaluation/` (`Checkpoint_Evaluation_split_<parent folder>_<split folder>/` for another split). Sequences longer than the run's `maximum_sequence_length` are left out with the red warnings of Step 2.9.
 
 ### Step 5.2 — trainer construction
 The script loads the run's `training_configuration.yaml` with the classes of its `label_dictionary.json`, points it to `Checkpoint_Evaluation/`, the reduced split and the batch size, keeps `run_name`, calls `disable_pretrained_settings()` and builds a `SequenceClassificationTrainer`.

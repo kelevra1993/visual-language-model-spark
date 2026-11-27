@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Tuple
 from tutorial_builder.figure_context import find_repository_root
 from tutorials.figures.classification.data_listings import write_listing
 from tutorials.figures.figure_utilities import find_repository_file, find_run_folder, read_run_configuration
-from tutorials.figures.foundations.code_values import read_main_block_value, read_triton_host_ports
+from tutorials.figures.foundations.code_values import read_triton_host_ports
 from tutorials.figures.foundations.listings import capture_printed_text
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.deployment.export_model import DEFAULT_EXPORT_SETTINGS
@@ -36,6 +36,7 @@ from vision_training.deployment.export_size_estimates import estimate_export_siz
 from vision_training.deployment.export_specifications import build_input_specification, get_export_specification
 from vision_training.deployment.frame_selection_deployment import DECODER_OUTPUT_TYPES
 from vision_training.deployment.input_contract import INPUT_CONTRACT_KEYS, build_input_contract
+from vision_training.deployment.run_inference import DEFAULT_INFERENCE_SETTINGS
 from vision_training.deployment.triton_configuration import (format_dimensions, get_served_output_names,
                                                              write_triton_configuration)
 from vision_training.models.classification.image_classifier import ImageClassifier
@@ -44,9 +45,6 @@ from vision_training.models.model_transfer import TRANSFERABLE_COMPONENTS
 # Optimizer of every 'Optimization.optimizer' of the configurations, as BaseTrainer.create_optimizer builds it, of
 # which the checkpoint estimate only reads the class and the momentum
 OPTIMIZER_CLASSES = {"adam": torch.optim.Adam, "adamw": torch.optim.AdamW, "sgd": torch.optim.SGD}
-
-# Script measuring the throughput of a run in the process and through Triton, whose main block sets its requests
-RUN_INFERENCE_SCRIPT = Path("vision_training") / "deployment" / "run_inference.py"
 
 # Docker compose file starting Triton on the model repository
 COMPOSE_FILE = Path("vision_training") / "deployment" / "triton" / "docker-compose.yml"
@@ -103,22 +101,16 @@ def describe_export_settings() -> Dict[str, Any]:
             "export.format_count": len(DEFAULT_EXPORT_SETTINGS["formats"])}
 
 
-def describe_run_inference_settings(repository_folder: Path) -> Dict[str, Any]:
+def describe_run_inference_settings() -> Dict[str, Any]:
     """
-    Reads the requests of the main block of run_inference.py, the timed ones and the untimed ones sent first while
-    TensorRT and CUDA initialise, which the serving chapter quotes.
-
-    Args:
-        repository_folder (Path): The repository root.
+    Reads the default requests of run_inference.py (DEFAULT_INFERENCE_SETTINGS, the defaults of its arguments), the
+    timed ones and the untimed ones sent first while TensorRT and CUDA initialise, which the serving chapter quotes.
 
     Returns:
         Dict[str, Any]: The facts run_inference.timed_requests and run_inference.warmup_requests.
     """
-    script_path = repository_folder / RUN_INFERENCE_SCRIPT
-    return {"run_inference.timed_requests": read_main_block_value(script_path=script_path,
-                                                                  variable_name="number_iterations"),
-            "run_inference.warmup_requests": read_main_block_value(script_path=script_path,
-                                                                   variable_name="number_warmup_iterations")}
+    return {"run_inference.timed_requests": DEFAULT_INFERENCE_SETTINGS["number_iterations"],
+            "run_inference.warmup_requests": DEFAULT_INFERENCE_SETTINGS["number_warmup_iterations"]}
 
 
 def describe_check_batches(sequence_run_folder: Path) -> Dict[str, Any]:
@@ -538,5 +530,5 @@ def make_export_values(output_folder: Path, experiments_folder: Path) -> Dict[st
             **describe_request_sizes(classification_image_size=triton_facts["classifier.image_size"],
                                      detection_image_size=triton_facts["detector.image_size"]),
             **describe_compose_file(repository_folder=repository_folder),
-            **describe_run_inference_settings(repository_folder=repository_folder),
+            **describe_run_inference_settings(),
             **describe_model_repository(output_folder=output_folder)}

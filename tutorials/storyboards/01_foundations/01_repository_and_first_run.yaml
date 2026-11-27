@@ -116,19 +116,19 @@ scenes:
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/classification/configuration_synthetic_shapes.yaml\""}
     narration:
       - "uv sync installs the environment pinned by the lock file, and every script then runs as a module from the repository root."
-      - "Say you want to try a task before any data is at hand: the synthetic data set script draws a shapes data set for it, with nothing to download; its task and its folder are its arguments, its sizes and splits set in its main block like the settings of almost every script but the training."
+      - "Say you want to try a task before any data is at hand: the synthetic data set script draws a shapes data set for it, with nothing to download; its task and its folder are its required arguments, and the split sizes an option over the recipe of each task."
       - "The training takes a single argument, the path of its configuration file, and that file alone defines the run."
 
   # The download prints nothing before it reaches the gated data set of Hugging Face, so the scene shows its commands
-  # alone; the settings quoted are those of its main block (code_values.py)
+  # alone; the settings quoted are the defaults of its arguments (DEFAULT_DOWNLOAD_SETTINGS, read by code_values.py)
   - kind: terminal
     title: "ImageNet-22k for the pre-trained backbones"
     code_reference: "vision_training/data/classification/imagenet_download.py · download_imagenet_22k"
     lines:
       - {role: comment, text: "# Once: accept the terms of {{constant:vision_training/data/classification/imagenet_download.py#IMAGENET_22K_REPOSITORY}} on Hugging Face, then log in"}
       - {role: command, text: "uv run hf auth login"}
-      - {role: comment, text: "# Settings in its main block: dataset folder, free space margin, held-out images, workers"}
-      - {role: command, text: "uv run python -m vision_training.data.classification.imagenet_download"}
+      - {role: comment, text: "# Its arguments: dataset folder (required), free space margin, held-out images, workers"}
+      - {role: command, text: "uv run python -m vision_training.data.classification.imagenet_download --dataset_folder=<dataset folder>"}
     narration:
       - "The example configurations of classification and of the self-supervised task train on ImageNet-22k, which the ImageNet download script fetches from a gated Hugging Face data set at a pinned revision."
       - "Accept its terms once and log in; the script checks the access before its first shard, starts no shard below {{foundations.scripts.imagenet_minimum_free_gigabytes}} gigabytes free, and resumes shard by shard when launched again."
@@ -208,8 +208,8 @@ scenes:
       - "The check refuses every key the code of the task does not read, alone and before the checks of the values, with its path and the closest known key."
 
   # The old copy holds a removed setting (OLD_REMOVED_SETTING of configuration_consoles.py) with the value the code now
-  # always uses; the conversion searches a launch folder holding it alone, the folders of the main block being those
-  # of the machine
+  # always uses; the conversion searches a launch folder holding it alone (--configuration_folders), the folders of
+  # every machine being given on its command line
   - kind: terminal
     title: "Converting older configurations"
     code_reference: "scripts/configuration_processing/convert_fixed_settings.py · convert_fixed_settings"
@@ -217,13 +217,13 @@ scenes:
       - {role: command, text: "uv run python -m vision_training.check_configuration --configuration_path {{foundations.configuration_conversion.old_file_name}}"}
       - {role: output, text: "{{foundations.configuration_conversion.invalid_line}}"}
       - {role: output, text: "{{foundations.configuration_conversion.problem_line}}"}
-      - {role: comment, text: "# Main block: the run and launch folders searched; write_files = False only lists"}
-      - {role: command, text: "uv run python -m scripts.configuration_processing.convert_fixed_settings"}
+      - {role: comment, text: "# Folders as --run_roots or --configuration_folders; without --write_files, it only lists"}
+      - {role: command, text: "uv run python -m scripts.configuration_processing.convert_fixed_settings --configuration_folders=<launch folder>"}
       - {role: output, text: "{{foundations.configuration_conversion.listing_line}}"}
     narration:
       - "A configuration written before a setting was removed is refused before any other check, the message naming the behaviour the code now fixes in its place."
-      - "The convert fixed settings script removes such settings from the saved run configurations and launch files of the folders of its main block, adds the settings a task now requires, and backs up every file it converts."
-      - "With write files set to False, it only lists the files to convert, here that old configuration."
+      - "The convert fixed settings script removes such settings from the saved run configurations and launch files of the folders given as its arguments, adds the settings a task now requires, and backs up every file it converts."
+      - "Without the write files flag, it only lists the files to convert, here that old configuration."
 
   - kind: html
     page: diagram
@@ -336,7 +336,7 @@ scenes:
       - {text: "Everything a run writes stays in its run folder", sentences: [6]}
     narration:
       - "To recap: the {{foundations.repository.task_count:words}} tasks share the same backbone code, training loop, configuration format, evaluation report and export, so this series holds for each of them."
-      - "uv sync installs the environment pinned by the lock file, and every script runs as a module from the repository root, most of them set in their main block."
+      - "uv sync installs the environment pinned by the lock file, and every script runs as a module from the repository root, its settings given as arguments."
       - "The Dockerfile builds the trainer image in named stages, with no CUDA image underneath, so each machine, a cloud pod or the DGX Spark, builds it for its own architecture."
       - "One YAML file defines the run, without defaults; its checks run at launch, or alone with the check configuration module, which lists every problem and refuses unknown keys."
       - "The length of a run, its checkpoints, evaluations and summaries are all counted in iterations; epochs only appear in the launch information."

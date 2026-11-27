@@ -4,10 +4,14 @@ trained run to pick diverse representatives of video frames: the features of the
 the images, the extraction continued after an interruption, the refusal of the features of another checkpoint or of
 changed images, the images kept by the clustering and by the baselines, and the clusters, mosaics and kept images
 written for a classification split with the table of the kept images printed at the end of a run, its shares written
-as percentages. The embedding run is a classification run trained 2 iterations on the synthetic shapes.
+as percentages. The embedding run is a classification run trained 2 iterations on the synthetic shapes. The script
+prints its help when launched without arguments, reads every setting of embed_and_cluster_sources from its command
+line, DEFAULT_CLUSTERING_SETTINGS and DEFAULT_CLUSTERING_PARAMETERS for those not given, and refuses a missing required
+argument, a missing layer index, a parameter of another algorithm or an unknown value before anything is loaded.
 """
 
 import csv
+import inspect
 import json
 import re
 import shutil
@@ -22,19 +26,21 @@ from torch import nn
 from typing import Any, Dict, List, Optional
 from unittest.mock import patch
 
-from scripts.embedding.cluster_image_embeddings import (EXTRACTION_RECORD_FILE_NAME, FINGERPRINT_KEYS,
-                                                        IMAGES_FILE_NAME, ISOLATED_CLUSTER, ISOLATED_IMAGE_REASON,
-                                                        ISOLATED_IMAGES_NAME, KEPT_AT_RANDOM_FOLDER_NAME,
-                                                        KEPT_BY_CLUSTERING_FOLDER_NAME,
+from scripts.embedding.cluster_image_embeddings import (CLUSTERING_PARAMETERS, DEFAULT_CLUSTERING_PARAMETERS,
+                                                        DEFAULT_CLUSTERING_SETTINGS, EXTRACTION_RECORD_FILE_NAME,
+                                                        FINGERPRINT_KEYS, IMAGES_FILE_NAME, ISOLATED_CLUSTER,
+                                                        ISOLATED_IMAGE_REASON, ISOLATED_IMAGES_NAME,
+                                                        KEPT_AT_RANDOM_FOLDER_NAME, KEPT_BY_CLUSTERING_FOLDER_NAME,
                                                         KEPT_EVENLY_SPACED_FOLDER_NAME, KEPT_IMAGES_FILE_NAME,
                                                         MOSAIC_THUMBNAIL_HEIGHT, NO_GROUP, PREDICTIONS_OUTPUT,
-                                                        TOTAL_CATEGORY, allocate_budget_over_groups,
+                                                        RUN_DATA_SOURCE, TOTAL_CATEGORY, allocate_budget_over_groups,
                                                         build_kept_images_table, build_layer_requests,
                                                         compute_batch_outputs,
                                                         describe_source_folder, embed_and_cluster_sources,
                                                         extract_source_features, find_image_groups,
                                                         list_source_images, load_embedder, natural_sort_key,
-                                                        rank_cluster_members, release_file_from_page_cache,
+                                                        parse_clustering_arguments, rank_cluster_members,
+                                                        release_file_from_page_cache,
                                                         select_evenly_spaced_per_group,
                                                         select_kept_images_by_clustering, select_random_baseline)
 from vision_training.data.preprocessing import preprocess_image
@@ -64,6 +70,24 @@ VIDEO_GROUP_PATTERN = r"^(video_[a-z]+_\d+)_frame"
 
 # HDBSCAN settings of the end-to-end tests, small enough for videos of 6 frames
 HDBSCAN_PARAMETERS = {"min_cluster_size": 3, "min_samples": 2, "cluster_selection_method": "eom"}
+
+# Every argument of the clustering script, which its help must describe
+CLUSTERING_SCRIPT_ARGUMENTS = ["--experiment_folder", "--iteration", "--use_averaged_weights", "--output_root",
+                               "--data_sources", "--convolution_block_indices", "--fully_connected_layer_indices",
+                               "--batch_size", "--number_workers", "--normalize_vectors", "--no-normalize_vectors",
+                               "--pca_dimensions", "--clustering_algorithm", "--min_cluster_size", "--min_samples",
+                               "--cluster_selection_method", "--eps", "--number_clusters", "--number_initializations",
+                               "--number_representatives_per_cluster", "--isolated_image_selection",
+                               "--group_pattern", "--seed", "--mosaic_grid_size"]
+
+# Run folder and iteration given to the parser tests of the script, which load nothing
+SCRIPT_RUN_NAME = "CLS_TEST_MC3"
+SCRIPT_ITERATION = 2000
+
+# The required arguments of the script, block 6 being the only asked layer, and the same without any layer
+ARGUMENTS_WITHOUT_LAYER = ["--experiment_folder", SCRIPT_RUN_NAME, "--iteration", str(SCRIPT_ITERATION),
+                           "--output_root", "embeddings"]
+REQUIRED_ARGUMENTS = [*ARGUMENTS_WITHOUT_LAYER, "--convolution_block_indices", "6"]
 
 
 class BatchComputationSpy:
@@ -679,3 +703,133 @@ def test_clustering_writes_clusters_links_mosaics_and_kept_images(embedding_run:
                              group_pattern=VIDEO_GROUP_PATTERN)
     assert not (clustering_folder / "stale_file.txt").exists()
     assert read_csv_rows(path=clustering_folder / "clusters.csv") == image_rows
+
+
+def test_clustering_script_without_arguments_prints_its_help(capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the clustering script launched without any argument prints the help of every one of its arguments
+    and stops without loading anything, instead of failing on the missing run.
+
+    Args:
+        capsys (pytest.CaptureFixture): The captured console output.
+    """
+    with pytest.raises(expected_exception=SystemExit) as exit_information:
+        parse_clustering_arguments(arguments=[])
+    assert exit_information.value.code == 0
+    help_text = capsys.readouterr().out
+    assert [argument for argument in CLUSTERING_SCRIPT_ARGUMENTS if argument not in help_text] == []
+
+
+def test_clustering_arguments_default_to_the_clustering_settings() -> None:
+    """
+    Verifies that the clustering script given only its required arguments embeds the splits of the run with the
+    trained weights, without groups, with DEFAULT_CLUSTERING_SETTINGS and the DBSCAN parameters of
+    DEFAULT_CLUSTERING_PARAMETERS, the fully connected layers not asked giving an empty list, and that every parsed
+    argument is a parameter of embed_and_cluster_sources (all but the device), so that the main block passes them all.
+    """
+    parsed_arguments = parse_clustering_arguments(arguments=REQUIRED_ARGUMENTS)
+    assert vars(parsed_arguments) == {
+        "experiment_folder": Path(SCRIPT_RUN_NAME), "iteration": SCRIPT_ITERATION, "use_averaged_weights": False,
+        "output_root": Path("embeddings"), "convolution_block_indices": [6], "fully_connected_layer_indices": [],
+        "group_pattern": None, "clustering_parameters": DEFAULT_CLUSTERING_PARAMETERS["dbscan"],
+        **DEFAULT_CLUSTERING_SETTINGS}
+    assert DEFAULT_CLUSTERING_SETTINGS["data_sources"] == [RUN_DATA_SOURCE]
+    assert set(vars(parsed_arguments)) == set(inspect.signature(embed_and_cluster_sources).parameters) - {"device"}
+
+
+@pytest.mark.parametrize(argnames="clustering_algorithm", argvalues=list(CLUSTERING_PARAMETERS))
+def test_clustering_parameters_default_to_the_values_of_the_algorithm(clustering_algorithm: str) -> None:
+    """
+    Verifies that every clustering algorithm chosen on the command line gets its parameters of
+    DEFAULT_CLUSTERING_PARAMETERS, which name exactly the parameters check_clustering_settings requires.
+
+    Args:
+        clustering_algorithm (str): The chosen algorithm.
+    """
+    parsed_arguments = parse_clustering_arguments(arguments=[*REQUIRED_ARGUMENTS, "--clustering_algorithm",
+                                                             clustering_algorithm])
+    assert parsed_arguments.clustering_parameters == DEFAULT_CLUSTERING_PARAMETERS[clustering_algorithm]
+    assert list(parsed_arguments.clustering_parameters) == CLUSTERING_PARAMETERS[clustering_algorithm]
+
+
+def test_clustering_arguments_reach_every_setting(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that every setting of embed_and_cluster_sources can be given on the command line of the clustering
+    script: several data sources ('run' kept as the splits of the run), both layer types, the vectors kept unnormalised,
+    every HDBSCAN parameter with 'None' as min_samples, a number of isolated images drawn, and paths starting with a
+    '~' the shell leaves after '=' expanded to the home folder.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, standing for the home folder.
+        monkeypatch (pytest.MonkeyPatch): Sets the home folder.
+    """
+    monkeypatch.setenv(name="HOME", value=str(tmp_path))
+    parsed_arguments = parse_clustering_arguments(arguments=[
+        f"--experiment_folder=~/{SCRIPT_RUN_NAME}", "--iteration", str(SCRIPT_ITERATION), "--use_averaged_weights",
+        "--output_root=~/embeddings", "--data_sources", RUN_DATA_SOURCE, "~/videos/train", "configuration.yaml",
+        "--convolution_block_indices", "4", "6", "--fully_connected_layer_indices", "1", "2", "--batch_size", "8",
+        "--number_workers", "0", "--no-normalize_vectors", "--pca_dimensions", "50", "--clustering_algorithm",
+        "hdbscan", "--min_cluster_size", "3", "--min_samples", "None", "--cluster_selection_method", "leaf",
+        "--number_representatives_per_cluster", "2", "--isolated_image_selection", "7", "--group_pattern",
+        VIDEO_GROUP_PATTERN, "--seed", "3", "--mosaic_grid_size", "4"])
+    assert vars(parsed_arguments) == {
+        "experiment_folder": tmp_path / SCRIPT_RUN_NAME, "iteration": SCRIPT_ITERATION, "use_averaged_weights": True,
+        "output_root": tmp_path / "embeddings",
+        "data_sources": [RUN_DATA_SOURCE, tmp_path / "videos" / "train", Path("configuration.yaml")],
+        "convolution_block_indices": [4, 6], "fully_connected_layer_indices": [1, 2], "batch_size": 8,
+        "number_workers": 0, "normalize_vectors": False, "pca_dimensions": 50, "clustering_algorithm": "hdbscan",
+        "clustering_parameters": {"min_cluster_size": 3, "min_samples": None, "cluster_selection_method": "leaf"},
+        "number_representatives_per_cluster": 2, "isolated_image_selection": 7, "group_pattern": VIDEO_GROUP_PATTERN,
+        "seed": 3, "mosaic_grid_size": 4}
+
+
+@pytest.mark.parametrize(argnames=("algorithm_arguments", "clustering_parameters"), argvalues=[
+    (["--eps", "0.16"], {**DEFAULT_CLUSTERING_PARAMETERS["dbscan"], "eps": 0.16}),
+    (["--min_samples", "3"], {**DEFAULT_CLUSTERING_PARAMETERS["dbscan"], "min_samples": 3}),
+    (["--clustering_algorithm", "kmeans", "--number_clusters", "20", "--number_initializations", "1"],
+     {"number_clusters": 20, "number_initializations": 1})])
+def test_given_clustering_parameters_replace_the_defaults_of_the_algorithm(algorithm_arguments: List[str],
+                                                                            clustering_parameters: Dict[str, Any]
+                                                                            ) -> None:
+    """
+    Verifies that the DBSCAN and k-means parameters given on the command line replace the default values of their
+    algorithm, the parameters not given keeping theirs.
+
+    Args:
+        algorithm_arguments (List[str]): The clustering arguments given after the required ones.
+        clustering_parameters (Dict[str, Any]): The expected parameters of the algorithm.
+    """
+    parsed_arguments = parse_clustering_arguments(arguments=[*REQUIRED_ARGUMENTS, *algorithm_arguments])
+    assert parsed_arguments.clustering_parameters == clustering_parameters
+
+
+@pytest.mark.parametrize(argnames=("arguments", "error_text"), argvalues=[
+    (REQUIRED_ARGUMENTS[2:], "the following arguments are required: --experiment_folder"),
+    ([*REQUIRED_ARGUMENTS[:2], *REQUIRED_ARGUMENTS[4:]], "the following arguments are required: --iteration"),
+    (REQUIRED_ARGUMENTS[:4] + REQUIRED_ARGUMENTS[6:], "the following arguments are required: --output_root"),
+    (ARGUMENTS_WITHOUT_LAYER, "give at least one layer index"),
+    ([*ARGUMENTS_WITHOUT_LAYER, "--fully_connected_layer_indices"], "expected at least one argument"),
+    ([*REQUIRED_ARGUMENTS, "--min_cluster_size", "3"], "--min_cluster_size not a parameter of dbscan"),
+    ([*REQUIRED_ARGUMENTS, "--clustering_algorithm", "kmeans", "--eps", "0.5"], "--eps not a parameter of kmeans"),
+    ([*REQUIRED_ARGUMENTS, "--clustering_algorithm", "optics"], "invalid choice: 'optics'"),
+    ([*REQUIRED_ARGUMENTS, "--clustering_algorithm", "hdbscan", "--cluster_selection_method", "best"],
+     "invalid choice: 'best'"),
+    ([*REQUIRED_ARGUMENTS, "--isolated_image_selection", "some"], "expected all or none or a positive integer"),
+    ([*REQUIRED_ARGUMENTS, "--isolated_image_selection", "0"], "expected all or none or a positive integer"),
+    ([*REQUIRED_ARGUMENTS, "--pca_dimensions", "many"], "argument --pca_dimensions: invalid int value")])
+def test_clustering_script_refuses_missing_or_unknown_values(arguments: List[str], error_text: str,
+                                                            capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the clustering script stops with its usage and the error, before anything is loaded, when a
+    required argument or every layer index is missing, a parameter of another algorithm is given, or a value is not
+    one the script accepts.
+
+    Args:
+        arguments (List[str]): The command line arguments.
+        error_text (str): A part of the expected error message.
+        capsys (pytest.CaptureFixture): The captured console output.
+    """
+    with pytest.raises(expected_exception=SystemExit) as exit_information:
+        parse_clustering_arguments(arguments=arguments)
+    assert exit_information.value.code == 2
+    assert error_text in capsys.readouterr().err

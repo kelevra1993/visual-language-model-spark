@@ -78,11 +78,11 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=
 # Train (set experiment_folder, the three data folders and Data.label_mapping.mapping_file_path first)
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/sequence_comparison/configuration_synthetic_pairs.yaml"
 
-# Evaluate checkpoints into <run>/Checkpoint_Evaluation/ (settings in the main block of scripts/evaluation/evaluate_checkpoint.py)
-uv run python -m scripts.evaluation.evaluate_checkpoint
+# Evaluate every checkpoint into <run>/Checkpoint_Evaluation/
+uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder <run folder> --iteration all
 ```
 
-The main block of `evaluate_checkpoint.py` takes `run_name`, `experiment_folder` (the run folder), `iteration` (None, an integer or `"all"`), `test_data_folder`, `batch_size`, `track_evaluation`, `save_predictions` (None keeps the setting of the run), `maximum_error_images_per_class_pair` (turns error images on) and `target_precisions` (a list such as `[0.99, 0.95]`, the first one the main one).
+`evaluate_checkpoint.py` takes `--experiment_folder` (the run folder, required), `--iteration` (an integer or `all`, the last checkpoint by default), `--test_data_folder`, `--batch_size`, `--track_evaluation`, `--save_predictions` (the setting of the run by default), `--maximum_error_images_per_class_pair` (turns error images on) and `--target_precisions` (several such as `0.99 0.95`, the first one the main one).
 
 ### Configuration Keys To Know First
 
@@ -675,7 +675,7 @@ After the tracking, `update_evaluation_curves()` writes the row of the iteration
 > The examples below are real outputs of `scripts/evaluation/evaluate_checkpoint.py` on the Stage 3 run (checkpoints 3, 6, 9 and 12) with `iteration = "all"`, `batch_size = 16` and a test folder of the first 40 test pairs.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-The same script for every task, with the settings of [Run It](#run-it) (`classification_workflow.md`, Stage 5). `test_data_folder` may point to another labelled split (a pairs `labels.json` and `data/`). The output goes to `Checkpoint_Evaluation/` of the run, or `Checkpoint_Evaluation_split_<parent folder>_<split folder>/` for another split. A pair with a member over the `maximum_sequence_length` of the run is left out, with the red warnings of Step 2.9.
+The same script for every task, with the arguments of [Run It](#run-it) (`classification_workflow.md`, Stage 5). `--test_data_folder` may point to another labelled split (a pairs `labels.json` and `data/`). The output goes to `Checkpoint_Evaluation/` of the run, or `Checkpoint_Evaluation_split_<parent folder>_<split folder>/` for another split. A pair with a member over the `maximum_sequence_length` of the run is left out, with the red warnings of Step 2.9.
 
 ### Step 5.2 — trainer construction
 The trainer is built from the `training_configuration.yaml` of the run, with the classes of its `label_dictionary.json`, the run folder name as `run_name` and pretrained transfer off (`disable_pretrained_settings()`, `classification_workflow.md`, Step 5.2).

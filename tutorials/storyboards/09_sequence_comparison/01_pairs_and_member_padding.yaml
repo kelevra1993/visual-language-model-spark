@@ -94,7 +94,7 @@ scenes:
       - {role: comment, text: "# The training"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/sequence_comparison/configuration_synthetic_pairs.yaml\""}
     narration:
-      - "The generator writes such pairs given the comparison task as an argument, with members of {{sequence_comparison.generator.minimum_frames_words}} to {{sequence_comparison.generator.maximum_frames_words}} frames of {{sequence_comparison.generator.image_size}} pixels set in its main block."
+      - "The generator writes such pairs given the comparison task as an argument, with members of {{sequence_comparison.generator.minimum_frames_words}} to {{sequence_comparison.generator.maximum_frames_words}} frames of {{sequence_comparison.generator.image_size}} pixels set by its constants for the task."
       - "The training then takes the synthetic pairs configuration."
 
   - kind: yaml

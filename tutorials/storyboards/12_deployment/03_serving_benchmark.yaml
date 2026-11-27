@@ -64,12 +64,12 @@ scenes:
     code_reference: "scripts/deployment/benchmark_serving_formats.py · run_serving_benchmark"
     source:
       file: scripts/deployment/benchmark_serving_formats.py
-      start: "^    # Precision settings, one model repository"
-      end: "^    number_in_process_warmup_iterations = "
+      start: "^# Precision settings, one model repository"
+      end: "^IN_PROCESS_WARMUP_ITERATIONS = "
     highlights:
-      - {match: "^    precision_settings = |\"tensorrt_fp32\": |\"tensorrt_fp16\": |\"torchscript_fp16\": ", sentences: [0]}
-      - {match: "^    load_groups = |\"server_settings\": \\[\\(False, 1\\)", sentences: [1]}
-      - {match: "^    number_in_process_iterations = |^    number_in_process_warmup_iterations = ", sentences: [2]}
+      - {match: "^PRECISION_SETTINGS = |\"tensorrt_fp32\": |\"tensorrt_fp16\": |\"torchscript_fp16\": ", sentences: [0]}
+      - {match: "^LOAD_GROUPS = |\"server_settings\": \\[\\(False, 1\\)", sentences: [1]}
+      - {match: "^IN_PROCESS_ITERATIONS = |^IN_PROCESS_WARMUP_ITERATIONS = ", sentences: [2]}
     narration:
       - "Benchmark serving formats exports each run once per precision setting, into its own model repository, with the export of the first chapter."
       - "Its load groups give every row the whole grid with the exported configuration, and the other server settings to TensorRT FP16 at batch {{deployment.sweep.batch_sizes[0]}} only, where several clients sending at once is where they can matter."

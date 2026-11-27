@@ -77,23 +77,23 @@ If you are looking for the code of a step, this table lists the files of the tas
 
 ### Run It
 
-In order to train and evaluate the synthetic shapes classifier from scratch, set the main blocks of the scripts, then run these commands from the repository root.
+In order to train and evaluate the synthetic shapes classifier from scratch, run these commands from the repository root.
 
 ```bash
-# Synthetic dataset (500,000 / 50,000 / 50,000 images of 512 pixels, sizes set in the main block)
+# Synthetic dataset (500,000 / 50,000 / 50,000 images of 512 pixels by default, other sizes with --split_sizes)
 uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=classification --output_folder="$HOME/Data/classifier_data/synthetic_shapes"
 
 # Training: set experiment_folder, the three data folders and Data.label_mapping.mapping_file_path first
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/classification/configuration_synthetic_shapes.yaml"
 
-# Evaluation of checkpoints into <run>/Checkpoint_Evaluation/ (settings in the main block, Step 5.1)
-uv run python -m scripts.evaluation.evaluate_checkpoint
+# Evaluation of every checkpoint into <run>/Checkpoint_Evaluation/ (other arguments in Step 5.1)
+uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder <run folder> --iteration all
 
 # Temperature and export: open http://127.0.0.1:8091/, save the thresholds of a temperature, export from that page
 uv run python -m scripts.evaluation.serve_temperature_explorer
 
-# Report figures into <run>/Checkpoint_Evaluation/Iteration_<n>[/EMA]/Report_Figures/ (run, iteration, weights in the main block)
-uv run python -m scripts.evaluation.draw_report_figures
+# Report figures into <run>/Checkpoint_Evaluation/Iteration_<n>[/EMA]/Report_Figures/ (--weights ema for the averaged weights)
+uv run python -m scripts.evaluation.draw_report_figures --experiment_folder ~/Data/<run> --iteration 2000
 ```
 
 ### Configuration Keys To Know First
@@ -258,7 +258,7 @@ run_test_evaluation(iteration)  [STAGE 4]      whole test split, then again on t
     ├── track_evaluation()                     MLflow scalars, best value, small files
     └── update_evaluation_curves()             evaluation_summary.csv, evaluation_curves.png
 
-scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]   main block settings, writes <run>/Checkpoint_Evaluation/
+scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]   command line arguments, writes <run>/Checkpoint_Evaluation/
 ├── list_evaluated_iterations() -> get_checkpoint_iterations() / get_last_checkpoint_iteration()
 ├── load_experiment_configuration() + get_trainer_class() + trainer construction   (same as Stages 1-2)
 └── evaluate_checkpoints()
@@ -1447,27 +1447,27 @@ artifacts: evaluation/iteration_6/class_metrics.csv, class_thresholds.json, conf
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
 If one wishes to compare checkpoints, pick one to deploy, or score a run on another labelled split, this script evaluates checkpoints of a trained (or training) run without training.
-- It has no command line: its settings are the variables at the top of its `__main__` block.
+- Its settings are command line arguments (`parse_evaluation_arguments()`, passed to `evaluate_run()`); without any, it prints its help.
 - The run's files are only read. Everything goes to `<run>/Checkpoint_Evaluation/`, next to the training's `Evaluation/`, or for another labelled split to `Checkpoint_Evaluation_split_<parent folder>_<split folder>/` (e.g. `Checkpoint_Evaluation_split_synthetic_shapes_validation`), so two splits never mix.
 
 ```bash
-# Evaluate the checkpoints named in the main block
-uv run python -m scripts.evaluation.evaluate_checkpoint
+# Evaluate every checkpoint of a run, the last saved first
+uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder <run folder> --iteration all
 ```
 
-This table lists the settings of the main block (`run_name` and `experiment_folder` name the last evaluated run; change them for another run).
+This table lists the arguments of the script; only `--experiment_folder` is required.
 
-| Variable | Role |
+| Argument | Role |
 |---|---|
-| `run_name` | the trained run, `<experiments>/<run_name>` (`experiment_folder`, the `experiment_folder` of its configuration), with `Weights/` and `training_configuration.yaml` |
-| `iteration` | `"all"`: every checkpoint of the registry, last first; `None`: the last; an integer: one checkpoint |
-| `test_data_folder` | another labelled split instead of the run's test split; `None` keeps the test split |
-| `batch_size` | evaluation batch size, `128` by default (no gradients, so it can exceed the training one); `None` keeps the run's |
-| `track_evaluation` | `True`/`False` for an MLflow run of its own; `None` keeps `tracking.activated` |
-| `save_predictions` | `True`/`False` for `predictions.csv` per iteration (4.16), read by the seen and never seen groups chart of `draw_report_figures.py` (5.7); `None` keeps `evaluation.save_predictions` (`apply_save_predictions()`) |
-| `maximum_error_images_per_class_pair` | turns error images on with at most this many per class pair, the first met (a number above the test samples saves every error); `None` keeps `evaluation.error_dumps` |
-| `target_precisions` | precision of the class thresholds, or a list of distinct precisions whose first is the main target (e.g. `[0.99, 0.95, 0.90]`, 4.13), checked like the configuration (`apply_target_precisions()`); `None` keeps `evaluation.target_precision` |
-| `nms_criterion`, `nms_distance_exponent` | final non-maximum suppression of the detection tasks; skipped with a warning for a classifier |
+| `--experiment_folder` | the trained run folder, with `Weights/` and `training_configuration.yaml` (required) |
+| `--iteration` | `all`: every checkpoint of the registry, last first; an integer: one checkpoint; the last one by default |
+| `--test_data_folder` | another labelled split instead of the run's test split (the default) |
+| `--batch_size` | evaluation batch size, `128` by default (no gradients, so it can exceed the training one); `None` keeps the run's |
+| `--track_evaluation` | `True`/`False` for an MLflow run of its own; `tracking.activated` by default |
+| `--save_predictions` | `True`/`False` for `predictions.csv` per iteration (4.16), read by the seen and never seen groups chart of `draw_report_figures.py` (5.7); `evaluation.save_predictions` by default (`apply_save_predictions()`) |
+| `--maximum_error_images_per_class_pair` | turns error images on with at most this many per class pair, the first met, `100000` by default (a number above the test samples saves every error); `None` keeps `evaluation.error_dumps` |
+| `--target_precisions` | precision of the class thresholds, or several distinct precisions whose first is the main target (e.g. `0.99 0.95 0.90`, 4.13), checked like the configuration (`apply_target_precisions()`); `evaluation.target_precision` by default |
+| `--nms_criterion`, `--nms_distance_exponent` | final non-maximum suppression of the detection tasks; skipped with a warning for a classifier |
 
 ### Step 5.2 — `load_experiment_configuration()` + `get_trainer_class()` + trainer construction (same as Stages 1–2)
 - It loads the run's saved `training_configuration.yaml` (2.6) through the Stage 1 loader, classes from the `label_dictionary.json` next to it.
@@ -1578,27 +1578,27 @@ CLS_IN-KAR-64_..._MC9/Checkpoint_Evaluation/
 ```
 
 ### Step 5.7 — `scripts/evaluation/draw_report_figures.py`
-Should a research report of a kept classifier need its figures again (a new evaluation, a new saved temperature), this script draws them into `Report_Figures/` of the evaluation folder of the kept iteration and weights. Settings are in its `__main__` block (tools reference, Drawing The Figures Of A Research Report); the folder is `<run>/Checkpoint_Evaluation/Iteration_<n>[/EMA]/` by default (`evaluation_folder_name`, `Evaluation` for the training's).
+Should a research report of a kept classifier need its figures again (a new evaluation, a new saved temperature), this script draws them into `Report_Figures/` of the evaluation folder of the kept iteration and weights (`--weights`). `--experiment_folder` and `--iteration` are required; the other arguments are in the tools reference (Drawing The Figures Of A Research Report) and in its help, printed without any. The folder is `<run>/Checkpoint_Evaluation/Iteration_<n>[/EMA]/` by default (`--evaluation_folder_name Evaluation` for the training's).
 
 ```bash
-# Draw the report figures of the checkpoint named in the main block
-uv run python -m scripts.evaluation.draw_report_figures
+# Draw the report figures of the trained weights of iteration 2000
+uv run python -m scripts.evaluation.draw_report_figures --experiment_folder <run> --iteration 2000
 ```
 
 - `draw_report_figures()` checks every input before writing: `class_logits.npz` (one class per sample), `confusion_matrix.csv` with the same classes, the thresholds, and the balanced accuracy of trained and EMA weights from `Tensorboard/Test` and `Tensorboard/Test_EMA`.
 - `read_report_thresholds()` takes `saved_temperature_thresholds.json` (it must match the thresholds recomputed from the logits), or the thresholds at temperature 1 with a yellow warning.
 - It writes `confusion_matrix.png` (`save_confusion_matrix_image()`, accuracy and balanced accuracy in percent in the title), `precision_recall_curves.png` (`draw_precision_recall_figure()`, curves at the thresholds' temperature with the threshold of every target precision), `training_curves.png` (kept checkpoint ringed) and `report_values.json` (every number shown).
-- Given a JSON Lines manifest of every sample's group (`group_manifest_path`, e.g. the truck of every image), it reads the evaluation's `predictions.csv` (`save_predictions`, 5.1) and the training `labels.json`, and draws `seen_and_never_seen_groups.png`: balanced accuracy on groups seen and never seen in training (`compare_seen_and_never_seen_groups()`).
+- Given a JSON Lines manifest of every sample's group (`--group_manifest_path`, e.g. the truck of every image), it reads the evaluation's `predictions.csv` (`save_predictions`, 5.1) and the training `labels.json`, and draws `seen_and_never_seen_groups.png`: balanced accuracy on groups seen and never seen in training (`compare_seen_and_never_seen_groups()`).
 
 ### Step 5.8 — `scripts/evaluation/score_image_split.py`
 In case a kept classifier must find the images of a rare class among a million unlabelled ones, this script scores every image of a split with one checkpoint, without metrics, error images or second weights. Its command line options are in the [tools reference, Scoring A Large Split](../reference/tools_reference.md#scoring-a-large-split).
-- Forward pass only, of the trained weights or their moving average (`--use-averaged-weights`), in `float32` or `bfloat16` autocast (`--precision`; `--compare-precisions` first compares both on the run's labelled test split).
+- Forward pass only, of the trained weights or their moving average (`--use_averaged_weights`), in `float32` or `bfloat16` autocast (`--precision`; `--compare_precisions` first compares both on the run's labelled test split).
 - Images are decoded by many loader workers through the run's test dataset, in the order of the split's `labels.json`.
-- Batch by batch it appends the `sample` and `probability_<class>` columns of `predictions.csv` (4.16) to `--output-path`, so a launch stopped by `--time-budget-hours` or interrupted resumes on the same file.
+- Batch by batch it appends the `sample` and `probability_<class>` columns of `predictions.csv` (4.16) to `--output_path`, so a launch stopped by `--time_budget_hours` or interrupted resumes on the same file.
 - Its trainer writes its configuration copy, `label_dictionary.json`, `data.json` and `Tensorboard/` into `<run>/Checkpoint_Evaluation_split_<parent folder>_<split folder>/`, so no file of the run or its evaluations changes.
 
 ```bash
 # Score a split with the checkpoint of iteration 2000 in bfloat16, for at most 3 hours
-uv run python -m scripts.evaluation.score_image_split --experiment-folder <run> --iteration 2000 \
-    --test-data-folder <split> --output-path <predictions.csv> --precision bfloat16 --time-budget-hours 3
+uv run python -m scripts.evaluation.score_image_split --experiment_folder <run> --iteration 2000 \
+    --test_data_folder <split> --output_path <predictions.csv> --precision bfloat16 --time_budget_hours 3
 ```

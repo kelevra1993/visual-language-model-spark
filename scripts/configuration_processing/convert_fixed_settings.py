@@ -29,11 +29,15 @@ script. A file holding another value than the fixed one is listed with the value
 to, except for the settings of RECORD_ONLY_SETTINGS, whose other values the code no longer trains (the CIoU box loss of
 the region proposal network, a gradient clipping norm, the anchors centred on the cell centres, scored masks): such a
 file is reported and left as it is, its runs staying as records. A file whose backbone would change (inception modules
-starting at another block) is refused, the code no longer building its layers.
+starting at another block) is refused, the code no longer building its layers. Run as a script with the run roots and
+the configuration folders searched given as arguments (parse_conversion_arguments), at least one folder being needed,
+the files only listed unless --write_files is given, and its help printed when no argument is given.
 """
 
+import argparse
 import re
 import shutil
+import sys
 import yaml
 
 from pathlib import Path
@@ -263,6 +267,24 @@ PREVIOUS_CONFIGURATIONS_FOLDER_NAME = "previous_configurations"
 
 # Key line of a YAML file: its indentation, its key and what follows the colon
 KEY_LINE_PATTERN = re.compile(pattern=r"^(\s*)([A-Za-z0-9_]+):(.*)$")
+
+# Suffix of the backups of the latest conversion unless the command line gives another one: '_before_fixed_settings'
+# (2026-10-29), '_before_fixed_head_settings' (2026-11-05), '_before_neck' for the 'Neck' section added on 2026-11-07,
+# '_before_box_loss' for the 'box_loss' settings added on 2026-11-08, '_before_nms_criterion' for the final NMS settings
+# added on 2026-11-08, '_before_region_proposal_box_loss' for the 'RegionProposal.box_loss' removed on 2026-11-10,
+# '_before_gradient_clipping_norm' for the 'Optimization.gradient_clipping_norm' removed on 2026-11-11,
+# '_before_proposal_selection' for the 'RegionProposal.proposal_selection' added on 2026-11-11,
+# '_before_anchor_centres' for the 'RegionProposal.anchor_centres' added on 2026-11-12,
+# '_before_anchor_centres_removal' for its removal on 2026-11-13, '_before_instance_index_maps' for the
+# 'Data.instance_index_maps' added on 2026-11-13, '_before_mask_fine_inputs' for the finer inputs and fusion
+# convolutions of the 'MaskHead' section added on 2026-11-15, '_before_benchmark_speed' for the
+# 'diagnosis_modes.benchmark_speed' added on 2026-11-16, '_before_shared_mask_head' for the 'MaskHead.shared' added on
+# 2026-11-20, '_before_mask_scoring' for the 'MaskHead.mask_scoring' added on 2026-11-21, '_before_class_layer' for the
+# 'ClassificationHead.pretrained.class_layer' added on 2026-11-24, then '_before_class_layers' for the
+# 'pretrained.class_layers' of the detection, mask and keypoint heads added and the
+# 'SegmentationDecoder.pretrained.load_class_layers' renamed on 2026-11-24, then '_before_mask_scoring_removal' for the
+# removal of the 'MaskHead.mask_scoring' on 2026-11-27
+DEFAULT_BACKUP_SUFFIX = "_before_mask_scoring_removal"
 
 
 def get_indentation(line: str) -> int:
@@ -812,42 +834,81 @@ def convert_fixed_settings(run_roots: List[Path], configuration_folders: List[Pa
     return converted_paths
 
 
-if __name__ == "__main__":
-    repository_folder = Path(__file__).absolute().parents[2]
-    # Folders searched for run folders, whose training_configuration.yaml is converted (the 'experiment_folder' of the
-    # launches); the copies of the configurations in the MLflow artifacts folder are left as they were logged
-    run_roots = [repository_folder / "experiments", repository_folder / "ficha-experiments-staged-schedule",
-                 repository_folder / "ficha_previous_experiments", repository_folder / "hyperparameter_experiments",
-                 repository_folder / "ficha_experiments", repository_folder / "imagenet_experiments",
-                 Path.home() / "Data" / "tutorial_runs"]
-    # Folders of launch files, converted with their subfolders, their backups going to 'previous_configurations'; the
-    # tracked files of the detection, segmentation, keypoint and classification-like folders already hold the settings,
-    # only their untracked launch files (e.g. the imagenet_merged copies of the classification folder) are converted
-    configuration_folders = [repository_folder / "vision_training/configurations/ficha_configuration_files",
-                             *[repository_folder / "vision_training/configurations" / task_folder
-                               for task_folder in ["instance_segmentation", "object_detection", "keypoint_detection",
-                                                   "semantic_segmentation", *CLASSIFICATION_LIKE_TASKS]]]
-    # False to only list the files holding fixed settings or settings to rename, or lacking an added section or
-    # setting, True to convert them
-    write_files = False
-    # Suffix of the backups of this conversion: '_before_fixed_settings' (2026-10-29), '_before_fixed_head_settings'
-    # (2026-11-05), '_before_neck' for the 'Neck' section added on 2026-11-07, '_before_box_loss' for the 'box_loss'
-    # settings added on 2026-11-08, '_before_nms_criterion' for the final NMS settings added on 2026-11-08,
-    # '_before_region_proposal_box_loss' for the 'RegionProposal.box_loss' removed on 2026-11-10,
-    # '_before_gradient_clipping_norm' for the 'Optimization.gradient_clipping_norm' removed on 2026-11-11,
-    # '_before_proposal_selection' for the 'RegionProposal.proposal_selection' added on 2026-11-11,
-    # '_before_anchor_centres' for the 'RegionProposal.anchor_centres' added on 2026-11-12,
-    # '_before_anchor_centres_removal' for its removal on 2026-11-13, '_before_instance_index_maps' for the
-    # 'Data.instance_index_maps' added on 2026-11-13, '_before_mask_fine_inputs' for the finer inputs and fusion
-    # convolutions of the 'MaskHead' section added on 2026-11-15, '_before_benchmark_speed' for the
-    # 'diagnosis_modes.benchmark_speed' added on 2026-11-16, '_before_shared_mask_head' for the 'MaskHead.shared'
-    # added on 2026-11-20, '_before_mask_scoring' for the 'MaskHead.mask_scoring' added on 2026-11-21,
-    # '_before_class_layer' for the 'ClassificationHead.pretrained.class_layer' added on 2026-11-24, then
-    # '_before_class_layers' for the 'pretrained.class_layers' of the detection, mask and keypoint heads added and the
-    # 'SegmentationDecoder.pretrained.load_class_layers' renamed on 2026-11-24, then '_before_mask_scoring_removal' for
-    # the removal of the 'MaskHead.mask_scoring' on 2026-11-27
-    backup_suffix = "_before_mask_scoring_removal"
+def parse_conversion_arguments(arguments: List[str]) -> argparse.Namespace:
+    """
+    Reads the settings of a conversion from the command line of the script, so that the saved runs and the launch
+    files of any machine are converted without editing the file: the run roots and the configuration folders have no
+    default, the folders of every machine being its own, but at least one folder is needed; the files are only listed
+    unless --write_files is given, and the backups take DEFAULT_BACKUP_SUFFIX unless another suffix is given. Launched
+    without any argument, the script prints the help of every argument and stops. A '~' left by the shell at the start
+    of a path ('--run_roots=~/...') is expanded to the home folder.
 
-    files_to_convert = convert_fixed_settings(run_roots=run_roots, configuration_folders=configuration_folders,
-                                              write_files=write_files, backup_suffix=backup_suffix)
-    print_color(color="green", output=f"{len(files_to_convert)} Files {'Converted' if write_files else 'To Convert'}")
+    Args:
+        arguments (List[str]): The command line arguments, without the script name.
+
+    Returns:
+        argparse.Namespace: The run_roots, configuration_folders, write_files and backup_suffix of
+            convert_fixed_settings.
+
+    Raises:
+        SystemExit: After printing the help when no argument is given, or the usage and the error when no folder is
+            given or a given folder does not exist.
+    """
+    # The description and the example keep their line breaks, argparse wrapping the help of every argument
+    parser = argparse.ArgumentParser(
+        prog="uv run python -m scripts.configuration_processing.convert_fixed_settings",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Converts the configuration files written before a setting was fixed, added or renamed (the\n"
+                    "training_configuration.yaml of saved runs and launch files), backing up every converted file.",
+        epilog="Example, listing the files to convert in a folder of runs and a launch folder (add --write_files to\n"
+               "convert them):\n"
+               "  uv run python -m scripts.configuration_processing.convert_fixed_settings \\\n"
+               "    --run_roots ~/Data/<runs> --configuration_folders vision_training/configurations/object_detection")
+    # The folders searched, at least one of them
+    parser.add_argument("--run_roots", type=Path, nargs="+", default=[], metavar="PATH",
+                        help="Folders searched for run folders, whose training_configuration.yaml is converted, the "
+                             "copies of the MLflow artifacts folder being left as logged (default: none).")
+    parser.add_argument("--configuration_folders", type=Path, nargs="+", default=[], metavar="PATH",
+                        help="Folders of launch files, converted with their subfolders, their backups going to "
+                             f"{PREVIOUS_CONFIGURATIONS_FOLDER_NAME} (default: none).")
+    # Whether the files are written, and the name of their backups
+    parser.add_argument("--write_files", action="store_true",
+                        help="Convert the files after copying each to its backup (default: only list the files to "
+                             "convert).")
+    parser.add_argument("--backup_suffix", default=DEFAULT_BACKUP_SUFFIX,
+                        help="Suffix of the backups, one per conversion so that the backups of an earlier one are "
+                             "never overwritten (default: %(default)s).")
+
+    # Without any argument, the script describes its arguments instead of searching no folder
+    if not arguments:
+        parser.print_help()
+        parser.exit(status=0)
+    parsed_arguments = parser.parse_args(args=arguments)
+
+    # A '~' the shell leaves after '=' points to the home folder, as in the other scripts of the repository
+    parsed_arguments.run_roots = [run_root.expanduser() for run_root in parsed_arguments.run_roots]
+    parsed_arguments.configuration_folders = [configuration_folder.expanduser()
+                                              for configuration_folder in parsed_arguments.configuration_folders]
+
+    # A conversion without any folder or with a mistyped one would list no file instead of failing
+    searched_folders = parsed_arguments.run_roots + parsed_arguments.configuration_folders
+    if not searched_folders:
+        parser.error(message="give at least one folder with --run_roots or --configuration_folders")
+    missing_folders = [str(folder) for folder in searched_folders if not folder.is_dir()]
+    if missing_folders:
+        parser.error(message=f"no folder {', '.join(missing_folders)}")
+    return parsed_arguments
+
+
+if __name__ == "__main__":
+    # Run roots, configuration folders, writing and backup suffix read from the command line, the help printed when
+    # none is given
+    conversion_arguments = parse_conversion_arguments(arguments=sys.argv[1:])
+
+    # List the files to convert, or convert them with their backups
+    files_to_convert = convert_fixed_settings(run_roots=conversion_arguments.run_roots,
+                                              configuration_folders=conversion_arguments.configuration_folders,
+                                              write_files=conversion_arguments.write_files,
+                                              backup_suffix=conversion_arguments.backup_suffix)
+    print_color(color="green", output=f"{len(files_to_convert)} Files "
+                                      f"{'Converted' if conversion_arguments.write_files else 'To Convert'}")

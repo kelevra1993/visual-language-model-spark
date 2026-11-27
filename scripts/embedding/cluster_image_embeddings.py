@@ -1,7 +1,8 @@
 """
 When run, embeds the images of datasets with a trained run of vision_training/main.py and clusters them, to pick
 diverse representatives of datasets made of video frames, many of them nearly identical, and train a smaller model on
-them. The settings are the variables of the main block, and the script runs three steps:
+them. The settings are command line arguments (parse_clustering_arguments, the help printed when none is given), and
+the script runs three steps:
 - Checks, before any inference: the asked convolution blocks exist in the backbone of the run (any task) and give at
   most MAXIMUM_BLOCK_VALUES values per image, the asked hidden fully connected layers exist in its classification head
   (classification runs), both counted from 1, the clustering settings are valid, and every data source exists and
@@ -54,12 +55,14 @@ clusters, the large clusters weighing the most). PCA 100 and 50 were not measure
 | fully_connected_2 | B         | 200 | 100.0 %  | < 1      | 126          | 245      | 12.1 %   | 5,061 | 0.994     |
 """
 
+import argparse
 import csv
 import hashlib
 import json
 import os
 import re
 import shutil
+import sys
 import time
 
 import cv2
@@ -126,11 +129,26 @@ FINGERPRINT_KEYS = ["checkpoint_sha256", "use_averaged_weights", "image_size", "
 CLUSTERING_PARAMETERS = {"hdbscan": ["min_cluster_size", "min_samples", "cluster_selection_method"],
                          "dbscan": ["eps", "min_samples"], "kmeans": ["number_clusters", "number_initializations"]}
 
+# Parameters of every clustering algorithm taken when the command line does not give them. DBSCAN eps 0.5 lies between
+# the knees of the distance of every frame to its 4th nearest neighbour, measured on the 1,417 frames of the 200 test
+# sequences of the synthetic moving shapes: 0.713 for block_6 at PCA 200 and 0.431 for fully_connected_1
+DEFAULT_CLUSTERING_PARAMETERS = {"hdbscan": {"min_cluster_size": 10, "min_samples": 5,
+                                             "cluster_selection_method": "eom"},
+                                 "dbscan": {"eps": 0.5, "min_samples": 5},
+                                 "kmeans": {"number_clusters": 200, "number_initializations": 3}}
+
 # Ways HDBSCAN selects its clusters in its cluster tree: the most stable ones, or the leaves (smaller, more uniform)
 HDBSCAN_SELECTION_METHODS = ["eom", "leaf"]
 
 # Isolated images kept with the cluster representatives, besides a number of isolated images drawn at random
 ISOLATED_IMAGE_SELECTIONS = ["all", "none"]
+
+# Settings taken when the command line of the script (parse_clustering_arguments) does not give them, the PCA dimensions
+# being quoted by the foundations tutorial: 200 halve the HDBSCAN time of 400 on block 6 (see the timings at the top)
+DEFAULT_CLUSTERING_SETTINGS = {"data_sources": [RUN_DATA_SOURCE], "batch_size": 32, "number_workers": 2,
+                               "normalize_vectors": True, "pca_dimensions": 200, "clustering_algorithm": "dbscan",
+                               "number_representatives_per_cluster": 5, "isolated_image_selection": "all", "seed": 0,
+                               "mosaic_grid_size": 6}
 
 # Cluster label of the isolated images, in no cluster (the noise of scikit-learn)
 ISOLATED_CLUSTER = -1
@@ -1717,7 +1735,7 @@ def embed_and_cluster_sources(experiment_folder: Path, iteration: int, use_avera
                               group_pattern: Optional[str], seed: int, mosaic_grid_size: int, output_root: Path,
                               device: torch.device) -> List[Path]:
     """
-    Runs the three steps of the script with the settings of its main block: the checks of the layers and of the
+    Runs the three steps of the script with the settings of its command line: the checks of the layers and of the
     clustering settings, the extraction of every data source (loaded when stored), and the clustering of every layer
     of every source, ending with the table of the kept images of every source.
 
@@ -1819,82 +1837,223 @@ def embed_and_cluster_sources(experiment_folder: Path, iteration: int, use_avera
     return clustering_folders
 
 
-if __name__ == "__main__":
-    # Trained run embedding the images, of any task for the convolution blocks and a classification run for the fully
-    # connected layers, with the iteration of its checkpoint, and True to embed with the moving average of its weights:
-    # the 35-class synthetic shapes classifier of the README, kept with the tutorial runs
-    experiment_folder = (Path.home() / "Data" / "tutorial_runs" / "readme_screenshots" /
-                         "CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35")
-    iteration = 2000
-    use_averaged_weights = False
-    # Images to embed, a list of:
-    # - "run": the train, validation and test splits of the training_configuration.yaml of the run
-    # - a configuration file (.yaml) of any task: its train, validation and test splits
-    # - a split folder of any task, holding 'data' and 'labels.json' (COCO images, samples, frames of the sequences
-    #   and of the pairs)
-    # - a folder of plain images, searched with its subfolders
-    # A folder given twice (a test split that is the validation folder) is embedded once. Here the 1,417 frames of the
-    # 200 test sequences of the synthetic moving shapes, shapes moving a little from one frame to the next
-    data_sources = [Path.home() / "Data" / "sequence_data" / "synthetic_moving_shapes" / "test"]
-    # Layers stored and clustered, counted from 1: the convolution blocks of the backbone (their whole output before
-    # their pooling, channels x height x width values per image, at most MAXIMUM_BLOCK_VALUES = 32,768: block 6 of the
-    # README classifier at 512 pixels, 128 x 16 x 16, and not block 5, 64 x 32 x 32) and the hidden fully connected
-    # layers of a classification head (their output after their ReLU, the class logits layer excluded)
-    convolution_block_indices = [6]
-    fully_connected_layer_indices = [1]
-    # Images run together and loader worker processes reading them
-    batch_size = 32
-    number_workers = 2
-    # Vectors divided by their length before the clustering, so that the distances compare which features are active
-    # rather than how strongly, and number of PCA dimensions every layer is reduced to (its main directions of
-    # variation), a layer with fewer dimensions being clustered as it is: the clustering time grows with the
-    # dimensions (see the timings at the top of the file: 200 dimensions halve the HDBSCAN time of 400 on block 6)
-    normalize_vectors = True
-    pca_dimensions = 200
-    # Clustering algorithm and its parameters, every category of a classification manifest clustered on its own:
-    # - "hdbscan": dense regions of any shape, the images in none of them being isolated; min_cluster_size (images of
-    #   the smallest cluster), min_samples (neighbours making an image dense, None for min_cluster_size, higher giving
-    #   more isolated images) and cluster_selection_method ("eom" for the most stable clusters, "leaf" for smaller,
-    #   more uniform ones)
-    # - "dbscan": dense regions at a fixed distance eps between the prepared vectors (at most 2 between normalised
-    #   vectors), min_samples neighbours within eps making an image dense, the others being isolated; eps 0.5 lies
-    #   between the knees of the distance of every frame of the data source above to its 4th nearest neighbour, 0.713
-    #   for block_6 at PCA 200 and 0.431 for fully_connected_1
-    # - "kmeans": number_clusters clusters per category, every image in one, best of number_initializations runs
-    clustering_algorithm = "dbscan"
-    clustering_parameters = {"hdbscan": {"min_cluster_size": 10, "min_samples": 5, "cluster_selection_method": "eom"},
-                             "dbscan": {"eps": 0.5, "min_samples": 5},
-                             "kmeans": {"number_clusters": 200, "number_initializations": 3}}[clustering_algorithm]
-    # Images kept by the clustering: the representatives of every cluster (its images closest to its centre) and the
-    # isolated images, in no cluster, "all", "none" or a number drawn at random. As many images per category are kept
-    # at random and evenly spaced per group, the baselines of the clustering
-    number_representatives_per_cluster = 5
-    isolated_image_selection = "all"
-    # Regular expression giving the group of every image, searched in its file name relative to its data folder: the
-    # first capturing group taking part in the match (the whole match without capturing group), the images it does not
-    # match forming the group "(no group)". Any pattern fits the file names of a dataset, e.g. r"^([^/]+)/" for the
-    # first subfolder, here the sequence of every frame ('test_000012/000003.png'), r"^(camera_\d+_\d{4}-\d{2}-\d{2})_"
-    # for the camera and day of 'camera_3_2026-09-25_frame_0040.jpg', or r"^(video_\d+)_|^(camera_\d+)/" for one group
-    # per alternative. The cluster summary counts the groups of every cluster, and the baseline evenly spaced per group
-    # spreads its images evenly over the groups, the images of a group ordered by their names (digit runs compared as
-    # numbers). None for no group and no such baseline
-    group_pattern = r"^([^/]+)/"
-    # Seed of the draws (isolated images, images kept at random) and of k-means
-    seed = 0
-    # Images per row of the mosaic of a cluster, which shows at most as many rows, the images closest to the centre
-    # first
-    mosaic_grid_size = 6
-    # Root folder of the extractions, '<output_root>/<run name>/Iteration_<n>[_EMA]/<source>/', outside the folder of
-    # the tutorial runs
-    output_root = Path.home() / "Data" / "embeddings"
+def read_isolated_image_selection_argument(value: str) -> str | int:
+    """
+    Converts the --isolated_image_selection argument of the script into the value select_kept_images_by_clustering
+    reads, so that the command line keeps every isolated image, none of them, or a number of them drawn at random next
+    to the cluster representatives.
 
-    embed_and_cluster_sources(experiment_folder=experiment_folder, iteration=iteration,
-                              use_averaged_weights=use_averaged_weights, data_sources=data_sources,
-                              convolution_block_indices=convolution_block_indices,
-                              fully_connected_layer_indices=fully_connected_layer_indices, batch_size=batch_size,
-                              number_workers=number_workers, normalize_vectors=normalize_vectors,
-                              pca_dimensions=pca_dimensions, clustering_algorithm=clustering_algorithm,
-                              clustering_parameters=clustering_parameters,
-                              number_representatives_per_cluster=number_representatives_per_cluster,
-                              isolated_image_selection=isolated_image_selection, group_pattern=group_pattern, seed=seed,
-                              mosaic_grid_size=mosaic_grid_size, output_root=output_root, device=get_device())
+    Args:
+        value (str): The text given on the command line.
+
+    Returns:
+        str | int: "all" or "none" as given, otherwise the number of isolated images drawn.
+
+    Raises:
+        argparse.ArgumentTypeError: If the text is neither "all", "none" nor a positive integer, argparse then
+            printing the usage and the error.
+    """
+    if value in ISOLATED_IMAGE_SELECTIONS:
+        return value
+    if not value.isdigit() or int(value) < 1:
+        raise argparse.ArgumentTypeError(f"expected {' or '.join(ISOLATED_IMAGE_SELECTIONS)} or a positive integer, "
+                                         f"got {value!r}")
+    return int(value)
+
+
+def read_minimum_samples_argument(value: str) -> Optional[int]:
+    """
+    Converts the --min_samples argument of the script into the min_samples parameter of HDBSCAN or DBSCAN, 'None'
+    letting HDBSCAN take min_cluster_size instead (check_clustering_settings refusing it for DBSCAN), so that the
+    command line reaches every HDBSCAN setting.
+
+    Args:
+        value (str): The text given on the command line.
+
+    Returns:
+        Optional[int]: None for 'None', otherwise the integer, argparse refusing any other text.
+    """
+    return None if value == "None" else int(value)
+
+
+def parse_clustering_arguments(arguments: List[str]) -> argparse.Namespace:
+    """
+    Reads the settings of the script from its command line, so that images are embedded and clustered without editing
+    the file: the embedding run, its iteration, the output root and at least one layer index are required, the other
+    settings default to DEFAULT_CLUSTERING_SETTINGS and the parameters of the chosen algorithm to
+    DEFAULT_CLUSTERING_PARAMETERS, a parameter of another algorithm being refused instead of ignored. Launched without
+    any argument, the script prints the help of every argument and stops. A '~' left by the shell at the start of a
+    path ('--output_root=~/Data/...') is expanded to the home folder.
+
+    Args:
+        arguments (List[str]): The command line arguments, without the script name.
+
+    Returns:
+        argparse.Namespace: The arguments of embed_and_cluster_sources but the device, the parameters of the algorithm
+            gathered in clustering_parameters and an unasked layer type given as an empty list.
+
+    Raises:
+        SystemExit: After printing the help when no argument is given, or the usage and the error when a required
+            argument or every layer index is missing, a parameter of another algorithm is given, or a value is not one
+            the script accepts.
+    """
+    hdbscan_defaults, dbscan_defaults, kmeans_defaults = (DEFAULT_CLUSTERING_PARAMETERS[algorithm]
+                                                          for algorithm in ["hdbscan", "dbscan", "kmeans"])
+
+    # The description and the example keep their line breaks, argparse wrapping the help of every argument
+    parser = argparse.ArgumentParser(
+        prog="uv run python -m scripts.embedding.cluster_image_embeddings",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Embeds images with a trained run and clusters them per category, to keep diverse images of a\n"
+                    "dataset of near-identical video frames, next to as many images kept at random and evenly spaced.",
+        epilog="Example, block 6 and the first hidden layer of a classifier on one split, one group per subfolder:\n"
+               "  uv run python -m scripts.embedding.cluster_image_embeddings --experiment_folder ~/Data/<run> \\\n"
+               "      --iteration 2000 --output_root ~/Data/embeddings --convolution_block_indices 6 \\\n"
+               "      --fully_connected_layer_indices 1 --data_sources ~/Data/<split> --group_pattern '^([^/]+)/'")
+    # The embedding run, its checkpoint and the root folder of the extractions
+    parser.add_argument("--experiment_folder", type=Path, required=True,
+                        help="Run folder of the embedding run, of any task for the convolution blocks, of the "
+                             "classification task for the fully connected layers (required).")
+    parser.add_argument("--iteration", type=int, required=True,
+                        help="Iteration of the checkpoint embedding the images (required).")
+    parser.add_argument("--use_averaged_weights", action="store_true",
+                        help="Embed with the moving average of the weights saved in the checkpoint instead of the "
+                             "trained weights.")
+    parser.add_argument("--output_root", type=Path, required=True,
+                        help="Root folder of the extractions, '<output_root>/<run name>/Iteration_<n>[_EMA]/<source>/'"
+                             ", best kept outside the run folder (required).")
+    # The images to embed and the layers giving their features, counted from 1
+    parser.add_argument("--data_sources", nargs="+", default=list(DEFAULT_CLUSTERING_SETTINGS["data_sources"]),
+                        help=f"Images to embed: '{RUN_DATA_SOURCE}' for the train, validation and test splits of the "
+                             f"run, a configuration file (.yaml) of any task for its three splits, a split folder of "
+                             f"any task (holding 'data' and 'labels.json') or a folder of plain images, searched with "
+                             f"its subfolders; a folder given twice is embedded once (default: "
+                             f"{' '.join(DEFAULT_CLUSTERING_SETTINGS['data_sources'])}).")
+    parser.add_argument("--convolution_block_indices", nargs="+", type=int, default=None,
+                        help=f"Convolution blocks of the backbone stored and clustered, their whole output before "
+                             f"their pooling (channels x height x width values per image, at most "
+                             f"{MAXIMUM_BLOCK_VALUES:,}); "
+                             f"at least one index here or in --fully_connected_layer_indices (default: none).")
+    parser.add_argument("--fully_connected_layer_indices", nargs="+", type=int, default=None,
+                        help="Hidden fully connected layers of a classification head stored and clustered, their "
+                             "output after their ReLU, the class logits layer excluded; at least one index here or in "
+                             "--convolution_block_indices (default: none).")
+    # The extraction loader and the preparation of the vectors
+    parser.add_argument("--batch_size", type=int, default=DEFAULT_CLUSTERING_SETTINGS["batch_size"],
+                        help="Images run together through the model (default: %(default)s).")
+    parser.add_argument("--number_workers", type=int, default=DEFAULT_CLUSTERING_SETTINGS["number_workers"],
+                        help="Loader worker processes reading the images (default: %(default)s).")
+    parser.add_argument("--normalize_vectors", action=argparse.BooleanOptionalAction,
+                        default=DEFAULT_CLUSTERING_SETTINGS["normalize_vectors"],
+                        help="Divide every vector by its length before the clustering, so that the distances compare "
+                             "which features are active rather than how strongly; --no-normalize_vectors keeps the "
+                             "lengths (default: %(default)s).")
+    parser.add_argument("--pca_dimensions", type=int, default=DEFAULT_CLUSTERING_SETTINGS["pca_dimensions"],
+                        help="PCA dimensions every layer is reduced to, a layer with fewer dimensions being clustered "
+                             "as it is; the clustering time grows with the dimensions (default: %(default)s).")
+    # The clustering algorithm and its parameters, which are only given to change the defaults of the algorithm
+    parser.add_argument("--clustering_algorithm", choices=list(CLUSTERING_PARAMETERS),
+                        default=DEFAULT_CLUSTERING_SETTINGS["clustering_algorithm"],
+                        help="hdbscan for dense regions of any shape, dbscan for dense regions within the distance "
+                             "eps, kmeans for number_clusters clusters holding every image; every category of a "
+                             "classification manifest is clustered on its own (default: %(default)s).")
+    parser.add_argument("--min_cluster_size", type=int, default=argparse.SUPPRESS,
+                        help=f"hdbscan: images of the smallest cluster (default: "
+                             f"{hdbscan_defaults['min_cluster_size']}).")
+    parser.add_argument("--min_samples", type=read_minimum_samples_argument, default=argparse.SUPPRESS,
+                        help=f"hdbscan and dbscan: neighbours making an image dense, more giving more isolated "
+                             f"images, None for min_cluster_size with hdbscan (default: "
+                             f"{hdbscan_defaults['min_samples']} for hdbscan, {dbscan_defaults['min_samples']} for "
+                             f"dbscan).")
+    parser.add_argument("--cluster_selection_method", choices=HDBSCAN_SELECTION_METHODS, default=argparse.SUPPRESS,
+                        help=f"hdbscan: eom for the most stable clusters, leaf for smaller, more uniform ones "
+                             f"(default: {hdbscan_defaults['cluster_selection_method']}).")
+    parser.add_argument("--eps", type=float, default=argparse.SUPPRESS,
+                        help=f"dbscan: distance between the prepared vectors within which two images are neighbours, "
+                             f"at most 2 between normalised vectors (default: {dbscan_defaults['eps']}).")
+    parser.add_argument("--number_clusters", type=int, default=argparse.SUPPRESS,
+                        help=f"kmeans: clusters of every category (default: {kmeans_defaults['number_clusters']}).")
+    parser.add_argument("--number_initializations", type=int, default=argparse.SUPPRESS,
+                        help=f"kmeans: runs from other initial centres, the best one kept (default: "
+                             f"{kmeans_defaults['number_initializations']}).")
+    # The images kept, their groups, the draws and the mosaics
+    parser.add_argument("--number_representatives_per_cluster", type=int,
+                        default=DEFAULT_CLUSTERING_SETTINGS["number_representatives_per_cluster"],
+                        help="Images of every cluster kept, the closest to its centre (default: %(default)s).")
+    parser.add_argument("--isolated_image_selection", type=read_isolated_image_selection_argument,
+                        default=DEFAULT_CLUSTERING_SETTINGS["isolated_image_selection"],
+                        help="Isolated images, in no cluster, kept with the representatives: all, none or a number "
+                             "drawn at random; as many images per category are kept at random and evenly spaced per "
+                             "group, the baselines of the clustering (default: %(default)s).")
+    parser.add_argument("--group_pattern", default=None,
+                        help=f"Regular expression giving the group of every image, e.g. the video of a frame, searched "
+                             f"in its file name relative to its data folder: its first capturing group taking part in "
+                             f"the match, e.g. '^([^/]+)/' for the first subfolder, the images it does not match "
+                             f"forming the group '{NO_GROUP}' (default: no group and no baseline evenly spaced per "
+                             f"group).")
+    parser.add_argument("--seed", type=int, default=DEFAULT_CLUSTERING_SETTINGS["seed"],
+                        help="Seed of the draws (isolated images, images kept at random) and of k-means (default: "
+                             "%(default)s).")
+    parser.add_argument("--mosaic_grid_size", type=int, default=DEFAULT_CLUSTERING_SETTINGS["mosaic_grid_size"],
+                        help="Images per row of the mosaic of a cluster, which shows at most as many rows (default: "
+                             "%(default)s).")
+
+    # Without any argument, the script describes its arguments instead of failing on the missing run
+    if not arguments:
+        parser.print_help()
+        parser.exit(status=0)
+    parsed_arguments = parser.parse_args(args=arguments)
+
+    # At least one layer asked, the layer type left out giving an empty list
+    if parsed_arguments.convolution_block_indices is None and parsed_arguments.fully_connected_layer_indices is None:
+        parser.error("give at least one layer index with --convolution_block_indices or "
+                     "--fully_connected_layer_indices")
+    for layer_argument in ["convolution_block_indices", "fully_connected_layer_indices"]:
+        if getattr(parsed_arguments, layer_argument) is None:
+            setattr(parsed_arguments, layer_argument, [])
+
+    # The parameters given on the command line replace the defaults of the chosen algorithm, a parameter of another
+    # algorithm stopping the script rather than being silently ignored
+    clustering_algorithm = parsed_arguments.clustering_algorithm
+    given_parameters = {}
+    for parameter_name in dict.fromkeys(name for names in CLUSTERING_PARAMETERS.values() for name in names):
+        if hasattr(parsed_arguments, parameter_name):
+            given_parameters[parameter_name] = getattr(parsed_arguments, parameter_name)
+            delattr(parsed_arguments, parameter_name)
+    foreign_parameters = [f"--{name}" for name in given_parameters
+                          if name not in CLUSTERING_PARAMETERS[clustering_algorithm]]
+    if foreign_parameters:
+        parser.error(f"{', '.join(foreign_parameters)} not a parameter of {clustering_algorithm}, whose parameters are "
+                     f"{', '.join(f'--{name}' for name in CLUSTERING_PARAMETERS[clustering_algorithm])}")
+    parsed_arguments.clustering_parameters = {**DEFAULT_CLUSTERING_PARAMETERS[clustering_algorithm], **given_parameters}
+
+    # A '~' the shell leaves after '=' points to the home folder, as in the other scripts of the repository
+    parsed_arguments.experiment_folder = parsed_arguments.experiment_folder.expanduser()
+    parsed_arguments.output_root = parsed_arguments.output_root.expanduser()
+    parsed_arguments.data_sources = [data_source if data_source == RUN_DATA_SOURCE else Path(data_source).expanduser()
+                                     for data_source in parsed_arguments.data_sources]
+    return parsed_arguments
+
+
+if __name__ == "__main__":
+    # Embedding run, data sources, layers and clustering settings read from the command line, the help printed when none
+    # is given
+    embedding_arguments = parse_clustering_arguments(arguments=sys.argv[1:])
+
+    embed_and_cluster_sources(experiment_folder=embedding_arguments.experiment_folder,
+                              iteration=embedding_arguments.iteration,
+                              use_averaged_weights=embedding_arguments.use_averaged_weights,
+                              data_sources=embedding_arguments.data_sources,
+                              convolution_block_indices=embedding_arguments.convolution_block_indices,
+                              fully_connected_layer_indices=embedding_arguments.fully_connected_layer_indices,
+                              batch_size=embedding_arguments.batch_size,
+                              number_workers=embedding_arguments.number_workers,
+                              normalize_vectors=embedding_arguments.normalize_vectors,
+                              pca_dimensions=embedding_arguments.pca_dimensions,
+                              clustering_algorithm=embedding_arguments.clustering_algorithm,
+                              clustering_parameters=embedding_arguments.clustering_parameters,
+                              number_representatives_per_cluster=embedding_arguments.number_representatives_per_cluster,
+                              isolated_image_selection=embedding_arguments.isolated_image_selection,
+                              group_pattern=embedding_arguments.group_pattern, seed=embedding_arguments.seed,
+                              mosaic_grid_size=embedding_arguments.mosaic_grid_size,
+                              output_root=embedding_arguments.output_root, device=get_device())

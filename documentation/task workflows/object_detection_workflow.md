@@ -82,7 +82,7 @@ Should you need to change one part of the task, this table gives the file holdin
 ### Run It
 In order to train on the synthetic shapes, generate the dataset, train, then evaluate checkpoints again if needed.
 
-The DET configuration reads the instance segmentation dataset (boxes of the visible part of every shape). The main block of `create_synthetic_dataset.py` gives 512 pixels, 128,000 / 20,000 / 20,000 images, 5 to 6 shapes and the 35 shapes of `SHAPE_CATEGORIES` (`MC35`), with `same_class_neighbour_probability` at 0.
+The DET configuration reads the instance segmentation dataset (boxes of the visible part of every shape). The `instance_segmentation` entries of `TASK_IMAGE_SIZES`, `TASK_SPLIT_SIZES` and `TASK_MAXIMUM_OBJECTS` of `create_synthetic_dataset.py` give 512 pixels, 128,000 / 20,000 / 20,000 images and 5 to 6 shapes, among the 35 shapes of `SHAPE_CATEGORIES` (`MC35`), with `--same_class_neighbour_probability` at its default 0.
 
 ```bash
 # Generate the dataset (the root folder is required)
@@ -91,11 +91,11 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=
 # Train (first set the three data folders, Data.label_mapping.mapping_file_path and experiment_folder as absolute paths)
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml"
 
-# Evaluate checkpoints again (settings in the main block of scripts/evaluation/evaluate_checkpoint.py, Stage 5)
-uv run python -m scripts.evaluation.evaluate_checkpoint
+# Evaluate the last checkpoint again (arguments below, Stage 5; run it without any for its help)
+uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder <run folder>
 ```
 
-The main block of `evaluate_checkpoint.py` takes `run_name`, `experiment_folder`, `iteration` (`None` for the last checkpoint, a number, or `"all"`), `test_data_folder`, `batch_size`, `track_evaluation`, `maximum_error_images_per_class_pair`, if needed `target_precisions` (a single precision), and `nms_criterion` and `nms_distance_exponent` to score with another final NMS. It writes in `<run>/Checkpoint_Evaluation/`, or `<run>/Checkpoint_Evaluation_nms_<criterion>[_<exponent>]/` with another NMS.
+`evaluate_checkpoint.py` requires only `--experiment_folder`. It also takes `--iteration` (the last checkpoint by default, a number, or `all`), `--test_data_folder`, `--batch_size`, `--track_evaluation`, `--maximum_error_images_per_class_pair`, if needed `--target_precisions` (a single precision), and `--nms_criterion` and `--nms_distance_exponent` to score with another final NMS. It writes in `<run>/Checkpoint_Evaluation/`, or `<run>/Checkpoint_Evaluation_nms_<criterion>[_<exponent>]/` with another NMS.
 
 ### Configuration Keys To Know First
 If one wishes to change what the detector learns or how it filters its outputs, these keys of the synthetic configuration matter most.
@@ -973,12 +973,12 @@ The anchor recall (Step 2.21) measures what the anchors allow; the proposal reca
 > The examples below are real outputs of `scripts/evaluation/evaluate_checkpoint.py` on the 20 checkpoints of the 5000-iteration run, with `iteration = "all"`, `batch_size = 64`, `track_evaluation = False` and a test folder of the first 200 test images (709 annotations). It took 59 minutes on a shared GPU. Step 5.4 comes from a tracked evaluation of the CPU run. They predate the per-class recall intervals.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-The same script for every task (`classification_workflow.md`, Stage 5), with the settings of [Run It](#run-it). `save_predictions` is skipped with a warning, since detection writes no predictions file. `target_precisions` takes one precision; a list is refused. The output goes to `Checkpoint_Evaluation/` (`Checkpoint_Evaluation_split_<parent folder>_<split folder>/` for another split). To score a greedy-NMS run with DIoU-NMS, set `nms_criterion = "distance_iou"` and `nms_distance_exponent = 0.6`: the output then goes to `<run>/Checkpoint_Evaluation_nms_distance_iou_0.6/` (`apply_nms_criterion()`). The default `maximum_error_images_per_class_pair = 100000` turns every error image on. The `pretrained` settings are turned off (`disable_pretrained_settings()`).
+The same script for every task (`classification_workflow.md`, Stage 5), with the arguments of [Run It](#run-it). `--save_predictions` is skipped with a warning, since detection writes no predictions file. `--target_precisions` takes one precision; a list is refused. The output goes to `Checkpoint_Evaluation/` (`Checkpoint_Evaluation_split_<parent folder>_<split folder>/` for another split). To score a greedy-NMS run with DIoU-NMS, add `--nms_criterion distance_iou --nms_distance_exponent 0.6`: the output then goes to `<run>/Checkpoint_Evaluation_nms_distance_iou_0.6/` (`apply_nms_criterion()`). The default `--maximum_error_images_per_class_pair 100000` turns every error image on. The `pretrained` settings are turned off (`disable_pretrained_settings()`).
 
 ### Step 5.2 — trainer construction
 The trainer is built from the run's `training_configuration.yaml`, with the classes of its `label_dictionary.json` (`classification_workflow.md`, Step 5.2).
 
-**Example: the launch information lines set by the main block**
+**Example: the launch information lines set by the arguments**
 ```text
 - Test Data Folder        : test_reduced_200 (200 images, 709 annotations)
 - Batch Size              : 64
