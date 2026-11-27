@@ -163,15 +163,15 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 22534,
+      "snapshot_bytes": 23201,
       "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/training_configuration.yaml",
-      "snapshot_sha256": "5040f5bc4b23b97788a78259af26c7ce570aee470cfc80775abab3f76d28579e",
-      "source_bytes": 22534,
+      "snapshot_sha256": "c73e73ad83f0ff118344a2517e3ab7d584c8b56f50c70c6e8bd968e8a379f595",
+      "source_bytes": 23201,
       "source_kind": "run",
       "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/training_configuration.yaml",
-      "source_sha256": "5040f5bc4b23b97788a78259af26c7ce570aee470cfc80775abab3f76d28579e"
+      "source_sha256": "c73e73ad83f0ff118344a2517e3ab7d584c8b56f50c70c6e8bd968e8a379f595"
     }
   ],
   "series": "foundations",
-  "snapshot_bytes": 1075196
+  "snapshot_bytes": 1075863
 }

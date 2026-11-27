@@ -147,7 +147,7 @@ scenes:
     literal_numbers: ["6", "7"]
     source:
       file: vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml
-      keys: [Backbone.last_max_pooling, DetectionLevels, Neck]
+      keys: [Backbone.last_max_pooling, DetectionLevels, Neck.type, Neck.output_channels, Neck.normalization]
       comments: false
     highlights:
       - {match: "^  \"[0-9]+\":", sentences: [0]}

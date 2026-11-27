@@ -4,6 +4,8 @@ classification run, frozen or fine-tuned at its own learning rate, initialises a
 correctly, and a shorter backbone initialises the first blocks of a deeper run, only its loaded blocks being frozen or
 fine-tuned at the multiplier, which a resume without the source run keeps. A classification head loaded without its
 class layer initialises a run of other classes, only its hidden layers being frozen or fine-tuned at the multiplier.
+The neck of a detection run initialises another detection run with its heads, frozen or fine-tuned at the multiplier
+in the last optimizer group, a run loading the heads behind a random neck being warned.
 """
 
 import copy
@@ -434,3 +436,85 @@ def test_head_without_class_layer_initialises_a_run_of_other_classes(tmp_path: P
             assert torch.equal(input=parameter_value.cpu(), other=source_head_state[parameter_name]), parameter_name
     assert all(not torch.equal(input=parameter_value, other=classifier_state_before[parameter_name])
                for parameter_name, parameter_value in frozen_head.classifier.state_dict().items())
+
+
+def test_trained_neck_initialises_a_detection_run(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies the transfer of the feature pyramid neck through the detection trainer: a run initialised by the neck,
+    the region proposal heads and the detection heads of another run starts with exactly the weights of its neck in its
+    own folder (named with NPT and NFRZ), without warning since its heads read the neck they were trained behind; its
+    frozen neck keeps its weights and batch normalization statistics while the rest learns, and its checkpoints record
+    the source run of the neck. A run fine-tuning the neck ten times slower puts its parameters in the last optimizer
+    group, after the group of the detection heads, and a run loading the heads behind a random neck is warned.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainers.
+    """
+    dataset_folder = tmp_path / "synthetic_shapes"
+    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=DETECTION_TRANSFER_IMAGE_SIZE,
+                             split_sizes={"train": 8, "validation": 4, "test": 4}, maximum_objects=4,
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="object_detection")
+
+    # Source run with the feature pyramid of the synthetic configuration, trained from random weights
+    source_trainer = build_transfer_trainer(temporary_directory=tmp_path, dataset_folder=dataset_folder,
+                                            number_iterations=3, pretrained_settings={},
+                                            configuration_name="source.yaml", task="object_detection")
+    assert source_trainer.model_configuration["Neck"]["type"] == "feature_pyramid"
+    source_trainer.run_training_loop()
+    source_folder = str(source_trainer.experiment_folder)
+    source_neck_state = {parameter_name[len("neck."):]: parameter_value for parameter_name, parameter_value in
+                         torch.load(f=source_trainer.weights_directory / "Iteration_3" / "model_000003.pt",
+                                    map_location="cpu", weights_only=True)["model_state"].items()
+                         if parameter_name.startswith("neck.")}
+    assert source_neck_state
+
+    # Frozen neck loaded with the heads of the same run, which read the neck they were trained behind
+    frozen_settings = {"Neck": {"experiment_folder": source_folder, "freeze": True},
+                       "RegionProposal": {"experiment_folder": source_folder},
+                       "Detector": {"experiment_folder": source_folder, "class_layers": True}}
+    frozen_trainer = build_transfer_trainer(temporary_directory=tmp_path, dataset_folder=dataset_folder,
+                                            number_iterations=3, pretrained_settings=frozen_settings,
+                                            configuration_name="frozen_neck.yaml", task="object_detection")
+    assert "-NFPN32BN-NPT-NFRZ_" in frozen_trainer.run_name
+    console_output = capsys.readouterr().out
+    assert "Neck Initialised From The Trained Weights Of" in console_output
+    assert "- Pretrained Neck" in console_output
+    assert "Were Trained Behind The Neck" not in console_output
+    frozen_neck = frozen_trainer.model.neck
+    for parameter_name, parameter_value in frozen_neck.state_dict().items():
+        assert torch.equal(input=parameter_value.cpu(), other=source_neck_state[parameter_name]), parameter_name
+    assert all(not parameter.requires_grad for parameter in frozen_neck.parameters())
+    # Groups of the first parameters and of the two transferred heads, the frozen neck learning in none
+    assert len(frozen_trainer.optimizer.param_groups) == 3
+
+    # Training changes the rest of the model, the frozen neck keeping its weights and batch statistics
+    frozen_trainer.run_training_loop()
+    for parameter_name, parameter_value in frozen_neck.state_dict().items():
+        assert torch.equal(input=parameter_value.cpu(), other=source_neck_state[parameter_name]), parameter_name
+    frozen_checkpoint = torch.load(f=frozen_trainer.weights_directory / "Iteration_3" / "model_000003.pt",
+                                   map_location="cpu", weights_only=True)
+    assert frozen_checkpoint["pretrained_neck"] == source_folder
+
+    # Fine-tuning run: the neck learns ten times slower, in the last group after the one of the detection heads
+    fine_tuning_settings = {"Neck": {"experiment_folder": source_folder, "learning_rate_multiplier": 0.1},
+                            "Detector": {"experiment_folder": source_folder, "class_layers": True,
+                                         "learning_rate_multiplier": 0.5}}
+    fine_tuning_trainer = build_transfer_trainer(temporary_directory=tmp_path, dataset_folder=dataset_folder,
+                                                 number_iterations=2, pretrained_settings=fine_tuning_settings,
+                                                 configuration_name="fine_tuning_neck.yaml", task="object_detection")
+    assert "-NFPN32BN-NPT_" in fine_tuning_trainer.run_name
+    parameter_groups = fine_tuning_trainer.optimizer.param_groups
+    assert [parameter_group["lr"] for parameter_group in parameter_groups] == pytest.approx(
+        expected=[1e-3, 5e-4, 1e-4])
+    assert {id(parameter) for parameter in parameter_groups[2]["params"]} == {
+        id(parameter) for parameter in fine_tuning_trainer.model.neck.parameters()}
+
+    # Heads loaded behind a neck starting from random weights are warned
+    capsys.readouterr()
+    build_transfer_trainer(temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=2,
+                           pretrained_settings={"Detector": {"experiment_folder": source_folder,
+                                                             "class_layers": True}},
+                           configuration_name="random_neck.yaml", task="object_detection")
+    assert ("The Pretrained Detection Heads Were Trained Behind The Neck Of Their Source Run, But The Neck Of This Run "
+            "Starts From Random Weights") in capsys.readouterr().out

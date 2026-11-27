@@ -57,13 +57,14 @@ UPSAMPLING_CODES = {"transposed": "UTC", "bilinear": "UBL"}
 # followed by '<prefix>FRZ' when it is frozen, i.e. PT and FRZ for the backbone, TPT and TFRZ for the temporal module,
 # HPT and HFRZ for the classification head, DPT and DFRZ for the segmentation decoder (DCL between them when its class
 # layers are loaded), RPT and RFRZ for the region proposal heads, DPT and DFRZ for the detection heads, MPT and MFRZ for
-# the mask heads, HRPT and HRFRZ for the high resolution network of the keypoint detector, and KHPT and KHFRZ for its
-# keypoint head, the classification, detection, mask and keypoint heads adding '<prefix>RCL' between them (HRCL, DRCL,
-# MRCL, KHRCL) when their class layers stay random (CLASS_LAYER_OPTION_SECTIONS). The learning rate multiplier of the
-# component gives no token, so that it can change between two resumptions of a run
+# the mask heads, HRPT and HRFRZ for the high resolution network of the keypoint detector, KHPT and KHFRZ for its
+# keypoint head, and NPT and NFRZ for the neck of the detection tasks (after the neck token, e.g. 'L567-NFPN32BN-NPT'),
+# the classification, detection, mask and keypoint heads adding '<prefix>RCL' between them (HRCL, DRCL, MRCL, KHRCL)
+# when their class layers stay random (CLASS_LAYER_OPTION_SECTIONS). The learning rate multiplier of the component gives
+# no token, so that it can change between two resumptions of a run
 PRETRAINED_TOKEN_PREFIXES = {"Backbone": "", "TemporalModel": "T", "ClassificationHead": "H",
                              "SegmentationDecoder": "D", "RegionProposal": "R", "Detector": "D", "MaskHead": "M",
-                             "HRNet": "HR", "KeypointHead": "KH"}
+                             "HRNet": "HR", "KeypointHead": "KH", "Neck": "N"}
 
 
 def join_level_tokens(level_tokens: List[str]) -> str:
@@ -256,19 +257,18 @@ def build_anchors_hash(detection_levels: Dict[str, Any], level_names: List[str])
 
 def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[str]]:
     """
-    Builds the sections of the run name specific to object detection: L<blocks feeding the detection heads> followed
-    by the neck N<FPN or PAN><output channels><normalization> (e.g. 'L4567-NFPN32BN', no token without neck, so that
-    the runs written before the neck keep their names), the anchors A<anchors per position>.<smallest scale>-<largest
-    scale>.<hash of every scale and aspect ratio of every level> (build_anchors_hash), so that other ratios or middle
-    scales start a new run, the region proposal heads
+    Builds the sections of the run name specific to object detection: L<blocks feeding the detection heads> followed by
+    the neck N<FPN or PAN><output channels><normalization> (e.g. 'L4567-NFPN32BN', no token without neck, so that the
+    runs written before the neck keep their names, then NPT and NFRZ when it is transferred and frozen), the anchors
+    A<anchors per position>.<smallest scale>-<largest scale>.<hash of every scale and aspect ratio of every level>
+    (build_anchors_hash), so that other ratios or middle scales start a new run, the region proposal heads
     (R<normalization>, R<layers>x<filters>, RPL with the selection of the proposals level by level, then RPT and RFRZ
-    when they are transferred and frozen), the detector
-    heads (modules DSE, DRES, DINC, D<normalization>,
-    D<RoIAlign pool size>.<layers>x<filters>.<fully connected sizes>, DCIOU with the CIoU box loss, then DPT, DRCL
-    when their class layers stay random, and DFRZ when they are transferred and frozen) and the classes (BIN or
-    MC<foreground classes>, the categories merged into one class counting once). The levels are the keys of
-    'DetectionLevels', whose anchor counts, region proposal and detector settings are written once when identical on
-    every level, otherwise joined with '+' in level order.
+    when they are transferred and frozen), the detector heads (modules DSE, DRES, DINC, D<normalization>, D<RoIAlign
+    pool size>.<layers>x<filters>.<fully connected sizes>, DCIOU with the CIoU box loss, then DPT, DRCL when their class
+    layers stay random, and DFRZ when they are transferred and frozen) and the classes (BIN or MC<foreground classes>,
+    the categories merged into one class counting once). The levels are the keys of 'DetectionLevels', whose anchor
+    counts, region proposal and detector settings are written once when identical on every level, otherwise joined with
+    '+' in level order.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
@@ -289,6 +289,7 @@ def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[s
         neck_normalization = str(neck_configuration["normalization"]["feature_map_normalization"]).lower().strip()
         levels_tokens.append(f"N{NECK_TYPE_CODES[neck_configuration['type']]}{neck_configuration['output_channels']}"
                              f"{NORMALIZATION_CODES[neck_normalization]}")
+        levels_tokens += build_pretrained_tokens(model_configuration=model_configuration, section_name="Neck")
 
     # Number of anchors per position (scales x ratios) with the range of anchor scales
     anchor_counts = [str(len(detection_levels[level]["anchors"]["scales"]) *
