@@ -1,7 +1,7 @@
 # Export and deployment, chapter 1: the export and its checks: the settings of export_model.py, the steps of
 # export_experiment (inference model, input contract, reference outputs, staging folder, every format checked against
 # the eager model, install_staged_models), the batches the exports are traced and checked on, the comparison tolerances
-# of every task and what the check does not cover (the TensorRT engine), the config.pbtxt the export writes, the input
+# of every task and the TensorRT engine check (FP16 overflow scan, engine run by a temporary Triton), the config.pbtxt the export writes, the input
 # contract (preprocessing.json and the ONNX metadata), the extras of the classifier (temperature and class thresholds)
 # and of the frame selector (decoder and ensembles), and the Export Sizes panel printed at the launch of every training
 # (the size of every exported file estimated, and the script checking the estimates). Coordinates of the html scenes
@@ -134,8 +134,8 @@ scenes:
       - "Detections whose scores are tied can swap places after a rounding, so match detections pairs them by label, score and nearest box before comparing, rather than by rank."
       - "An instance segmenter adds its masks, compared within {{deployment.tolerances.instance_segmentation.mask_tolerance}}."
       - "Classifiers and sequence models compare probabilities within {{deployment.tolerances.classification.tolerance}}, and a segmenter must agree on a share of {{deployment.tolerances.semantic_segmentation.minimum_equal_share}} of its pixels, a keypoint detector on {{deployment.tolerances.keypoint_detection.minimum_equal_share}} of its candidates."
-      - "Here is the pitfall: the ONNX check runs the graph on the CPU, never the TensorRT engine that Triton builds from it, so an FP16 engine is served without any check."
-      - "That is how a detector lost points of mAP in FP16 without the export noticing, the story of the third chapter."
+      - "The ONNX check runs on the CPU, so with a TensorRT precision the export also runs the engine in a temporary Triton and, in FP16, first scans the graph for overflows."
+      - "That engine check came after a detector lost points of mAP in FP16 without the export noticing, the story of the third chapter."
 
   - kind: code
     title: "Install only when every format matches"
@@ -276,7 +276,7 @@ scenes:
     title: "Recap"
     items:
       - {text: "export_model.py: TorchScript and ONNX, one folder per model and version", sentences: [0]}
-      - {text: "Every format checked against the eager model, never the TensorRT engine", sentences: [1]}
+      - {text: "Every format checked against the eager model, the TensorRT engine included", sentences: [1]}
       - {text: "Staging folder: the served models replaced only when every format matches", sentences: [2]}
       - {text: "config.pbtxt: max batch {{deployment.export.maximum_batch_size}}, dynamic batching, {{deployment.triton.instance_count}} instance, TensorRT accelerator", sentences: [3]}
       - {text: "preprocessing.json and ONNX metadata: the input contract, version {{constant:vision_training/deployment/input_contract.py#INPUT_CONTRACT_VERSION}}", sentences: [4]}
@@ -284,7 +284,7 @@ scenes:
       - {text: "Export Sizes panel at every launch: every file estimated, TorchScript traced", sentences: [6]}
     narration:
       - "To recap: the export model script exports any task to TorchScript and ONNX, each model in its own folder of the model repository with one folder per version."
-      - "Every exported file is run again and compared with the eager model within the tolerances of the task, but the TensorRT engine Triton builds is never checked."
+      - "Every exported file is run again and compared with the eager model within the tolerances of the task, the TensorRT engine included, built by a temporary Triton."
       - "The formats are written into a staging folder outside the folder Triton reads, and the served models are replaced only when every format matches; one mismatch leaves them untouched."
       - "Each model gets its Triton configuration: the max batch size of the export, dynamic batching, {{deployment.triton.instance_count:words}} instance on the GPU, and the TensorRT accelerator when a TensorRT precision is set."
       - "The input contract writes how the training prepared its images into preprocessing json and the ONNX metadata, and its version lets a server refuse a contract it does not know."

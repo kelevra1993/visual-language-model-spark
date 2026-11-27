@@ -1,9 +1,9 @@
 """
-Draws the figure of "The Same Values In Every Format" in the README Deployment section
-(README/number_format_values.png): six typical values of the repository (a class threshold, a pixel coordinate, two box
-areas, a box offset and a weight update) on the number line of each format the repository uses (FP32, TF32, BF16,
-FP16). FP32, BF16 and FP16 values are rounded by PyTorch; TF32 rounds the FP32 mantissa to 10 bits, ties to even. From
-the repository root:
+Draws the figure of "The Same Values In Every Format" in the Deployment section of the tools reference
+(documentation/reference/tools_reference.md, image README/number_format_values.png): six typical values of the
+repository (a class threshold, a pixel coordinate, two box areas, a box offset and a weight update) on the number line
+of each format the repository uses (FP32, TF32, BF16, FP16). FP32, BF16 and FP16 values are rounded by PyTorch; TF32
+rounds the FP32 mantissa to 10 bits, ties to even. From the repository root:
 
     uv run python -m documentation.presentation.figures.draw_number_formats --output_path README/number_format_values.png
 """
@@ -189,8 +189,8 @@ def draw_examples(output_path: Path) -> None:
 
 
 if __name__ == "__main__":
-    # Path of the PNG file, README/number_format_values.png for the README
-    parser = argparse.ArgumentParser(description="Draw the number format figure of the README.")
+    # Path of the PNG file, README/number_format_values.png for the tools reference
+    parser = argparse.ArgumentParser(description="Draw the number format figure of the tools reference.")
     parser.add_argument("--output_path", type=Path, required=True)
     arguments = parser.parse_args()
     arguments.output_path.parent.mkdir(parents=True, exist_ok=True)

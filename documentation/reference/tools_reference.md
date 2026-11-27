@@ -19,6 +19,7 @@ To find your way in this reference, the sections are:
 - [Deployment](#deployment)
   - [Export](#export)
   - [TensorRT Check](#tensorrt-check)
+  - [The Same Values In Every Format](#the-same-values-in-every-format)
   - [Input Contract](#input-contract)
   - [Test Split Parity](#test-split-parity)
   - [FP16 TorchScript Trial](#fp16-torchscript-trial)
@@ -333,6 +334,26 @@ uv run python -m vision_training.deployment.export_model --experiment_folder ~/D
 # Same export on a machine without Docker, the FP16 overflow scan only
 uv run python -m vision_training.deployment.export_model --experiment_folder ~/Data/<run> --tensorrt_precision FP16 --skip_tensorrt_check
 ```
+
+### The Same Values In Every Format
+Before you pick the precision of a served model ([export](#export)), see what FP32, TF32, BF16 and FP16 store for typical values of the repository (PyTorch 2.14, up to 6 significant digits; TF32 rounds the FP32 mantissa to 10 bits, ties to even):
+
+| Value of the repository | FP32 | TF32 | BF16 | FP16 |
+|---|---|---|---|---|
+| Class threshold 0.999 | 0.999 | 0.999023 | **1** | 0.999023 |
+| Pixel coordinate 1000.3 of a 1024-pixel input | 1,000.3 | 1,000.5 | 1,000 | 1,000.5 |
+| Area of a 256 x 256 box, 65,536 | 65,536 | 65,536 | 65,536 | **inf** |
+| Area of a 300 x 300 box, 90,000 | 90,000 | 89,984 | 90,112 | inf |
+| Box offset 0.1 | 0.1 | 0.0999756 | 0.100098 | 0.0999756 |
+| Weight update 1e-6 | 1e-6 | 1.00024e-6 | 9.98378e-7 | 1.01328e-6 (subnormal) |
+| Weight 0.1 after that update | **0.100001** | 0.0999756 | 0.100098 | 0.0999756 |
+
+The figure below puts the same values on the number line of each format:
+
+<p align="center">
+  <img src="../../README/number_format_values.png" width="100%" />
+</p>
+<p align="center"><em>One lane per format: the ticks are the values it holds, the dot the stored value, and an arrow a value stored as inf (FP16 above 65,504).</em></p>
 
 ### Input Contract
 Should a server need to build the input of an exported model from a photo, it reads the input contract instead of assuming a resize or channel order. Every export writes it into the `metadata_props` of `model.onnx` and as `preprocessing.json` next to each model. The table gives its keys, defined in `vision_training/deployment/input_contract.py`.
