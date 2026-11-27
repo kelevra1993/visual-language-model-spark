@@ -34,6 +34,7 @@ from rich.padding import Padding
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+from tqdm import tqdm
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from vision_training.data.detection.coco_masks import encode_run_length_encoding
@@ -3249,6 +3250,38 @@ def build_sequence_labels(sequence_records: List[Dict[str, Any]], split_name: st
     return labels, class_counts
 
 
+def generate_chunks_with_progress(chunk_function: Callable[[Dict[str, Any]], List[Dict[str, Any]]],
+                                  chunks: List[Dict[str, Any]], number_workers: int, number_samples: int,
+                                  split_name: str, sample_name: str) -> List[Dict[str, Any]]:
+    """
+    Runs the chunks of a split on the worker processes and shows a progress bar advancing as each chunk finishes, so
+    that whoever generates a large synthetic dataset sees how far its split is. The records come back in chunk order,
+    as generate_split assembles its manifest from them.
+
+    Args:
+        chunk_function (Callable[[Dict[str, Any]], List[Dict[str, Any]]]): generate_image_chunk or
+            generate_sequence_chunk, giving the records of one chunk.
+        chunks (List[Dict[str, Any]]): The settings of every chunk, in sample order.
+        number_workers (int): The number of worker processes.
+        number_samples (int): The number of samples (images, sequences or pairs) of the split, the total of the bar.
+        split_name (str): The split, written before the bar.
+        sample_name (str): 'images', 'sequences' or 'pairs', the unit of the bar.
+
+    Returns:
+        List[Dict[str, Any]]: The records of every sample of the split, in sample order.
+    """
+    records = []
+    # Counts and times written in full words, as the other console outputs of the repository
+    bar_format = "{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} {unit} [{elapsed} elapsed, {remaining} left]"
+    with Pool(processes=number_workers) as pool, tqdm(total=number_samples, desc=split_name, unit=sample_name,
+                                                     bar_format=bar_format) as progress_bar:
+        # Ordered results, the bar advancing by the samples of every finished chunk
+        for chunk_records in pool.imap(chunk_function, chunks):
+            records.extend(chunk_records)
+            progress_bar.update(len(chunk_records))
+    return records
+
+
 def generate_split(split_folder: str, split_name: str, number_samples: int, image_size: int, maximum_objects: int,
                    minimum_frames: int, maximum_frames: int, number_workers: int, task: str,
                    maximum_object_intersection_over_union: float = MAXIMUM_OBJECT_INTERSECTION_OVER_UNION,
@@ -3302,9 +3335,9 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
                    "image_size": image_size, "minimum_frames": minimum_frames, "maximum_frames": maximum_frames,
                    "maximum_objects": maximum_objects, "task": task}
                   for first_index in range(0, number_samples, SEQUENCES_PER_TASK)]
-        with Pool(processes=number_workers) as pool:
-            sequence_records = [record for chunk_records in pool.map(generate_sequence_chunk, chunks)
-                                for record in chunk_records]
+        sequence_records = generate_chunks_with_progress(chunk_function=generate_sequence_chunk, chunks=chunks,
+                                                         number_workers=number_workers, number_samples=number_samples,
+                                                         split_name=split_name, sample_name=TASK_SAMPLE_NAMES[task])
         labels, class_counts = build_sequence_labels(sequence_records=sequence_records, split_name=split_name,
                                                      task=task)
 
@@ -3331,9 +3364,9 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
                    "maximum_object_intersection_over_union": maximum_object_intersection_over_union,
                    "same_class_neighbour_probability": same_class_neighbour_probability}
                   for first_index in range(0, number_samples, IMAGES_PER_TASK)]
-        with Pool(processes=number_workers) as pool:
-            image_records = [record for chunk_records in pool.map(generate_image_chunk, chunks)
-                             for record in chunk_records]
+        image_records = generate_chunks_with_progress(chunk_function=generate_image_chunk, chunks=chunks,
+                                                      number_workers=number_workers, number_samples=number_samples,
+                                                      split_name=split_name, sample_name=TASK_SAMPLE_NAMES[task])
 
         # Assemble the labels of the split in the format of the task
         if task == "object_detection":
