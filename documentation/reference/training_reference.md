@@ -114,6 +114,14 @@ Training Batch Dropped : The image cannot be read : <file>
 
 - **Every `weight_saving_iterations` iterations**: the evaluation report, also appended to `Results.txt`, then the `EMA Weights` report when the moving average is on. The reports of every task write their rates as percentages, the thresholds, ranks, pixel errors, effective rank and standard deviations keeping 4 decimals and the counts their whole numbers; `class_metrics.csv`, TensorBoard and MLflow keep every rate between 0 and 1.
 
+<p align="center">
+  <img src="../../README/experiment_launch_information.png" width="100%" />
+</p>
+
+<p align="center">
+  <img src="../../README/interval_summary.png" width="100%" />
+</p>
+
 ## Stopping And Resuming
 
 **Stopping**
@@ -191,11 +199,27 @@ uv run python -m scripts.data.visualize_augmentation_strengths
 - SPACE shows the next samples, ENTER exits without training.
 - It needs a display and creates no run folder. Without a display, the `Input_Samples/` folder of a training run holds the same windows for the first 10 samples of every split ([Run Folder](#run-folder)).
 
+<p align="center">
+  <img src="../../README/input_viewer.png" width="100%" />
+</p>
+
+<p align="center">
+  <img src="../../README/augmented_detection_samples.gif" width="100%" />
+</p>
+<p align="center"><em>Draws of the augmentation of <code>object_detection/configuration_example.yaml</code> on one image, as the input viewer draws them: the boxes follow the flips, rotations and zoom-outs (unchanged draws skipped).</em></p>
+
 ## Checking The Anchor Coverage
 `ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage: { activated: True, iou_threshold: 0.5 }` (object detection and instance segmentation) prints, for the training, validation and test splits, the share of the objects whose best anchor overlaps them by at least `iou_threshold`, per detection level and object size, then exits without training.
 - Every split is read from its annotations with a progress bar, no image being loaded.
 - The best anchor of every object is the grid anchor nearest its centre for every anchor shape, on the cell corners, exact and computed on the CPU.
 - It creates no run folder and writes no file; the training launches measure the training split alone at `RegionProposal.foreground_iou_threshold.min` (`anchor_recall.csv`).
+
+<p align="center">
+  <img src="../../README/anchor_coverage.png" width="100%" />
+</p>
+<p align="center"><em>The console of <code>vision_training.main</code> on a copy of <code>object_detection/configuration_synthetic_shapes.yaml</code> with the mode activated, on its synthetic shapes (512 pixels, shapes of 16 pixels to 80 % of the side, boxes of their visible parts): the anchors of blocks 5, 6 and 7 (strides 32, 64 and 64, scales 32 to 256) cover 64.04 % of the training objects, but 8.11 % of the small ones.</em></p>
+
+Read the `All Levels` column size by size: the region proposal network makes an anchor foreground from `RegionProposal.foreground_iou_threshold.min`, and an object under it in every level only gets its single best anchor as foreground, so a size with a low share is learnt from few anchors. Small objects ask for smaller scales on a finer level (a lower block, of smaller stride), large ones for a larger scale on the last level, elongated ones for other `aspect_ratios`. The three splits should give close shares; a split covered differently holds objects of other sizes or shapes.
 
 ## Benchmarking The Speed
 Before training an architecture, `ExperimentConfiguration.diagnosis_modes.benchmark_speed: True` measures how fast it trains and infers when the data never waits, then exits without training (`BaseTrainer.benchmark_speed`, helpers in `vision_training/trainers/speed_benchmark.py`). It is the only setting: the timing, the batch sizes and the memory margin are fixed in the code.
@@ -234,6 +258,11 @@ Every test evaluation scores the trained weights, then the averaged weights of t
 | MLflow | `test/`, `test_class/`, `test/best_<headline metric>` (tag `best_iteration`) | `test_ema/`, `test_ema_class/`, `test_ema/best_<headline metric>` (tag `best_iteration_test_ema`) |
 | `evaluation_summary.csv` (`Evaluation/`, `Checkpoint_Evaluation/`) | one column per scalar | the same columns prefixed by `ema_`, and `ema_number_updates` |
 | `evaluation_curves.png` | blue curve | orange curve, with the window of the averaged weights of the highest evaluated iteration |
+
+<p align="center">
+  <img src="../../README/moving_average_window.png" width="100%" />
+</p>
+<p align="center"><em>How many trained weights one averaged model mixes, for the decay 0.9998 of the object detection benchmark launches. Left: the share of their averaged weights of iteration 15,000 held by every 100 iterations of the training. The warm-up lowered the decay of the last update to 0.9994, so the last 1,668 iterations carry 65 % of the average and the last 5,000 iterations 97 %; the same decay used from the first update would give the last 5,000 iterations 63 % and leave 5.0 % to the random starting weights. Right: the window 1 / (1 − decay) of the update of every iteration, which the warm-up grows by one iteration every 9 iterations until the configured window. Drawn by <code>documentation/presentation/figures/plot_moving_average_window.py</code>.</em></p>
 
 ## Transfer Between Runs
 The `pretrained` block of a section initialises its component from a trained run, of the same task or of another one:
