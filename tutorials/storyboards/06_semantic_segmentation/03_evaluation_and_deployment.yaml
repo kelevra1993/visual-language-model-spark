@@ -158,14 +158,14 @@ scenes:
       - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=semantic_segmentation --output_folder=~/Data/segmentation_data/synthetic_shapes"}
       - {role: comment, text: "# Training: Ctrl+C stops it and saves a checkpoint"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml\""}
-      - {role: comment, text: "# Evaluation into <run>/Checkpoint_Evaluation/: run and iteration in its main block"}
-      - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
+      - {role: comment, text: "# Evaluation into <run>/Checkpoint_Evaluation/: run folder and iteration as arguments"}
+      - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder=<run folder>"}
       - {role: comment, text: "# Export to Torch Script and ONNX: needs CUDA"}
       - {role: command, text: "uv run python -m vision_training.deployment.export_model --experiment_folder=<run folder>"}
     narration:
       - "To reproduce the run, generate the synthetic data set with the task given as an argument to the script, then train with the synthetic configuration."
       - "The training runs to its number of iterations, unless Control C stops it first and saves a checkpoint; the run of these chapters stopped at {{semantic_segmentation.run_iterations}}."
-      - "The standalone evaluation writes into the checkpoint evaluation folder of the run, next to the training one, and skips a limit of error images set in its main block with a warning, as for every task without error images."
+      - "The standalone evaluation writes into the checkpoint evaluation folder of the run, next to the training one, and skips its default limit of error images with a warning, as for every task without error images."
       - "The export needs a GPU."
 
   - kind: html
@@ -210,5 +210,5 @@ scenes:
       - "The boundary IOU and F score only look at the contours, within {{semantic_segmentation.run_boundary_tolerance:words}} pixels, where the region metrics hardly see an error."
       - "The millions of negative pixels flatter the macro ROC AUC, already {{semantic_segmentation.headline_macro_roc_auc_1000:percent}} at iteration {{semantic_segmentation.run_first_evaluated_iteration}}, so read the macro average precision instead."
       - "The exported segmenter gives its outputs at the network resolution and writes its input settings in the preprocessing file, the client cutting the letterbox and resizing back."
-      - "The standalone evaluation script skips a limit of error images set in its main block with a warning, since this task draws no error images."
+      - "The standalone evaluation script skips its default limit of error images with a warning, since this task draws no error images."
       - "The next series, sequence classification, runs the backbone on every frame of a sequence and gives one class per sequence."

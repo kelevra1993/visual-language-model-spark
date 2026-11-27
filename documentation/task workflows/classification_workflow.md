@@ -80,11 +80,9 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=
 # 2. Training: set experiment_folder, the three data folders and Data.label_mapping.mapping_file_path first
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/classification/configuration_synthetic_shapes.yaml"
 
-# 3. Evaluation of checkpoints: set run_name, experiment_folder, iteration (None, an integer or "all"),
-#    test_data_folder, batch_size, track_evaluation, save_predictions, maximum_error_images_per_class_pair and
-#    target_precisions in the main block of scripts/evaluation/evaluate_checkpoint.py, which writes in
-#    <run>/Checkpoint_Evaluation/
-uv run python -m scripts.evaluation.evaluate_checkpoint
+# 3. Evaluation of every checkpoint into <run>/Checkpoint_Evaluation/: the split, batch size, tracking, predictions,
+#    error images and target precisions are arguments too (run it without any for its help)
+uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder <run folder> --iteration all
 
 # 4. Temperature and export: serve the temperature explorers of the experiments folders, open http://127.0.0.1:8091/,
 #    save the thresholds of a temperature on the page of a checkpoint, then export it from that page
@@ -669,13 +667,14 @@ run_test_evaluation(iteration)  [STAGE 4]
 
 scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
 │   Separate script, run on its own (uv run python -m scripts.evaluation.evaluate_checkpoint): evaluates checkpoints
-│   of a trained run without training. Its settings are variables at the top of its main block (no command line): the
-│   run name and its folder, the iteration ("all" for every checkpoint from the last one, None for the last one, or an
-│   integer), an optional other labelled test folder, the evaluation batch size, whether the evaluation is tracked in
-│   MLflow, whether predictions.csv is saved, the maximum number of error images per pair of classes, the target
-│   precisions of the class thresholds (a probability or a list such as [0.99, 0.95, 0.90]) and the final NMS of the
-│   detection tasks (skipped with a warning for a classifier). It writes in <run>/Checkpoint_Evaluation/
-│   (Checkpoint_Evaluation_split_<parent folder>_<split folder>/ for another labelled test folder).
+│   of a trained run without training. Its settings are command line arguments (parse_evaluation_arguments(), the
+│   help printed without any) passed to evaluate_run(): the run folder (required), the iteration (all for every
+│   checkpoint from the last one, an integer, the last one by default), an optional other labelled test folder, the
+│   evaluation batch size, whether the evaluation is tracked in MLflow, whether predictions.csv is saved, the maximum
+│   number of error images per pair of classes, the target precisions of the class thresholds (one or several, such
+│   as 0.99 0.95 0.90) and the final NMS of the detection tasks (skipped with a warning for a classifier). It writes
+│   in <run>/Checkpoint_Evaluation/ (Checkpoint_Evaluation_split_<parent folder>_<split folder>/ for another
+│   labelled test folder).
 │
 ├── list_evaluated_iterations() -> get_checkpoint_iterations() / get_last_checkpoint_iteration()
 │       Read Weights/full-checkpoint of the trained run before anything is written: all the recorded iterations,
@@ -1999,21 +1998,21 @@ artifacts: evaluation/iteration_6/class_metrics.csv, class_thresholds.json, conf
 > The examples below are real outputs of this script logic run on the run of Stage 3 (checkpoints saved at iterations 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step), with `iteration = "all"` and, to keep it short, a test folder of 300 images taken from the test split (`test_data_folder`), instead of the 5,000 images of Stage 4. They were also captured before the per-class recall intervals were added (2026-11-01): the block of Step 5.6 now also holds the `Per Class Recall` table after `Per Class Metrics`, and `class_metrics.csv` the `recall_lower` and `recall_upper` columns after `recall`. They also predate the folder of its own of another split (2026-11-20): the 300-image test folder, not the test split of the run, would now be written to `Checkpoint_Evaluation_split_<parent folder>_test_300/` rather than `Checkpoint_Evaluation/`.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-This separate script evaluates checkpoints of a run that has already been trained (or is still training) without training anything: to compare several checkpoints, to pick the one to deploy, or to score a run on another labelled split. It is launched alone, as a module from the root of the repository (`uv run python -m scripts.evaluation.evaluate_checkpoint`), and has no command line: its settings are the variables at the top of its `__main__` block. The files of the run are only read; everything the evaluation writes goes to the `Checkpoint_Evaluation/` folder of the run, next to the `Evaluation/` folder of the training, or, for another labelled split, to a folder of its own named after it, `Checkpoint_Evaluation_split_<parent folder>_<split folder>/` (e.g. `Checkpoint_Evaluation_split_synthetic_shapes_validation`), so that the evaluations of two splits never mix.
+This separate script evaluates checkpoints of a run that has already been trained (or is still training) without training anything: to compare several checkpoints, to pick the one to deploy, or to score a run on another labelled split. It is launched alone, as a module from the root of the repository (`uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder <run folder> --iteration all`), its settings given as command line arguments (`parse_evaluation_arguments()`, the help printed when none is given) and passed to `evaluate_run()`. The files of the run are only read; everything the evaluation writes goes to the `Checkpoint_Evaluation/` folder of the run, next to the `Evaluation/` folder of the training, or, for another labelled split, to a folder of its own named after it, `Checkpoint_Evaluation_split_<parent folder>_<split folder>/` (e.g. `Checkpoint_Evaluation_split_synthetic_shapes_validation`), so that the evaluations of two splits never mix.
 
-**Example: the settings of the script** (`run_name` and `experiment_folder` of the file name the last evaluated run, change them for another run)
+**Example: the arguments of the script**
 
-| Variable | Role |
+| Argument | Role |
 |---|---|
-| `run_name` | the trained run, `<experiments>/<run_name>` (`experiment_folder`, `<experiments>` being the `experiment_folder` of its configuration file), with its `Weights/` and its `training_configuration.yaml` |
-| `iteration` | `"all"` for every checkpoint of the registry, the last saved first; `None` for the last checkpoint; an integer for one checkpoint |
-| `test_data_folder` | another labelled split to evaluate instead of the test split of the run, `None` to keep the test split of the run |
-| `batch_size` | batch size of the evaluation, `128` by default (no gradient is kept, so it can be larger than the training one), `None` to keep the one of the run |
-| `track_evaluation` | `True` or `False` to track the evaluation in an MLflow run of its own, `None` to keep `tracking.activated` of the run |
-| `save_predictions` | `True` or `False` to write `predictions.csv` in every evaluated iteration folder (Step 4.16), read by the chart of the groups seen and never seen in training of `draw_report_figures.py` (Step 5.7); `None` to keep `evaluation.save_predictions` of the run (`apply_save_predictions()`) |
-| `maximum_error_images_per_class_pair` | turns the error images on with at most this number of images per pair of true and predicted classes, the first ones met, a number above the number of test samples saving every error; `None` to keep `evaluation.error_dumps` of the run |
-| `target_precisions` | the precision of the class thresholds, or a list of distinct precisions whose first one is the main target (e.g. `[0.99, 0.95, 0.90]`, Step 4.13), checked like the configuration (`apply_target_precisions()`); `None` to keep `evaluation.target_precision` of the run |
-| `nms_criterion`, `nms_distance_exponent` | the final non-maximum suppression of the detection tasks; skipped with a warning for a classifier |
+| `--experiment_folder` | the trained run folder, with its `Weights/` and its `training_configuration.yaml` (required) |
+| `--iteration` | `all` for every checkpoint of the registry, the last saved first; an integer for one checkpoint; the last checkpoint by default |
+| `--test_data_folder` | another labelled split to evaluate instead of the test split of the run, the test split of the run by default |
+| `--batch_size` | batch size of the evaluation, `128` by default (no gradient is kept, so it can be larger than the training one), `None` to keep the one of the run |
+| `--track_evaluation` | `True` or `False` to track the evaluation in an MLflow run of its own, `tracking.activated` of the run by default |
+| `--save_predictions` | `True` or `False` to write `predictions.csv` in every evaluated iteration folder (Step 4.16), read by the chart of the groups seen and never seen in training of `draw_report_figures.py` (Step 5.7); `evaluation.save_predictions` of the run by default (`apply_save_predictions()`) |
+| `--maximum_error_images_per_class_pair` | turns the error images on with at most this number of images per pair of true and predicted classes, the first ones met, `100000` by default, a number above the number of test samples saving every error; `None` to keep `evaluation.error_dumps` of the run |
+| `--target_precisions` | the precision of the class thresholds, or several distinct precisions whose first one is the main target (e.g. `0.99 0.95 0.90`, Step 4.13), checked like the configuration (`apply_target_precisions()`); `evaluation.target_precision` of the run by default |
+| `--nms_criterion`, `--nms_distance_exponent` | the final non-maximum suppression of the detection tasks; skipped with a warning for a classifier |
 
 ### Step 5.2 — `load_experiment_configuration()` + `get_trainer_class()` + trainer construction (same as Stages 1–2)
 The script loads `training_configuration.yaml` of the trained run, the copy that the training saved (Step 2.6), through the same loader as Stage 1 (conversion, label dictionary, checks), the label dictionary being read from the `label_dictionary.json` saved next to it, so that the classes of the run keep their meaning when the mapping file was edited or moved since (a run started before the file existed takes the mapping file). It then sets `test_data_folder` (`apply_test_data_folder()`, which gives the `_split_<parent folder>_<split folder>` suffix of the folder when the split is not the test split of the run), `batch_size`, `tracking.activated`, `evaluation.save_predictions`, `evaluation.error_dumps` (turned on with `maximum_error_images_per_class_pair`) and `evaluation.target_precision` (`target_precisions`) when they are given, and points the trainer to the `Checkpoint_Evaluation/` folder of the run with `point_to_checkpoint_evaluation()`, `check_evaluation_folder_split()` refusing a folder whose `data.json` records another test split (`ValueError`, e.g. a `Checkpoint_Evaluation/` folder written by the evaluation of another split before every split had its own folder): `experiment_folder` becomes the folder holding the run, `run_name` the name of the evaluated run folder (the trainer otherwise builds the name from the settings, which lose the `PT` tokens once the transfer is turned off) and `standalone_evaluation_folder` is set to `Checkpoint_Evaluation`, so that the trainer writes in `<run>/Checkpoint_Evaluation/`, with its iteration folders directly in it, and creates no `Weights/` folder. It finally calls `disable_pretrained_settings()`: the weights come from the evaluated checkpoint, so the source runs the training started from are neither loaded nor needed anymore. It builds the same trainer as for a training (Stage 2) with the same model architecture and the same sample images, which creates `<run>/Checkpoint_Evaluation/` with its copy of the configuration, `data.json` and `label_dictionary.json`. The trainer keeps a `DisabledTracker` until Step 5.4.

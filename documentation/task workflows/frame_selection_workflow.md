@@ -66,11 +66,9 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=
 # Training, after setting experiment_folder, the three data folders and Data.label_mapping.mapping_file_path
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml"
 
-# Evaluation of the checkpoints of a run: set run_name, experiment_folder, iteration (None, a number or "all"),
-# test_data_folder, batch_size, track_evaluation, save_predictions (its selections.csv),
-# maximum_error_images_per_class_pair and target_precisions (None or a single number, a list being refused for this
-# task) in its main block; it writes in <run>/Checkpoint_Evaluation/
-uv run python -m scripts.evaluation.evaluate_checkpoint
+# Evaluation of every checkpoint of a run into <run>/Checkpoint_Evaluation/: the split, batch size, tracking,
+# selections.csv, error images and one target precision (a list being refused for this task) are arguments too
+uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder <run folder> --iteration all
 
 # Export with the decoder and the ensembles, the other settings being arguments too (run it without any for its help);
 # the networks are checked in a staging folder before they replace the served ones

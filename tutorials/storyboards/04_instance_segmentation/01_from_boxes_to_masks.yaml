@@ -251,8 +251,8 @@ scenes:
       - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=instance_segmentation --output_folder=~/Data/instance_segmentation_data/synthetic_shapes"}
       - {role: comment, text: "# {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#ExperimentConfiguration.number_iterations}} iterations as shipped; run shown: mask heads {{instance_segmentation.geometry.convolutions_text}}, anchors {{instance_segmentation.run.smallest_anchor}} to {{instance_segmentation.run.largest_anchor}}"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml\""}
-      - {role: comment, text: "# A checkpoint evaluated again: run_name, iteration ... in the main block"}
-      - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
+      - {role: comment, text: "# A checkpoint evaluated again: the run folder and the iteration as arguments"}
+      - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder=<run folder>"}
     narration:
       - "The task trains on the data set of the detection, whose generator writes the visible part of every object as a compressed run length encoding."
       - "Its synthetic configuration trains {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#ExperimentConfiguration.number_iterations:words}} iterations; the run shown took the winners of the detection benchmark and mask heads of {{instance_segmentation.geometry.convolution_layers:words}} convolutions of {{instance_segmentation.geometry.convolution_channels}} channels, with anchors from {{instance_segmentation.run.smallest_anchor}} to {{instance_segmentation.run.largest_anchor}} pixels."

@@ -74,11 +74,9 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=
 # 2. Training: set experiment_folder, the three data folders and Data.label_mapping.mapping_file_path first
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/sequence_comparison/configuration_synthetic_pairs.yaml"
 
-# 3. Evaluation of checkpoints: set run_name, experiment_folder (the run folder), iteration (None, an integer or
-#    "all"), test_data_folder, batch_size, track_evaluation, save_predictions, maximum_error_images_per_class_pair
-#    and target_precisions in the main block of scripts/evaluation/evaluate_checkpoint.py, which writes in
-#    <run>/Checkpoint_Evaluation/
-uv run python -m scripts.evaluation.evaluate_checkpoint
+# 3. Evaluation of every checkpoint into <run>/Checkpoint_Evaluation/: the split, batch size, tracking, predictions,
+#    error images and target precisions are arguments too (run it without any for its help)
+uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder <run folder> --iteration all
 ```
 
 ### Configuration Keys To Know First
@@ -979,7 +977,7 @@ After the tracking, `update_evaluation_curves()` (added on 2026-11-18, after thi
 > The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 40 pairs of the test split (its `labels.json` reduced, its `data/` folder linked). They were recorded on 2026-10-10, before the ROC and precision-recall curves (Stage 4), and before the per-class recall intervals (2026-11-01), whose `Per Class Recall` table now follows `Per Class Metrics` in the block of Step 5.6.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` and `experiment_folder` (the run folder, built from `run_name` in the main block) to the comparison run, and `test_data_folder` to another labelled split (holding a pairs `labels.json` and `data/`) if needed; `maximum_error_images_per_class_pair` turns the error images on with its own limit, `save_predictions` (True, False, or None to keep the `evaluation.save_predictions` of the run) writes or skips the `predictions.csv` of every evaluated checkpoint, `target_precisions` replaces the precision of the class thresholds (a list such as `[0.99, 0.95]` is accepted, its first precision the main one), and the evaluation is written in the `Checkpoint_Evaluation/` folder of the run (`Checkpoint_Evaluation_split_<parent folder>_<split folder>/` for another labelled split). A pair with a member longer than the `maximum_sequence_length` of the run is left out of the evaluation, with the red warnings of Step 2.9.
+The same script for every task (see `classification_workflow.md`, Stage 5): give the comparison run as `--experiment_folder`, and another labelled split (holding a pairs `labels.json` and `data/`) as `--test_data_folder` if needed; `--maximum_error_images_per_class_pair` turns the error images on with its own limit, `--save_predictions` (True or False, the `evaluation.save_predictions` of the run by default) writes or skips the `predictions.csv` of every evaluated checkpoint, `--target_precisions` replaces the precision of the class thresholds (several such as `0.99 0.95` are accepted, the first one the main one), and the evaluation is written in the `Checkpoint_Evaluation/` folder of the run (`Checkpoint_Evaluation_split_<parent folder>_<split folder>/` for another labelled split). A pair with a member longer than the `maximum_sequence_length` of the run is left out of the evaluation, with the red warnings of Step 2.9.
 
 ### Step 5.2 — trainer construction
 The trainer is built from the `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it rather than those of the mapping file, the name of the run folder kept as its `run_name` and the transfer of the pretrained components turned off (`disable_pretrained_settings()`, `classification_workflow.md`, Step 5.2).

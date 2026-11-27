@@ -6,16 +6,20 @@ being built from the copied configuration, the results written inside the run fo
 e.g. '<run>/Checkpoint_Evaluation_split_synthetic_shapes_validation/', so that the evaluations of two splits never
 mix), and, when the tracking is on, tracked in an MLflow run of their own. A run without checkpoint stops the script
 before anything is written. The precisions targeted by the class thresholds can be replaced, e.g. by
-[0.99, 0.95, 0.90] to read the thresholds of a research report without training again; with the per-class report, a
-classifier gets its 'temperature_explorer.html' and 'class_logits.npz', served by
+'--target_precisions 0.99 0.95 0.90' to read the thresholds of a research report without training again; with the
+per-class report, a classifier gets its 'temperature_explorer.html' and 'class_logits.npz', served by
 scripts/evaluation/serve_temperature_explorer.py to choose, save and export the temperature of the checkpoint, and the
 predictions of every evaluated sample can be saved, read by the groups chart of
 scripts/evaluation/draw_report_figures.py, which draws the figures of a research report from this folder. The
 final non-maximum suppression of a detection run can be replaced, e.g. by DIoU-NMS for stage 5b of the detection
-benchmark, its evaluations going to a folder of their own, '<run>/Checkpoint_Evaluation_nms_<name>/'.
+benchmark, its evaluations going to a folder of their own, '<run>/Checkpoint_Evaluation_nms_<name>/'. Run as a script
+with the run folder and the evaluation settings given as arguments (parse_evaluation_arguments), its help printed when
+none is given, the evaluation itself being evaluate_run.
 """
 
+import argparse
 import json
+import sys
 
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -27,6 +31,7 @@ from vision_training.configuration_processing.detection_checks import check_nms_
 from vision_training.data.data_record import DATA_RECORD_FILE_NAME
 from vision_training.data.manifest_cache import read_manifests_once
 from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME, evaluate_checkpoints
+from vision_training.models.detection.postprocessing import NMS_CRITERIA
 from vision_training.models.model_transfer import disable_pretrained_settings
 from vision_training.trainers.checkpointing import (get_checkpoint_file, get_checkpoint_iterations,
                                                     get_last_checkpoint_iteration)
@@ -36,6 +41,10 @@ from vision_training.utilities.os_utilities import format_path_link, print_color
 # and the sequence trainers sharing its evaluation), the frame selection and the detection tasks keeping one
 SEVERAL_TARGET_PRECISIONS_TASKS = ["classification", "sequence_classification", "sequence_labelling",
                                    "sequence_comparison"]
+
+# Evaluation settings taken when the command line of the script (parse_evaluation_arguments) does not give them: a
+# batch larger than the training one, since no gradient is kept, and every error image of a test split saved
+DEFAULT_EVALUATION_SETTINGS = {"batch_size": 128, "maximum_error_images_per_class_pair": 100000}
 
 
 def apply_error_image_limit(experiment_configuration: Dict[str, Any],
@@ -345,51 +354,44 @@ def point_to_checkpoint_evaluation(experiment_configuration: Dict[str, Any], exp
     return experiment_folder / experiment_configuration["standalone_evaluation_folder"]
 
 
-if __name__ == "__main__":
-    # Run name of the trained experiment whose configuration and checkpoints are evaluated, in the experiments root
-    # folder of its configuration ('experiment_folder'); its files are only read, the evaluation being written in its
-    # 'Checkpoint_Evaluation' folder
-    run_name = "CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9"
-    experiment_folder = Path(__file__).absolute().parents[2] / "experiments" / "readme_screenshots" / run_name
-    # Checkpoint iteration to evaluate, None for the last saved one, or "all" for every checkpoint of the registry
-    # (the intermediate ones included, the last saved first), compared in
-    # 'Checkpoint_Evaluation/evaluation_summary.csv'
-    iteration = 1500
-    # Labelled split evaluated instead of the test split of the experiment, None to keep the experiment's one, another
-    # split writing to its own '<run>/Checkpoint_Evaluation_split_<parent folder>_<split folder>/'
-    test_data_folder = None
-    # Batch size of the evaluation, which can be larger than the training one since no gradient is kept, None to
-    # keep the experiment's one
-    batch_size = 128
-    # Tracks the evaluation in an MLflow run of its own, named '<run name>-evaluation' in the backend of the evaluated
-    # experiment and tagged with its training run ('evaluation_of'), True or False, None to keep the experiment's
-    # 'tracking.activated'. The MLflow run of the training is never modified
-    track_evaluation = None
-    # Saves the predictions of every evaluated sample in 'Checkpoint_Evaluation/Iteration_<n>[/EMA]/predictions.csv'
-    # (the sample, its true and predicted classes and the probability of every class; 'selections.csv' for the frame
-    # selection), read by the chart of the groups seen and never seen in training of
-    # scripts/evaluation/draw_report_figures.py, True or False, None to keep the experiment's
-    # 'evaluation.save_predictions'. Skipped with a warning for the tasks without the setting
-    save_predictions = None
-    # Largest number of error images saved for every pair of true and predicted classes, the first ones met, in
-    # 'Checkpoint_Evaluation/Iteration_<n>/Errors/<TRUE>-TO-<PREDICTED>/', the error images being turned on. A number
-    # above the number of test samples saves every error. None keeps the experiment's 'evaluation.error_dumps'
-    # settings. Skipped with a warning for the tasks without error images (semantic segmentation, keypoint detection,
-    # self-supervised)
-    maximum_error_images_per_class_pair = 100000
-    # Precision targeted by the class thresholds, or a list of distinct precisions whose first one is the main target,
-    # e.g. [0.99, 0.95, 0.90] to read the thresholds of every class at each of them in class_thresholds.json,
-    # class_metrics.csv and precision_recall_thresholds.png. None keeps the experiment's 'evaluation.target_precision'.
-    # A list is refused by the frame selection and the detection tasks; skipped with a warning for the tasks without
-    # class thresholds (semantic segmentation, keypoint detection, self-supervised)
-    target_precisions = None
-    # Criterion of the final non-maximum suppression of the detection tasks, "iou" (greedy) or "distance_iou"
-    # (DIoU-NMS), and the exponent of its distance term (1.0 in the paper, 0.6 in YOLOv4), None keeping the run's. An
-    # NMS other than the run's writes to '<run>/Checkpoint_Evaluation_nms_<criterion>[_<exponent>]/', e.g.
-    # 'Checkpoint_Evaluation_nms_distance_iou_1.0'. Skipped with a warning for the tasks without detector
-    nms_criterion = None
-    nms_distance_exponent = None
+def evaluate_run(experiment_folder: Path, iteration: Optional[Union[int, str]], test_data_folder: Optional[Path],
+                 batch_size: Optional[int], track_evaluation: Optional[bool], save_predictions: Optional[bool],
+                 maximum_error_images_per_class_pair: Optional[int],
+                 target_precisions: Optional[Union[float, List[float]]], nms_criterion: Optional[str],
+                 nms_distance_exponent: Optional[float]) -> None:
+    """
+    Evaluates checkpoints of a trained run again with the settings given on the command line of the script, to choose
+    the checkpoint to export, or to score a run on another labelled split or with another final NMS, without training:
+    the iterations are listed before anything is written, the configuration copied into the run is loaded and changed
+    by the given settings (None keeping those of the run), and the trainer of the task, pointed to
+    '<run>/Checkpoint_Evaluation<suffix>/', scores every listed checkpoint there through evaluate_checkpoints, the files
+    of the run being only read.
 
+    Args:
+        experiment_folder (Path): The evaluated run folder, holding 'Weights' and 'training_configuration.yaml'.
+        iteration (Optional[Union[int, str]]): The iteration to evaluate, None for the last saved one, or "all" for
+            every checkpoint of the registry from the last saved one.
+        test_data_folder (Optional[Path]): The labelled split evaluated instead of the test split of the run, None to
+            keep the test split of the run.
+        batch_size (Optional[int]): The evaluation batch size, None to keep the one of the run.
+        track_evaluation (Optional[bool]): Whether the evaluation is tracked in an MLflow run of its own, None to keep
+            the 'tracking.activated' of the run.
+        save_predictions (Optional[bool]): Whether the predictions of every evaluated sample are saved, None to keep
+            the 'evaluation.save_predictions' of the run.
+        maximum_error_images_per_class_pair (Optional[int]): The largest number of error images of every pair of
+            classes, the error images being turned on, None to keep the 'evaluation.error_dumps' of the run.
+        target_precisions (Optional[Union[float, List[float]]]): The precision targeted by the class thresholds, or the
+            list of distinct precisions whose first one is the main target, None to keep the one of the run.
+        nms_criterion (Optional[str]): The criterion of the final NMS of a detection run, one of NMS_CRITERIA, None to
+            keep the one of the run.
+        nms_distance_exponent (Optional[float]): The exponent of the distance term of "distance_iou", None to keep the
+            one of the run.
+
+    Raises:
+        FileNotFoundError: If none of the listed checkpoints has its weight file, before anything is written.
+        ValueError: If a target precision or the final NMS is refused, or if the evaluation folder holds the
+            evaluations of another split.
+    """
     # Every checkpoint of the registry from the last saved one, so that the most trained weights are evaluated first,
     # the last one, or the given one, listed before anything is written so that a run without checkpoint stops here
     evaluated_iterations = list_evaluated_iterations(weights_directory=experiment_folder / "Weights",
@@ -437,3 +439,170 @@ if __name__ == "__main__":
         trainer = trainer_class(experiment_configuration=experiment_configuration,
                                 model_configuration=model_configuration, configuration_path=configuration_path)
     evaluate_checkpoints(trainer=trainer, experiment_folder=experiment_folder, iterations=evaluated_iterations)
+
+
+def read_iteration_argument(value: str) -> Union[int, str]:
+    """
+    Converts the --iteration argument of the evaluation script into the iteration list_evaluated_iterations takes,
+    'all' for every checkpoint of the registry, so that the command line reaches every choice of the evaluated
+    checkpoints, the last saved one being the default of the argument.
+
+    Args:
+        value (str): The text given on the command line.
+
+    Returns:
+        Union[int, str]: "all", or the iteration as an integer.
+
+    Raises:
+        argparse.ArgumentTypeError: If the text is neither 'all' nor a whole number, argparse then printing the usage
+            and the error.
+    """
+    # Only 'all' and whole numbers name checkpoints, any other word (e.g. 'last') being refused
+    if value == "all":
+        return value
+    if not value.isdecimal():
+        raise argparse.ArgumentTypeError(f"expected an iteration or all, got {value!r}")
+    return int(value)
+
+
+def read_optional_positive_integer_argument(value: str) -> Optional[int]:
+    """
+    Converts the --batch_size and --maximum_error_images_per_class_pair arguments of the evaluation script into a
+    positive integer, 'None' keeping the setting of the evaluated run, so that the command line reaches the three
+    states of these settings although their defaults are numbers (DEFAULT_EVALUATION_SETTINGS).
+
+    Args:
+        value (str): The text given on the command line.
+
+    Returns:
+        Optional[int]: None for 'None', otherwise the number.
+
+    Raises:
+        argparse.ArgumentTypeError: If the text is neither 'None' nor a whole number of at least 1, argparse then
+            printing the usage and the error.
+    """
+    # A batch or a limit of zero images evaluates nothing, so only whole numbers from 1 are accepted
+    if value == "None":
+        return None
+    if not value.isdecimal() or int(value) < 1:
+        raise argparse.ArgumentTypeError(f"expected a positive integer or None, got {value!r}")
+    return int(value)
+
+
+def read_optional_boolean_argument(value: str) -> Optional[bool]:
+    """
+    Converts the --track_evaluation and --save_predictions arguments of the evaluation script, the words True or
+    False, into a boolean, so that the command line reaches the three states of these settings without a pair of
+    opposite flags, their default None keeping the setting of the evaluated run.
+
+    Args:
+        value (str): The text given on the command line.
+
+    Returns:
+        Optional[bool]: True for 'True', False for 'False'.
+
+    Raises:
+        argparse.ArgumentTypeError: If the text is neither 'True' nor 'False', argparse then printing the usage and
+            the error.
+    """
+    if value not in ["True", "False"]:
+        raise argparse.ArgumentTypeError(f"expected True or False, got {value!r}")
+    return value == "True"
+
+
+def parse_evaluation_arguments(arguments: List[str]) -> argparse.Namespace:
+    """
+    Reads the settings of an evaluation from the command line of the script, so that the checkpoints of a run are
+    evaluated again without editing the file: the run folder is required, the batch size and the error image limit
+    default to DEFAULT_EVALUATION_SETTINGS and every other setting to None, which keeps the one of the run. Launched
+    without any argument, the script prints the help of every argument and stops. A '~' left by the shell at the start
+    of a path ('--experiment_folder=~/Data/...') is expanded to the home folder, and a single target precision is
+    given as a number, since the frame selection and the detection tasks refuse a list.
+
+    Args:
+        arguments (List[str]): The command line arguments, without the script name.
+
+    Returns:
+        argparse.Namespace: The arguments of evaluate_run.
+
+    Raises:
+        SystemExit: After printing the help when no argument is given, or the usage and the error when the run folder
+            is missing or a value is not one the evaluation accepts.
+    """
+    # The description and the example keep their line breaks, argparse wrapping the help of every argument
+    parser = argparse.ArgumentParser(
+        prog="uv run python -m scripts.evaluation.evaluate_checkpoint",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Evaluates checkpoints of a trained run again into <run>/Checkpoint_Evaluation/, the files of the\n"
+                    "training being only read: on another labelled split, at other target precisions or another NMS.",
+        epilog="Example, every checkpoint of a run with the class thresholds at three precisions:\n"
+               "  uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder ~/Data/<run> \\\n"
+               "      --iteration all --target_precisions 0.99 0.95 0.90")
+    # The run and the checkpoints to evaluate
+    parser.add_argument("--experiment_folder", type=Path, required=True,
+                        help="Run folder holding 'Weights' and 'training_configuration.yaml', only read (required).")
+    parser.add_argument("--iteration", type=read_iteration_argument, default=None,
+                        help="Iteration of the evaluated checkpoint, or all for every checkpoint from the last saved "
+                             "one (default: the last saved one).")
+    parser.add_argument("--test_data_folder", type=Path, default=None,
+                        help="Labelled split evaluated instead, written to <run>/Checkpoint_Evaluation_split_<parent "
+                             "folder>_<split folder>/ (default: the test split of the run).")
+    # The settings of the run replaced for the evaluation
+    parser.add_argument("--batch_size", type=read_optional_positive_integer_argument,
+                        default=DEFAULT_EVALUATION_SETTINGS["batch_size"],
+                        help="Evaluation batch size, larger than the training one since no gradient is kept, None for "
+                             "the one of the run (default: %(default)s).")
+    parser.add_argument("--track_evaluation", type=read_optional_boolean_argument, default=None,
+                        metavar="{True,False}",
+                        help="Track the evaluation in an MLflow run of its own, '<run name>-evaluation', tagged with "
+                             "its training run (default: the tracking.activated of the run).")
+    parser.add_argument("--save_predictions", type=read_optional_boolean_argument, default=None,
+                        metavar="{True,False}",
+                        help="Write predictions.csv (selections.csv for the frame selection) in every evaluated "
+                             "iteration folder (default: the evaluation.save_predictions of the run).")
+    # The error images and the class thresholds, skipped with a warning by the tasks without them
+    parser.add_argument("--maximum_error_images_per_class_pair", type=read_optional_positive_integer_argument,
+                        default=DEFAULT_EVALUATION_SETTINGS["maximum_error_images_per_class_pair"],
+                        help="Error images turned on with at most this number per pair of true and predicted "
+                             "classes, None for the evaluation.error_dumps of the run (default: %(default)s).")
+    parser.add_argument("--target_precisions", type=float, nargs="+", default=None,
+                        help="Precision targeted by the class thresholds, or several, the first the main one, a list "
+                             "refused by the frame selection and the detection tasks (default: the "
+                             "evaluation.target_precision of the run).")
+    # The final non-maximum suppression of the detection tasks, skipped with a warning by the other tasks
+    parser.add_argument("--nms_criterion", choices=NMS_CRITERIA, default=None,
+                        help="Criterion of the final NMS, another one than the run's written to "
+                             "<run>/Checkpoint_Evaluation_nms_<criterion>[_<exponent>]/ (default: the "
+                             "Detector.nms_criterion of the run).")
+    parser.add_argument("--nms_distance_exponent", type=float, default=None,
+                        help="Exponent of the distance term of distance_iou, 1.0 in the paper, 0.6 in YOLOv4 "
+                             "(default: the Detector.nms_distance_exponent of the run).")
+
+    # Without any argument, the script describes its arguments instead of failing on the missing run folder
+    if not arguments:
+        parser.print_help()
+        parser.exit(status=0)
+    parsed_arguments = parser.parse_args(args=arguments)
+
+    # A '~' the shell leaves after '=' points to the home folder, as in the other scripts of the repository
+    for path_name in ["experiment_folder", "test_data_folder"]:
+        if getattr(parsed_arguments, path_name) is not None:
+            setattr(parsed_arguments, path_name, getattr(parsed_arguments, path_name).expanduser())
+
+    # One target precision is given as a number, the tasks keeping a single target precision refusing a list
+    if parsed_arguments.target_precisions is not None and len(parsed_arguments.target_precisions) == 1:
+        parsed_arguments.target_precisions = parsed_arguments.target_precisions[0]
+    return parsed_arguments
+
+
+if __name__ == "__main__":
+    # Run folder and evaluation settings read from the command line, the help printed when none is given
+    evaluation_arguments = parse_evaluation_arguments(arguments=sys.argv[1:])
+    evaluate_run(experiment_folder=evaluation_arguments.experiment_folder, iteration=evaluation_arguments.iteration,
+                 test_data_folder=evaluation_arguments.test_data_folder, batch_size=evaluation_arguments.batch_size,
+                 track_evaluation=evaluation_arguments.track_evaluation,
+                 save_predictions=evaluation_arguments.save_predictions,
+                 maximum_error_images_per_class_pair=evaluation_arguments.maximum_error_images_per_class_pair,
+                 target_precisions=evaluation_arguments.target_precisions,
+                 nms_criterion=evaluation_arguments.nms_criterion,
+                 nms_distance_exponent=evaluation_arguments.nms_distance_exponent)

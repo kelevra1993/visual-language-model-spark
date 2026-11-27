@@ -67,10 +67,9 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=
 # 2. Training: set experiment_folder, the three data folders and Data.label_mapping.mapping_file_path first
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml"
 
-# 3. Evaluation of checkpoints: set run_name, experiment_folder, iteration (None, an integer or "all"),
-#    test_data_folder, batch_size, track_evaluation and maximum_error_images_per_class_pair = None (Step 5.1) in the
-#    main block of scripts/evaluation/evaluate_checkpoint.py, which writes in <run>/Checkpoint_Evaluation/
-uv run python -m scripts.evaluation.evaluate_checkpoint
+# 3. Evaluation of every checkpoint into <run>/Checkpoint_Evaluation/ (run it without arguments for its help), the
+#    error images off since the task draws none (Step 5.1)
+uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder <run folder> --iteration all --maximum_error_images_per_class_pair None
 
 # 4. Export (CUDA only, Step 6.1), with --tensorrt_precision None: Triton crashes at the first request of this
 #    detector with the TensorRT configuration of the default FP32 (Step 6.5)
@@ -1185,7 +1184,7 @@ The averaged weights follow the trained weights a few iterations behind (the n-t
 > The examples below are real outputs of a copy of `scripts/evaluation/evaluate_checkpoint.py` whose `run_name` and `experiment_folder` point to the run of Stage 3 (checkpoints 15, 30, 45 and 60, captured when those of iterations 15, 30 and 45 were still saved before their training step), with `iteration = "all"`, `batch_size = 16` and the whole test split, on CPU with the MLflow tracking on. The four checkpoints, each with its averaged weights, were evaluated in 2 min 27 s, about 17 s per evaluation. They were captured before the per-class recall intervals were added (2026-11-01, Stage 4).
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-The same script for every task (see `classification_workflow.md`, Stage 5). The keypoint configurations have no `evaluation.error_dumps` section, so `maximum_error_images_per_class_pair` is skipped with a yellow warning: the keypoint evaluation saves no error image. `save_predictions`, `target_precisions`, `nms_criterion` and `nms_distance_exponent`, None in the main block, would be skipped the same way when set, the task having no predictions file (`evaluation.save_predictions`), no class thresholds (`evaluation.target_precision`) and no `Detector` section.
+The same script for every task (see `classification_workflow.md`, Stage 5). The keypoint configurations have no `evaluation.error_dumps` section, so `--maximum_error_images_per_class_pair` is skipped with a yellow warning unless it is `None`: the keypoint evaluation saves no error image. `--save_predictions`, `--target_precisions`, `--nms_criterion` and `--nms_distance_exponent`, not given by default, would be skipped the same way when given, the task having no predictions file (`evaluation.save_predictions`), no class thresholds (`evaluation.target_precision`) and no `Detector` section.
 
 ### Step 5.2 — trainer construction
 The trainer is built from the `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it rather than those of the mapping file (`classification_workflow.md`, Step 5.2).
