@@ -36,8 +36,12 @@ HALF_PRECISION_MODULE_TYPES = (nn.Conv1d, nn.Conv2d, nn.Conv3d, nn.ConvTranspose
 # Recurrent layers of the FP16 TorchScript export, kept FP32 and run without autocast (FullPrecisionRecurrentLayer)
 RECURRENT_MODULE_TYPES = (nn.LSTM, nn.GRU, nn.RNN)
 
-# Inputs of the comparison model, the only inference model of two inputs (TASK_INPUT_NAMES of export_specifications.py)
+# Inputs of the comparison model (TASK_INPUT_NAMES of export_specifications.py)
 PAIR_INPUT_NAMES = ["before_images", "after_images"]
+
+# Inputs of the detectors and instance segmenters, the images and the window of every image (TASK_INPUT_NAMES of
+# export_specifications.py)
+WINDOWED_IMAGE_INPUT_NAMES = ["images", "image_windows"]
 
 
 def cast_to_full_precision(value: Any) -> Any:
@@ -151,6 +155,39 @@ class HalfPrecisionImageModel(nn.Module):
         return restore_full_precision_outputs(outputs=outputs)
 
 
+class HalfPrecisionWindowedImageModel(nn.Module):
+    """
+    FP16 TorchScript version of the inference detector or instance segmenter, the counterpart of HalfPrecisionImageModel
+    for their two inputs, its forward arguments keeping the names of the images and of their windows. The windows stay
+    FP32 and the boxes are clipped to them in the type of the boxes.
+    """
+
+    def __init__(self, inference_model: nn.Module) -> None:
+        """
+        Wraps the inference detector whose weights convert_to_half_precision converted.
+
+        Args:
+            inference_model (nn.Module): The inference detector, its HALF_PRECISION_MODULE_TYPES modules in FP16.
+        """
+        super(HalfPrecisionWindowedImageModel, self).__init__()
+        self.inference_model = inference_model
+
+    def forward(self, images: torch.Tensor, image_windows: torch.Tensor) -> Tuple[torch.Tensor, ...]:
+        """
+        Runs the inference detector in mixed precision on FP32 images and their FP32 windows.
+
+        Args:
+            images (torch.Tensor): The FP32 [B, 3, H, W] images.
+            image_windows (torch.Tensor): The FP32 [B, 4] window of every image in the network input.
+
+        Returns:
+            Tuple[torch.Tensor, ...]: The outputs of the inference detector, floating ones in FP32.
+        """
+        with torch.autocast(device_type="cuda", dtype=torch.float16, cache_enabled=False):
+            outputs = self.inference_model(images=images, image_windows=image_windows)
+        return restore_full_precision_outputs(outputs=outputs)
+
+
 class HalfPrecisionPairModel(nn.Module):
     """
     FP16 TorchScript version of the inference model of the sequence comparison, the two-input counterpart of
@@ -220,7 +257,11 @@ def convert_to_half_precision(inference_model: nn.Module, input_names: List[str]
     for parent, child_name, child in recurrent_children:
         child.flatten_parameters()
         setattr(parent, child_name, FullPrecisionRecurrentLayer(recurrent_layer=child))
-    wrapper_class = HalfPrecisionPairModel if input_names == PAIR_INPUT_NAMES else HalfPrecisionImageModel
+    # Wrapper keeping the forward arguments of the task: the two members of the comparison, the images and their
+    # windows of the detectors, or the images
+    wrapper_classes = {tuple(PAIR_INPUT_NAMES): HalfPrecisionPairModel,
+                       tuple(WINDOWED_IMAGE_INPUT_NAMES): HalfPrecisionWindowedImageModel}
+    wrapper_class = wrapper_classes.get(tuple(input_names), HalfPrecisionImageModel)
     return wrapper_class(inference_model=half_precision_model).eval()
 
 

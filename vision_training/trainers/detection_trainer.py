@@ -560,8 +560,8 @@ class DetectionTrainer(CocoSplitTrainer):
 
     def prepare_batch(self, batch: Dict[str, Any]) -> DetectionBatch:
         """
-        Moves the images and the per-image ground truth boxes and labels of a detection batch to the device, in the
-        precision of the model (labels as int64 class indices).
+        Moves the images, the per-image ground truth boxes and labels and the window of every image of a detection batch
+        to the device, in the precision of the model (labels as int64 class indices).
 
         Args:
             batch (Dict[str, Any]): The batch dictionary yielded by a COCO loader.
@@ -573,7 +573,8 @@ class DetectionTrainer(CocoSplitTrainer):
                 "bounding_boxes": [box_tensor.to(device=self.device, dtype=self.dtype)
                                    for box_tensor in batch["bounding_boxes"]],
                 "labels": [label_tensor.to(device=self.device, dtype=torch.int64) for label_tensor in batch["labels"]],
-                "sample_identifiers": batch["sample_identifiers"]}
+                "sample_identifiers": batch["sample_identifiers"],
+                "image_windows": batch["image_windows"].to(device=self.device, dtype=torch.float32)}
 
     def augment_batch(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -595,7 +596,7 @@ class DetectionTrainer(CocoSplitTrainer):
     def forward_pass(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
         Runs the detector with the ground truth of the batch, so that it samples its training targets and returns its
-        four losses.
+        four losses, with the windows of the images, to which the detections of the validation are clipped.
 
         Args:
             batch (Dict[str, Any]): The prepared batch.
@@ -603,8 +604,8 @@ class DetectionTrainer(CocoSplitTrainer):
         Returns:
             Dict[str, Any]: The detector outputs, with its four losses.
         """
-        return self.model(input_tensor=batch["images"], ground_truth_bounding_boxes=batch["bounding_boxes"],
-                          ground_truth_labels=batch["labels"])
+        return self.model(input_tensor=batch["images"], image_windows=batch["image_windows"],
+                          ground_truth_bounding_boxes=batch["bounding_boxes"], ground_truth_labels=batch["labels"])
 
     @contextmanager
     def evaluation_context(self) -> Iterator[None]:
@@ -626,7 +627,8 @@ class DetectionTrainer(CocoSplitTrainer):
     def predict_batch(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
         Runs the detector without ground truth, as in deployment: given ground truth, the detector would only classify
-        the proposals sampled around it for training, which would inflate the mAP.
+        the proposals sampled around it for training, which would inflate the mAP. The detections are clipped to the
+        window of their image, as the exported detector clips them.
 
         Args:
             batch (Dict[str, Any]): The prepared test batch.
@@ -634,25 +636,37 @@ class DetectionTrainer(CocoSplitTrainer):
         Returns:
             Dict[str, Any]: The detector outputs, with the final detections of every image.
         """
-        return self.model(input_tensor=batch["images"])
+        return self.model(input_tensor=batch["images"], image_windows=batch["image_windows"])
+
+    def build_inference_inputs(self, batch: Dict[str, Any]) -> Dict[str, torch.Tensor]:
+        """
+        Gives the inputs of the inference detector (and instance segmenter) from a prepared batch for the speed
+        benchmark: the float32 BGR images in [0, 255] and the window of every image in the network input, the two
+        inputs of the exports (TASK_INPUT_NAMES).
+
+        Args:
+            batch (Dict[str, Any]): The prepared batch.
+
+        Returns:
+            Dict[str, torch.Tensor]: The 'images' and the [B, 4] float32 'image_windows'.
+        """
+        return {"images": batch["images"], "image_windows": batch["image_windows"]}
 
     def create_evaluation_accumulator(self, iteration: int) -> Dict[str, Any]:
         """
-        Creates the lists of detections and ground truths filled during the evaluation of the test split, with the
-        confusion matrix of the detections the deployed detector returns, the folder and the counts of the error
-        images, and the overlaps of the objects with the proposals for the proposal recall.
+        Creates the lists of detections and ground truths filled during the evaluation of the test split, from which
+        the confusion matrix of the deployed detector is built once the class thresholds are found, the folder and the
+        counts of the error images, and the overlaps of the objects with the proposals for the proposal recall.
 
         Args:
             iteration (int): The training iteration of the evaluated checkpoint, which names its evaluation folder.
 
         Returns:
-            Dict[str, Any]: The empty 'detections' and 'ground_truths' lists, the [K, K] zero 'confusion_matrix'
-                (background included), the 'errors_folder' of the error images and their empty 'error_counts' per
-                folder, and the empty 'proposal_recall' accumulator of the detection levels.
+            Dict[str, Any]: The empty 'detections' and 'ground_truths' lists, the 'errors_folder' of the error images
+                and their empty 'error_counts' per folder, and the empty 'proposal_recall' accumulator of the detection
+                levels.
         """
-        number_classes = len(self.class_names)
         return {"detections": [], "ground_truths": [],
-                "confusion_matrix": torch.zeros(size=(number_classes, number_classes), dtype=torch.int64),
                 "errors_folder": self.get_evaluation_folder(iteration=iteration) / "Errors", "error_counts": {},
                 "proposal_recall": create_proposal_recall_accumulator(levels=list(self.model.get_level_anchors()),
                                                                        image_side=self.input_image_size)}
@@ -662,14 +676,14 @@ class DetectionTrainer(CocoSplitTrainer):
         """
         Keeps the valid detections and the ground truth of every kept image of a test batch on the CPU, both expressed
         in network input pixels (in original image pixels for the instance segmentation evaluated at the original
-        resolution), adds the overlaps of its objects with the proposals to the proposal recall, matches the
-        detections the deployed detector returns (score reaching 'Detector.inference.score_threshold') to the objects
-        of the image at an overlap of 0.5 for the confusion matrix, and saves the errors of the image as images when the
-        error images are on, while the image is still in the batch.
+        resolution), adds the overlaps of its objects with the proposals to the proposal recall, and, when the error
+        images are on, matches the detections reaching 'Detector.inference.score_threshold' to the objects of the
+        image at an overlap of 0.5 and saves the errors of the image as images, while the image is still in the batch.
+        The error images keep that threshold for every class, the class thresholds of the confusion matrix being found
+        once the whole split is evaluated (save_error_analysis).
 
         Args:
-            accumulator (Dict[str, Any]): The evaluation accumulator, its lists extended and its confusion matrix
-                filled in place.
+            accumulator (Dict[str, Any]): The evaluation accumulator, its lists extended in place.
             batch (Dict[str, Any]): The prepared test batch.
             predictions (Dict[str, Any]): The detector outputs, with the filtered proposals of every image.
             sample_indices (List[int]): The indices of the images to keep.
@@ -687,26 +701,76 @@ class DetectionTrainer(CocoSplitTrainer):
                                        valid_proposal_mask=predictions["valid_proposal_mask"][image_index],
                                        ground_truth_boxes=batch["bounding_boxes"][image_index])
 
-            # Detections of the deployed detector matched to the objects of the image, counted in the confusion matrix
-            kept_detections = detection["scores"] >= self.deployment_score_threshold
-            detection_scores = detection["scores"][kept_detections]
-            detection_labels = detection["labels"][kept_detections]
-            overlaps = compute_overlap_matrix(detection=detection, ground_truth=ground_truth,
-                                              overlap_type=self.MATCHING_OVERLAP_TYPE)[kept_detections]
-            matched_ground_truth_indices = match_image_detections(
-                overlaps=overlaps, detection_scores=detection_scores, detection_labels=detection_labels,
-                ground_truth_labels=ground_truth["labels"],
-                intersection_over_union_threshold=MATCHING_INTERSECTION_OVER_UNION_THRESHOLD)
-            add_to_confusion_matrix(confusion_matrix=accumulator["confusion_matrix"],
-                                    matched_ground_truth_indices=matched_ground_truth_indices,
-                                    detection_labels=detection_labels, ground_truth_labels=ground_truth["labels"])
-
-            # Errors of the image saved as images while the image is still in the batch
+            # Errors of the detections reaching the configured threshold saved as images while the image is still in
+            # the batch
             if self.error_dumps_configuration["activated"]:
+                kept_detections = detection["scores"] >= self.deployment_score_threshold
+                detection_scores = detection["scores"][kept_detections]
+                detection_labels = detection["labels"][kept_detections]
+                matched_ground_truth_indices = self.match_kept_detections(
+                    detection=detection, ground_truth=ground_truth, kept_detections=kept_detections)
                 self.dump_errors(accumulator=accumulator, batch=batch, predictions=predictions, image_index=image_index,
                                  matched_ground_truth_indices=matched_ground_truth_indices,
                                  detection_scores=detection_scores, detection_labels=detection_labels,
                                  ground_truth_labels=ground_truth["labels"])
+
+    def match_kept_detections(self, detection: Dict[str, torch.Tensor], ground_truth: Dict[str, torch.Tensor],
+                              kept_detections: torch.Tensor) -> torch.Tensor:
+        """
+        Matches the kept detections of one test image to its objects at an overlap of 0.5 (boxes, or masks for the
+        instance segmentation), for the confusion matrix and the error images.
+
+        Args:
+            detection (Dict[str, torch.Tensor]): The detections of the image (gather_image_detections).
+            ground_truth (Dict[str, torch.Tensor]): The objects of the image (gather_image_ground_truth).
+            kept_detections (torch.Tensor): The [D] flags of the kept detections.
+
+        Returns:
+            torch.Tensor: The object found by every kept detection, -1 for none (match_image_detections).
+        """
+        overlaps = compute_overlap_matrix(detection=detection, ground_truth=ground_truth,
+                                          overlap_type=self.MATCHING_OVERLAP_TYPE)[kept_detections]
+        return match_image_detections(overlaps=overlaps, detection_scores=detection["scores"][kept_detections],
+                                      detection_labels=detection["labels"][kept_detections],
+                                      ground_truth_labels=ground_truth["labels"],
+                                      intersection_over_union_threshold=MATCHING_INTERSECTION_OVER_UNION_THRESHOLD)
+
+    def build_deployed_confusion_matrix(self, accumulator: Dict[str, Any],
+                                        class_score_thresholds: Dict[int, Optional[Tuple[float, float]]]
+                                        ) -> torch.Tensor:
+        """
+        Builds the confusion matrix of the detector deployed with the class thresholds of the evaluation, once they are
+        found, from the detections kept for the evaluation: every detection whose score reaches the threshold of its
+        class ('class_thresholds.json', the threshold the export builds into the model,
+        deployment/detection_deployment.py), or 'Detector.inference.score_threshold' for a class that never reaches the
+        target precision, matched to the objects of its image at an overlap of 0.5.
+
+        Args:
+            accumulator (Dict[str, Any]): The evaluation accumulator, with the 'detections' and 'ground_truths' of every
+                test image.
+            class_score_thresholds (Dict[int, Optional[Tuple[float, float]]]): The threshold and recall of every
+                foreground class, or None.
+
+        Returns:
+            torch.Tensor: The [K, K] int64 confusion matrix, background included.
+        """
+        number_classes = len(self.class_names)
+        score_thresholds = torch.full(size=(number_classes,), fill_value=float(self.deployment_score_threshold))
+        for class_index, class_threshold in class_score_thresholds.items():
+            if class_threshold is not None:
+                score_thresholds[class_index] = class_threshold[0]
+
+        # Kept detections of every image matched to its objects, the background threshold being unused
+        confusion_matrix = torch.zeros(size=(number_classes, number_classes), dtype=torch.int64)
+        for detection, ground_truth in zip(accumulator["detections"], accumulator["ground_truths"]):
+            kept_detections = detection["scores"] >= score_thresholds[detection["labels"]]
+            matched_ground_truth_indices = self.match_kept_detections(detection=detection, ground_truth=ground_truth,
+                                                                      kept_detections=kept_detections)
+            add_to_confusion_matrix(confusion_matrix=confusion_matrix,
+                                    matched_ground_truth_indices=matched_ground_truth_indices,
+                                    detection_labels=detection["labels"][kept_detections],
+                                    ground_truth_labels=ground_truth["labels"])
+        return confusion_matrix
 
     def gather_image_detections(self, batch: Dict[str, Any], predictions: Dict[str, Any],
                                 image_index: int) -> Dict[str, torch.Tensor]:
@@ -869,11 +933,12 @@ class DetectionTrainer(CocoSplitTrainer):
         """
         Saves the outputs of the evaluation of a checkpoint telling where the detector fails, in its evaluation folder,
         '<run>/[Checkpoint_]Evaluation/Iteration_<n>/', for compute_evaluation_results: the score threshold of every
-        class reaching the target precision in class_thresholds.json (the format of the classification tasks, for the
-        deployment), and the confusion matrix of the detections the deployed detector returns in confusion_matrix.csv,
-        both whatever the per-class report, the confusion matrix image only with it, its shares written as percentages,
-        also logged to TensorBoard. The report gets a note counting the outcomes of the detections and, when the error
-        images are on, a note counting them with their folder.
+        class reaching the target precision in class_thresholds.json (the format of the classification tasks, read by
+        the export, deployment/detection_deployment.py), and the confusion matrix of the detections the detector
+        exported with these thresholds returns (build_deployed_confusion_matrix) in confusion_matrix.csv, both whatever
+        the per-class report, the confusion matrix image only with it, its shares written as percentages, also logged
+        to TensorBoard. The report gets a note counting the outcomes of the detections and, when the error images are
+        on, a note counting them with their folder, the error images keeping 'Detector.inference.score_threshold'.
 
         Args:
             accumulator (Dict[str, Any]): The evaluation accumulator, with the confusion matrix and the error images.
@@ -898,21 +963,28 @@ class DetectionTrainer(CocoSplitTrainer):
                         for class_index, class_threshold in class_score_thresholds.items()}}, indent=4))
         files["Class Thresholds"] = thresholds_path
 
-        # Confusion matrix with its background row and column, the image only with the per-class report
-        confusion_matrix = accumulator["confusion_matrix"]
+        # Confusion matrix of the detector deployed with the class thresholds, with its background row and column, the
+        # image only with the per-class report
+        confusion_matrix = self.build_deployed_confusion_matrix(
+            accumulator=accumulator, class_score_thresholds=class_score_thresholds)
+        number_class_thresholds = sum(class_threshold is not None
+                                      for class_threshold in class_score_thresholds.values())
+        threshold_text = (f"Score >= {self.deployment_score_threshold:.2f}" if number_class_thresholds == 0 else
+                          f"Score >= Class Thresholds ({number_class_thresholds} Of {len(class_score_thresholds)}), "
+                          f"{self.deployment_score_threshold:.2f} Otherwise")
         class_names = [self.class_names[class_index] for class_index in range(len(self.class_names))]
         files["Confusion Matrix Table"] = save_confusion_matrix_table(
             confusion_matrix=confusion_matrix, class_names=class_names, output_folder=evaluation_folder)
         if self.per_class_report:
             files["Confusion Matrix Image"], images["Confusion Matrix"] = save_confusion_matrix_image(
                 confusion_matrix=confusion_matrix, class_names=class_names, output_folder=evaluation_folder,
-                title=f"Confusion Matrix · Iteration {iteration} · Score >= {self.deployment_score_threshold:.2f} · "
+                title=f"Confusion Matrix · Iteration {iteration} · {threshold_text} · "
                       f"IoU >= {MATCHING_INTERSECTION_OVER_UNION_THRESHOLD:g}", background_index=BACKGROUND_CLASS_INDEX,
                 in_percent=True)
 
         # Outcomes of the detections of the deployed detector
         outcomes = summarise_confusion_matrix(confusion_matrix=confusion_matrix)
-        notes.append(f"Confusion Matrix : score >= {self.deployment_score_threshold:.2f}, IoU >= "
+        notes.append(f"Confusion Matrix : {threshold_text.lower()}, IoU >= "
                      f"{MATCHING_INTERSECTION_OVER_UNION_THRESHOLD:g} ({self.MATCHING_OVERLAP_TYPE}), "
                      f"{outcomes['right']} right, {outcomes['wrong_class']} wrong class, {outcomes['false_positives']} "
                      f"false positives, {outcomes['missed']} missed")
@@ -921,7 +993,8 @@ class DetectionTrainer(CocoSplitTrainer):
         if self.error_dumps_configuration["activated"]:
             error_counts = accumulator["error_counts"]
             notes.append(f"Error Images : {sum(error_counts.values())} in {len(error_counts)} folders, at most "
-                         f"{self.error_dumps_configuration['maximum_per_class_pair']} per folder")
+                         f"{self.error_dumps_configuration['maximum_per_class_pair']} per folder, score >= "
+                         f"{self.deployment_score_threshold:.2f} for every class")
             if error_counts:
                 files["Error Images"] = accumulator["errors_folder"]
         return {"files": files, "images": images, "notes": notes}

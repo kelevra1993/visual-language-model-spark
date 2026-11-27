@@ -161,12 +161,15 @@ class SegmentationBatch(TypedDict):
 
 class DetectionBatch(TypedDict):
     """
-    Batch of the object detection task, on the device and in the precision of the model.
+    Batch of the object detection task, on the device and in the precision of the model, with the [B, 4] window of
+    every image in the network input ('image_windows', data/preprocessing.py:compute_image_window), to which the
+    detector clips its detections in evaluation mode.
     """
     images: torch.Tensor
     bounding_boxes: List[torch.Tensor]
     labels: List[torch.Tensor]
     sample_identifiers: torch.Tensor
+    image_windows: torch.Tensor
 
 
 class InstanceSegmentationBatch(DetectionBatch):

@@ -14,7 +14,7 @@ import torch
 from typing import Any, Dict, List, Optional
 
 from tests.models.detection.test_detector_baseline import get_fixed_batch
-from tests.testing_utilities import build_test_model
+from tests.testing_utilities import build_test_model, build_whole_input_windows
 from vision_training.losses.instance_segmentation_losses import compute_mask_loss
 from vision_training.models.instance_segmentation.inference_instance_segmenter import InferenceInstanceSegmenter
 from vision_training.models.instance_segmentation.mask_operations import build_mask_targets
@@ -110,7 +110,8 @@ def test_instance_segmenter_trains_and_predicts_masks(mask_head_settings: Option
     # Training: the mask loss joins the four losses of the detector and trains the mask heads
     model.train()
     torch.manual_seed(seed=2)
-    outputs = model(input_tensor=images, ground_truth_bounding_boxes=boxes, ground_truth_labels=labels,
+    outputs = model(input_tensor=images, image_windows=build_whole_input_windows(images=images),
+                    ground_truth_bounding_boxes=boxes, ground_truth_labels=labels,
                     ground_truth_masks=masks)
     assert torch.isfinite(input=outputs["mask_loss"]) and float(outputs["mask_loss"].detach()) > 0.0
     outputs["mask_loss"].backward()
@@ -120,7 +121,7 @@ def test_instance_segmenter_trains_and_predicts_masks(mask_head_settings: Option
     # Evaluation: the mask of every final detection, empty for the padding detections
     model.eval()
     with torch.no_grad():
-        outputs = model(input_tensor=images)
+        outputs = model(input_tensor=images, image_windows=build_whole_input_windows(images=images))
     detection_masks = outputs["final_detection_masks"]
     assert detection_masks.shape == (2, model.maximum_detections, model.mask_size, model.mask_size)
     assert float(detection_masks.min()) >= 0.0 and float(detection_masks.max()) <= 1.0
@@ -131,13 +132,15 @@ def test_instance_segmenter_trains_and_predicts_masks(mask_head_settings: Option
 
     # Validation: evaluation mode with ground truth gives both the mask loss and the detection masks
     with torch.no_grad():
-        outputs = model(input_tensor=images, ground_truth_bounding_boxes=boxes, ground_truth_labels=labels,
+        outputs = model(input_tensor=images, image_windows=build_whole_input_windows(images=images),
+                        ground_truth_bounding_boxes=boxes, ground_truth_labels=labels,
                         ground_truth_masks=masks)
     assert torch.isfinite(input=outputs["mask_loss"]) and "final_detection_masks" in outputs
 
     # Ground truth boxes without their masks are refused
     with pytest.raises(ValueError, match="needs the ground truth masks"):
-        model(input_tensor=images, ground_truth_bounding_boxes=boxes, ground_truth_labels=labels)
+        model(input_tensor=images, image_windows=build_whole_input_windows(images=images),
+              ground_truth_bounding_boxes=boxes, ground_truth_labels=labels)
 
 
 @pytest.mark.parametrize(argnames=["mask_head_settings", "neck_type", "nms_criterion"],
@@ -163,8 +166,9 @@ def test_inference_instance_segmenter_matches_the_eager_model(mask_head_settings
     images = torch.rand(size=(2, 3, 512, 512)) * 255.0
 
     with torch.no_grad():
-        eager_outputs = model(input_tensor=images)
-        boxes, scores, labels, numbers, masks = segmenter(images=images)
+        eager_outputs = model(input_tensor=images, image_windows=build_whole_input_windows(images=images))
+        boxes, scores, labels, numbers, masks = segmenter(images=images,
+                                                          image_windows=build_whole_input_windows(images=images))
 
     assert torch.equal(input=numbers, other=eager_outputs["number_detections"])
     assert torch.equal(input=labels, other=eager_outputs["final_detection_labels"])
@@ -221,12 +225,14 @@ def test_inference_instance_segmenter_with_fine_inputs_matches_the_eager_model(m
     # A score threshold at the median score of the first image, so that padding detections sit among the detections
     # whose fine features the eager model leaves out
     with torch.no_grad():
-        model.detection_score_threshold = float(model(input_tensor=images)["final_detection_scores"][0].median())
+        first_outputs = model(input_tensor=images, image_windows=build_whole_input_windows(images=images))
+        model.detection_score_threshold = float(first_outputs["final_detection_scores"][0].median())
     segmenter = InferenceInstanceSegmenter(model=model).eval()
 
     with torch.no_grad():
-        eager_outputs = model(input_tensor=images)
-        boxes, scores, labels, numbers, masks = segmenter(images=images)
+        eager_outputs = model(input_tensor=images, image_windows=build_whole_input_windows(images=images))
+        boxes, scores, labels, numbers, masks = segmenter(images=images,
+                                                          image_windows=build_whole_input_windows(images=images))
 
     assert 0 < int(numbers.min()) < model.maximum_detections
     assert torch.equal(input=numbers, other=eager_outputs["number_detections"])
@@ -255,7 +261,9 @@ def test_mask_loss_gives_every_level_the_fine_features_of_its_proposals() -> Non
     masks = build_box_masks(boxes=boxes, image_size=model.input_image_size)
 
     with torch.no_grad():
-        detection_stages = model.forward_detection_stages(input_tensor=images, ground_truth_bounding_boxes=boxes,
+        detection_stages = model.forward_detection_stages(input_tensor=images,
+                                                          image_windows=build_whole_input_windows(images=images),
+                                                          ground_truth_bounding_boxes=boxes,
                                                           ground_truth_labels=labels)
         feature_maps = detection_stages["backbone_output_tensor_dictionary"]
         skip_feature_maps = detection_stages["backbone_skip_dictionary"]
@@ -310,7 +318,9 @@ def test_shared_mask_head_trains_on_the_positives_of_every_level() -> None:
     masks = build_box_masks(boxes=boxes, image_size=model.input_image_size)
 
     with torch.no_grad():
-        detection_stages = model.forward_detection_stages(input_tensor=images, ground_truth_bounding_boxes=boxes,
+        detection_stages = model.forward_detection_stages(input_tensor=images,
+                                                          image_windows=build_whole_input_windows(images=images),
+                                                          ground_truth_bounding_boxes=boxes,
                                                           ground_truth_labels=labels)
         feature_maps = detection_stages["backbone_output_tensor_dictionary"]
         skip_feature_maps = detection_stages["backbone_skip_dictionary"]
@@ -481,6 +491,7 @@ def test_instance_segmentation_stages_return_the_mask_targets_of_the_loss() -> N
     # No targets without ground truth, the masks of the final detections in evaluation mode
     model.eval()
     with torch.no_grad():
-        evaluation_stages = model.forward_instance_segmentation_stages(input_tensor=images)
+        evaluation_stages = model.forward_instance_segmentation_stages(
+            input_tensor=images, image_windows=build_whole_input_windows(images=images))
     assert evaluation_stages["training_targets"] is None
     assert "final_detection_masks" in evaluation_stages["model_output_dictionary"]

@@ -3,10 +3,11 @@ Image, mask and bounding box preprocessing shared by the data loaders and the de
 deployment/deployment_utilities.py, the input contract of deployment/input_contract.py): the reading of the dataset
 and inference images, naming the files that cannot be read, the resizing to the square network input with
 optional centred padding (bilinear for the images, nearest on the pixel centres for the segmentation masks), the
-matching box transformation, and their inverses restoring predicted boxes and segmentation predictions (class maps or
-probabilities) to the original image, called by the evaluations at the original resolution (the instance segmentation
-trainer for the boxes, the segmentation trainer for the predictions) and left to the clients of the exported models,
-no inference code of the repository calling them.
+matching box transformation, the window of the network input holding the resized image (the second input of the
+exported detectors, which clip their boxes to it), and their inverses restoring predicted boxes and segmentation
+predictions (class maps or probabilities) to the original image, called by the evaluations at the original resolution
+(the instance segmentation trainer for the boxes, the segmentation trainer for the predictions) and left to the clients
+of the exported models, no inference code of the repository calling them.
 """
 
 import cv2
@@ -83,6 +84,34 @@ def compute_letterbox_region(image_height: int, image_width: int, image_size: in
 
     # Symmetric padding around the resized image
     return (image_size - resized_height) // 2, (image_size - resized_width) // 2, resized_height, resized_width
+
+
+def compute_image_window(image_height: int, image_width: int, image_size: int, keep_ratio: bool) -> np.ndarray:
+    """
+    Gives the window of the square network input holding the resized image, the [x1, y1, x2, y2] network pixels of the
+    letterbox region of compute_letterbox_region with keep_ratio, the whole input [0, 0, S, S] for a stretched image.
+    The COCO datasets give it with every image ('image_windows' of the batches) and a client sends it with every image
+    to an exported detector or instance segmenter (its 'image_windows' input), which clip their boxes to it, so that no
+    detection reaches into the padding.
+
+    Args:
+        image_height (int): The height of the original image in pixels.
+        image_width (int): The width of the original image in pixels.
+        image_size (int): The size of the square network input.
+        keep_ratio (bool): Whether the image is resized keeping its aspect ratio and padded to the square input
+            ('Data.image_settings.keep_ratio'), or stretched to it.
+
+    Returns:
+        np.ndarray: The [4] float32 window [left, top, right, bottom] in network input pixels.
+    """
+    # A stretched image fills the whole input
+    if not keep_ratio:
+        return np.array(object=[0.0, 0.0, image_size, image_size], dtype=np.float32)
+
+    # The resized image between the centred padding, placed exactly as preprocess_image places it
+    start_y, start_x, resized_height, resized_width = compute_letterbox_region(
+        image_height=image_height, image_width=image_width, image_size=image_size)
+    return np.array(object=[start_x, start_y, start_x + resized_width, start_y + resized_height], dtype=np.float32)
 
 
 def preprocess_image(image: np.ndarray, image_size: int, keep_ratio: bool = True,
@@ -168,14 +197,15 @@ def preprocess_boxes(bounding_boxes: list[list[float]], image_width: int, image_
 
 
 def restore_boxes_to_original_image(bounding_boxes: np.ndarray, image_width: int, image_height: int,
-                                    image_size: int, keep_ratio: bool, clip: bool = True) -> np.ndarray:
+                                    image_size: int, keep_ratio: bool) -> np.ndarray:
     """
     Maps boxes predicted on the preprocessed network input back to the original image, the exact inverse of
-    'preprocess_boxes'. Called only by the evaluation of the instance segmentation at the original resolution
-    (InstanceSegmentationTrainer.restore_detection_boxes), which pastes the masks of the detections into their
-    unclipped boxes, a mask covering the whole box it was predicted in. No inference code of the repository calls it
-    (deployment/run_inference.py measures the throughput only); a client of an exported detector would, to report the
-    detections in the coordinates of the images it was given.
+    'preprocess_boxes', clipped to the image. Called only by the evaluation of the instance segmentation at the original
+    resolution (InstanceSegmentationTrainer.restore_detection_boxes), which scores these boxes and pastes the masks of
+    the detections into them. The detectors already clip their boxes to the window of the image (compute_image_window),
+    so the clipping here only removes the rounding of the resized sides, at most half a network pixel. No inference code
+    of the repository calls it (deployment/run_inference.py measures the throughput only); a client of an exported
+    detector would, to report the detections in the coordinates of the images it was given.
 
     Args:
         bounding_boxes (np.ndarray): The [N, 4] [x1, y1, x2, y2] boxes in network input pixels.
@@ -183,11 +213,9 @@ def restore_boxes_to_original_image(bounding_boxes: np.ndarray, image_width: int
         image_height (int): The height of the original image.
         image_size (int): The size of the square network input.
         keep_ratio (bool): Whether the image was resized keeping its aspect ratio and padded to a square.
-        clip (bool): Whether to clip the boxes to the original image, a box predicted partly on the padding then
-            stopping at the image border. Defaults to True.
 
     Returns:
-        np.ndarray: The [N, 4] boxes in original image pixels, clipped to the image with clip.
+        np.ndarray: The [N, 4] boxes in original image pixels, clipped to the image.
     """
     restored_boxes = np.array(bounding_boxes, dtype=np.float64).reshape(-1, 4)
 
@@ -203,10 +231,9 @@ def restore_boxes_to_original_image(bounding_boxes: np.ndarray, image_width: int
         restored_boxes[:, 0::2] = restored_boxes[:, 0::2] / (image_size / image_width)
         restored_boxes[:, 1::2] = restored_boxes[:, 1::2] / (image_size / image_height)
 
-    # Boxes predicted partly on the padding are clipped to the original image, unless they are kept whole
-    if clip:
-        restored_boxes[:, 0::2] = restored_boxes[:, 0::2].clip(min=0.0, max=image_width)
-        restored_boxes[:, 1::2] = restored_boxes[:, 1::2].clip(min=0.0, max=image_height)
+    # Boxes clipped to the original image, the window of the detectors overshooting it by the rounding of the resize
+    restored_boxes[:, 0::2] = restored_boxes[:, 0::2].clip(min=0.0, max=image_width)
+    restored_boxes[:, 1::2] = restored_boxes[:, 1::2].clip(min=0.0, max=image_height)
     return restored_boxes
 
 

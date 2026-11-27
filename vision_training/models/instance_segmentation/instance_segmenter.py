@@ -170,16 +170,19 @@ class InstanceSegmenter(TwoStageDetector):
                 device=self.device)
         return mask_heads_dictionary
 
-    def forward(self, input_tensor: torch.Tensor, ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
+    def forward(self, input_tensor: torch.Tensor, image_windows: Optional[torch.Tensor] = None,
+                ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
                 ground_truth_labels: Optional[List[torch.Tensor]] = None,
                 ground_truth_masks: Optional[List[torch.Tensor]] = None) -> Dict[str, Any]:
         """
         Runs the two-stage detector, then the mask heads: on the positive sampled proposals with ground truth, giving
-        the mask loss, and in evaluation mode on the final detections, giving their masks. Its stages are run by
-        forward_instance_segmentation_stages.
+        the mask loss, and in evaluation mode on the final detections, clipped to the window of their image, giving
+        their masks. Its stages are run by forward_instance_segmentation_stages.
 
         Args:
             input_tensor (torch.Tensor): The [B, 3, H, W] input images.
+            image_windows (Optional[torch.Tensor]): The [B, 4] [x1, y1, x2, y2] window of every image in the network
+                input (data/preprocessing.py:compute_image_window), needed in evaluation mode only.
             ground_truth_bounding_boxes (Optional[List[torch.Tensor]]): The [N_i, 4] ground truth boxes of every image.
             ground_truth_labels (Optional[List[torch.Tensor]]): The [N_i] ground truth labels of every image.
             ground_truth_masks (Optional[List[torch.Tensor]]): The [N_i, H, W] binary ground truth masks of every image,
@@ -189,12 +192,18 @@ class InstanceSegmenter(TwoStageDetector):
             Dict[str, Any]: The output dictionary of the two-stage detector, with the 'mask_loss' when the ground truth
                 is given, and in evaluation mode the 'final_detection_masks' [B, K, M, M], the mask probabilities of
                 the detected class of every final detection (0 for the padding detections).
+
+        Raises:
+            ValueError: If ground truth boxes are given without their masks, or the image windows are missing in
+                evaluation mode (forward_detection_stages).
         """
         return self.forward_instance_segmentation_stages(
-            input_tensor=input_tensor, ground_truth_bounding_boxes=ground_truth_bounding_boxes,
-            ground_truth_labels=ground_truth_labels, ground_truth_masks=ground_truth_masks)["model_output_dictionary"]
+            input_tensor=input_tensor, image_windows=image_windows,
+            ground_truth_bounding_boxes=ground_truth_bounding_boxes, ground_truth_labels=ground_truth_labels,
+            ground_truth_masks=ground_truth_masks)["model_output_dictionary"]
 
     def forward_instance_segmentation_stages(self, input_tensor: torch.Tensor,
+                                             image_windows: Optional[torch.Tensor] = None,
                                              ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
                                              ground_truth_labels: Optional[List[torch.Tensor]] = None,
                                              ground_truth_masks: Optional[List[torch.Tensor]] = None
@@ -207,6 +216,8 @@ class InstanceSegmenter(TwoStageDetector):
 
         Args:
             input_tensor (torch.Tensor): The [B, 3, H, W] input images.
+            image_windows (Optional[torch.Tensor]): The [B, 4] [x1, y1, x2, y2] window of every image in the network
+                input (data/preprocessing.py:compute_image_window), needed in evaluation mode only.
             ground_truth_bounding_boxes (Optional[List[torch.Tensor]]): The [N_i, 4] ground truth boxes of every image.
             ground_truth_labels (Optional[List[torch.Tensor]]): The [N_i] ground truth labels of every image.
             ground_truth_masks (Optional[List[torch.Tensor]]): The [N_i, H, W] binary ground truth masks of every image,
@@ -220,14 +231,15 @@ class InstanceSegmenter(TwoStageDetector):
                 'mask_logits').
 
         Raises:
-            ValueError: If ground truth boxes are given without their masks.
+            ValueError: If ground truth boxes are given without their masks, or the image windows are missing in
+                evaluation mode (forward_detection_stages).
         """
         if ground_truth_bounding_boxes is not None and ground_truth_masks is None:
             raise ValueError("The instance segmenter needs the ground truth masks with the ground truth boxes.")
 
         # Every stage of the two-stage detector, keeping the feature maps, the skip outputs of the backbone and the
         # sampled proposals
-        detection_stages = self.forward_detection_stages(input_tensor=input_tensor,
+        detection_stages = self.forward_detection_stages(input_tensor=input_tensor, image_windows=image_windows,
                                                          ground_truth_bounding_boxes=ground_truth_bounding_boxes,
                                                          ground_truth_labels=ground_truth_labels)
         feature_maps = detection_stages["backbone_output_tensor_dictionary"]

@@ -33,7 +33,8 @@ from tutorials.figures.figure_utilities import (SERIES_COLOURS, SNAPSHOT_OBJECT_
                                                 read_reused_facts, read_run_configuration,
                                                 restore_committed_figures, round_fact, write_reused_facts)
 from tutorials.figures.object_detection.detection_sources import (CHECKPOINT_ITERATION, SAMPLE_IMAGE_NAME,
-                                                                  SAMPLE_ITERATIONS, describe_class_name,
+                                                                  SAMPLE_ITERATIONS, compute_network_image_window,
+                                                                  describe_class_name,
                                                                   find_test_folder, hexadecimal_to_rgb, load_run_model,
                                                                   load_untrained_run_model, read_category_names,
                                                                   read_image_annotations, read_network_image,
@@ -656,7 +657,9 @@ def count_first_sample_detections(run_folder: Path, test_folder: Path) -> Dict[s
     for sample_name in sample_names:
         _, input_tensor = read_network_image(test_folder=test_folder, image_name=sample_name)
         with torch.no_grad():
-            detection_counts[sample_name] = int(model(input_tensor=input_tensor)["number_detections"][0])
+            outputs = model(input_tensor=input_tensor,
+                            image_windows=compute_network_image_window(input_tensor=input_tensor))
+            detection_counts[sample_name] = int(outputs["number_detections"][0])
     return {"samples.first_image_count": len(sample_names),
             "samples.first_empty_count": sum(count == 0 for count in detection_counts.values()),
             "samples.first_detection_count": detection_counts[SAMPLE_IMAGE_NAME]}
@@ -732,7 +735,8 @@ def make_mask_figures(output_folder: Path, run_folder: Path, force: bool) -> Dic
     image = read_rgb_image(test_folder=test_folder, image_name=SAMPLE_IMAGE_NAME)
     _, input_tensor = read_network_image(test_folder=test_folder, image_name=SAMPLE_IMAGE_NAME)
     with torch.no_grad():
-        outputs = model(input_tensor=input_tensor)
+        outputs = model(input_tensor=input_tensor,
+                        image_windows=compute_network_image_window(input_tensor=input_tensor))
 
     # Target of a real proposal, the predicted masks and their pasting
     inference_facts = make_target_figure(object_masks=object_masks, object_boxes=object_boxes,

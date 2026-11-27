@@ -79,6 +79,21 @@ class StandInTrainer:
         self.grouped_predictions.append(predictions)
         return {**predictions, "grouped_objects": []}
 
+    def build_inference_inputs(self, batch: Dict[str, Any]) -> Dict[str, torch.Tensor]:
+        """
+        Gives the inputs of the inference model like the trainers: the images, with the window of every image for the
+        detectors (DetectionTrainer.build_inference_inputs).
+
+        Args:
+            batch (Dict[str, Any]): The test batch.
+
+        Returns:
+            Dict[str, torch.Tensor]: The 'images', and the 'image_windows' of the detectors.
+        """
+        if self.TASK_NAME in ["object_detection", "instance_segmentation"]:
+            return {"images": batch["images"], "image_windows": batch["image_windows"]}
+        return {"images": batch["images"]}
+
 
 def run_fake_classifier(inputs: Dict[str, np.ndarray]) -> List[np.ndarray]:
     """
@@ -393,6 +408,44 @@ def test_images_are_sent_in_requests_of_the_largest_exported_batch() -> None:
     assert probabilities[:, 1].tolist() == [2.0, 2.0, 2.0, 2.0, 1.0]
 
 
+def run_window_detector(inputs: Dict[str, np.ndarray], requests: List[Dict[str, np.ndarray]]) -> List[np.ndarray]:
+    """
+    Stands for an exported detector recording its requests: one detection per image, whose box is the window of the
+    image, so that the windows can be followed from the batch to the predictions.
+
+    Args:
+        inputs (Dict[str, np.ndarray]): The 'images' and 'image_windows' of the request.
+        requests (List[Dict[str, np.ndarray]]): The list receiving every request.
+
+    Returns:
+        List[np.ndarray]: The boxes, scores, labels and numbers of detections of the request.
+    """
+    requests.append(inputs)
+    number_images = inputs["images"].shape[0]
+    return [inputs["image_windows"][:, None, :], np.ones(shape=(number_images, 1), dtype=np.float32),
+            np.ones(shape=(number_images, 1), dtype=np.int64), np.ones(shape=(number_images, 1), dtype=np.int64)]
+
+
+def test_detector_requests_carry_the_window_of_every_image() -> None:
+    """
+    A detection test batch of 3 images reaches a detector taking at most 2 images per request in requests of 2 and 1
+    images, every request holding the windows of its own images, and the detections come back in the order of the
+    batch.
+    """
+    images = torch.arange(3, dtype=torch.float32).reshape(3, 1, 1, 1).expand(3, 3, 2, 2).contiguous()
+    image_windows = torch.tensor(data=[[0.0, 1.0, 4.0, 3.0], [1.0, 0.0, 3.0, 4.0], [0.0, 0.0, 4.0, 4.0]])
+    requests = []
+    predictions = predict_exported_batch(
+        batch={"images": images, "image_windows": image_windows, "sample_identifiers": torch.arange(3)},
+        trainer=StandInTrainer(task_name="object_detection"),
+        run_model=functools.partial(run_window_detector, requests=requests),
+        output_names=["detection_boxes", "detection_scores", "detection_labels", "number_detections"],
+        maximum_request_size=2, comparison=None)
+    assert [request["image_windows"].tolist() for request in requests] == [image_windows[:2].tolist(),
+                                                                           image_windows[2:].tolist()]
+    assert predictions["final_detection_boxes"][:, 0].tolist() == image_windows.tolist()
+
+
 def test_sequences_are_sent_alone_without_their_padding() -> None:
     """
     Every sequence of a padded batch is sent alone with its real frames only: the frame probabilities of the padding
@@ -516,7 +569,8 @@ def test_served_requests_are_compared_with_the_eager_model_sample_by_sample() ->
                                                          "comparison_tolerances": {"box_tolerance": 1e-2,
                                                                                    "score_tolerance": 1e-4}},
                                           name_sample=name_test_sample)
-    predict_exported_batch(batch={"images": images, "sample_identifiers": torch.tensor([20, 21, 22])},
+    predict_exported_batch(batch={"images": images, "image_windows": torch.tensor(data=[[0.0, 0.0, 2.0, 2.0]] * 3),
+                                  "sample_identifiers": torch.tensor([20, 21, 22])},
                            trainer=StandInTrainer(task_name="object_detection"), run_model=run_fake_detector_swapped,
                            output_names=["detection_boxes", "detection_scores", "detection_labels",
                                          "number_detections"], maximum_request_size=2, comparison=comparison)

@@ -63,10 +63,11 @@ def build_expected_contract(changed_values: Dict[str, str]) -> Dict[str, str]:
     Returns:
         Dict[str, str]: The expected contract, in the key order of INPUT_CONTRACT_KEYS.
     """
-    stretched_contract = {"input_contract_version": "2", "input_color_order": "BGR", "input_resize": "stretch",
+    stretched_contract = {"input_contract_version": "3", "input_color_order": "BGR", "input_resize": "stretch",
                           "input_size": "32", "input_interpolation": "linear", "input_padding_value": "0",
                           "input_padding_placement": "centred", "input_tile_scale": "none",
-                          "input_tile_overlap": "none", "input_layout": "NCHW", "input_value_range": "0-255"}
+                          "input_tile_overlap": "none", "input_layout": "NCHW", "input_value_range": "0-255",
+                          "input_image_windows": "none"}
     return stretched_contract | changed_values
 
 
@@ -331,6 +332,23 @@ def compute_top_left_letterbox_region(image_height: int, image_width: int,
     return 0, 0, resized_height, resized_width
 
 
+def compute_whole_input_window(image_height: int, image_width: int, image_size: int, keep_ratio: bool) -> np.ndarray:
+    """
+    Stand-in for a compute_image_window giving the whole input as the window of a letterboxed photo, which the input
+    contract cannot describe.
+
+    Args:
+        image_height (int): The height of the photo in pixels.
+        image_width (int): The width of the photo in pixels.
+        image_size (int): The side of the square network input.
+        keep_ratio (bool): Whether the photo is letterboxed, ignored.
+
+    Returns:
+        np.ndarray: The [4] float32 window of the whole input.
+    """
+    return np.array(object=[0.0, 0.0, image_size, image_size], dtype=np.float32)
+
+
 class CubicScalingDataset:
     """
     Stand-in for a SegmentationDataset scaling the photos of its tiles with the bicubic interpolation, which the input
@@ -505,6 +523,8 @@ def test_export_of_an_input_the_contract_cannot_describe_writes_nothing(tmp_path
 @pytest.mark.parametrize(argnames=("task", "keep_ratio", "tiling_configuration", "changed_values"), argvalues=[
     ("semantic_segmentation", False, {"activated": False, "scale": 0.5, "overlap": 8}, {}),
     ("sequence_comparison", True, None, {"input_resize": "keep_ratio", "input_layout": "NTCHW"}),
+    ("object_detection", True, None, {"input_resize": "keep_ratio", "input_image_windows": "resized_photo"}),
+    ("instance_segmentation", False, None, {"input_image_windows": "resized_photo"}),
     ("semantic_segmentation", False, {"activated": True, "scale": 0.25, "overlap": 8},
      {"input_resize": "tiles", "input_interpolation": "area", "input_padding_placement": "bottom_right",
       "input_tile_scale": "0.25", "input_tile_overlap": "8"}),
@@ -519,8 +539,10 @@ def test_contract_follows_the_image_settings_the_tiling_and_the_inputs_of_the_ta
         changed_values: Dict[str, str]) -> None:
     """
     Verifies the contract of a stretched segmenter trained on whole images, of a comparison model keeping the aspect
-    ratio, whose two inputs are sequences of frames (NTCHW), and of segmenters trained on tiles of their photos
-    shrunk (area), kept (no resize) and enlarged (linear), every key written in the order of INPUT_CONTRACT_KEYS.
+    ratio, whose two inputs are sequences of frames (NTCHW), of a letterboxed detector and a stretched instance
+    segmenter, whose second input is the window of every image (NCHW images), and of segmenters trained on tiles of
+    their photos shrunk (area), kept (no resize) and enlarged (linear), every key written in the order of
+    INPUT_CONTRACT_KEYS.
 
     Args:
         task (str): The task of the run.
@@ -547,6 +569,9 @@ def test_contract_follows_the_image_settings_the_tiling_and_the_inputs_of_the_ta
     ("compute_letterbox_region", compute_top_left_letterbox_region, "classification",
      "input_padding_placement 'region (top, left, height, width) (0, 0, 18, 32) of a 1080 x 1920 photo instead of "
      "(7, 0, 18, 32)', from compute_letterbox_region"),
+    ("compute_image_window", compute_whole_input_window, "object_detection",
+     "input_image_windows 'window [0.0, 0.0, 32.0, 32.0] of a 31 x 32 photo instead of [0, 0, 32, 31]', from the "
+     "'image_windows' input of the export specification, checked on compute_image_window"),
     ("SegmentationDataset", CubicScalingDataset, "semantic_segmentation",
      "input_interpolation 'a scaling matched by no interpolation on the probe photos', from"),
     ("segment_image_by_tiles", segment_image_by_grey_padded_tiles, "semantic_segmentation",
@@ -557,7 +582,8 @@ def test_preprocessing_the_contract_cannot_describe_is_refused(monkeypatch: pyte
                                                                expected_message: str) -> None:
     """
     Verifies that a preprocessing resizing with another interpolation, padding with another value, reading the photos
-    as RGB or placing the resized photo at the top left is refused, and so are a scaling of the tiles with another
+    as RGB or placing the resized photo at the top left is refused, and so are image windows of a detector covering the
+    padding, a scaling of the tiles with another
     interpolation and a padding of the tiles with another value, the error naming the contract key, the value found
     and the setting it comes from.
 
@@ -583,8 +609,8 @@ def test_preprocessing_the_contract_cannot_describe_is_refused(monkeypatch: pyte
                                 "integer)"),
     (None, {"input_tile_scale": "-0.5"}, "input_tile_scale '-0.5', from Data.tiling.scale, is not allowed (allowed: "
                                          "'none' or a positive number)"),
-    (None, {"input_contract_version": "1"}, "input_contract_version '1', from INPUT_CONTRACT_VERSION, is not allowed "
-                                            "(allowed: '2')")])
+    (None, {"input_contract_version": "2"}, "input_contract_version '2', from INPUT_CONTRACT_VERSION, is not allowed "
+                                            "(allowed: '3')")])
 def test_contract_read_back_with_a_wrong_entry_is_refused(removed_key: Optional[str], changed_entries: Dict[str, str],
                                                           expected_message: str) -> None:
     """

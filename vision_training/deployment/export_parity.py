@@ -35,6 +35,7 @@ from vision_training.core.contracts import SAMPLE_IDENTIFIERS_KEY
 from vision_training.core.task_registry import get_trainer_class
 from vision_training.data.manifest_cache import read_manifests_once
 from vision_training.data.sequence.sequence_pair_dataset import split_pair_members
+from vision_training.deployment.detection_deployment import DEPLOYED_THRESHOLDS_FILE_NAME
 from vision_training.deployment.deployment_utilities import (get_triton_output_names, run_local_inference,
                                                              run_triton_inference)
 from vision_training.deployment.triton_configuration import EXPORT_FORMATS
@@ -466,12 +467,13 @@ def predict_exported_batch(batch: Dict[str, Any], trainer: BaseTrainer, run_mode
                            comparison: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """
     Replaces predict_batch of the trainer for one row: the test batch is sent to the model of the row as a deployed
-    client sends it, and its outputs are turned into the predictions of the task (convert_inference_outputs). The
-    images go in requests of at most maximum_request_size images, the frames of every sequence alone and without their
-    padding (a deployed sequence model taking no sequence mask), the frame probabilities of the padding being left at
-    0, the two members of every pair of the comparison alone in the same way, and the tiles of every image of a
-    segmentation run trained on tiles in requests of at most maximum_request_size tiles, averaged as in its
-    evaluation. Every request of a served row is also compared with the eager model (comparison).
+    client sends it, and its outputs are turned into the predictions of the task (convert_inference_outputs). The images
+    go in requests of at most maximum_request_size images, with every input the inference model takes for them
+    (build_inference_inputs of the trainer, the window of every image for the detectors), the frames of every sequence
+    alone and without their padding (a deployed sequence model taking no sequence mask), the frame probabilities of the
+    padding being left at 0, the two members of every pair of the comparison alone in the same way, and the tiles of
+    every image of a segmentation run trained on tiles in requests of at most maximum_request_size tiles, averaged as in
+    its evaluation. Every request of a served row is also compared with the eager model (comparison).
 
     Args:
         batch (Dict[str, Any]): The prepared test batch.
@@ -528,14 +530,14 @@ def predict_exported_batch(batch: Dict[str, Any], trainer: BaseTrainer, run_mode
             tiles_per_batch=maximum_request_size) for image, sample_identifier in zip(images, sample_identifiers)]
         return {"class_probabilities": torch.stack(tensors=image_probabilities)}
 
-    # Images: requests of at most maximum_request_size images, their outputs joined in the order of the batch
-    request_outputs = [run_request(inputs={"images": convert_to_request_array(tensor=request_images)},
-                                   run_model=run_model, comparison=comparison,
-                                   sample_identifiers=sample_identifiers[request_start:request_start +
-                                                                         request_images.shape[0]])
-                       for request_start, request_images in zip(
-                           range(0, images.shape[0], maximum_request_size),
-                           torch.split(images, split_size_or_sections=maximum_request_size))]
+    # Images: requests of at most maximum_request_size images with every input of the inference model (the windows of
+    # the images of the detectors), their outputs joined in the order of the batch
+    inference_inputs = trainer.build_inference_inputs(batch=batch)
+    request_outputs = [run_request(inputs={input_name: convert_to_request_array(
+        tensor=input_batch[request_start:request_start + maximum_request_size])
+        for input_name, input_batch in inference_inputs.items()}, run_model=run_model, comparison=comparison,
+        sample_identifiers=sample_identifiers[request_start:request_start + maximum_request_size])
+        for request_start in range(0, images.shape[0], maximum_request_size)]
     outputs = {output_name: np.concatenate([request_output[output_index] for request_output in request_outputs],
                                            axis=0)
                for output_index, output_name in enumerate(output_names)}
@@ -548,8 +550,8 @@ def evaluate_parity_row(trainer: BaseTrainer, run_model: Callable[..., List[np.n
     """
     Scores one row on the whole test split with the test evaluation of the trainer, its predict_batch running the
     model of the row (predict_exported_batch), its evaluation files written to the folder of the row. The detectors
-    keep their deployment score threshold (the one written into their export) instead of the lower threshold of the
-    training evaluation, as the exported detector returns only those detections.
+    are scored on the detections reaching the score threshold of their class built into the export, the evaluation
+    threshold of the trainer set to the deployment one instead of the lower one of the training evaluation.
 
     Args:
         trainer (BaseTrainer): The trainer of the run, from build_evaluation_trainer.
@@ -639,9 +641,9 @@ def read_reference_scalars(experiment_folder: Path, iteration: int, use_averaged
 def describe_reference_difference(trainer: BaseTrainer, logit_temperature: float) -> Optional[str]:
     """
     Tells why the stored evaluation of the exported iteration cannot be compared with the rows, its values being then
-    left out of the summary: the detectors are scored at their deployment score threshold, the stored evaluation at
-    the lower evaluation one, and a classifier exported at another temperature than 1 has other thresholds, curves and
-    areas than its stored evaluation.
+    left out of the summary: the exported detectors return only the detections reaching the score threshold of their
+    class built into the export, the stored evaluation scores those of the lower evaluation threshold, and a classifier
+    exported at another temperature than 1 has other thresholds, curves and areas than its stored evaluation.
 
     Args:
         trainer (BaseTrainer): The trainer of the run, before the rows change its score threshold.
@@ -651,9 +653,11 @@ def describe_reference_difference(trainer: BaseTrainer, logit_temperature: float
         Optional[str]: The reason, None when the stored evaluation is comparable.
     """
     if isinstance(trainer, DetectionTrainer):
-        return (f"Stored evaluation left out: the exported detector returns the detections scored at least "
-                f"{trainer.deployment_score_threshold:g} (Detector.inference.score_threshold), while the stored "
-                f"evaluation scores those above {trainer.evaluation_score_threshold:g} (evaluation.score_threshold).")
+        return (f"Stored evaluation left out: the exported detector returns the detections reaching the score "
+                f"threshold of their class ({DEPLOYED_THRESHOLDS_FILE_NAME} next to the exported model, "
+                f"{trainer.deployment_score_threshold:g} of Detector.inference.score_threshold for a class without "
+                f"one), while the stored evaluation scores those above {trainer.evaluation_score_threshold:g} "
+                f"(evaluation.score_threshold).")
     if trainer.TASK_NAME == "classification" and logit_temperature != 1.0:
         return (f"Stored evaluation left out: the classifier is exported at the logit temperature "
                 f"{logit_temperature:g}, while the stored evaluation scored its probabilities at a temperature of 1.")

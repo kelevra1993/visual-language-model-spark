@@ -39,7 +39,7 @@ from vision_training.deployment.input_contract import write_onnx_input_contract
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
 from vision_training.models.task_model import TaskModel
 from tests.models.instance_segmentation.test_instance_segmenter import MIXED_MASK_HEAD_SETTINGS
-from tests.testing_utilities import build_test_model as build_test_detector
+from tests.testing_utilities import build_test_model as build_test_detector, build_whole_input_windows
 from tests.fixtures.configuration_fixtures import (get_classification_model_configuration,
                                                    get_detection_model_configuration,
                                                    get_keypoint_model_configuration,
@@ -250,7 +250,7 @@ def test_classifier_exports_divide_the_logits_by_the_logit_temperature(tmp_path:
                          if "logit_temperature" in initializer.name]
     assert onnx_temperatures == [3.0]
     session = onnxruntime.InferenceSession(str(tmp_path / "model.onnx"), providers=["CPUExecutionProvider"])
-    onnx_outputs = session.run(None, {"images": check_inputs["images"].numpy()})
+    onnx_outputs = session.run(None, {name: batch.numpy() for name, batch in check_inputs.items()})
     assert specification["compare_outputs"](reference=reference_outputs, candidate=onnx_outputs,
                                             **specification["comparison_tolerances"]) == []
 
@@ -303,7 +303,7 @@ def test_detector_exports_keep_the_distance_nms(tmp_path: Path) -> None:
     export_onnx(inference_model=inference_model, example_inputs=example_inputs, output_path=tmp_path / "model.onnx",
                 specification=specification, maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE)
     session = onnxruntime.InferenceSession(str(tmp_path / "model.onnx"), providers=["CPUExecutionProvider"])
-    onnx_outputs = session.run(None, {"images": check_inputs["images"].numpy()})
+    onnx_outputs = session.run(None, {name: batch.numpy() for name, batch in check_inputs.items()})
     assert specification["compare_outputs"](reference=reference_outputs, candidate=onnx_outputs,
                                             **specification["comparison_tolerances"]) == []
 
@@ -356,7 +356,7 @@ def test_instance_segmenter_exports_keep_the_fine_inputs_of_the_mask_heads(tmp_p
     export_onnx(inference_model=inference_model, example_inputs=example_inputs, output_path=tmp_path / "model.onnx",
                 specification=specification, maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE)
     session = onnxruntime.InferenceSession(str(tmp_path / "model.onnx"), providers=["CPUExecutionProvider"])
-    onnx_outputs = session.run(None, {"images": check_inputs["images"].numpy()})
+    onnx_outputs = session.run(None, {name: batch.numpy() for name, batch in check_inputs.items()})
     assert specification["compare_outputs"](reference=reference_outputs, candidate=onnx_outputs,
                                             **specification["comparison_tolerances"]) == []
 
@@ -403,7 +403,7 @@ def test_instance_segmenter_exports_keep_the_mask_head_shared_by_the_levels(tmp_
     export_onnx(inference_model=inference_model, example_inputs=example_inputs, output_path=tmp_path / "model.onnx",
                 specification=specification, maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE)
     session = onnxruntime.InferenceSession(str(tmp_path / "model.onnx"), providers=["CPUExecutionProvider"])
-    onnx_outputs = session.run(None, {"images": check_inputs["images"].numpy()})
+    onnx_outputs = session.run(None, {name: batch.numpy() for name, batch in check_inputs.items()})
     assert specification["compare_outputs"](reference=reference_outputs, candidate=onnx_outputs,
                                             **specification["comparison_tolerances"]) == []
 
@@ -449,7 +449,7 @@ def test_detector_exports_keep_the_greedy_nms_of_many_boxes(tmp_path: Path) -> N
     export_onnx(inference_model=inference_model, example_inputs=example_inputs, output_path=tmp_path / "model.onnx",
                 specification=specification, maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE)
     session = onnxruntime.InferenceSession(str(tmp_path / "model.onnx"), providers=["CPUExecutionProvider"])
-    onnx_outputs = session.run(None, {"images": check_inputs["images"].numpy()})
+    onnx_outputs = session.run(None, {name: batch.numpy() for name, batch in check_inputs.items()})
     assert specification["compare_outputs"](reference=reference_outputs, candidate=onnx_outputs,
                                             **specification["comparison_tolerances"]) == []
 
@@ -501,7 +501,7 @@ def test_detector_exports_keep_the_proposal_selection_per_level(tmp_path: Path) 
     export_onnx(inference_model=inference_model, example_inputs=example_inputs, output_path=tmp_path / "model.onnx",
                 specification=specification, maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE)
     session = onnxruntime.InferenceSession(str(tmp_path / "model.onnx"), providers=["CPUExecutionProvider"])
-    onnx_outputs = session.run(None, {"images": check_inputs["images"].numpy()})
+    onnx_outputs = session.run(None, {name: batch.numpy() for name, batch in check_inputs.items()})
     assert specification["compare_outputs"](reference=reference_outputs, candidate=onnx_outputs,
                                             **specification["comparison_tolerances"]) == []
 
@@ -522,8 +522,9 @@ def test_detector_onnx_suppression_keeps_the_boxes_in_the_image(tmp_path: Path) 
     example_inputs = create_random_inputs(specification=specification, shape_name="example_shape",
                                           maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE, device=torch.device("cpu"),
                                           generator=torch.Generator().manual_seed(1))
-    check_inputs = {"images": torch.rand(size=(TEST_MAXIMUM_BATCH_SIZE,) + tuple(example_inputs["images"].shape[1:]),
-                                         generator=torch.Generator().manual_seed(2)) * 255.0}
+    check_images = torch.rand(size=(TEST_MAXIMUM_BATCH_SIZE,) + tuple(example_inputs["images"].shape[1:]),
+                              generator=torch.Generator().manual_seed(2)) * 255.0
+    check_inputs = {"images": check_images, "image_windows": build_whole_input_windows(images=check_images)}
     with torch.no_grad():
         reference_outputs = convert_outputs_to_numpy(outputs=inference_model(**check_inputs))
     export_onnx(inference_model=inference_model, example_inputs=example_inputs, output_path=tmp_path / "model.onnx",
@@ -542,7 +543,7 @@ def test_detector_onnx_suppression_keeps_the_boxes_in_the_image(tmp_path: Path) 
     # detections are those of the eager detector
     session = onnxruntime.InferenceSession(str(tmp_path / "model_with_suppression_boxes.onnx"),
                                            providers=["CPUExecutionProvider"])
-    outputs = session.run(None, {"images": check_inputs["images"].numpy()})
+    outputs = session.run(None, {name: batch.numpy() for name, batch in check_inputs.items()})
     image_size = inference_model.input_image_size
     proposal_boxes, detection_boxes = outputs[-2:]
     assert proposal_boxes.shape[0] == TEST_MAXIMUM_BATCH_SIZE
@@ -724,7 +725,7 @@ def test_second_recurrent_export_keeps_dynamic_frames(tmp_path: Path) -> None:
         assert find_fixed_dynamic_dimensions(model_proto=onnx.load(f=str(model_path)),
                                              specification=specification) == []
         session = onnxruntime.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
-        onnx_outputs = session.run(None, {"images": check_inputs["images"].numpy()})
+        onnx_outputs = session.run(None, {name: batch.numpy() for name, batch in check_inputs.items()})
         assert specification["compare_outputs"](reference=reference_outputs, candidate=onnx_outputs,
                                                 **specification["comparison_tolerances"]) == []
 

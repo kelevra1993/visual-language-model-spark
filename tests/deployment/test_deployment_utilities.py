@@ -1,8 +1,9 @@
 """
 Tests of the Triton deployment client of vision_training/deployment/deployment_utilities.py, with a recording stand-in
-for the gRPC client: the request built for the comparison (the two halves of the folder), the folders longer than the
-sequences of the training refused, a segmentation run trained on tiles refused while one trained on whole images gets
-its letterboxed images, and the inputs written in shared memory at their offsets.
+for the gRPC client: the request built for the comparison (the two halves of the folder), the window of every image in
+the requests of a detector, the folders longer than the sequences of the training refused, a segmentation run trained
+on tiles refused while one trained on whole images gets its letterboxed images, the inputs written in shared memory at
+their offsets, and a served model taking other inputs than the requests refused before any request.
 """
 
 import json
@@ -15,15 +16,18 @@ import tritonclient.utils.shared_memory as shared_memory
 import yaml
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
 from vision_training.data.synthetic.create_synthetic_dataset import build_keypoint_label_mapping, build_keypoint_labels
-from vision_training.deployment.deployment_utilities import load_inference_inputs, run_triton_inference
+from vision_training.deployment.deployment_utilities import (check_served_input_names, load_inference_inputs,
+                                                            run_triton_inference)
 
 CONFIGURATIONS_FOLDER = Path(__file__).parents[2] / "vision_training" / "configurations"
 
 # Synthetic configuration of every task whose requests are tested
 TASK_CONFIGURATION_FILES = {"classification": "classification/configuration_synthetic_shapes.yaml",
+                            "object_detection": "object_detection/configuration_synthetic_shapes.yaml",
                             "semantic_segmentation": "semantic_segmentation/configuration_synthetic_shapes.yaml",
                             "sequence_classification": "sequence_classification/configuration_synthetic_sequences.yaml",
                             "sequence_comparison": "sequence_comparison/configuration_synthetic_pairs.yaml",
@@ -82,6 +86,34 @@ class RecordingClient:
         """
         self.recorded_inputs.append(inputs)
         return RecordingResult()
+
+
+class MetadataClient:
+    """
+    Stand-in for the gRPC client of the Triton server answering the metadata of a served model with the given input
+    names, as get_model_metadata of tritonclient gives them.
+    """
+
+    def __init__(self, input_names: List[str]) -> None:
+        """
+        Keeps the input names of the served model.
+
+        Args:
+            input_names (List[str]): The input names of the served model.
+        """
+        self.input_names = input_names
+
+    def get_model_metadata(self, model_name: str) -> Any:
+        """
+        Gives the metadata of the served model, its inputs carrying their names.
+
+        Args:
+            model_name (str): The Triton model name.
+
+        Returns:
+            Any: The metadata, with one input per name.
+        """
+        return SimpleNamespace(inputs=[SimpleNamespace(name=input_name) for input_name in self.input_names])
 
 
 def write_test_experiment(experiment_folder: Path, task: str,
@@ -181,6 +213,57 @@ def test_requests_hold_the_inputs_of_the_task(tmp_path: Path, task: str,
                 assert input_batch.shape == (1, len(image_indices), 3, TEST_IMAGE_SIZE, TEST_IMAGE_SIZE)
                 centre_values = input_batch[0, :, 0, TEST_IMAGE_SIZE // 2, TEST_IMAGE_SIZE // 2].tolist()
             assert centre_values == [10 * (image_index + 1) for image_index in image_indices]
+
+
+@pytest.mark.parametrize(argnames=("keep_ratio", "expected_windows"), argvalues=[
+    (True, [[0.0, 64.0, 256.0, 192.0], [64.0, 0.0, 192.0, 256.0], [0.0, 0.0, 256.0, 256.0]]),
+    (False, [[0.0, 0.0, 256.0, 256.0]] * 3)])
+def test_detector_requests_hold_the_window_of_every_image(tmp_path: Path, keep_ratio: bool,
+                                                          expected_windows: List[List[float]]) -> None:
+    """
+    Verifies the requests of a detector: every image of the inference folder in a request of its own with its window
+    in the 256 pixel network input (the smallest the detector configuration accepts with anchors of 16 to 256
+    pixels), the letterbox region of a landscape, a portrait and a square photo with keep_ratio, the whole input for
+    the stretched photos.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        keep_ratio (bool): The 'Data.image_settings.keep_ratio' of the experiment.
+        expected_windows (List[List[float]]): The [x1, y1, x2, y2] window of every image, in the order of the names.
+    """
+    image_folder = tmp_path / "inference_data"
+    image_folder.mkdir()
+    for image_index, (image_height, image_width) in enumerate([(16, 32), (32, 16), (16, 16)]):
+        cv2.imwrite(filename=str(image_folder / f"image_{image_index:06d}.png"),
+                    img=np.full(shape=(image_height, image_width, 3), fill_value=10, dtype=np.uint8))
+    write_test_experiment(experiment_folder=tmp_path / "experiment", task="object_detection", keep_ratio=keep_ratio)
+
+    # Input size and anchors the configuration checker accepts for the detector
+    configuration_path = tmp_path / "experiment" / "training_configuration.yaml"
+    configuration = yaml.safe_load(stream=configuration_path.read_text())
+    configuration["Data"]["image_settings"]["size"] = 256
+    for level, scales in {"5": [16, 32, 64], "6": [32, 64, 128], "7": [64, 128, 256]}.items():
+        configuration["DetectionLevels"][level]["anchors"]["scales"] = scales
+    configuration_path.write_text(data=yaml.safe_dump(data=configuration))
+
+    requests = load_inference_inputs(image_folder=image_folder, experiment_folder=tmp_path / "experiment")
+    assert [list(request) for request in requests] == [["images", "image_windows"]] * 3
+    assert all(request["images"].shape == (1, 3, 256, 256) for request in requests)
+    assert all(request["image_windows"].dtype == np.float32 for request in requests)
+    assert [request["image_windows"][0].tolist() for request in requests] == expected_windows
+
+
+def test_served_model_taking_other_inputs_is_refused() -> None:
+    """
+    Verifies that a served model whose inputs differ from those of the requests, a detector exported before its image
+    windows input, is refused before any request, the error asking for a new export, while a model taking the inputs
+    of the requests, in any order, is accepted.
+    """
+    with pytest.raises(expected_exception=ValueError, match="Export the run again"):
+        check_served_input_names(client=MetadataClient(input_names=["images"]), model_name="object_detector_onnx",
+                                 input_names=["images", "image_windows"])
+    check_served_input_names(client=MetadataClient(input_names=["image_windows", "images"]),
+                             model_name="object_detector_onnx", input_names=["images", "image_windows"])
 
 
 @pytest.mark.parametrize(argnames=("task", "number_images", "expected_message"), argvalues=[
