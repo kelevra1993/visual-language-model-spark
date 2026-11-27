@@ -485,111 +485,35 @@ If you are looking for one word of the Deployment section:
 | TF32 | Tensor Core mode with the range of FP32 and 10 mantissa bits ([Number Formats](#number-formats)) | eager PyTorch convolutions, TensorRT "FP32" |
 | BF16 | 16 bits: the range of FP32 with 7 mantissa bits ([Number Formats](#number-formats)) | the forward passes of the training |
 | FP16 | 16 bits: 5 exponent bits, largest value 65,504, and 10 mantissa bits ([Number Formats](#number-formats)) | `tensorrt_precision = "FP16"`, `torchscript_precision = "FP16"` |
-| FP8 | 8 bits, E4M3 or E5M2 ([Number Formats](#number-formats)) | not implemented |
-| INT8 | 8-bit integers times a scale ([Number Formats](#number-formats)) | not implemented |
-| FP4 | 4 bits, E2M1 ([Number Formats](#number-formats)) | not implemented |
 
 ### Number Formats
-Before you pick the precision of a served model (`tensorrt_precision` of the [export](#export)), this section shows what each number format stores and where the repository uses it. A format packs every number into a fixed number of bits, from 32 (FP32) down to 4 (FP4), and rounds every other number to the nearest value it holds. Fewer bits mean less memory and faster arithmetic, but coarser rounding or a smaller range.
+Before you pick the precision of a served model ([export](#export)), see how FP32, TF32, BF16 and FP16 store typical values of the repository. A format rounds every number to the nearest value it holds: fewer bits mean less memory and faster arithmetic, but coarser rounding or a smaller range.
 
-#### What A Floating-Point Number Is
-To be able to read the tables below, know that a floating-point number has three fields:
-- the **sign**, one bit: 0 positive, 1 negative;
-- the **exponent**, which picks a power of two: it sets the **range**;
-- the **mantissa**, which places the number in equal steps up to the next power of two: it sets the **precision**.
+The table gives the value each format stores (PyTorch 2.14, up to 6 significant digits; TF32 rounds the FP32 mantissa to 10 bits, ties to even):
 
-The value is (-1)^sign x 2^(exponent - bias) x (1 + mantissa / 2^m), with m mantissa bits and a bias (15 in FP16) that allows negative powers. Here the pixel coordinate 1000.3 is decoded from its FP16 bits (0x63D1):
+| Value of the repository | FP32 | TF32 | BF16 | FP16 |
+|---|---|---|---|---|
+| Class threshold 0.999 | 0.999 | 0.999023 | **1** | 0.999023 |
+| Pixel coordinate 1000.3 of a 1024-pixel input | 1,000.3 | 1,000.5 | 1,000 | 1,000.5 |
+| Area of a 256 x 256 box, 65,536 | 65,536 | 65,536 | 65,536 | **inf** |
+| Area of a 300 x 300 box, 90,000 | 90,000 | 89,984 | 90,112 | inf |
+| Box offset 0.1 | 0.1 | 0.0999756 | 0.100098 | 0.0999756 |
+| Weight update 1e-6 | 1e-6 | 1.00024e-6 | 9.98378e-7 | 1.01328e-6 (subnormal) |
+| Weight 0.1 after that update | **0.100001** | 0.0999756 | 0.100098 | 0.0999756 |
 
-<p align="center">
-  <img src="README/number_format_decoding.gif" width="100%" />
-</p>
-
-FP16 has 10 mantissa bits, so it splits 512 to 1024 into 1,024 steps of 0.5, and 1000.3 is stored as 1000.5. This **gap** doubles at every power of two, so the relative error stays the same at any magnitude. The **gap after 1** gives the precision of a format (0.000977 for FP16). A number above the largest value **overflows** to infinity (inf); one below the smallest normal value becomes a **subnormal** (fewer significant bits), then 0.
-
-#### The Formats One By One
-If you are looking for what a name such as BF16 or E4M3 means, each format below gives its bits, its largest value, its gap after 1, where the repository uses it and when to choose it. The bits are drawn to scale:
-
-<p align="center">
-  <img src="README/number_formats.png" width="100%" />
-</p>
-
-- **FP32, single precision** (1 + 8 + 23 bits, largest 3.40 x 10^38, gap after 1 1.19 x 10^-7). The PyTorch default and the reference of the repository: model weights (`MODEL_DTYPE` of `vision_training/models/model_registry.py`), the test evaluation, and the inputs and floating-point outputs of every export (`TYPE_FP32` in `config.pbtxt`). It rounds at the eighth digit: 1000.3 is stored as 1000.29998779. Keep it for anything compared with a threshold.
-- **TF32, TensorFloat-32** (1 + 8 + 10 bits, largest 3.40 x 10^38, gap after 1 0.000977). Not a storage type but a compute mode of the NVIDIA **Tensor Cores** (the GPU units for small matrix products): values stay FP32 in memory, the Tensor Cores read only 10 of the 23 mantissa bits, and sums (the **accumulation**) stay FP32. It gives FP32 range with FP16 precision, with no code change. PyTorch turns it on for convolutions by default (`torch.backends.cudnn.allow_tf32` True, `torch.backends.cuda.matmul.allow_tf32` False), and TensorRT allows it in "FP32" engines. Choose it for speed, not when two runtimes must match: `export_experiment` of `vision_training/deployment/export_model.py` turns both switches off while it exports and checks, then restores them.
-- **BF16, bfloat16** (1 + 8 + 7 bits, largest 3.39 x 10^38, gap after 1 0.0078125). The first 16 bits of an FP32 number: the FP32 range in 2 bytes, with about 2.4 significant digits. Training and validation run under `torch.autocast(..., dtype=torch.bfloat16)` in `run_model_iteration` of `vision_training/trainers/base_trainer.py`: **autocast** computes convolutions and matrix products in BF16 and keeps the weights, softmax and losses in FP32. The test evaluation runs in FP32. 1000.3 becomes 1000 (gap of 4 pixels there). Triton 26.01 cannot serve it through ONNX Runtime ([What Is Exported Today](#what-is-exported-today)). Choose it for training; keep thresholds and post-processing in FP32.
-- **FP16, half precision** (1 + 5 + 10 bits, largest 65,504, gap after 1 0.000977). Eight times finer than BF16, but with a small range: it overflows above 65,504. Two export options use it ([Export](#export)): `tensorrt_precision = "FP16"` lets TensorRT run FP16 kernels where faster (the export check never runs that engine), and `torchscript_precision = "FP16"` traces an FP16 copy into `model.pt`, with normalization, recurrent layers and softmax kept in FP32. 1000.3 becomes 1000.5 and a 256 x 256 box area (65,536) becomes inf. Choose it to serve CLS and M2M (within 0.03 points of eager at 1.9 times the images of TensorRT FP32, [Serving Benchmark Results](#serving-benchmark-results)) once no value inside the model can pass 65,504.
-- **FP8, E4M3 and E5M2** (1 + 4 + 3 bits: largest 448, gap after 1 0.125; 1 + 5 + 2 bits: largest 57,344, gap after 1 0.25). One byte per value; the name counts exponent (E) and mantissa (M) bits. TensorRT supports E4M3 through explicit quantization only ([quantized types](https://docs.nvidia.com/deeplearning/tensorrt/10.x.x/inference-library/work-quantized-types.html)). Without a [scale](#scales-for-int8-and-fp8) values fall out of range: E4M3 clamps 1000.3 to 448, E5M2 rounds it to 1,024, and both store 1e-6 as 0. Not implemented.
-- **INT8, 8-bit integer** (8 bits, -128 to 127). Not floating-point: 256 evenly spaced levels that a [scale](#scales-for-int8-and-fp8) turns into values. Not implemented: TensorRT needs [Q/DQ nodes or a calibration table](#scales-for-int8-and-fp8).
-- **FP4 E2M1** (1 + 2 + 1 bits: 0, 0.5, 1, 1.5, 2, 3, 4 and 6 and their negatives; gap after 1 0.5). Half a byte per value; the 1 petaFLOP of the [DGX Spark](https://www.nvidia.com/en-us/products/workstations/dgx-spark/) is a theoretical FP4 figure with sparsity. Without a scale, 0.1 becomes 0 and 1000.3 becomes 6. Not implemented.
-
-Block floating point (BFP, the MX formats, one exponent shared by a block of values) is not BF16 and is not used here.
-
-#### The Same Values In Every Format
-Suppose some typical values of the repository are stored in each format: PyTorch 2.14 holds them as follows (up to 6 significant digits; TF32 rounds the FP32 mantissa to 10 bits, ties to even).
-
-| Value of the repository | FP32 | TF32 | BF16 | FP16 | FP8 E4M3 | FP8 E5M2 |
-|---|---|---|---|---|---|---|
-| Class threshold 0.999 | 0.999 | 0.999023 | **1** | 0.999023 | 1 | 1 |
-| Pixel coordinate 1000.3 of a 1024-pixel input | 1,000.3 | 1,000.5 | 1,000 | 1,000.5 | 448 | 1,024 |
-| Area of a 256 x 256 box, 65,536 | 65,536 | 65,536 | 65,536 | **inf** | 448 | inf |
-| Area of a 300 x 300 box, 90,000 | 90,000 | 89,984 | 90,112 | inf | 448 | inf |
-| Box offset 0.1 | 0.1 | 0.0999756 | 0.100098 | 0.0999756 | 0.1015625 | 0.09375 |
-| Weight update 1e-6 | 1e-6 | 1.00024e-6 | 9.98378e-7 | 1.01328e-6 (subnormal) | 0 | 0 |
-| Weight 0.1 after that update | **0.100001** | 0.0999756 | 0.100098 | 0.0999756 | 0.1015625 | 0.09375 |
-
-The same values on the number line of every format:
+The figure below puts the same values on the number line of each format:
 
 <p align="center">
   <img src="README/number_format_examples.png" width="100%" />
 </p>
-<p align="center"><em>One lane per format; the dot is the stored value. Arrows mark values stored outside the window: 448 for E4M3 (no infinity), inf above the largest value, 0 below the smallest.</em></p>
+<p align="center"><em>One lane per format: the ticks are the values it holds, the dot the stored value, and an arrow a value stored as inf (FP16 above 65,504).</em></p>
 
-The gap of each format from 10^-6 to 10^7:
+The figure below shows how far apart neighbouring values are in each format, from 10^-6 to 10^7:
 
 <p align="center">
   <img src="README/number_format_rounding.png" width="100%" />
 </p>
-<p align="center"><em>Gap between neighbouring values: a value moves by up to half of it, and the format overflows past the cross. Dotted lines: a class threshold, a pixel coordinate of a 1024-pixel input and a 256 x 256 box area.</em></p>
-
-#### What These Numbers Mean
-Each time a model moves to a reduced precision, check these cases:
-- **BF16 turns the threshold 0.999 into 1.** Probabilities 0.9985 and 0.9995 both read 1, so thresholds (such as the logit temperature of the [export](#export)) and post-processing stay in FP32.
-- **FP16 makes a 256 x 256 box area infinite.** The NMS exported in the detector overflowed FP16 twice: shifted box groups passed 65,504 (run_9 lost 7.88 points of mAP@0.5 with TensorRT FP16), and DIoU-NMS areas in pixels became inf. One NonMaxSuppression batch per group (`suppress_stacked_groups` of `vision_training/models/detection/postprocessing.py`) and boxes in fractions of the image fixed both: the FP16 engine now reads +0.21 points against eager ([Serving Benchmark Results](#serving-benchmark-results)). Every sum, area or offset inside an FP16 model must stay below 65,504.
-- **TF32 moves detection scores by about 1e-3.** On eight DET test images, TF32 moved scores by up to 9.8e-4 and boxes by up to 0.15 pixel, ten times what the export accepts (`comparison_tolerances` of `vision_training/deployment/export_specifications.py`). This is why `export_experiment` turns TF32 off and compares against exact FP32.
-- **A weight update of 1e-6 vanishes in a 16-bit weight.** Added to 0.1, it leaves BF16 and FP16 unchanged while FP32 holds 0.100001: this is why autocast keeps the weights in FP32.
-- **INT8 and FP8 need a scale.** Stored as is, 0.1 becomes 0.1016 in E4M3 and 0 in INT8; with one scale for a tensor between -6 and 6, INT8 reads it back as 0.0945 ([Scales For INT8 And FP8](#scales-for-int8-and-fp8)).
-
-#### Scales For INT8 And FP8
-Should a model run in INT8 or FP8, each tensor needs a **scale** that multiplies its stored values back into real values:
-- **Scale.** For values between -6 and 6, the scale 6 / 127 = 0.0472 maps 6 to 127: 0.1 is stored as 2 and read back as 0.0945. Every value moves by at most half the scale. TensorRT rounds to nearest, ties to even, and clips to -128 and 127.
-- **Zero point.** An offset so that a range not centred on 0 (such as 0 to 6 after a ReLU) uses all 256 levels. TensorRT is symmetric and uses a scale only.
-- **Per tensor or per channel.** Activations get one scale per tensor; weights one per output channel, as TensorRT recommends. In the README classifier (`backbone.convolution_blocks.1`, after batch normalization folding) channels range from 0.285 to 2.73: one scale for the tensor leaves the narrowest channel 13 of 127 levels, one per channel gives every channel all 127.
-- **Calibration.** Choosing activation scales from data: TensorRT runs about 500 representative images and records each tensor's range. Deprecated since TensorRT 10.1.
-- **Q/DQ nodes.** QuantizeLinear and DequantizeLinear nodes in the ONNX graph mark where a tensor becomes INT8 or FP8 (explicit quantization), the only path to FP8 and FP4.
-
-None of this is implemented: `tensorrt_precision` accepts only "FP32", "FP16" and None, and the export check never runs a TensorRT engine ([What Is Exported Today](#what-is-exported-today)).
-
-#### Summary Of The Formats
-In case you need the facts of one format again (computed by PyTorch; TF32 and FP4 from their bit layouts):
-
-| Format | Full name | Bits (sign + exponent + mantissa) | Largest value | Gap after 1 | Used in this repository for |
-|---|---|---|---|---|---|
-| FP32 | single precision (IEEE 754 binary32) | 1 + 8 + 23 | 3.40 x 10^38 | 1.19 x 10^-7 | weights, test evaluation, post-processing, export inputs and floating-point outputs |
-| TF32 | TensorFloat-32 | 1 + 8 + 10, read from FP32 values | 3.40 x 10^38 | 0.000977 | eager convolutions (PyTorch default), TensorRT "FP32" engines; off in the export |
-| BF16 | bfloat16, "brain floating point" | 1 + 8 + 7 | 3.39 x 10^38 | 0.0078125 | training and validation forward passes (autocast of `base_trainer.py`) |
-| FP16 | half precision (IEEE 754 binary16) | 1 + 5 + 10 | 65,504 | 0.000977 | `tensorrt_precision = "FP16"`, served without check |
-| FP8 E4M3 | 8-bit floating point, 4 exponent bits, 3 mantissa bits | 1 + 4 + 3 | 448 | 0.125 | not implemented |
-| FP8 E5M2 | 8-bit floating point, 5 exponent bits, 2 mantissa bits | 1 + 5 + 2 | 57,344 | 0.25 | not implemented |
-| INT8 | 8-bit integer | 8 (integer) | 127 times the scale | the scale | not implemented |
-| FP4 E2M1 | 4-bit floating point, 2 exponent bits, 1 mantissa bit | 1 + 2 + 1 | 6 | 0.5 | not implemented |
-
-#### Weight Memory And Bandwidth
-For a served model to read less memory per request, a reduced precision also shrinks its weights and activations. The weights of four saved runs (weights and batch normalization statistics):
-
-<p align="center">
-  <img src="README/model_weight_sizes.png" width="100%" />
-</p>
-
-The DGX Spark GPU has 273 GB/s of memory bandwidth shared with the CPU ([specifications](https://www.nvidia.com/en-us/products/workstations/dgx-spark/)), so halving the bytes halves the traffic of a memory-bound layer. TensorRT FP16 serves 1.9 times the images of TensorRT FP32 at batch 16 on CLS and M2M; DET serves 189 images per second with both ([Serving Benchmark Results](#serving-benchmark-results)).
+<p align="center"><em>A stored value moves by up to half the gap. FP16 overflows past the cross. Dotted lines: a class threshold, a pixel coordinate of a 1024-pixel input and a 256 x 256 box area.</em></p>
 
 ### Export
 Once a run is ready to be served, `vision_training/deployment/export_model.py` writes it to the Triton model repository as TorchScript and ONNX, with a Triton configuration per model. It checks every format against the eager model and replaces the served models only when all match. Set in its main block:
