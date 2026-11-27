@@ -128,7 +128,7 @@ stay between 0 and 1.
      <b>Export</b> (into <code>&lt;run&gt;/Exports/</code>).</p>
   <p id="deploy-file">Opened as a file, <b>Save Thresholds At This Temperature</b> downloads
      <code>saved_temperature_thresholds.json</code>: put it next to this page for <code>export_model.py</code>
-     (<code>use_saved_temperature</code>), or serve the page with
+     (<code>--use_saved_temperature</code>), or serve the page with
      <code>scripts/evaluation/serve_temperature_explorer.py</code> to export from it.</p>
 
   <div class="controls">
@@ -648,7 +648,7 @@ stay between 0 and 1.
     await refreshStatus();
   }
 
-  // Export form of a served page, filled with the settings of the main block of export_model.py
+  // Export form of a served page, filled with the default arguments of export_model.py
   function buildExportForm() {
     const defaults = DATA.export_defaults;
     DATA.export_formats.forEach(exportFormat => {

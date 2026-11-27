@@ -9,11 +9,14 @@ the input contract of the run (deployment/input_contract.py), in the metadata of
 test_split_parity, every format is also served by a temporary Triton container and scored on the whole test split
 against the eager model (deployment/export_parity.py), the summary written to
 '<run>/Export_Parity/Iteration_<n>[_EMA][_T<temperature>]_<precisions>/' and next to the installed models. Run as a
-script with the experiment, iteration and formats set in its main block.
+script with the run folder and the export settings given as arguments (parse_export_arguments), its help printed when
+none is given.
 """
 
+import argparse
 import json
 import shutil
+import sys
 import tempfile
 import onnxruntime
 import torch
@@ -45,6 +48,11 @@ from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Default Triton model repository, mounted by deployment/triton/docker-compose.yml
 DEFAULT_REPOSITORY = Path(__file__).absolute().parent / "triton" / "served_models"
+
+# Export settings taken when the command line of the script (parse_export_arguments) or the export form of the
+# temperature explorer (explorer_export.py) does not give them
+DEFAULT_EXPORT_SETTINGS = {"formats": ["torchscript", "onnx"], "model_version": 1, "maximum_batch_size": 16,
+                           "tensorrt_precision": "FP32", "torchscript_precision": "FP32"}
 
 # Staging folder of an export, created next to the model repository, where every format is exported and checked
 # before install_staged_models moves the models into the repository, and its folders of the exported models and of
@@ -532,55 +540,120 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
         torch.backends.cudnn.allow_tf32, torch.backends.cuda.matmul.allow_tf32 = (previous_cudnn_tf32,
                                                                                    previous_matmul_tf32)
 
-if __name__ == "__main__":
-    # Trained experiment to export, holding 'Weights' and 'training_configuration.yaml' (the 35-class synthetic shapes
-    # classifier of the README, kept with the tutorial runs)
-    run_name = "CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35"
-    experiment_folder = Path.home() / "Data" / "tutorial_runs" / "readme_screenshots" / run_name
-    # Iteration to export, None for the last one recorded in the 'full-checkpoint' registry
-    iteration = 2000
-    # True exports the moving average of the weights stored in the checkpoint (runs with
-    # Optimization.exponential_moving_average activated), False the trained weights
-    use_averaged_weights = False
-    # Export formats, among 'torchscript' and 'onnx', any other value being refused
-    formats = ["torchscript", "onnx"]
-    # Triton model repository, mounted by deployment/triton/docker-compose.yml
-    repository = DEFAULT_REPOSITORY
-    # Triton version of the exported models: they are written to '<model>/<version>/' and Triton serves this version
-    model_version = 1
-    # Largest batch size the exported models accept, and that Triton may send them
-    maximum_batch_size = 16
-    # TensorRT precision of the ONNX model ('FP16' or 'FP32'), None to run it with ONNX Runtime CUDA only
-    tensorrt_precision = "FP32"
-    # Precision of the network traced into the TorchScript file: 'FP32' ('model.pt'), or 'FP16' ('model_fp16.pt',
-    # convolution, linear and attention weights in FP16, about half the file; normalization, recurrent layers and inputs
-    # and outputs in FP32)
-    torchscript_precision = "FP32"
-    # False hides the harmless library warnings printed during the export (see hide_known_export_warnings)
-    show_warnings = False
-    # Classification only: True builds the temperature saved with the button of the temperature explorer of the exported
-    # iteration and weights (served by scripts/evaluation/serve_temperature_explorer.py) into the exported model and
-    # copies its thresholds next to it as class_thresholds.json; the file 'saved_temperature_thresholds.json' is looked
-    # for in '<run>/Evaluation/Iteration_<n>/' and '<run>/Checkpoint_Evaluation/Iteration_<n>/' ('EMA' after them for
-    # the averaged weights). False exports with a temperature of 1 and without thresholds
-    use_saved_temperature = False
-    # With use_saved_temperature, the saved_temperature_thresholds.json to deploy, None to look for it in the two
-    # folders above (the export button of the temperature explorer gives the file of its page)
-    saved_thresholds_path = None
-    # True serves every exported format with a temporary Triton container (Docker and the image of
-    # deployment/triton/docker-compose.yml needed) and scores it on the whole test split of the run against the eager
-    # model, even when the random batch check fails; the summary goes to '<run>/Export_Parity/' in a folder naming the
-    # checkpoint, the temperature of a classifier and every precision (e.g. 'Iteration_2000_T1_TorchScript-FP32_
-    # TensorRT-FP32') and next to the installed models. It only reports: the random batch check alone decides the
-    # installation
-    test_split_parity = False
 
-    if not show_warnings:
+def read_tensorrt_precision_argument(value: str) -> Optional[str]:
+    """
+    Converts the --tensorrt_precision argument of the export script into a value of TENSORRT_PRECISIONS, 'None'
+    giving the ONNX model to ONNX Runtime CUDA without TensorRT (needed for a keypoint detector, whose TensorRT engine
+    crashes Triton), so that the command line reaches every TensorRT setting of export_experiment.
+
+    Args:
+        value (str): The text given on the command line.
+
+    Returns:
+        Optional[str]: None for 'None', otherwise the text, which argparse then checks against TENSORRT_PRECISIONS.
+    """
+    return None if value == "None" else value
+
+
+def parse_export_arguments(arguments: List[str]) -> argparse.Namespace:
+    """
+    Reads the settings of an export from the command line of the script, so that a run is exported without editing the
+    file: the run folder is required, the other settings default to DEFAULT_EXPORT_SETTINGS (the values the export
+    form of the temperature explorer starts from too) and DEFAULT_REPOSITORY. Launched without any argument, the
+    script prints the help of every argument and stops. A '~' left by the shell at the start of a path
+    ('--experiment_folder=~/Data/...') is expanded to the home folder.
+
+    Args:
+        arguments (List[str]): The command line arguments, without the script name.
+
+    Returns:
+        argparse.Namespace: The arguments of export_experiment, with show_warnings.
+
+    Raises:
+        SystemExit: After printing the help when no argument is given, or the usage and the error when the run folder
+            is missing or a value is not one the export accepts.
+    """
+    # The description and the example keep their line breaks, argparse wrapping the help of every argument
+    parser = argparse.ArgumentParser(
+        prog="uv run python -m vision_training.deployment.export_model",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Exports a trained run to the Triton model repository as TorchScript and ONNX, checks every\n"
+                    "format against the eager model and replaces the served models only when all of them match.",
+        epilog="Example, iteration 2000 of a run with TensorRT in FP16:\n"
+               "  uv run python -m vision_training.deployment.export_model --experiment_folder ~/Data/<run> \\\n"
+               "      --iteration 2000 --tensorrt_precision FP16")
+    # The run and the checkpoint to export
+    parser.add_argument("--experiment_folder", type=Path, required=True,
+                        help="Run folder holding 'Weights' and 'training_configuration.yaml' (required).")
+    parser.add_argument("--iteration", type=int, default=None,
+                        help="Iteration of the exported checkpoint (default: the last saved one).")
+    parser.add_argument("--use_averaged_weights", action="store_true",
+                        help="Export the moving average of the weights saved in the checkpoint instead of the "
+                             "trained weights.")
+    # The formats, where they are installed and the batches they accept
+    parser.add_argument("--formats", nargs="+", choices=EXPORT_FORMATS,
+                        default=list(DEFAULT_EXPORT_SETTINGS["formats"]),
+                        help=f"Export formats (default: {' '.join(DEFAULT_EXPORT_SETTINGS['formats'])}).")
+    parser.add_argument("--repository", type=Path, default=DEFAULT_REPOSITORY,
+                        help="Triton model repository (default: the served_models folder that "
+                             "vision_training/deployment/triton/docker-compose.yml mounts).")
+    parser.add_argument("--model_version", type=int, default=DEFAULT_EXPORT_SETTINGS["model_version"],
+                        help="Triton version of the models, the name of their version folder (default: %(default)s).")
+    parser.add_argument("--maximum_batch_size", type=int, default=DEFAULT_EXPORT_SETTINGS["maximum_batch_size"],
+                        help="Largest batch the models accept and Triton sends them (default: %(default)s).")
+    # The precisions of the served models, their inputs and outputs staying FP32
+    parser.add_argument("--tensorrt_precision", type=read_tensorrt_precision_argument, choices=TENSORRT_PRECISIONS,
+                        default=DEFAULT_EXPORT_SETTINGS["tensorrt_precision"],
+                        help="TensorRT precision of the ONNX model, None for ONNX Runtime CUDA without TensorRT, "
+                             "needed for a keypoint detector (default: %(default)s).")
+    parser.add_argument("--torchscript_precision", choices=TORCHSCRIPT_PRECISIONS,
+                        default=DEFAULT_EXPORT_SETTINGS["torchscript_precision"],
+                        help="Precision of the traced network: FP32 writes 'model.pt', FP16 'model_fp16.pt', about "
+                             "half the size (default: %(default)s).")
+    # The temperature of a classifier, the test split parity and the warnings
+    parser.add_argument("--use_saved_temperature", action="store_true",
+                        help="Classification only: build the temperature saved from the temperature explorer of the "
+                             "exported checkpoint into the model and copy its thresholds next to it as "
+                             "class_thresholds.json (default: a temperature of 1, without thresholds).")
+    parser.add_argument("--saved_thresholds_path", type=Path, default=None,
+                        help="With --use_saved_temperature, the saved_temperature_thresholds.json to deploy (default: "
+                             "the one in <run>/Evaluation/Iteration_<n>/ or <run>/Checkpoint_Evaluation/Iteration_<n>/"
+                             ", in their EMA folder for the averaged weights).")
+    parser.add_argument("--test_split_parity", action="store_true",
+                        help="Also serve every format with a temporary Triton container (Docker needed) and score it "
+                             "on the whole test split against the eager model, into <run>/Export_Parity/; a report "
+                             "only, the random batch check alone deciding the installation.")
+    parser.add_argument("--show_warnings", action="store_true",
+                        help="Show the harmless library warnings printed during the export.")
+
+    # Without any argument, the script describes its arguments instead of failing on the missing run folder
+    if not arguments:
+        parser.print_help()
+        parser.exit(status=0)
+    parsed_arguments = parser.parse_args(args=arguments)
+
+    # A '~' the shell leaves after '=' points to the home folder, as in the other scripts of the repository
+    for path_name in ["experiment_folder", "repository", "saved_thresholds_path"]:
+        if getattr(parsed_arguments, path_name) is not None:
+            setattr(parsed_arguments, path_name, getattr(parsed_arguments, path_name).expanduser())
+    return parsed_arguments
+
+
+if __name__ == "__main__":
+    # Run folder and export settings read from the command line, the help printed when none is given
+    export_arguments = parse_export_arguments(arguments=sys.argv[1:])
+
+    # The harmless library warnings printed during the export are hidden unless --show_warnings is given
+    if not export_arguments.show_warnings:
         hide_known_export_warnings()
 
-    export_experiment(experiment_folder=experiment_folder, iteration=iteration,
-                      use_averaged_weights=use_averaged_weights, formats=formats, repository=repository,
-                      model_version=model_version, maximum_batch_size=maximum_batch_size,
-                      tensorrt_precision=tensorrt_precision, torchscript_precision=torchscript_precision,
-                      use_saved_temperature=use_saved_temperature, saved_thresholds_path=saved_thresholds_path,
-                      test_split_parity=test_split_parity)
+    export_experiment(experiment_folder=export_arguments.experiment_folder, iteration=export_arguments.iteration,
+                      use_averaged_weights=export_arguments.use_averaged_weights, formats=export_arguments.formats,
+                      repository=export_arguments.repository, model_version=export_arguments.model_version,
+                      maximum_batch_size=export_arguments.maximum_batch_size,
+                      tensorrt_precision=export_arguments.tensorrt_precision,
+                      torchscript_precision=export_arguments.torchscript_precision,
+                      use_saved_temperature=export_arguments.use_saved_temperature,
+                      saved_thresholds_path=export_arguments.saved_thresholds_path,
+                      test_split_parity=export_arguments.test_split_parity)

@@ -136,7 +136,7 @@
       `libonnxruntime.so`, inside `TRITONBACKEND_ModelInstanceExecute`) at the first batch-1 request, in FP32 and in
       FP16, about 19 seconds after the engine was built and written to the cache; the same `model.onnx` served by ONNX
       Runtime without TensorRT answered at batch 1 and 16. Until the cause is found, a keypoint export is written with
-      `tensorrt_precision = None` (keypoint workflow, deployment chapter 2). To find it: serve the graph cut after the
+      `--tensorrt_precision None` (keypoint workflow, deployment chapter 2). To find it: serve the graph cut after the
       heatmaps, then after the candidate extraction (`TopK` and the gathers of the candidates), and try a newer image.
     - **The four sequence models** (M2O, M2M, SEL and CMP of the tutorial runs): their batch-1 engine is
       built and answers, but the engine of the largest batch sent (6, 16, 16 and 3, the largest below 1 GB) is not:

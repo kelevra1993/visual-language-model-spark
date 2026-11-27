@@ -201,7 +201,7 @@ scenes:
       - {role: comment, text: "# Any checkpoint again, both decodings scored, set in the main block"}
       - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
       - {role: comment, text: "# The network, the decoder and the ensembles into the Triton repository"}
-      - {role: command, text: "uv run python -m vision_training.deployment.export_model"}
+      - {role: command, text: "uv run python -m vision_training.deployment.export_model --experiment_folder=<run folder>"}
     narration:
       - "The synthetic data set script writes the data set, given frame selection as its task argument."
       - "The training takes the synthetic configuration alone; the README run of this series trained it for {{frame_selection.training.last_iteration}} iterations at about {{frame_selection.training.median_sequences_per_second:.0f}} sequences per second."

@@ -80,12 +80,11 @@ uv run python -m vision_training.main --configuration_path="vision_training/conf
 #    main block of scripts/evaluation/evaluate_checkpoint.py, which writes in <run>/Checkpoint_Evaluation/
 uv run python -m scripts.evaluation.evaluate_checkpoint
 
-# 4. Export (CUDA only): set experiment_folder, iteration and formats in the main block of
-#    vision_training/deployment/export_model.py; every model gets the input contract of the run in
-#    <model>/<version>/preprocessing.json and, for ONNX, in the metadata of model.onnx (README, Input Contract);
-#    the served models are replaced only once every format matches the eager model, a failed check leaving them as
-#    they were
-uv run python -m vision_training.deployment.export_model
+# 4. Export (CUDA only): the run folder, iteration and formats are arguments (run it without any for its help);
+#    every model gets the input contract of the run in <model>/<version>/preprocessing.json and, for ONNX, in the
+#    metadata of model.onnx (README, Input Contract); the served models are replaced only once every format matches
+#    the eager model, a failed check leaving them as they were
+uv run python -m vision_training.deployment.export_model --experiment_folder <run folder> --iteration <iteration>
 ```
 
 The recipe of this configuration, with batch size 32 and the backbone of a shape pre-trainer, reached a mean IoU of 4.44 % at 1000 iterations on the 35-class dataset generated on 2026-11-19, predicting mostly the background; that run was stopped at about 1100 iterations, and the recipe for the 35 shapes is still to be studied.

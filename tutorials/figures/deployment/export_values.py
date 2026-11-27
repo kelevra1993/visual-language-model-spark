@@ -1,7 +1,7 @@
 """
 Values and listings of the export and serving chapters of the deployment tutorials, made at every build by
 tutorials/figures/deployment/figures.py from the code of the repository and from the real runs and exports named in
-tutorials/tutorial_sources.yaml: the settings of the main block of vision_training/deployment/export_model.py, the
+tutorials/tutorial_sources.yaml: the default arguments of vision_training/deployment/export_model.py, the
 batches the exports are traced and checked on and the comparison tolerances of every task (from
 get_export_specification of export_specifications.py, given stand-ins holding the attributes it reads), the config.pbtxt
 files the export writes for the README classifier and for the benchmark detector (write_triton_configuration on their
@@ -31,6 +31,7 @@ from tutorials.figures.figure_utilities import find_repository_file, find_run_fo
 from tutorials.figures.foundations.code_values import read_main_block_value, read_triton_host_ports
 from tutorials.figures.foundations.listings import capture_printed_text
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
+from vision_training.deployment.export_model import DEFAULT_EXPORT_SETTINGS
 from vision_training.deployment.export_size_estimates import estimate_export_sizes, print_export_size_summary
 from vision_training.deployment.export_specifications import build_input_specification, get_export_specification
 from vision_training.deployment.frame_selection_deployment import DECODER_OUTPUT_TYPES
@@ -43,9 +44,6 @@ from vision_training.models.model_transfer import TRANSFERABLE_COMPONENTS
 # Optimizer of every 'Optimization.optimizer' of the configurations, as BaseTrainer.create_optimizer builds it, of
 # which the checkpoint estimate only reads the class and the momentum
 OPTIMIZER_CLASSES = {"adam": torch.optim.Adam, "adamw": torch.optim.AdamW, "sgd": torch.optim.SGD}
-
-# Export script, whose main block sets the formats, the version, the largest batch size and the TensorRT precision
-EXPORT_SCRIPT = Path("vision_training") / "deployment" / "export_model.py"
 
 # Script measuring the throughput of a run in the process and through Triton, whose main block sets its requests
 RUN_INFERENCE_SCRIPT = Path("vision_training") / "deployment" / "run_inference.py"
@@ -90,25 +88,19 @@ CONFIGURATION_VALUE_PATTERNS = {"queue_delay_microseconds": r"max_queue_delay_mi
                                 "maximum_batch_size": r"max_batch_size: (\d+)"}
 
 
-def describe_export_settings(repository_folder: Path) -> Dict[str, Any]:
+def describe_export_settings() -> Dict[str, Any]:
     """
-    Reads the settings of the main block of the export script that the export chapter quotes, so that a sentence
-    naming the default batch size, version or precision follows the script.
-
-    Args:
-        repository_folder (Path): The repository root.
+    Reads the default arguments of the export script that the export chapter quotes (DEFAULT_EXPORT_SETTINGS of
+    export_model.py), so that a sentence naming the default batch size, version or precision follows the script.
 
     Returns:
         Dict[str, Any]: The facts export.maximum_batch_size, export.model_version, export.tensorrt_precision and
             export.format_count.
     """
-    script_path = repository_folder / EXPORT_SCRIPT
-    return {"export.maximum_batch_size": read_main_block_value(script_path=script_path,
-                                                               variable_name="maximum_batch_size"),
-            "export.model_version": read_main_block_value(script_path=script_path, variable_name="model_version"),
-            "export.tensorrt_precision": read_main_block_value(script_path=script_path,
-                                                               variable_name="tensorrt_precision"),
-            "export.format_count": len(read_main_block_value(script_path=script_path, variable_name="formats"))}
+    return {"export.maximum_batch_size": DEFAULT_EXPORT_SETTINGS["maximum_batch_size"],
+            "export.model_version": DEFAULT_EXPORT_SETTINGS["model_version"],
+            "export.tensorrt_precision": DEFAULT_EXPORT_SETTINGS["tensorrt_precision"],
+            "export.format_count": len(DEFAULT_EXPORT_SETTINGS["formats"])}
 
 
 def describe_run_inference_settings(repository_folder: Path) -> Dict[str, Any]:
@@ -534,7 +526,7 @@ def make_export_values(output_folder: Path, experiments_folder: Path) -> Dict[st
 
     # Outputs of the frame selection decoder, then the settings of the export script and everything derived from them
     write_decoder_outputs_listing(output_path=output_folder / "listings" / "decoder_outputs.txt")
-    export_settings = describe_export_settings(repository_folder=repository_folder)
+    export_settings = describe_export_settings()
     triton_facts = describe_triton_configurations(
         output_folder=output_folder, classification_run_folder=classification_run_folder,
         detection_run_folder=detection_run_folder, export_settings=export_settings)

@@ -15,7 +15,7 @@ from vision_training.deployment.deployment_utilities import (get_served_model, l
 if __name__ == "__main__":
     # Trained experiment of any task, giving the input size, resizing mode and maximum sequence length (and the
     # weights of the local run and the names of its served models), here the 35-class synthetic shapes classifier of the
-    # README, kept with the tutorial runs, whose last saved checkpoint is the iteration 2000 export_model.py exports
+    # README, kept with the tutorial runs, its last saved checkpoint (iteration 2000) exported by export_model.py
     run_name = "CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35"
     experiment_folder = Path.home() / "Data" / "tutorial_runs" / "readme_screenshots" / run_name
     # Folder of the images sent to the models, one image per request (the whole folder as one sequence for the
