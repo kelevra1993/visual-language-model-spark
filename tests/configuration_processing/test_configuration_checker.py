@@ -104,13 +104,13 @@ def set_overlapping_thresholds(configuration: Dict[str, Any]) -> None:
 
 def set_invalid_neck_settings(configuration: Dict[str, Any]) -> None:
     """
-    Gives the neck an unknown type, no output channel and an unknown normalization.
+    Gives the neck an unknown type, no output channel and an unknown normalization, its 'pretrained' settings kept.
 
     Args:
         configuration (Dict[str, Any]): The raw example configuration, modified in place.
     """
-    configuration["Neck"] = {"type": "bidirectional_pyramid", "output_channels": 0,
-                             "normalization": {"feature_map_normalization": "group"}}
+    configuration["Neck"].update({"type": "bidirectional_pyramid", "output_channels": 0,
+                                  "normalization": {"feature_map_normalization": "group"}})
 
 
 def set_unknown_box_loss(configuration: Dict[str, Any]) -> None:
@@ -2026,6 +2026,85 @@ def test_head_class_layers_need_a_source_run(tmp_path: Path, capsys: pytest.Capt
     assert ("'Detector.pretrained.class_layers' must be False when 'Detector.pretrained.experiment_folder' is null: "
             "the class layers are loaded from the source run of the detection heads.") in printed_output
     assert "'MaskHead.pretrained.class_layers' must be True or False, got 'no'." in printed_output
+    assert "Traceback" not in printed_output
+
+
+def transfer_frozen_neck(configuration: Dict[str, Any]) -> None:
+    """
+    Initialises the feature pyramid neck of the example detection configuration with the neck of another run, frozen.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["Neck"]["pretrained"].update({"experiment_folder": "/runs/source", "freeze": True,
+                                                "learning_rate_multiplier": 0.5})
+
+
+def test_transferred_neck_is_accepted(tmp_path: Path) -> None:
+    """
+    Verifies that a feature pyramid neck initialised by the neck of another run and frozen passes the checks, the source
+    run being only read when the training starts.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = write_modified_configuration(temporary_directory=tmp_path,
+                                                      modify_function=transfer_frozen_neck)
+    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
+    assert model_configuration["Neck"]["type"] == "feature_pyramid"
+    assert model_configuration["Neck"]["pretrained"] == {"experiment_folder": "/runs/source", "iteration": None,
+                                                         "freeze": True, "learning_rate_multiplier": 0.5}
+
+
+def transfer_missing_neck(configuration: Dict[str, Any]) -> None:
+    """
+    Initialises the neck of the example detection configuration with the neck of another run while the run has no
+    neck, which has no layer to load.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["Neck"]["type"] = "none"
+    configuration["Neck"]["pretrained"]["experiment_folder"] = "/runs/source"
+
+
+def freeze_random_neck(configuration: Dict[str, Any]) -> None:
+    """
+    Freezes the neck of the example detection configuration without a source run, and gives it a learning rate
+    multiplier of 0.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["Neck"]["pretrained"].update({"freeze": True, "learning_rate_multiplier": 0})
+
+
+@pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
+    (transfer_missing_neck, ["'Neck.pretrained.experiment_folder' must be null when 'Neck.type' is \"none\": a run "
+                             "without neck has no layer to load."]),
+    (freeze_random_neck, ["'Neck.pretrained.freeze' must be False when 'Neck.pretrained.experiment_folder' is null: "
+                          "only a transferred neck can be frozen.",
+                          "'Neck.pretrained.learning_rate_multiplier' must be > 0, got 0."])])
+def test_inconsistent_neck_transfers_are_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
+                                                  modify_function: Callable[[Dict[str, Any]], None],
+                                                  expected_messages: List[str]) -> None:
+    """
+    Verifies that the 'pretrained' settings of the neck are checked as those of the other components, and that a run
+    without neck refuses a source run for it, the loading stopping with a short message naming the faulty key.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+        modify_function (Callable[[Dict[str, Any]], None]): Function altering the raw example configuration.
+        expected_messages (List[str]): The messages the check must print.
+    """
+    configuration_path = write_modified_configuration(temporary_directory=tmp_path, modify_function=modify_function)
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+
+    printed_output = capsys.readouterr().out
+    for expected_message in expected_messages:
+        assert expected_message in printed_output
     assert "Traceback" not in printed_output
 
 

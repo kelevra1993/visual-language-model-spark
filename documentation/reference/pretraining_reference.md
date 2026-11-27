@@ -69,7 +69,7 @@ Whenever a size has its pretrained backbone, the detector loads it into its 7-bl
 
 1. Convert Open Images V7 (1.74 million training images, 601 classes, boxes in `detections.csv`) into COCO `labels.json` ([Open Images V7 Splits](#open-images-v7-splits)).
 2. Pretrain the detector of each size on Open Images ([Detection Configurations](#detection-configurations)).
-3. Fine-tune it on COCO 2017 (80 classes) and compare its validation box mAP with published results.
+3. Fine-tune it on COCO 2017 (80 classes) and compare its validation box mAP with published results. The backbone, neck and heads load from the Open Images run, the heads with `class_layers: False`.
 4. Keep the Open Images detector as the start of projects whose classes are not in COCO.
 
 #### Open Images V7 Splits
@@ -91,7 +91,7 @@ Should you launch the Open Images pretraining of a size, use the `configuration_
 Before choosing the anchors, the `compute_anchor_coverage` diagnosis measured the share of objects with an anchor at IoU 0.5 or more. The kept anchors cover 90.7 % of the objects and 71.9 % of those under 32 pixels a side, against 79.8 % and 40.7 % for the detection benchmark anchors. Level 3 brings most of the small-object gain, for +20 % GPU memory (S) and about 14 % fewer images per second.
 
 ### Instance Segmentation
-So that the backbone, pyramid and proposal network are not trained twice, each model starts from the COCO detector of its size. Only the mask head starts random.
+So that the backbone, pyramid and proposal network are not trained twice, each model starts from the COCO detector of its size. The `pretrained` blocks of `Backbone`, `Neck`, `RegionProposal` and `Detector` name that run. Only the mask head starts random.
 
 1. Fine-tune on the COCO masks, with the mask head kept by the instance segmentation benchmark.
 2. Record the mask and box mAP on the COCO validation set.

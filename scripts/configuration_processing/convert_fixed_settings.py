@@ -15,8 +15,9 @@ fusion convolutions of its 'MaskHead' section, none; the 'benchmark_speed' diagn
 flag of the 'pretrained' block of the 'ClassificationHead' section of the
 classification-like tasks and the 'class_layers' flag of the 'pretrained' block of the 'Detector' section of the
 detection tasks, of the 'MaskHead' section of the instance segmentation and of the 'KeypointHead' section of the
-keypoint detection, True for heads transferred from another run, which loaded their class layers, False otherwise),
-and renames the settings of RENAMED_SETTINGS ('SegmentationDecoder.pretrained.load_class_layers', now 'class_layers'),
+keypoint detection, True for heads transferred from another run, which loaded their class layers, False otherwise;
+the 'pretrained' block of the 'Neck' section of the detection tasks, a neck starting from random weights), and
+renames the settings of RENAMED_SETTINGS ('SegmentationDecoder.pretrained.load_class_layers', now 'class_layers'),
 so that the training_configuration.yaml of the saved runs, reloaded to resume a run, by
 scripts/evaluation/evaluate_checkpoint.py and by the export, and the launch files of vision_training/main.py load
 again.
@@ -95,7 +96,23 @@ RECORD_ONLY_SETTINGS = {"RegionProposal.box_loss": "the CIoU box loss of the reg
                         "MaskHead.mask_scoring.activated": "the mask scoring of Mask Scoring R-CNN was removed, the "
                                                            "masks always being ranked by their class scores"}
 
-# Text of the 'Neck' section added to the detection runs written before the neck, whose heads read the blocks
+# Lines of the 'pretrained' block added to the 'Neck' section of the detection runs written before the neck transfer,
+# whose neck started from random weights
+NECK_PRETRAINED_LINES = [
+    '# Neck of another DET or INS run initialising this one: same type (not "none"), output_channels, normalization,',
+    '# levels and level block channels; load it from the run of the heads loaded behind it, which read its outputs.',
+    'pretrained:',
+    '  # Run folder of the loaded neck, null for random weights; not reloaded when the run resumes.',
+    '  experiment_folder: null',
+    '  # Checkpoint iteration, null for the last one.',
+    '  iteration: null',
+    '  # Freezes the loaded neck (no gradient, frozen batch statistics). Requires experiment_folder.',
+    '  freeze: False',
+    '  # Learning rate factor of the loaded neck, e.g. 0.1 to train it 10x slower.',
+    '  learning_rate_multiplier: 1.0']
+
+# Text of the 'Neck' section added to the detection runs written before the neck, whose heads read the blocks, with
+# the 'pretrained' block of a neck starting from random weights
 NECK_SECTION_TEXT = """# Neck between the level blocks and the heads, every level keeping the size of its block.
 Neck:
   # "none" (heads read the blocks), "feature_pyramid" (top-down path from the coarse levels) or "path_aggregation"
@@ -106,7 +123,7 @@ Neck:
   normalization:
     # "batch", "layer" (over channels) or "none"
     feature_map_normalization: "batch"
-"""
+""" + "".join(f"  {line}\n" for line in NECK_PRETRAINED_LINES)
 
 # Sections a task now requires, added to the files of its runs written before them: the tasks holding the section, the
 # top-level section it is written before, and its text, whose values reproduce those runs
@@ -251,7 +268,9 @@ ADDED_SETTINGS = {"Detector.box_loss": {"tasks": ["object_detection", "instance_
                       "lines": comment_lines + ["class_layers: False"],
                       "lines_when_set": {"key_path": f"{section_name}.pretrained.experiment_folder",
                                          "lines": comment_lines + ["class_layers: True"]}}
-                     for section_name, comment_lines in HEAD_CLASS_LAYERS_COMMENT_LINES.items()}}
+                     for section_name, comment_lines in HEAD_CLASS_LAYERS_COMMENT_LINES.items()},
+                  "Neck.pretrained": {"tasks": ["object_detection", "instance_segmentation"],
+                                      "after": "Neck.normalization", "lines": NECK_PRETRAINED_LINES}}
 
 # Settings renamed in the files of some tasks, by their path before the renaming: the tasks holding the setting and its
 # new name, the setting keeping its value and its place, and the mentions of the old name in the comments of its
@@ -283,8 +302,9 @@ KEY_LINE_PATTERN = re.compile(pattern=r"^(\s*)([A-Za-z0-9_]+):(.*)$")
 # 'ClassificationHead.pretrained.class_layer' added on 2026-11-24, then '_before_class_layers' for the
 # 'pretrained.class_layers' of the detection, mask and keypoint heads added and the
 # 'SegmentationDecoder.pretrained.load_class_layers' renamed on 2026-11-24, then '_before_mask_scoring_removal' for the
-# removal of the 'MaskHead.mask_scoring' on 2026-11-27
-DEFAULT_BACKUP_SUFFIX = "_before_mask_scoring_removal"
+# removal of the 'MaskHead.mask_scoring' on 2026-11-27, then '_before_neck_pretrained' for the 'Neck.pretrained' block
+# added on 2026-11-27
+DEFAULT_BACKUP_SUFFIX = "_before_neck_pretrained"
 
 
 def get_indentation(line: str) -> int:
@@ -674,13 +694,20 @@ def check_conversion(original_text: str, converted_text: str, task: str, configu
             expected_settings.update(flatten_settings(settings=yaml.safe_load(added_section["text"])))
 
     # Settings the task requires inside its sections and the original file lacked, with the values of ADDED_SETTINGS
-    # chosen for the original file, a file without the section of a setting (a partial draft) staying without it
+    # chosen for the original file, a file without the section of a setting (a partial draft) staying without it. An
+    # added block of settings ('Neck.pretrained') is held by the file when it holds any setting inside it, and its
+    # values are compared setting by setting
     for key_path, added_setting in ADDED_SETTINGS.items():
-        if task in added_setting["tasks"] and key_path not in original_settings and \
+        original_holds_setting = key_path in original_settings or \
+            any(path.startswith(f"{key_path}.") for path in original_settings)
+        if task in added_setting["tasks"] and not original_holds_setting and \
                 holds_parent_section(key_paths=list(expected_settings), key_path=key_path):
             added_lines = select_added_lines(added_setting=added_setting, settings=yaml.safe_load(original_text))
-            added_values = yaml.safe_load(stream="\n".join(added_lines))
-            expected_settings[key_path] = added_values[key_path.split(".")[-1]]
+            added_value = yaml.safe_load(stream="\n".join(added_lines))[key_path.split(".")[-1]]
+            if isinstance(added_value, dict) and added_value:
+                expected_settings.update(flatten_settings(settings=added_value, prefix=key_path))
+            else:
+                expected_settings[key_path] = added_value
     if converted_settings != expected_settings:
         # Settings lost or added by the conversion, and settings whose value changed
         changed_paths = sorted(set(expected_settings) ^ set(converted_settings) |

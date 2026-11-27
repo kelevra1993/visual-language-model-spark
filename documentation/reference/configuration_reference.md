@@ -62,6 +62,7 @@ Whenever a task cannot use a value, its check refuses it. Keys not listed accept
 **DET and INS**
 - Every level of `DetectionLevels` holds exactly `anchors`, `region_proposal` and `detector`; INS adds `mask_head`.
 - `Neck.type`: `none`, `feature_pyramid` or `path_aggregation`. With a neck, every level is a whole multiple of the next coarser one.
+- `Neck.pretrained.experiment_folder`: null when `Neck.type` is `none`, a run without neck having no layer to load.
 - `Detector.box_loss`: `smooth_l1` or `complete_iou`. The region proposal network always uses smooth L1.
 - `Detector.nms_criterion`: `iou` or `distance_iou`, with `nms_distance_exponent` a finite positive number. Neither enters the run name.
 - `RegionProposal.proposal_selection`: `joint` or `per_level`. `per_level` makes `pre_nms_proposals` a count per level.
@@ -209,6 +210,7 @@ The table lists every token, the setting it comes from and its tasks.
 | Backbone | `PT`, `FRZ`, `FBN` | `Backbone.pretrained`, `freeze`, `freeze_normalization_parameters` | all |
 | Levels | `L<blocks>` | the keys of `DetectionLevels` | DET, INS |
 | Levels | `NFPN<channels><BN, LN or NN>`, `NPAN…` | `Neck.type`, `output_channels`, `normalization` | DET, INS |
+| Levels | `NPT`, `NFRZ` | `Neck.pretrained`, `freeze` | DET, INS |
 | Anchors | `A<anchors>.<smallest>-<largest>.<hash>` | anchors per position, scale range, first 6 characters of the SHA-256 of scales and ratios | DET, INS |
 | Region proposal | `RBN`, `RLN`, `RNN`, `R<layers>x<filters>`, `RPL`, `RPT`, `RFRZ` | normalization, convolutions, `per_level` selection, pretrained, frozen | DET, INS |
 | Detector | `DSE`, `DRES`, `DINC`, `DBN`, `DLN`, `DNN` | `Detector.modules`, normalization | DET, INS |

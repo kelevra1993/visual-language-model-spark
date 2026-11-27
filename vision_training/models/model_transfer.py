@@ -1,16 +1,17 @@
 """
-Transfer of trained components between runs: the architecture checks of the backbone, temporal module,
-classification head, segmentation decoder, region proposal heads, detection heads, mask heads, high resolution network
-and keypoint head, the loading of a pretrained component from the checkpoint of another run (its averaged weights when
-it kept a moving average and the new run keeps one), the first blocks of a deeper backbone initialising a shorter one
-(the stem of the keypoint detector from an ImageNet backbone) and a shorter backbone initialising the first blocks of
-a deeper one (its next blocks staying random, and only its loaded blocks frozen or fine-tuned at the multiplier of the
-transfer), the class layers of a run adding classes after those of its source run or holding them in another order
-(the source classes keeping their trained rows, at the index of the same class name, the new classes the random rows
-of the new run), the classification, detection, mask and keypoint heads loaded without their class layers for a run of
-other classes (their class layers keeping the random initialisation of the new run and learning at its learning rate),
-the class layers of the semantic segmentation loaded with its decoder, and the freezing of components, normalization
-parameters and batch statistics.
+Transfer of trained components between runs: the architecture checks of the backbone, temporal module, classification
+head, segmentation decoder, region proposal heads, detection heads, mask heads, high resolution network, keypoint head
+and neck of the detection tasks (whose heads only move between runs of the same neck type and channels, with a warning
+when the neck of the new run is not the one they were trained behind), the loading of a pretrained component from the
+checkpoint of another run (its averaged weights when it kept a moving average and the new run keeps one), the first
+blocks of a deeper backbone initialising a shorter one (the stem of the keypoint detector from an ImageNet backbone) and
+a shorter backbone initialising the first blocks of a deeper one (its next blocks staying random, and only its loaded
+blocks frozen or fine-tuned at the multiplier of the transfer), the class layers of a run adding classes after those of
+its source run or holding them in another order (the source classes keeping their trained rows, at the index of the same
+class name, the new classes the random rows of the new run), the classification, detection, mask and keypoint heads
+loaded without their class layers for a run of other classes (their class layers keeping the random initialisation of
+the new run and learning at its learning rate), the class layers of the semantic segmentation loaded with its decoder,
+and the freezing of components, normalization parameters and batch statistics.
 Used by the base trainer and by scripts/evaluation/evaluate_checkpoint.py.
 """
 
@@ -36,12 +37,12 @@ from vision_training.utilities.os_utilities import format_path_link, print_color
 # dictionaries. Their order is the order of the optimizer parameter groups of the components learning at their own
 # speed, the heads of the detection tasks, then the mask heads of the instance segmentation and the high resolution
 # network and keypoint head (heatmap and tag convolution with the higher resolution branch) of the keypoint detection,
-# coming last so that the runs written before them keep their groups
+# then the neck of the detection tasks, coming last so that the runs written before them keep their groups
 TRANSFERABLE_COMPONENTS = {"Backbone": "backbone", "TemporalModel": "temporal_module",
                            "ClassificationHead": "classification_head", "SegmentationDecoder": "segmentation_decoder",
                            "RegionProposal": "region_proposer_dictionary", "Detector": "detector_heads_dictionary",
                            "MaskHead": "mask_heads_dictionary", "HRNet": "high_resolution_network",
-                           "KeypointHead": "keypoint_head"}
+                           "KeypointHead": "keypoint_head", "Neck": "neck"}
 
 # Names of the components whose attribute does not read as a name in the messages of the transfer
 COMPONENT_NAMES = {"RegionProposal": "region proposal heads", "Detector": "detection heads",
@@ -132,6 +133,10 @@ DETECTION_HEAD_WEIGHT_KEYS = {"RegionProposal": ["normalization"], "Detector": [
                               "MaskHead": ["shared", "mask_resolution", "upsampling", "normalization", "modules",
                                            "skip_blocks_at_pool_size", "image_branch_convolutions",
                                            "skip_blocks_at_mask_resolution", "fusion_convolutions"]}
+
+# Settings of the neck defining its weights besides its type, which is compared first: the channels of its outputs and
+# the normalization of its convolutions (without the batch normalization momentum, which changes no tensor)
+NECK_WEIGHT_KEYS = ["output_channels", "normalization"]
 
 # Settings of the heads added after the first runs, with the value of the runs written before them: the mask heads of
 # a source run written before their finer inputs read the map of their level alone, and those written before their
@@ -471,13 +476,14 @@ def compare_detection_heads(section_name: str, source_configuration: Dict[str, A
     """
     Lists the differences between the settings defining the weights of the region proposal heads, of the detection
     heads or of the mask heads of two runs of the detection tasks (DET or INS, INS only for the mask heads): their
-    detection levels (the keys of 'DetectionLevels'), the neck whose outputs they read (both runs without neck, a
-    source run written before the neck counting as none), the head of every level (DETECTION_LEVEL_COMPONENTS), the
-    settings of DETECTION_HEAD_WEIGHT_KEYS (the normalization without its batch normalization momentum, which
-    changes no tensor, and a source run written before a setting holding the value of DETECTION_HEAD_DEFAULTS) and,
-    for the region proposal heads, the number of anchors per position of every level.
-    The channels of the backbone blocks they read are compared on the weights themselves, and the classes of the
-    detection and mask heads (classifier, per-class box regressor, per-class mask predictor) by
+    detection levels (the keys of 'DetectionLevels'), the neck whose outputs they read (the same 'Neck.type' in both
+    runs, a source run written before the neck counting as none, and with a neck the same 'Neck.output_channels', the
+    channels of the levels they read; the normalization of the neck changes no weight of the heads), the head of every
+    level (DETECTION_LEVEL_COMPONENTS), the settings of DETECTION_HEAD_WEIGHT_KEYS (the normalization without its
+    batch normalization momentum, which changes no tensor, and a source run written before a setting holding the value
+    of DETECTION_HEAD_DEFAULTS) and, for the region proposal heads, the number of anchors per position of every level.
+    The channels of the backbone blocks they read without neck are compared on the weights themselves, and the
+    classes of the detection and mask heads (classifier, per-class box regressor, per-class mask predictor) by
     load_pretrained_component, the run receiving the heads being allowed to add classes after those of the source run
     or to hold them at other indices under the same names, or to have unrelated classes when the heads are loaded
     without their class layers ('pretrained.class_layers' False).
@@ -497,15 +503,23 @@ def compare_detection_heads(section_name: str, source_configuration: Dict[str, A
         return [f"The detection levels are {source_levels!r} in the source run and {target_levels!r} in this run, "
                 f"the levels of the {get_component_name(section_name=section_name)}."]
 
-    # Heads read the levels after the neck, which is not transferable: heads trained after a neck would read a new,
-    # untrained neck, and heads trained on the blocks would read a neck, so they only move between runs without neck
+    # Heads read the levels after the neck: heads trained on the blocks would read the outputs of a neck and the
+    # reverse, so they only move between runs of the same neck type, whose outputs have the same channels. Heads
+    # trained behind a neck read its features best behind the same trained neck ('Neck.pretrained'), which
+    # warn_heads_behind_another_neck reports when it comes from elsewhere
     differences = []
-    source_neck_type = {**NECK_DEFAULTS, **source_configuration}["Neck"]["type"]
-    target_neck_type = target_configuration["Neck"]["type"]
-    if source_neck_type != "none" or target_neck_type != "none":
-        differences.append(f"'Neck.type' is {source_neck_type!r} in the source run and {target_neck_type!r} in this "
-                           f"run: the {get_component_name(section_name=section_name)} only move between runs whose "
-                           f"neck is 'none', the neck itself not being transferable.")
+    component_name = get_component_name(section_name=section_name)
+    source_neck_configuration = {**NECK_DEFAULTS, **source_configuration}["Neck"]
+    target_neck_configuration = target_configuration["Neck"]
+    if source_neck_configuration["type"] != target_neck_configuration["type"]:
+        differences.append(f"'Neck.type' is {source_neck_configuration['type']!r} in the source run and "
+                           f"{target_neck_configuration['type']!r} in this run: the {component_name} read the levels "
+                           f"after the neck, the backbone blocks without neck.")
+    elif target_neck_configuration["type"] != "none" and \
+            source_neck_configuration["output_channels"] != target_neck_configuration["output_channels"]:
+        differences.append(f"'Neck.output_channels' is {source_neck_configuration['output_channels']!r} in the source "
+                           f"run and {target_neck_configuration['output_channels']!r} in this run, the channels of "
+                           f"the levels read by the {component_name}.")
 
     # Layers of the head of every level
     level_component = DETECTION_LEVEL_COMPONENTS[section_name]
@@ -541,6 +555,58 @@ def compare_detection_heads(section_name: str, source_configuration: Dict[str, A
         if anchor_counts[0] != anchor_counts[1]:
             differences.append(f"The levels have {anchor_counts[0]} anchors per position in the source run and "
                                f"{anchor_counts[1]} in this run, the outputs of the region proposal heads.")
+    return differences
+
+
+def compare_necks(source_configuration: Dict[str, Any], target_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Lists the differences between the settings defining the weights of the necks of two runs of the detection tasks
+    (DET or INS), the layers between the backbone blocks of the detection levels and the region proposal, detection and
+    mask heads: the type of the neck, then its output channels and the normalization of its convolutions
+    (NECK_WEIGHT_KEYS, without the batch normalization momentum, which changes no tensor), the detection levels, one
+    lateral and one output convolution being built per level, and the output channels of the backbone blocks of the
+    levels, the input channels of the laterals. A run without neck ('none') has no layer to load, which the
+    configuration check refuses before the transfer.
+
+    Args:
+        source_configuration (Dict[str, Any]): The whole configuration of the source run, as saved in its folder.
+        target_configuration (Dict[str, Any]): The model configuration of the run receiving the neck.
+
+    Returns:
+        List[str]: The description of every difference, empty when the weights of the necks match.
+    """
+    # Necks of other types hold other layers, nothing else being comparable
+    source_neck_configuration = source_configuration["Neck"]
+    target_neck_configuration = target_configuration["Neck"]
+    if source_neck_configuration["type"] != target_neck_configuration["type"]:
+        return [f"'Neck.type' is {source_neck_configuration['type']!r} in the source run and "
+                f"{target_neck_configuration['type']!r} in this run."]
+
+    # Output channels and normalization of every convolution of the neck
+    differences = []
+    for key_name in NECK_WEIGHT_KEYS:
+        compared_source_value = source_neck_configuration[key_name]
+        compared_target_value = target_neck_configuration[key_name]
+        if key_name == "normalization":
+            compared_source_value = get_weight_normalization(normalization_configuration=compared_source_value)
+            compared_target_value = get_weight_normalization(normalization_configuration=compared_target_value)
+        if compared_source_value != compared_target_value:
+            differences.append(f"'Neck.{key_name}' is {source_neck_configuration[key_name]!r} in the source run and "
+                               f"{target_neck_configuration[key_name]!r} in this run.")
+
+    # One lateral and one output convolution per level, whose blocks give the input channels of the laterals
+    source_levels = sorted(source_configuration["DetectionLevels"], key=int)
+    target_levels = sorted(target_configuration["DetectionLevels"], key=int)
+    if source_levels != target_levels:
+        differences.append(f"The detection levels are {source_levels!r} in the source run and {target_levels!r} in "
+                           f"this run, one lateral and one output convolution of the neck per level.")
+        return differences
+    block_channels = [{level_key: configuration["Backbone"]["convolutions"][level_key][1]
+                       for level_key in target_levels}
+                      for configuration in [source_configuration, target_configuration]]
+    if block_channels[0] != block_channels[1]:
+        differences.append(f"The backbone blocks of the levels have {block_channels[0]} output channels in the source "
+                           f"run and {block_channels[1]} in this run, the input channels of the laterals of the neck.")
     return differences
 
 
@@ -644,7 +710,9 @@ def compare_component_configurations(section_name: str, source_configuration: Di
     if section_name == "SegmentationDecoder":
         return compare_segmentation_decoders(source_configuration=source_configuration,
                                              target_configuration=target_configuration)
-    # The heads of the detectors, the high resolution network and the keypoint head
+    # The neck and the heads of the detectors, the high resolution network and the keypoint head
+    if section_name == "Neck":
+        return compare_necks(source_configuration=source_configuration, target_configuration=target_configuration)
     if section_name in DETECTION_HEAD_WEIGHT_KEYS:
         return compare_detection_heads(section_name=section_name, source_configuration=source_configuration,
                                        target_configuration=target_configuration)
@@ -1354,15 +1422,57 @@ def select_transferred_part(component: nn.Module, section_name: str, number_load
          next(module.buffers(recurse=False), None) is not None)])
 
 
+def warn_heads_behind_another_neck(section_name: str, model_configuration: Dict[str, Any], source_folder: Path,
+                                   checkpoint_path: Path) -> None:
+    """
+    Warns, when the region proposal, detection or mask heads of a run with a neck are loaded from another run, that the
+    neck of this run is not the one they were trained behind: a neck starting from random weights, the neck of another
+    run or the neck of another checkpoint of their run gives them other features than those they learned to read. The
+    heads still load, their weights fitting any neck of the same type and channels (compare_detection_heads), so that
+    the neck can also be trained again on purpose; 'Neck.pretrained' naming the checkpoint of the heads gives no
+    warning.
+
+    Args:
+        section_name (str): "RegionProposal", "Detector" or "MaskHead".
+        model_configuration (Dict[str, Any]): The model configuration of the run receiving the heads, with the
+            'Neck.pretrained' settings.
+        source_folder (Path): The run folder the heads are loaded from.
+        checkpoint_path (Path): The checkpoint file the heads are loaded from.
+    """
+    # Without neck the heads read the backbone blocks, whatever their source
+    if model_configuration["Neck"]["type"] == "none":
+        return
+
+    # Where the neck of this run comes from, compared with the checkpoint of the heads
+    neck_pretrained_configuration = model_configuration["Neck"]["pretrained"]
+    neck_folder = neck_pretrained_configuration["experiment_folder"]
+    if neck_folder is None:
+        neck_description = "Starts From Random Weights"
+    elif Path(neck_folder).resolve() != source_folder.resolve():
+        neck_description = f"Comes From Another Run ({format_path_link(path=neck_folder)})"
+    else:
+        neck_checkpoint_path = get_checkpoint_path(experiment_folder=Path(neck_folder),
+                                                   iteration=neck_pretrained_configuration["iteration"])
+        if neck_checkpoint_path.resolve() == checkpoint_path.resolve():
+            return
+        neck_description = f"Comes From Another Checkpoint Of Their Run ({format_path_link(path=neck_checkpoint_path)})"
+    print_color(color="yellow", output=f"The Pretrained {get_component_name(section_name=section_name).title()} Were "
+                                       f"Trained Behind The Neck Of Their Source Run, But The Neck Of This Run "
+                                       f"{neck_description}: Set 'Neck.pretrained' To The Same Run And Iteration So "
+                                       f"That They Read The Features They Were Trained On.")
+
+
 def load_pretrained_component(component: nn.Module, section_name: str, model_configuration: Dict[str, Any],
                               device: torch.device, class_names: Optional[List[str]] = None) -> Path:
     """
     Initialises a component of a new run (backbone, temporal module, classification head, segmentation decoder,
-    region proposal heads, detection heads, mask heads, high resolution network or keypoint head) with the trained
-    component of another run, as set by
+    region proposal heads, detection heads, mask heads, high resolution network, keypoint head or neck) with the
+    trained component of another run, as set by
     '<section>.pretrained': every task model stores the shared components under the same attributes, so a backbone
     trained for classification can initialise a detector or a segmenter, the temporal module of a sequence classifier
-    a sequence labeller or comparator, the heads of an object detector an instance segmenter, and so on. The settings
+    a sequence labeller or comparator, the neck and heads of an object detector an instance segmenter, and so on. Heads
+    trained behind a neck are reported when the neck of the new run does not come from their checkpoint (see
+    warn_heads_behind_another_neck). The settings
     defining the component must be identical in both runs (see compare_component_configurations), then its tensors
     must fit exactly (see compare_state_dictionaries). A backbone may come from a run of another input image size,
     the convolutions not depending on it, which is reported since the features were learned at another scale, a
@@ -1469,10 +1579,15 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
                              f"Initialise This Run, Its Heatmap And Tag Channels Predicting Other Keypoints: " +
                              " ".join(channel_differences))
 
-    # Keep the tensors of the component in the source model, its averaged weights when both runs keep a moving
-    # average, without their prefix
+    # Heads trained behind a neck read other features when the neck of this run is not the one of their checkpoint
     checkpoint_path = get_checkpoint_path(experiment_folder=source_folder,
                                           iteration=pretrained_configuration["iteration"])
+    if section_name in DETECTION_LEVEL_COMPONENTS:
+        warn_heads_behind_another_neck(section_name=section_name, model_configuration=model_configuration,
+                                       source_folder=source_folder, checkpoint_path=checkpoint_path)
+
+    # Keep the tensors of the component in the source model, its averaged weights when both runs keep a moving
+    # average, without their prefix
     model_state, averaged_weights = read_checkpoint_model_state(
         checkpoint_path=checkpoint_path, device=device,
         use_averaged_weights=model_configuration["Optimization"]["exponential_moving_average"]["activated"])
