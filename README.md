@@ -41,7 +41,7 @@
 - [Metrics Explained](#metrics-explained)
 
 ## Description
-If you are new to the repository, start from its tasks: it trains, evaluates and exports PyTorch models for nine vision tasks, plus a self-supervised task that pre-trains backbones. All tasks share one backbone design (each run training its own weights), the training loop, the configuration format, the evaluation report and the export to Triton.
+If you are new to the repository, start from its tasks: it trains, evaluates and exports PyTorch models for nine vision tasks, plus a self-supervised task that pre-trains backbones.
 
 | Code | Task | Input | Output |
 |---|---|---|---|
@@ -56,6 +56,8 @@ If you are new to the repository, start from its tasks: it trains, evaluates and
 | SEL | `frame_selection` | a sequence of frames | the frames of every wanted class |
 | SSL | `self_supervised` | one unlabelled image (two random views of it) | a representation whose backbone initialises the other tasks |
 
+The figure below shows the architecture of every task, all built on one backbone design:
+
 <p align="center">
   <img src="README/architectures.png" width="100%" />
 </p>
@@ -64,11 +66,11 @@ If this README is not enough, see `documentation/`:
 
 | To ... | Read |
 |---|---|
-| follow a run: run folder, console, resuming, augmentations, input viewer, moving average, transfer | [Training reference](documentation/reference/training_reference.md) |
-| prepare data: synthetic datasets, label format, converters, losses and metrics of every task | [Tasks reference](documentation/reference/tasks_reference.md) |
-| set a configuration key, read an evaluation output, a run name or an MLflow metric | [Configuration reference](documentation/reference/configuration_reference.md) |
-| evaluate a checkpoint, compare launches, cluster embeddings, export or serve a model | [Tools reference](documentation/reference/tools_reference.md) |
-| pre-train the Small, Medium and Large backbones on ImageNet-22k and Open Images V7 | [Pretraining reference](documentation/reference/pretraining_reference.md) |
+| follow a run: run folder, console, resuming, augmentations | [Training reference](documentation/reference/training_reference.md) |
+| prepare data: datasets, label formats, losses | [Tasks reference](documentation/reference/tasks_reference.md) |
+| set a configuration key or read an output | [Configuration reference](documentation/reference/configuration_reference.md) |
+| evaluate, compare, export or serve a model | [Tools reference](documentation/reference/tools_reference.md) |
+| pre-train backbones on ImageNet-22k and Open Images V7 | [Pretraining reference](documentation/reference/pretraining_reference.md) |
 | follow one run of a task function by function | its workflow, linked in the Details column of the [Tasks](#tasks) table |
 
 ## Prerequisites
