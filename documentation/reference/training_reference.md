@@ -94,7 +94,7 @@ So that a run can be checked against what it was fed long after its launch, with
 ```
 
 ## Console Output
-- **At launch**: the run name with clickable links to its files, the changes since the last start of a resumed run, the transferred components, the splits and their sizes, the main settings, the model summary, the model size and the size of every exported file ([Export Sizes](../../README.md#export-sizes)). `diagnosis_modes.compute_receptive_field` adds the receptive field. A transferred component shows its source and learning rate:
+- **At launch**: the run name with clickable links to its files, the changes since the last start of a resumed run, the transferred components, the splits and their sizes, the main settings, the model summary, the model size and the size of every exported file (Export Sizes). `diagnosis_modes.compute_receptive_field` adds the receptive field. A transferred component shows its source and learning rate:
 
 ```text
 - Pretrained Backbone     : file:///…/experiments/CLS_IN-KAR-256_…_HFLAT.512.256-HLN-CWB_MC1000
