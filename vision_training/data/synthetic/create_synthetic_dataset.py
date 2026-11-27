@@ -11,21 +11,30 @@ counts, compares or names their shapes are drawn again until every shape is visi
 the self-supervised and multi-label configurations are drawn like the sequence labelling frames, so that their backbone
 can initialise the sequence labelling model, and the occlusion test split of the detection benchmark overlaps its
 objects more, partly in overlapping pairs of a class. Run as a script with the task set in its main block and the root
-folder of the dataset given by the required --output_folder argument.
+folder of the dataset given by the required --output_folder argument; the console describes every split in a rich panel
+(its samples, the count of every class, its generation time) and closes with a panel of the whole dataset.
 """
 
 import argparse
 import json
+import math
 import os
+import time
 import cv2
 import numpy as np
 
 from functools import partial
 from multiprocessing import Pool
+from rich.console import Console, Group
+from rich.padding import Padding
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from vision_training.data.detection.coco_masks import encode_run_length_encoding
 from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS
+from vision_training.trainers.metric_tracking import MetricTracker
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Filled shapes that have a hollow class of their own, the same outline with a hole of the same outline cut out of it
@@ -403,6 +412,21 @@ TASK_SAMPLE_NAMES = {"object_detection": "images", "instance_segmentation": "ima
                      "sequence_classification": "sequences", "sequence_labelling": "sequences",
                      "sequence_comparison": "pairs", "frame_selection": "sequences", "self_supervised": "images",
                      "multi_label_classification": "images"}
+
+# What the class counts of every task count, named in the console panels of the splits: the objects of the images of
+# several shapes, the images of a single shape, of a shape count or of a set of shape classes, the frames labelled one
+# by one, the sequences and pairs labelled whole
+TASK_COUNT_NAMES = {"object_detection": "objects", "instance_segmentation": "objects", "keypoint_detection": "objects",
+                    "classification": "images", "semantic_segmentation": "objects",
+                    "sequence_classification": "sequences", "sequence_labelling": "frames",
+                    "sequence_comparison": "pairs", "frame_selection": "frames", "self_supervised": "images",
+                    "multi_label_classification": "images"}
+
+# Width of the console panels describing the splits and the dataset, whose class table lays the classes out in up to
+# three columns of class and count, indented under the lines of the panel
+SUMMARY_PANEL_WIDTH = 120
+MAXIMUM_CLASS_COLUMNS = 3
+SUMMARY_TABLE_INDENT = 3
 
 
 def get_rectangle_corners(left: int, top: int, width: int, height: int) -> np.ndarray:
@@ -3268,6 +3292,203 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
     return class_counts
 
 
+def format_generation_time(duration_seconds: float) -> str:
+    """
+    Writes the time a split or the whole dataset took to generate, in the HH:MM:SS layout of the training console
+    (MetricTracker.format_time_interval) followed by the seconds, which tell the short splits of a first try apart.
+
+    Args:
+        duration_seconds (float): The generation time in seconds.
+
+    Returns:
+        str: The time, e.g. '00:01:23 (83.4 seconds)'.
+    """
+    return f"{MetricTracker.format_time_interval(duration_seconds=duration_seconds)} ({duration_seconds:.1f} seconds)"
+
+
+def format_generation_rate(number_samples: int, duration_seconds: float, sample_name: str) -> str:
+    """
+    Writes how many images, sequences or pairs the worker processes generated per second, named like the throughput of
+    the training console, so that the time of a larger split can be estimated from a first small one.
+
+    Args:
+        number_samples (int): The number of images, sequences or pairs generated.
+        duration_seconds (float): The generation time in seconds.
+        sample_name (str): The name of the samples of the task ('images', 'sequences' or 'pairs').
+
+    Returns:
+        str: The rate, e.g. '6 012.4 Images Per Second'.
+
+    Raises:
+        ValueError: If the generation time is not positive.
+    """
+    if duration_seconds <= 0:
+        raise ValueError(f"A generation time must be positive to give a rate, got {duration_seconds!r} seconds.")
+    rate = MetricTracker.format_grouped_number(value=number_samples / duration_seconds, decimals=1)
+    return f"{rate} {sample_name.title()} Per Second"
+
+
+def build_summary_lines(entries: List[Tuple[str, Text]]) -> Text:
+    """
+    Lays out the key and value lines of a console panel of the synthetic dataset, the keys padded to the longest one so
+    that the colons line up, as in the Model Size panel printed at the launch of a training.
+
+    Args:
+        entries (List[Tuple[str, Text]]): The key and the value of every line, in order.
+
+    Returns:
+        Text: The lines, one per entry.
+    """
+    key_width = max(len(key) for key, _ in entries)
+    lines = Text()
+    for index, (key, value) in enumerate(entries):
+        if index > 0:
+            lines.append(text="\n")
+        lines.append(text=f"{key:<{key_width}} : ")
+        lines.append_text(text=value)
+    return lines
+
+
+def build_class_count_table(class_counts: Dict[str, int], count_name: str) -> Table:
+    """
+    Builds the table of the class counts of a split for its console panel: the classes in the order of their
+    categories, read column by column in as many class and count columns as fit in the panel (up to
+    MAXIMUM_CLASS_COLUMNS), a class without any label shown in yellow since the loss and the metrics of that class then
+    have nothing to learn or to measure in that split.
+
+    Args:
+        class_counts (Dict[str, int]): The number of labels of every class, from the label builder of the task.
+        count_name (str): What the counts count ('objects', 'images', 'frames', 'sequences' or 'pairs').
+
+    Returns:
+        Table: The table, without box, its headers in bold.
+    """
+    class_names = list(class_counts)
+    count_texts = {class_name: MetricTracker.format_grouped_number(value=count)
+                   for class_name, count in class_counts.items()}
+
+    # As many class and count columns as the widest class name and count leave room for, inside the panel border,
+    # padding and indent
+    column_width = (max(len(class_name) for class_name in class_names)
+                    + max(len(count_name), *(len(count_text) for count_text in count_texts.values())) + 6)
+    available_width = SUMMARY_PANEL_WIDTH - 4 - SUMMARY_TABLE_INDENT
+    number_columns = max(1, min(MAXIMUM_CLASS_COLUMNS, available_width // column_width, len(class_names)))
+    number_rows = math.ceil(len(class_names) / number_columns)
+
+    # Headers repeated over every class and count column, the counts right-aligned
+    table = Table(box=None, show_header=True, header_style="bold", pad_edge=False, padding=(0, 2, 0, 0))
+    for _ in range(number_columns):
+        table.add_column(header="Class")
+        table.add_column(header=count_name.title(), justify="right")
+
+    # Classes read down the first column, then down the next ones, a class without labels in yellow
+    for row_index in range(number_rows):
+        cells = []
+        for column_index in range(number_columns):
+            class_index = column_index * number_rows + row_index
+            if class_index >= len(class_names):
+                cells += ["", ""]
+                continue
+            class_name = class_names[class_index]
+            style = "yellow" if class_counts[class_name] == 0 else ""
+            cells += [Text(text=class_name, style=style), Text(text=count_texts[class_name], style=style)]
+        table.add_row(*cells)
+    return table
+
+
+def print_split_summary(split_name: str, split_folder: str, number_samples: int, sample_name: str,
+                        class_counts: Dict[str, int], count_name: str, duration_seconds: float) -> None:
+    """
+    Prints the console panel of a split once create_synthetic_dataset has written it: its folder, its number of
+    images, sequences or pairs, the labels it holds when they are not the samples themselves (objects, frames), the
+    range of the class counts, the generation time with its rate, and the count of every class, so that a split missing
+    a class or the time of a larger dataset can be read before training on it.
+
+    Args:
+        split_name (str): The name of the split ('train', 'validation' or 'test').
+        split_folder (str): The folder of the split.
+        number_samples (int): The number of images, sequences or pairs of the split.
+        sample_name (str): The name of the samples of the task ('images', 'sequences' or 'pairs').
+        class_counts (Dict[str, int]): The number of labels of every class, from generate_split.
+        count_name (str): What the class counts count ('objects', 'images', 'frames', 'sequences' or 'pairs').
+        duration_seconds (float): The generation time of the split in seconds.
+    """
+    # Folder, samples, the labels when they are not the samples, the class range and the time, one line each
+    entries = [("Folder", Text.from_ansi(text=format_path_link(path=split_folder))),
+               (sample_name.title(), Text(text=MetricTracker.format_grouped_number(value=number_samples)))]
+    if count_name != sample_name:
+        entries.append((f"Labelled {count_name.title()}",
+                        Text(text=MetricTracker.format_grouped_number(value=sum(class_counts.values())))))
+    smallest_count = MetricTracker.format_grouped_number(value=min(class_counts.values()))
+    largest_count = MetricTracker.format_grouped_number(value=max(class_counts.values()))
+    classes_text = Text(text=f"{len(class_counts)}, from {smallest_count} to {largest_count} {count_name} per class")
+    number_empty_classes = sum(count == 0 for count in class_counts.values())
+    if number_empty_classes > 0:
+        classes_text.append(text=f", {number_empty_classes} without any", style="yellow")
+    generation_rate = format_generation_rate(number_samples=number_samples, duration_seconds=duration_seconds,
+                                             sample_name=sample_name)
+    generation_text = Text(text=f"{format_generation_time(duration_seconds=duration_seconds)}, {generation_rate}")
+    entries += [("Classes", classes_text), ("Generation Time", generation_text)]
+
+    # Class table indented under the lines, so that the classes do not run along the border of the panel
+    class_table = Padding(renderable=build_class_count_table(class_counts=class_counts, count_name=count_name),
+                          pad=(0, 0, 0, SUMMARY_TABLE_INDENT))
+    panel = Panel(renderable=Group(build_summary_lines(entries=entries), Text(), class_table),
+                  title=f"[bold]{split_name.title()} Split[/bold]", border_style="cyan")
+    Console(width=SUMMARY_PANEL_WIDTH).print(panel)
+
+
+def print_dataset_summary(task: str, output_folder: str, label_mapping_path: str, image_size: int,
+                          split_summaries: List[Dict[str, Any]], sample_name: str, count_name: str) -> None:
+    """
+    Prints the closing console panel of create_synthetic_dataset: the task, the folder of the dataset, its
+    'label_mapping.json' (the files the synthetic configuration of the task points to), the image size, then the
+    samples, labels and generation time of every split and of the whole dataset, the total time in the subtitle.
+
+    Args:
+        task (str): The task of the dataset.
+        output_folder (str): The root folder of the dataset.
+        label_mapping_path (str): The path of its 'label_mapping.json'.
+        image_size (int): The height and width of the images in pixels.
+        split_summaries (List[Dict[str, Any]]): The 'split_name', 'number_samples', 'labelled_count' and
+            'duration_seconds' of every split, in the order they were generated.
+        sample_name (str): The name of the samples of the task ('images', 'sequences' or 'pairs').
+        count_name (str): What the class counts count ('objects', 'images', 'frames', 'sequences' or 'pairs').
+    """
+    entries = [("Task", Text(text=task)), ("Folder", Text.from_ansi(text=format_path_link(path=output_folder))),
+               ("Label Mapping File", Text.from_ansi(text=format_path_link(path=label_mapping_path))),
+               ("Image Size", Text(text=f"{image_size} pixels"))]
+
+    # One row per split and a total row, the labels shown only when they are not the samples themselves
+    table = Table(box=None, show_header=True, header_style="bold", pad_edge=False, padding=(0, 3, 0, 0))
+    table.add_column(header="Split")
+    table.add_column(header=sample_name.title(), justify="right")
+    if count_name != sample_name:
+        table.add_column(header=f"Labelled {count_name.title()}", justify="right")
+    table.add_column(header="Generation Time", justify="right")
+    table.add_column(header="Rate", justify="right")
+    total_summary = {"split_name": "total",
+                     "number_samples": sum(summary["number_samples"] for summary in split_summaries),
+                     "labelled_count": sum(summary["labelled_count"] for summary in split_summaries),
+                     "duration_seconds": sum(summary["duration_seconds"] for summary in split_summaries)}
+    for summary in split_summaries + [total_summary]:
+        cells = [summary["split_name"].title(), MetricTracker.format_grouped_number(value=summary["number_samples"])]
+        if count_name != sample_name:
+            cells.append(MetricTracker.format_grouped_number(value=summary["labelled_count"]))
+        cells += [format_generation_time(duration_seconds=summary["duration_seconds"]),
+                  format_generation_rate(number_samples=summary["number_samples"],
+                                         duration_seconds=summary["duration_seconds"], sample_name=sample_name)]
+        table.add_row(*cells, style="bold" if summary is total_summary else None)
+
+    # Split table indented under the lines, the total time in the subtitle
+    split_table = Padding(renderable=table, pad=(0, 0, 0, SUMMARY_TABLE_INDENT))
+    panel = Panel(renderable=Group(build_summary_lines(entries=entries), Text(), split_table),
+                  title="[bold]Synthetic Dataset[/bold]",
+                  subtitle=f"Generated in {format_generation_time(duration_seconds=total_summary['duration_seconds'])}",
+                  border_style="green")
+    Console(width=SUMMARY_PANEL_WIDTH).print(panel)
+
+
 def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: Dict[str, int], maximum_objects: int,
                              minimum_frames: int, maximum_frames: int, number_workers: int, task: str,
                              maximum_object_intersection_over_union: float = MAXIMUM_OBJECT_INTERSECTION_OVER_UNION,
@@ -3357,19 +3578,28 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
         raise ValueError(f"The sequences need {minimum_sequence_frames} <= minimum_frames <= maximum_frames, got "
                          f"minimum_frames {minimum_frames} and maximum_frames {maximum_frames}.")
 
-    # Generate every split in its own folder
+    # Generate every split in its own folder, timed from its first image to its written labels, then describe it in
+    # its console panel
     sample_name = TASK_SAMPLE_NAMES[task]
+    count_name = TASK_COUNT_NAMES[task]
+    split_summaries = []
     for split_name, number_samples in split_sizes.items():
         split_folder = os.path.abspath(os.path.join(output_folder, split_name))
-        print_color(color="blue", output=f"Generating {number_samples} {split_name} {sample_name}...")
+        print_color(color="blue", output=f"Generating {MetricTracker.format_grouped_number(value=number_samples)} "
+                                         f"{split_name} {sample_name}...")
+        start_time = time.perf_counter()
         class_counts = generate_split(split_folder=split_folder, split_name=split_name, number_samples=number_samples,
                                       image_size=image_size, maximum_objects=maximum_objects,
                                       minimum_frames=minimum_frames, maximum_frames=maximum_frames,
                                       number_workers=number_workers, task=task,
                                       maximum_object_intersection_over_union=maximum_object_intersection_over_union,
                                       same_class_neighbour_probability=same_class_neighbour_probability)
-        print_color(color="green", output=f"{split_name} split : {format_path_link(path=split_folder)}", indent=1)
-        print_color(color="green", output=f"Labels per class : {class_counts}", indent=1)
+        duration_seconds = time.perf_counter() - start_time
+        print_split_summary(split_name=split_name, split_folder=split_folder, number_samples=number_samples,
+                            sample_name=sample_name, class_counts=class_counts, count_name=count_name,
+                            duration_seconds=duration_seconds)
+        split_summaries.append({"split_name": split_name, "number_samples": number_samples,
+                                "labelled_count": sum(class_counts.values()), "duration_seconds": duration_seconds})
 
     # Map every raw category identifier to its class index: itself for the detector and the segmenters (index 0 being
     # their background), from 0 for the models of the other tasks, and the categories with keypoints numbered from 1
@@ -3383,8 +3613,11 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
     label_mapping_path = os.path.abspath(os.path.join(output_folder, "label_mapping.json"))
     with open(label_mapping_path, "w") as label_mapping_file:
         json.dump(label_mapping, label_mapping_file, indent=4)
-    print_color(color="green", output=f"Label Mapping File : {format_path_link(path=label_mapping_path)}",
-                add_separators=True)
+
+    # Closing panel: the files the synthetic configuration points to, and the samples and time of every split
+    print_dataset_summary(task=task, output_folder=os.path.abspath(output_folder),
+                          label_mapping_path=label_mapping_path, image_size=image_size,
+                          split_summaries=split_summaries, sample_name=sample_name, count_name=count_name)
 
 
 if __name__ == "__main__":

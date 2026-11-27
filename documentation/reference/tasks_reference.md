@@ -43,6 +43,7 @@ Details of every task, completing the [Tasks](../../README.md#tasks) section of 
 - **Distinct classes**: rhombus angles of 44° to 70°, parallelogram sides in a ratio of 1.5 to 2.5, trapezoids with parallel sides of different lengths, ellipses and capsules 1.5 to 3 times as long as wide.
 - **KPT keypoints**: the corners of the polygons, the tips of the star and plus sign, the ends and corners of the capsule, the 11 joints of the stick figure, and for hollow shapes the corners of the hole after the outer ones. `circle`, `ellipse`, `annulus` and `hollow_ellipse` have none: left out of `label_mapping.json`, they only distract the network.
 - **Category identifiers**: the hollow shapes are 21 to 35, `stick_figure` and `house` 36 and 37. A dataset generated before shapes were added keeps its own classes.
+- **Console**: as each split is written, a panel gives its folder, its images (sequences or pairs), the objects or frames it labels when they are not the samples themselves, the range of the class counts, its generation time with the images (sequences or pairs) per second, and the count of every class, a class without any label in yellow (`print_split_summary`). A closing panel gives the task, the folder, `label_mapping.json`, the image size and the samples and generation time of every split and of the whole dataset (`print_dataset_summary`), so that a first small run tells how long a full dataset will take.
 
 ## Common Dataset Layout
 
