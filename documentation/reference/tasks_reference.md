@@ -233,7 +233,12 @@ A two-stage detector. Every entry of `DetectionLevels` is a backbone level with 
 - `random_zoom_out`, applied after the crop, shrinks the image to 50 to 100 % of each side on a black canvas (`zoom_out_side_range`), so the finest levels also see the large objects. It is on in the example configurations of DET and INS (probability 0.25).
 - `random_translation` (up to `maximum_translation_fraction` of each side) leaves a border that is black in the image, ignored in the class masks and background in the instance masks.
 
-**Converting a dataset.** `vision_training/data/data_retriever.py` downloads COCO 2017 with FiftyOne (about 25 GB), from the `datasets` dependency group that `uv sync` installs and the Docker image leaves out. Set the dataset folder and `maximum_samples` in its main block, then run `uv run python -m vision_training.data.data_retriever`.
+**Converting a dataset.** `vision_training/data/data_retriever.py` downloads COCO 2017 with FiftyOne (about 25 GB), from the `datasets` dependency group that `uv sync` installs and the Docker image leaves out. It writes into the `datasets` folder of the repository unless `--dataset_directory` says otherwise, and keeps 1,000 images per split unless `--maximum_samples` does.
+
+```bash
+# Every image of COCO 2017
+uv run python -m vision_training.data.data_retriever --dataset_name coco-2017 --maximum_samples None
+```
 
 **Configuration**
 - `DetectionLevels`: keyed by the quoted number of the backbone block feeding the level, finest first. Every level holds its `anchors` (scales in input pixels, aspect ratios height / width), its `region_proposal` convolutions and its `detector` head.

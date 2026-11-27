@@ -195,21 +195,29 @@ uv run python -m scripts.models.instance_segmentation.draw_mask_head_designs --c
 Any instance segmentation configuration can be given, the counts following its settings. The figure of the [instance segmentation plan](../architecture_benchmarking/instance_segmentation_experiment_plan.md), `documentation/architecture_benchmarking/figures/instance_segmentation/mask_head_designs.png`, was drawn from the launch file of the benchmark, a configuration not tracked by git. Every design of its `DESIGNS` (the reference `[3, 32]`, stage 3 `[4, 64]`, and on it the image branch of design A, the U-Net skips of design B and the fusion convolution alone of the control) is built from the configuration file with its settings, as the training builds it, the finer inputs a design leaves out being turned off whatever the configuration holds; the figure reads its layers, channels, strides and residual shortcuts from the built mask heads, and its multiply-accumulates per box are counted on those layers by forward hooks on one box, printed with the parameters of the mask heads and the fine inputs.
 
 ## Clustering Image Embeddings
-`scripts/embedding/cluster_image_embeddings.py` embeds images with a trained run and clusters them, to choose diverse images from a dataset of near-identical video frames. Its main block embeds the 1,417 frames of the test split of the synthetic moving shapes (`~/Data/sequence_data/synthetic_moving_shapes/test`, one group per sequence) with block 6 and the hidden layer of the 35-class README classifier at iteration 2000, and clusters them with DBSCAN.
+Suppose a dataset of video frames holds many near-identical images: `scripts/embedding/cluster_image_embeddings.py` embeds them with a trained run and clusters them, to keep diverse ones. Its settings are command line arguments. Launched without any, it prints its help with every default.
 
-| Setting | Meaning |
+```bash
+# Block 6 and the first hidden layer of a classifier on one split, one group per subfolder, clustered with DBSCAN
+uv run python -m scripts.embedding.cluster_image_embeddings --experiment_folder ~/Data/<run> --iteration 2000 \
+    --output_root ~/Data/embeddings --convolution_block_indices 6 --fully_connected_layer_indices 1 \
+    --data_sources ~/Data/<split> --group_pattern '^([^/]+)/'
+```
+
+| Argument | Meaning |
 |---|---|
-| `experiment_folder`, `iteration`, `use_averaged_weights` | the embedding run and checkpoint: any task for the convolution blocks, a classification run for the fully connected layers |
-| `data_sources` | `"run"` (the splits of the run), a configuration file (its splits), a split folder of any task, or a folder of plain images; a folder given twice is embedded once |
-| `convolution_block_indices` | the blocks embedded, counted from 1, their whole output before pooling; a block of more than 32,768 values per image (`MAXIMUM_BLOCK_VALUES`) is refused |
-| `fully_connected_layer_indices` | the hidden layers of the classification head embedded, after their ReLU |
-| `batch_size`, `number_workers` | the extraction loader |
-| `normalize_vectors` | divides every vector by its length, so the distances compare which features are active |
-| `pca_dimensions` | the dimensions kept by the PCA before clustering (200 by default), with the variance they hold printed |
-| `clustering_algorithm`, `clustering_parameters` | `"hdbscan"` (`min_cluster_size`, `min_samples`, `cluster_selection_method` `"eom"` or `"leaf"`), `"dbscan"` (`eps`, `min_samples`) or `"kmeans"` (`number_clusters`, `number_initializations`) |
-| `number_representatives_per_cluster`, `isolated_image_selection` | the images kept per cluster, and the isolated images kept (`"all"`, `"none"` or a number drawn at random) |
-| `group_pattern` | the regular expression giving the group of every image ([Group Pattern](#group-pattern)), or `None` |
-| `seed`, `mosaic_grid_size`, `output_root` | the draws, the images per mosaic row, and the output root, `~/Data/embeddings` by default |
+| `--experiment_folder`, `--iteration`, `--use_averaged_weights` | the embedding run and checkpoint, the first two required: any task for the convolution blocks, a classification run for the fully connected layers |
+| `--output_root` | the root folder of the extractions, required, best kept outside the run folder |
+| `--data_sources` | `run` (the splits of the run, the default), a configuration file (its splits), a split folder of any task, or a folder of plain images; a folder given twice is embedded once |
+| `--convolution_block_indices` | the blocks embedded, counted from 1, their whole output before pooling; a block of more than 32,768 values per image (`MAXIMUM_BLOCK_VALUES`) is refused |
+| `--fully_connected_layer_indices` | the hidden layers of the classification head embedded, after their ReLU; at least one index is given here or in `--convolution_block_indices` |
+| `--batch_size`, `--number_workers` | the extraction loader |
+| `--normalize_vectors`, `--no-normalize_vectors` | divides every vector by its length (the default), so the distances compare which features are active |
+| `--pca_dimensions` | the dimensions kept by the PCA before clustering (200 by default), with the variance they hold printed |
+| `--clustering_algorithm` | `dbscan` (the default: `--eps`, `--min_samples`), `hdbscan` (`--min_cluster_size`, `--min_samples`, which `None` sets to the cluster size, `--cluster_selection_method` `eom` or `leaf`) or `kmeans` (`--number_clusters`, `--number_initializations`); a parameter not given takes the value of `DEFAULT_CLUSTERING_PARAMETERS`, a parameter of another algorithm is refused |
+| `--number_representatives_per_cluster`, `--isolated_image_selection` | the images kept per cluster, and the isolated images kept (`all`, `none` or a number drawn at random) |
+| `--group_pattern` | the regular expression giving the group of every image ([Group Pattern](#group-pattern)), no group by default |
+| `--seed`, `--mosaic_grid_size` | the draws and k-means, and the images per mosaic row |
 
 An asked layer outside the run stops the script before any inference, with the valid range. The images are read with the preprocessing of the run.
 
@@ -226,7 +234,7 @@ The features of a source are stored in `<output_root>/<run name>/Iteration_<n>[_
 - `features_block_<b>.npy` and `features_fully_connected_<l>.npy`, one float32 row per image, and `predictions.npy` for a classification run;
 - `extraction.json`: what produced the features (checkpoint, weights, preprocessing, source and its SHA-256) and the progress of every layer.
 
-A relaunch with the same layers only clusters again, a new layer runs the model for that layer only, and an interrupted extraction continues where it stopped. Another checkpoint or changed images stop the script without overwriting anything: delete the folder or change `output_root`. The images and features are released from the Linux page cache once read (`posix_fadvise` with `POSIX_FADV_DONTNEED`, no `sudo`), so they do not take the unified memory of the DGX Spark from the GPU.
+A relaunch with the same layers only clusters again, a new layer runs the model for that layer only, and an interrupted extraction continues where it stopped. Another checkpoint or changed images stop the script without overwriting anything: delete the folder or change `--output_root`. The images and features are released from the Linux page cache once read (`posix_fadvise` with `POSIX_FADV_DONTNEED`, no `sudo`), so they do not take the unified memory of the DGX Spark from the GPU.
 
 ### Clusters And Kept Images
 Every layer is clustered in `<source>/clusters/<layer>/<clustering>/`, written again at every launch. A classification split is clustered category by category. The isolated images are those in no cluster.
@@ -241,14 +249,14 @@ Every layer is clustered in `<source>/clusters/<layer>/<clustering>/`, written a
 Every folder of kept images lists them in `kept_images.csv`. The kept images of a labelled split form a split to train on, `data` linking to the source and `labels.json` holding the kept samples. A table of the initial, clustered, isolated and kept images of every layer and category ends the run.
 
 ### Group Pattern
-`group_pattern` is a regular expression searched in the file name of every image, relative to its data folder, e.g. to find the video a frame comes from. The group is the first capturing group that matched, or the whole match without capturing group; the images it does not match form `(no group)`.
+To find the video a frame comes from, `--group_pattern` gives a regular expression searched in the file name of every image, relative to its data folder. The group is the first capturing group that matched, or the whole match without capturing group; the images it does not match form `(no group)`. Quote it on the command line, as below.
 
 | Pattern | File name | Group |
 |---|---|---|
-| `r"^(camera_\d+_\d{4}-\d{2}-\d{2})_"` | `camera_3_2026-09-25_frame_0040.jpg` | `camera_3_2026-09-25` |
-| `r"^([^/]+)/"`, the subfolder (the default, the sequence of a frame) | `test_000012/000003.png` | `test_000012` |
-| `r"^(video_\d+)_\|^(camera_\d+)/"` | `video_3_frame_1.png`, `camera_2/frame_1.png` | `video_3`, `camera_2` |
-| `r"video_\d+"` | `camera_2/video_7_frame_1.png` | `video_7` |
+| `'^(camera_\d+_\d{4}-\d{2}-\d{2})_'` | `camera_3_2026-09-25_frame_0040.jpg` | `camera_3_2026-09-25` |
+| `'^([^/]+)/'`, the subfolder (the sequence of a frame) | `test_000012/000003.png` | `test_000012` |
+| `'^(video_\d+)_\|^(camera_\d+)/'` | `video_3_frame_1.png`, `camera_2/frame_1.png` | `video_3`, `camera_2` |
+| `'video_\d+'` | `camera_2/video_7_frame_1.png` | `video_7` |
 
 ## Deployment
 

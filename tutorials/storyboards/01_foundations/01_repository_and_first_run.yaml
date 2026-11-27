@@ -120,15 +120,15 @@ scenes:
       - "The training takes a single argument, the path of its configuration file, and that file alone defines the run."
 
   # The download prints nothing before it reaches the gated data set of Hugging Face, so the scene shows its commands
-  # alone; the settings quoted are those of its main block (code_values.py)
+  # alone; the settings quoted are the defaults of its arguments (DEFAULT_DOWNLOAD_SETTINGS, read by code_values.py)
   - kind: terminal
     title: "ImageNet-22k for the pre-trained backbones"
     code_reference: "vision_training/data/classification/imagenet_download.py · download_imagenet_22k"
     lines:
       - {role: comment, text: "# Once: accept the terms of {{constant:vision_training/data/classification/imagenet_download.py#IMAGENET_22K_REPOSITORY}} on Hugging Face, then log in"}
       - {role: command, text: "uv run hf auth login"}
-      - {role: comment, text: "# Settings in its main block: dataset folder, free space margin, held-out images, workers"}
-      - {role: command, text: "uv run python -m vision_training.data.classification.imagenet_download"}
+      - {role: comment, text: "# Its arguments: dataset folder (required), free space margin, held-out images, workers"}
+      - {role: command, text: "uv run python -m vision_training.data.classification.imagenet_download --dataset_folder=<dataset folder>"}
     narration:
       - "The example configurations of classification and of the self-supervised task train on ImageNet-22k, which the ImageNet download script fetches from a gated Hugging Face data set at a pinned revision."
       - "Accept its terms once and log in; the script checks the access before its first shard, starts no shard below {{foundations.scripts.imagenet_minimum_free_gigabytes}} gigabytes free, and resumes shard by shard when launched again."
