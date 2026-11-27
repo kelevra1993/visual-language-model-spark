@@ -338,29 +338,6 @@ If words such as eager, ONNX or TensorRT stop you, this part follows one run to 
 </p>
 <p align="center"><em>The four ways to run the checkpoint of the README classifier, with the sizes of model.pt, model.onnx and the TensorRT engines built from model.onnx in the Triton image (TensorRT 10.14.1, GB10).</em></p>
 
-#### Training Versus Serving
-Once a run has finished, only this repository can read it: the checkpoint stores named tensors, and `load_trained_model` rebuilds the network from `training_configuration.yaml` to hold them. Serving means another program receives images and returns predictions. It needs:
-- **a file it can read without this repository**, holding the operations and the weights;
-- **speed**: latency (time until one answer) and throughput (images answered per second);
-- **the same answers** as the evaluated model, within a tolerance.
-
-#### The Eager Model
-Each time you evaluate a run or call a model in a notebook, PyTorch runs it eagerly: Python executes `forward` line by line, each operation launching its GPU kernel at once. An `if`, a `print` or a breakpoint work as usual, but the serving machine needs Python, PyTorch, the repository code and the checkpoint. Eager is not slow: the serving benchmark measured 2.2 milliseconds per image in the process, against 3.3 for TorchScript. Every evaluation and every export check use it as the reference.
-
-<p align="center">
-  <img src="README/eager_trace_graph.gif" width="100%" />
-</p>
-<p align="center"><em>The forward of the README classifier, condensed: run eagerly (the False <code>if</code> is skipped), traced by the export on a batch of 2 images, then run from model.pt by libtorch without Python. Reshapes (unsqueeze, flatten) and the evaluation dropout launch no kernel and are left out.</em></p>
-
-#### Checkpoint Versus Model File
-Should you load a checkpoint without this repository, you get tensors and no network; an exported file holds the graph (operations, connections, shapes) and the weights:
-
-| | Checkpoint | TorchScript | ONNX |
-|---|---|---|---|
-| File | `Weights/Iteration_2000/model_002000.pt`, 55.8 MB | `model.pt`, 18.7 MB | `model.onnx`, 0.34 MB, and `model.onnx.data`, 18.5 MB |
-| Holds | 106 named tensors (4.64 million values: weights, batch normalization statistics, loss class weights, 18.6 MB), the Adam optimizer state (37.1 MB) and the run metadata | the recorded operations and their weights | 125 standard-operator nodes, 50 weight tensors (4.64 million values) and 5 constants, such as the 255 and 0.5 of the input normalization |
-| Read by | `load_trained_model`, with `training_configuration.yaml` and the repository code | PyTorch or libtorch alone | any ONNX runtime |
-
 #### How The Export Records The Graph
 To turn Python code into a file of operations, `export_experiment` (`vision_training/deployment/export_model.py`) runs the model on an example batch and records it:
 - **TorchScript**: `torch.jit.trace` (`export_torchscript` in `export_formats.py`) runs `forward` on 2 random images and records every tensor operation. Python is not recorded: an `if` is decided once and only the branch taken stays (here the per-image standardization, False for this run, disappears).
@@ -657,7 +634,7 @@ For a served model to read less memory per request, a reduced precision also shr
 The DGX Spark GPU has 273 GB/s of memory bandwidth shared with the CPU ([specifications](https://www.nvidia.com/en-us/products/workstations/dgx-spark/)), so halving the bytes halves the traffic of a memory-bound layer. TensorRT FP16 serves 1.9 times the images of TensorRT FP32 at batch 16 on CLS and M2M; DET serves 189 images per second with both ([Serving Benchmark Results](#serving-benchmark-results)).
 
 ### Export
-Once a run is ready to be served, `vision_training/deployment/export_model.py` writes it to the Triton model repository as [TorchScript](#torchscript) and [ONNX](#onnx), with a Triton configuration per model. It checks every format against the [eager](#the-eager-model) model and replaces the served models only when all match ([How The Export Records The Graph](#how-the-export-records-the-graph)). Set in its main block:
+Once a run is ready to be served, `vision_training/deployment/export_model.py` writes it to the Triton model repository as [TorchScript](#torchscript) and [ONNX](#onnx), with a Triton configuration per model. It checks every format against the eager model and replaces the served models only when all match ([How The Export Records The Graph](#how-the-export-records-the-graph)). Set in its main block:
 
 - `experiment_folder`, `iteration`, `use_averaged_weights`, `maximum_batch_size`;
 - `formats`: `"torchscript"` and `"onnx"`;
