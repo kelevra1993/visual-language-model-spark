@@ -2,12 +2,20 @@
 Tests of the batched training target assignment of vision_training/models/detection/target_assignment.py: the
 foreground, background and ignored anchors of every image (an image without object included), the best anchor of
 every object made foreground with both fallback rules, the proposal targets of images with different object counts,
-the number, kind and uniformity of the sampled targets, and the ground truth boxes added to the proposals of the
-detection heads giving a positive proposal per object.
+the number, kind and uniformity of the sampled targets, the ground truth boxes added to the proposals of the
+detection heads giving a positive proposal per object, and the anchor matching of a crowded batch in chunks of objects
+giving the targets of a single pass.
 """
 
+import functools
+import pytest
 import torch
 
+from typing import List, Tuple
+
+import vision_training.models.detection.target_assignment as target_assignment
+
+from vision_training.models.detection.box_operations import get_intersection_over_union
 from vision_training.models.detection.target_assignment import (add_ground_truth_proposals,
                                                                 batch_assign_targets_to_anchors,
                                                                 batch_assign_targets_to_proposals,
@@ -144,3 +152,103 @@ def test_written_slots_flag_the_ground_truth_copies_of_every_image() -> None:
     # The flagged slots hold the ground truth boxes, the others their proposals
     assert torch.equal(input=new_proposals[~written_slots], other=proposals[~written_slots])
     assert torch.equal(input=new_proposals[2], other=boxes[2][1:])
+
+
+def record_overlap_objects(recorded_object_counts: List[int], boxes_1: torch.Tensor,
+                           boxes_2: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the overlaps of get_intersection_over_union and records the number of objects of the call, put in place of
+    the overlaps of target_assignment.py so that the tests see the chunks of objects of the anchor target assignments.
+
+    Args:
+        recorded_object_counts (List[int]): The object counts of the calls, appended to.
+        boxes_1 (torch.Tensor): The [..., N, 4] objects.
+        boxes_2 (torch.Tensor): The [..., M, 4] anchors.
+
+    Returns:
+        torch.Tensor: The [..., N, M] overlaps.
+    """
+    recorded_object_counts.append(int(boxes_1.shape[-2]))
+    return get_intersection_over_union(boxes_1=boxes_1, boxes_2=boxes_2)
+
+
+def build_crowded_batch() -> Tuple[List[torch.Tensor], torch.Tensor]:
+    """
+    Builds a batch of three images with 9, 7 and 0 objects and the anchors of three sizes (16, 32 and 64 pixels) centred
+    every 8 pixels. The objects 1 and 6 of the first image overlap the first anchor [0, 0, 16, 16] by 0.5 each and
+    are its only objects, so that a matching in chunks of 2 objects must keep the first one on this tie.
+
+    Returns:
+        Tuple[List[torch.Tensor], torch.Tensor]: The [G_i, 4] objects of every image and the [1875, 4] anchors, the 625
+            anchors of 16 pixels first, then those of 32 and 64 pixels.
+    """
+    generator = torch.Generator().manual_seed(0)
+    corners = torch.rand(size=(2, 9, 2, 2), generator=generator) * 200.0 + 40.0
+    boxes = torch.cat(tensors=[corners.amin(dim=2), corners.amax(dim=2) + 8.0], dim=-1)
+    boxes[0, 1] = torch.tensor(data=[0.0, 0.0, 16.0, 32.0])
+    boxes[0, 6] = torch.tensor(data=[0.0, 0.0, 32.0, 16.0])
+
+    # Anchors of every size at every centre of the grid
+    centres = torch.arange(start=8.0, end=208.0, step=8.0)
+    centre_y, centre_x = torch.meshgrid(centres, centres, indexing="ij")
+    centre_points = torch.stack(tensors=[centre_x.flatten(), centre_y.flatten()], dim=-1)
+    anchors = torch.cat(tensors=[torch.cat(tensors=[centre_points - size / 2, centre_points + size / 2], dim=-1)
+                                 for size in (16.0, 32.0, 64.0)], dim=0)
+    return [boxes[0], boxes[1, :7], torch.zeros(size=(0, 4))], anchors
+
+
+def test_anchor_targets_in_chunks_match_a_single_pass(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that matching the objects of a crowded batch to the anchors in chunks of 2 objects gives the anchor
+    targets of a single pass, the first of two objects overlapping an anchor equally being kept across chunks, and that
+    no overlap tensor of the chunked pass holds more than 2 objects, so that the memory of the assignment stays bounded
+    whatever the number of objects of an image.
+    """
+    batched_boxes, anchors = build_crowded_batch()
+    arguments = {"batched_ground_truth_boxes": batched_boxes,
+                 "batched_anchors": anchors.unsqueeze(dim=0).expand(len(batched_boxes), -1, -1),
+                 "background_iou_threshold": BACKGROUND_THRESHOLD, "foreground_iou_threshold": FOREGROUND_THRESHOLD}
+    single_pass_boxes, single_pass_labels = batch_assign_targets_to_anchors(**arguments)
+
+    # The tie of the first anchor: forced foreground for both objects, it regresses to the first one
+    assert single_pass_labels[0, 0] == 1.0 and single_pass_boxes[0, 0].tolist() == [0.0, 0.0, 16.0, 32.0]
+
+    # Chunks of 2 objects: 5 overlap tensors for the 9 objects of the most crowded image
+    recorded_object_counts = []
+    monkeypatch.setattr(target_assignment, "MAXIMUM_ANCHOR_OVERLAPS", len(batched_boxes) * anchors.shape[0] * 2)
+    monkeypatch.setattr(target_assignment, "get_intersection_over_union",
+                        functools.partial(record_overlap_objects, recorded_object_counts))
+    chunked_boxes, chunked_labels = batch_assign_targets_to_anchors(**arguments)
+    assert recorded_object_counts == [2, 2, 2, 2, 1]
+    assert torch.equal(input=chunked_boxes, other=single_pass_boxes)
+    assert torch.equal(input=chunked_labels, other=single_pass_labels)
+
+
+def test_ground_truth_proposal_levels_in_chunks_match_a_single_pass(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that the ground truth boxes added to the proposals of a crowded batch take the same levels whether their
+    best anchor overlaps are computed in one pass or in chunks of 2 objects, no overlap tensor of the chunked pass
+    holding more than 2 objects.
+    """
+    batched_boxes, anchors = build_crowded_batch()
+    level_anchors = {3: anchors[:625], 4: anchors[625:1250], 5: anchors[1250:]}
+    generator = torch.Generator().manual_seed(1)
+    corners = torch.rand(size=(3, 12, 2, 2), generator=generator) * 200.0
+    arguments = {"batched_ground_truth_boxes": batched_boxes,
+                 "batched_proposals": torch.cat(tensors=[corners.amin(dim=2), corners.amax(dim=2) + 8.0], dim=-1),
+                 "batched_proposal_levels": torch.full(size=(3, 12), fill_value=4, dtype=torch.int64),
+                 "level_anchors": level_anchors}
+    single_pass_outputs = add_ground_truth_proposals(**arguments)
+
+    # Chunks of 2 objects in every level: 5 overlap tensors per level for the 9 objects of the most crowded image
+    recorded_object_counts = []
+    monkeypatch.setattr(target_assignment, "MAXIMUM_ANCHOR_OVERLAPS", len(batched_boxes) * 625 * 2)
+    monkeypatch.setattr(target_assignment, "get_intersection_over_union",
+                        functools.partial(record_overlap_objects, recorded_object_counts))
+    chunked_outputs = add_ground_truth_proposals(**arguments)
+    assert recorded_object_counts == [2, 2, 2, 2, 1] * 3
+    assert all(torch.equal(input=chunked_output, other=single_pass_output)
+               for chunked_output, single_pass_output in zip(chunked_outputs, single_pass_outputs))
+
+    # The levels of the written slots are not all the same, so that the best level of every object was compared
+    assert len(set(single_pass_outputs[1][single_pass_outputs[2]].tolist())) > 1

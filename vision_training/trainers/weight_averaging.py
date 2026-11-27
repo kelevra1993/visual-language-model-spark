@@ -120,7 +120,10 @@ class ExponentialMovingAverage:
     def update(self, model: nn.Module) -> None:
         """
         Moves the average towards the weights of the model after an optimizer step: the parameters and the batch
-        normalization running statistics by a fraction 1 − decay, the other buffers copied.
+        normalization running statistics by a fraction 1 − decay, the other buffers copied. Every group of tensors is
+        moved by one foreach call (torch._foreach_lerp_ and torch._foreach_copy_, as torch.optim.swa_utils does), a
+        few GPU kernels per step instead of one per tensor (about 900 for the Open Images detectors), the values being
+        exactly those of one lerp_ or copy_ per tensor.
 
         Args:
             model (nn.Module): The trained task model, whose layers match the averaged model.
@@ -128,15 +131,24 @@ class ExponentialMovingAverage:
         current_decay = self.get_current_decay()
 
         # Parameters, frozen ones included (their average stays their value)
-        for averaged_parameter, parameter in zip(self.averaged_model.parameters(), model.parameters()):
-            averaged_parameter.lerp_(end=parameter, weight=1.0 - current_decay)
+        averaged_parameters, trained_parameters = list(self.averaged_model.parameters()), list(model.parameters())
 
         # Running statistics of the normalization layers averaged, every other buffer copied
+        averaged_buffers, trained_buffers, copied_buffers, source_buffers = [], [], [], []
         for (buffer_name, averaged_buffer), buffer in zip(self.averaged_model.named_buffers(), model.buffers()):
             if buffer_name.endswith(AVERAGED_BUFFER_SUFFIXES):
-                averaged_buffer.lerp_(end=buffer, weight=1.0 - current_decay)
+                averaged_buffers.append(averaged_buffer)
+                trained_buffers.append(buffer)
             else:
-                averaged_buffer.copy_(buffer)
+                copied_buffers.append(averaged_buffer)
+                source_buffers.append(buffer)
+
+        # One call per group, the foreach calls refusing empty lists (e.g. a model without batch normalization)
+        averaged_tensors, trained_tensors = averaged_parameters + averaged_buffers, trained_parameters + trained_buffers
+        if averaged_tensors:
+            torch._foreach_lerp_(self=averaged_tensors, tensors1=trained_tensors, weight=1.0 - current_decay)
+        if copied_buffers:
+            torch._foreach_copy_(self=copied_buffers, src=source_buffers)
         self.number_updates += 1
 
     def state_dict(self) -> Dict[str, Any]:

@@ -647,7 +647,7 @@ by image:   classification_scores (2, 128, 10)   box_regressions (2, 128, 10, 4)
 ```
 
 ### Step 3.17 — `assign_region_proposal_targets()` + `compute_region_proposal_losses()`
-`assign_region_proposal_targets()` gives the anchor targets, read by the losses and by the training target viewer (Step 2.20). `batch_assign_targets_to_anchors()` labels every anchor of the batch at once from its best IoU with a ground truth box (`pad_ground_truths()` pads the ground truths to the largest object count). This table gives the labels.
+`assign_region_proposal_targets()` gives the anchor targets, read by the losses and by the training target viewer (Step 2.20). `batch_assign_targets_to_anchors()` labels every anchor of the batch at once from its best IoU with a ground truth box (`pad_ground_truths()` pads the ground truths to the largest object count). The boxes are matched in chunks, so that at most `MAXIMUM_ANCHOR_OVERLAPS` (2^26, about 2.7 GB) overlaps exist at once; the labels are those of a single pass. This table gives the labels.
 
 | IoU with the best ground truth box | Label |
 |---|---|
