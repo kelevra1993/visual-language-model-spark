@@ -302,26 +302,15 @@ If you would rather watch than read, narrated videos cover every task; `tutorial
 </p>
 
 ## Deployment
-In order to serve a trained run to other programs, read these parts in order: [From A Checkpoint To A Served Model](#from-a-checkpoint-to-a-served-model) (the words of deployment on one run), [The Same Values In Every Format](#the-same-values-in-every-format), then [Export](#export), [Input Contract](#input-contract), [Triton Server](#triton-server) and [Serving Formats](#serving-formats-and-precision).
+In order to serve a trained run to other programs, read these parts in order: [From A Checkpoint To A Served Model](#from-a-checkpoint-to-a-served-model), [The Same Values In Every Format](#the-same-values-in-every-format), then [Export](#export), [Input Contract](#input-contract), [Triton Server](#triton-server) and [Serving Formats](#serving-formats-and-precision).
 
 ### From A Checkpoint To A Served Model
-If words such as eager, ONNX or TensorRT stop you, this part follows one run to a served model: the 35-class synthetic shapes classifier of the README screenshots (512 pixels, iteration 2000). All files, outputs and timings below come from it unless the serving benchmark is named; the [glossary](#glossary) defines other terms.
-
-| Word | What it is |
-|---|---|
-| Eager | PyTorch running the Python code line by line, each operation sent to the GPU when Python reaches it: how training and evaluation run, and the reference of every export |
-| Export | `export_model.py` runs the model once, records its operations and weights into `model.pt` and `model.onnx`, checks both against the eager model and writes them with their Triton configuration into `served_models/` |
-| TorchScript (`model.pt`) | the graph format of PyTorch, run by PyTorch or its C++ library libtorch, in your process or in Triton |
-| ONNX (`model.onnx`) | an open graph format of standard operators (opset 18): graph in `model.onnx`, weights in `model.onnx.data`, input contract in its metadata; read by runtimes of any framework |
-| ONNX Runtime | the library that runs `model.onnx`: on the CPU for the export check, on the GPU in Triton through its CUDA or TensorRT execution provider |
-| TensorRT | the NVIDIA compiler that turns `model.onnx` into an engine for one GPU model and one TensorRT version; built inside Triton at the first requests, never checked by the export |
-| Precision (FP32 / FP16) | the bits of each computed value: exports store FP32; `--tensorrt_precision FP16` lets TensorRT compute in FP16 where faster, `--torchscript_precision FP16` does it for the TorchScript network, inputs and outputs staying FP32 |
-| Triton | the NVIDIA inference server, a Docker container that loads `served_models/`, answers HTTP and gRPC requests and batches those that arrive together |
+The figure below shows the four ways to run the checkpoint of the README classifier:
 
 <p align="center">
   <img src="README/deployment_paths_map.png" width="100%" />
 </p>
-<p align="center"><em>The four ways to run the checkpoint of the README classifier, with the sizes of model.pt, model.onnx and the TensorRT engines built from model.onnx in the Triton image (TensorRT 10.14.1, GB10).</em></p>
+<p align="center"><em>With the sizes of model.pt, model.onnx and the TensorRT engines built from model.onnx in the Triton image (TensorRT 10.14.1, GB10).</em></p>
 
 #### Triton Inference Server
 So that other programs can query the model over the network, Triton serves `served_models/` from a Docker container ([Triton Server](#triton-server)), on HTTP port 8000 and gRPC port 8001.
@@ -405,51 +394,6 @@ To find your way among these paths, find your situation in the table: it gives t
 | No PyTorch, or C# or Java | ONNX Runtime, CPU or GPU | `model.onnx` |
 | Many clients or models behind one endpoint | Triton, serving either file; on a known GPU, `model.onnx` with TensorRT FP16 after checking its metric | `model.pt` or `model.onnx` |
 
-- **Debugging, evaluating or changing the model**: eager, the reference of every other path.
-- **A C++ or Python service that already links PyTorch**: TorchScript (`torch.jit.load` on `model.pt`), which PyTorch 2.14 marks as deprecated.
-- **No PyTorch where the model runs, or C# or Java**: ONNX with ONNX Runtime, on CPU or GPU.
-- **The most images per second on a known GPU**: ONNX with TensorRT FP16, about 3.5 times the eager throughput in the table above. The export never checks the engine, so measure its test metric through Triton first with `scripts/deployment/evaluate_served_formats.py`.
-- **Many cameras or services, several models or versions behind one endpoint**: Triton, which serves any of these files and batches the requests that arrive together.
-
-#### Glossary
-If you are looking for one word of the Deployment section:
-
-| Term | Meaning | In this repository |
-|---|---|---|
-| Kernel | one GPU program applied to a whole tensor by thousands of threads | the 3 x 3 convolution of block 1 over [1, 16, 512, 512] |
-| CUDA | the NVIDIA platform to program its GPUs | `torch.device("cuda")`, the CUDA execution provider |
-| cuDNN, cuBLAS | NVIDIA GPU kernel libraries for convolutions and matrix products | run by PyTorch, libtorch and ONNX Runtime CUDA |
-| Tensor Cores | GPU units that multiply small matrices in reduced precision (TF32, BF16, FP16, FP8, INT8, FP4) faster than the regular cores | the TF32 kernel TensorRT kept for the first convolution |
-| Eager | PyTorch running `forward` line by line, each operation launched when Python reaches it | every training and evaluation, the in-process run of `run_inference.py` |
-| Graph | the operations of a network with their connections, shapes and weights, known before it runs | `model.pt`, `model.onnx` |
-| Tracing | recording the operations a forward pass executes on an example batch | `torch.jit.trace` on a batch of 2 |
-| `torch.export` | the PyTorch graph capture that follows dynamic dimensions as symbols | the ONNX export, `dynamo=True` |
-| TorchScript | the PyTorch graph format, run by libtorch | `model.pt`, Triton `pytorch_libtorch` |
-| libtorch | the C++ library at the core of PyTorch | runs `model.pt` in Python, C++ or Triton |
-| ONNX | the framework-neutral graph format of standard operators | `model.onnx` and `model.onnx.data` |
-| Opset | the version of the ONNX operator definitions a file uses | 18 |
-| ONNX Runtime | the Microsoft library that runs ONNX files | the export check (CPU), Triton `onnxruntime_onnx` |
-| Execution provider | the ONNX Runtime plug-in that picks the hardware and kernels of each node | CPU, CUDA, TensorRT |
-| TensorRT | the NVIDIA compiler and runtime that turns a graph into an engine for one GPU | `--tensorrt_precision` FP32 or FP16 |
-| Engine, plan | the compiled TensorRT network, valid for one GPU model, one TensorRT version and a range of input shapes | `/tmp/tensorrt_engine_cache` of the container |
-| Fusion | several operations in one kernel, intermediate tensors kept out of memory | 9 Conv and Relu pairs of the TensorRT engine |
-| Tactic | a candidate kernel the TensorRT builder times for a layer | 60 for the first convolution |
-| Triton Inference Server | the NVIDIA server that loads model files and answers HTTP and gRPC requests | `vision_training/deployment/triton/docker-compose.yml` |
-| Model repository | the folder Triton reads: one folder per model, with its `config.pbtxt` and version folders | `served_models/` |
-| Backend | the Triton plug-in that runs one format | `pytorch_libtorch`, `onnxruntime_onnx` |
-| Dynamic batching | Triton grouping requests that arrive close together into one batch | `max_queue_delay_microseconds: 1000` |
-| Instance | one copy of a model in Triton, running requests in parallel with the other copies | `instance_group` count 1 |
-| In the process | the model inside your own program, without a server | eager, `torch.jit.load`, `onnxruntime.InferenceSession` |
-| Latency, p50 | time from a request to its answer; p50 is the median, p99 the time 99 % of requests stay under | the Batch 1 p50 columns |
-| Throughput | images answered per second | the Batch 16 columns |
-| Warm-up | first requests, not timed, while CUDA initializes and TensorRT builds its engines | 20 in `run_inference.py` |
-| Shared memory | memory both client and server map, so an image is written once instead of sent in the request | `use_shared_memory`, `/dev/shm` |
-| Input contract | the preprocessing a client must apply, written with the model | `preprocessing.json`, the ONNX metadata |
-| FP32 | 32-bit floating point: 8 exponent and 23 mantissa bits | every export and evaluation |
-| TF32 | Tensor Core mode with the range of FP32 and 10 mantissa bits | eager PyTorch convolutions, TensorRT "FP32" |
-| BF16 | 16 bits: the range of FP32 with 7 mantissa bits | the forward passes of the training |
-| FP16 | 16 bits: 5 exponent bits, largest value 65,504, and 10 mantissa bits | `--tensorrt_precision FP16`, `--torchscript_precision FP16` |
-
 ### The Same Values In Every Format
 Before you pick the precision of a served model ([export](#export)), see what FP32, TF32, BF16 and FP16 store for typical values of the repository (PyTorch 2.14, up to 6 significant digits; TF32 rounds the FP32 mantissa to 10 bits, ties to even):
 
@@ -502,38 +446,33 @@ The models go to `vision_training/deployment/triton/served_models/<model name>_<
 | SEL | `frame_selector` | `images` [B, T, 3, S, S] | `class_probabilities` [B, T, K] |
 | SSL | `image_encoder` | `images` [B, 3, S, S] | `representations` [B, F] |
 
-S is `Data.image_settings.size`, K the number of classes, F the size of the L2 normalized representation, D the largest number of detections per image, M `MaskHead.mask_resolution`, T the number of frames, C the heatmap channels and N the candidates per channel. Inputs are float32 BGR images in [0, 255], prepared as the [input contract](#input-contract) states; the normalization is inside the model. Client-side post-processing (SEG at full resolution, INS masks, KPT grouping), the SEL decoder and ensembles: [tools reference](documentation/reference/tools_reference.md#export).
+S is `Data.image_settings.size`, K the number of classes, T the number of frames, D the largest number of detections, M `MaskHead.mask_resolution`, C the heatmap channels, N the candidates per channel and F the size of the representation. Inputs are float32 BGR images in [0, 255]; the normalization is inside the model. Client-side post-processing, the SEL decoder and ensembles: [tools reference](documentation/reference/tools_reference.md#export).
 
-Should you want a TorchScript file half the size that uses the FP16 Tensor Cores without TensorRT, add `--torchscript_precision FP16`. Convolution, linear and attention weights become FP16; normalization, recurrent layers, buffers, softmax, inputs and outputs stay FP32 (`convert_to_half_precision` in `vision_training/deployment/export_formats.py`). The file is `model_fp16.pt`, so it can sit next to an FP32 `model.pt`. It is checked against the eager FP16 model at 100 times the FP32 tolerances (`HALF_PRECISION_TOLERANCE_FACTOR`).
-
-Before a format goes to production, above all in FP16, add `--test_split_parity`. A temporary Triton container (Docker, image of `vision_training/deployment/triton/docker-compose.yml`) serves every format, and the eager model and every format are scored on the whole test split, listing the samples whose outputs moved. The summary goes to `<run>/Export_Parity/Iteration_<n>[_EMA][_T<temperature>]_<precisions>/` (e.g. `Iteration_5000_EMA_T3_TorchScript-FP16_TensorRT-FP32`) and next to every installed model. It is a report only: it never blocks the installation. Cost: one test evaluation per format, plus one for the eager model. Details: [tools reference](documentation/reference/tools_reference.md#test-split-parity).
+Two options matter before production:
+- `--torchscript_precision FP16`: `model_fp16.pt`, half the size, with FP16 convolution, linear and attention weights and the rest in FP32, checked against the eager FP16 model.
+- `--test_split_parity`: every format served by a temporary Triton container and scored on the whole test split against the eager model, a report in `<run>/Export_Parity/` that never blocks the install ([details](documentation/reference/tools_reference.md#test-split-parity)).
 
 Suppose a classifier reaches its target precision only above a threshold such as 0.999: export it with a logit temperature.
 
-1. Start `uv run python -m scripts.evaluation.serve_temperature_explorer` and open `http://127.0.0.1:8091/`.
-2. Pick a run, an iteration and **Trained** or **EMA**, and check the balanced accuracy at the top of the page.
-3. Press **Save Thresholds At This Temperature**, then **Export At T = …**.
+```bash
+# Open http://127.0.0.1:8091/, pick a run and an iteration, then press Save Thresholds At This Temperature
+uv run python -m scripts.evaluation.serve_temperature_explorer
 
-The export goes to its own Triton model repository, `<run>/Exports/Iteration_<n>[_EMA]_T<temperature>/`. From the script, `--use_saved_temperature` builds the saved temperature and thresholds into the model. Details: [tools reference](documentation/reference/tools_reference.md#logit-temperature).
+# Export with the saved temperature and thresholds built into the model
+uv run python -m vision_training.deployment.export_model --experiment_folder ~/Data/<run> --iteration 2000 --use_saved_temperature
+```
+
+The **Export At T = …** button of the explorer writes to its own repository instead, `<run>/Exports/Iteration_<n>[_EMA]_T<temperature>/` ([details](documentation/reference/tools_reference.md#logit-temperature)).
 
 ### Input Contract
-If a server has to turn a photo into a model input, it reads the input contract written with the model instead of guessing the resize or the channel order.
+If a server has to turn a photo into a model input, it reads the input contract written with the model: `preprocessing.json` next to it and the metadata of `model.onnx` (keys in `vision_training/deployment/input_contract.py`). The contract gives the decoding (BGR, as `cv2.imread`), the resize (`stretch`, `keep_ratio` or `tiles`, with its interpolation), the padding and the layout. A run it cannot describe is not exported.
 
-Every export writes the contract twice (keys in `vision_training/deployment/input_contract.py`):
-- in the `metadata_props` of `model.onnx`;
-- as `preprocessing.json` next to the model.
-
-The contract describes:
-- **the input**: the BGR photo as `cv2.imread` decodes it;
-- **the resize**: `stretch`, `keep_ratio` or `tiles`, with its OpenCV interpolation;
-- **the padding and the layout** of the tensor.
-
-A run the contract cannot describe is not exported. The figure below shows the three resizes on one photo:
+The figure below shows the three resizes on one photo:
 
 <p align="center">
   <img src="README/input_contract_resizes.png" width="100%" />
 </p>
-<p align="center"><em>The three resizes of a 640 x 359 photo for an input size of 256 (tiles overlapping by 64). Photo: COCO 2017 validation image 288882, Flickr, CC BY 2.0.</em></p>
+<p align="center"><em>A 640 x 359 photo resized for an input size of 256 (tiles overlapping by 64). Photo: COCO 2017 validation image 288882, Flickr, CC BY 2.0.</em></p>
 
 A client reads and checks the contract of an ONNX file in three lines:
 
@@ -548,7 +487,7 @@ input_contract = session.get_modelmeta().custom_metadata_map
 check_input_contract(input_contract=input_contract)
 ```
 
-Every key is in the [tools reference](documentation/reference/tools_reference.md#input-contract). `build_input_from_contract` in `tests/deployment/test_input_contract.py` builds the input from the contract alone, matching `preprocess_image` pixel for pixel.
+Every key: [tools reference](documentation/reference/tools_reference.md#input-contract). `build_input_from_contract` in `tests/deployment/test_input_contract.py` builds an input from the contract alone.
 
 ### Triton Server
 To serve every model of `served_models/`, start Triton and keep it running:
@@ -574,55 +513,45 @@ Whenever you want to compare in-process and Triton speed, `run_inference.py` sen
 uv run python -m vision_training.deployment.run_inference
 ```
 
-The figure below shows its output for the README classifier:
-
-<p align="center">
-  <img src="README/run_inference_output.png" width="100%" />
-</p>
-<p align="center"><em>The 35-class README classifier (512 pixels) with TensorRT FP32. With one image per request, Triton pays a gRPC call per image.</em></p>
-
 ### Serving Formats And Precision
-Before a model goes to production, its serving path and [number format](#the-same-values-in-every-format) set its speed, its memory and its drift from the evaluated FP32 model. The numbers come from the [serving benchmark](documentation/architecture_benchmarking/serving_benchmark_plan.md) on the idle GPU of the DGX Spark, with Triton 26.01 (TensorRT 10.14.1).
+Before a model goes to production, its serving path and [number format](#the-same-values-in-every-format) set its speed, memory and drift from the FP32 model. The numbers come from the [serving benchmark](documentation/architecture_benchmarking/serving_benchmark_plan.md) on the DGX Spark, Triton 26.01.
 
 #### What Is Exported Today
-If you are looking for what deploys without new code, the table lists what `export_model.py` writes. Inputs and outputs stay float32 whatever the precision, which only changes the computation inside.
+If you are looking for what deploys without new code, the table lists what `export_model.py` writes. Inputs and outputs stay float32 whatever the precision.
 
-| Path | File, Triton platform | Computation | Status |
+| Path | File | Computation | Checked by the export |
 |---|---|---|---|
-| In the process | checkpoint, eager PyTorch | FP32, convolutions in TF32 | the reference |
-| TorchScript | `model.pt`, `pytorch_libtorch` | FP32 | exported, checked against eager |
-| ONNX Runtime CUDA | `model.onnx`, `onnxruntime_onnx` | FP32 | `--tensorrt_precision None`, checked against eager |
-| ONNX with TensorRT FP32 | same file, TensorRT accelerator | FP32, TF32 allowed | default, engine not checked |
-| ONNX with TensorRT FP16 | same file | FP16 where TensorRT finds it faster | `--tensorrt_precision FP16`, engine not checked |
-| BF16 | none | | refused by Triton 26.01 |
-| INT8, native TensorRT engine (`model.plan`) | none | | not implemented |
+| In the process | checkpoint | FP32, TF32 convolutions | the reference |
+| TorchScript | `model.pt` | FP32 | yes |
+| ONNX Runtime CUDA (`--tensorrt_precision None`) | `model.onnx` | FP32 | yes |
+| ONNX with TensorRT FP32 (default) | `model.onnx` | FP32, TF32 allowed | the graph, not the engine |
+| ONNX with TensorRT FP16 | `model.onnx` | FP16 where faster | no |
 
-The figure below follows each file from its Triton configuration to what runs on the GPU, then shows the layer fusion of TensorRT:
+Triton 26.01 refuses BF16, and native TensorRT engines (`model.plan`) are not implemented.
+
+The figure below follows each file from its Triton configuration to what runs on the GPU:
 
 <p align="center">
   <img src="README/serving_formats.png" width="100%" />
 </p>
 
 #### Triton Or The Model In The Process
-Suppose several cameras or services query the same model at once: in the process each call runs alone, while Triton queues the requests, batches them and spreads them over its instances.
-
-The table lists what Triton gives and what it costs:
+Suppose several cameras or services query the same model at once. In the process, each call runs alone; Triton queues the calls and batches them.
 
 | Triton gives | It costs |
 |---|---|
-| Dynamic batching: requests arriving within 1 millisecond run as one batch of up to 16 | up to 1 millisecond of queue time |
-| Several instances of a model on the GPU (one exported) | weights and workspace once per instance |
+| Requests arriving within 1 millisecond run as one batch (up to 16) | up to 1 millisecond of waiting |
 | Every model of `served_models/` behind one endpoint | GPU memory of every loaded model |
 | HTTP and gRPC clients in any language, without PyTorch | a container to run and upgrade |
 | Metrics per model on port 8002 | nothing |
 
-The figure below shows how the dynamic batcher groups requests over time:
+The figure below shows how the batcher groups requests over time:
 
 <p align="center">
   <img src="README/dynamic_batching_timeline.png" width="100%" />
 </p>
 
-One request at a time, Triton adds latency: a 512-pixel CLS image takes 2.5 milliseconds with TensorRT FP16 against 2.2 eager. Dynamic batching helps none of the benchmark models: with it off and two instances, TensorRT FP16 serves more (CLS 1,747 against 1,168 images per second).
+For one request at a time, Triton is slightly slower: 2.5 milliseconds for a CLS image with TensorRT FP16, against 2.2 in the process. Batching did not help the benchmark models: two instances without batching served more (CLS 1,747 against 1,168 images per second).
 
 #### TensorRT Or TorchScript And ONNX Runtime CUDA
 Whenever latency matters more than a portable file, TensorRT compiles the ONNX graph into an engine for this GPU:
