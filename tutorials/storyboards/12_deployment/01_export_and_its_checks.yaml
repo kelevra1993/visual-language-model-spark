@@ -1,15 +1,17 @@
 # Export and deployment, chapter 1: the export and its checks: the settings of export_model.py, the steps of
 # export_experiment (inference model, input contract, reference outputs, staging folder, every format checked against
 # the eager model, install_staged_models), the batches the exports are traced and checked on, the comparison tolerances
-# of every task and the TensorRT engine check (FP16 overflow scan, engine run by a temporary Triton), the config.pbtxt the export writes, the input
-# contract (preprocessing.json and the ONNX metadata), the extras of the classifier (temperature and class thresholds)
-# and of the frame selector (decoder and ensembles), and the Export Sizes panel printed at the launch of every training
-# (the size of every exported file estimated, and the script checking the estimates). Coordinates of the html scenes
-# are in pixels of the content area (1760 x 740, origin at its top left corner); the facts named deployment.* and the
-# listings under figures:deployment/listings are made by tutorials/figures/deployment from the code, the README
-# classifier (its Export Sizes panel from its model built on the CPU), the run_9 detector and the sequence labelling
-# run of tutorial_sources.yaml, and the file list of a model repository of the serving benchmark
-# (serving_benchmark_model_repository_files.txt, committed next to its plan).
+# of every task and the TensorRT engine check (FP16 overflow scan, engine run by a temporary Triton, FP32 engines
+# accepted within the TF32 roundings of the eager model), the config.pbtxt the export writes, the input contract
+# (preprocessing.json and the ONNX metadata, the image windows input of the detectors), the files of the detector
+# (score threshold of every class) and of the keypoint detector (keypoint_channels.json), the extras of the classifier
+# (temperature and class thresholds) and of the frame selector (decoder and ensembles), and the Export Sizes panel
+# printed at the launch of every training (the size of every exported file estimated, and the script checking the
+# estimates). Coordinates of the html scenes are in pixels of the content area (1760 x 740, origin at its top left
+# corner); the facts named deployment.* and the listings under figures:deployment/listings are made by
+# tutorials/figures/deployment from the code, the README classifier (its Export Sizes panel from its model built on
+# the CPU), the run_9 detector and the sequence labelling run of tutorial_sources.yaml, and the file list of a model
+# repository of the serving benchmark (serving_benchmark_model_repository_files.txt, committed next to its plan).
 series: deployment
 series_title: "Export And Deployment"
 chapter: 1
@@ -30,6 +32,9 @@ references:
   - "vision_training/deployment/input_contract.py · check_input_contract"
   - "vision_training/deployment/input_contract.py · write_onnx_input_contract"
   - "vision_training/deployment/frame_selection_deployment.py · export_frame_selection_decoding"
+  - "vision_training/deployment/detection_deployment.py · apply_class_score_thresholds"
+  - "vision_training/deployment/keypoint_deployment.py · write_keypoint_channels_file"
+  - "vision_training/deployment/tensorrt_check.py · derive_tf32_tolerances"
   - "vision_training/deployment/frame_selection_deployment.py · build_decoding_settings"
   - "vision_training/deployment/frame_selection_decoder_backend.py"
   - "vision_training/models/classification/inference_classifier.py · InferenceClassifier.set_logit_temperature"
@@ -85,34 +90,39 @@ scenes:
       - {type: arrow, points: [[568, 460], [612, 460]], appear: 3}
       - {type: box, box: [620, 280, 1140, 390], text: "torch.jit.load on CUDA", font: diagram_small, outline: aqua, appear: 3}
       - {type: box, box: [620, 405, 1140, 515], text: "ONNX Runtime on the CPU", font: diagram_small, outline: aqua, appear: 3}
-      - {type: box, box: [1180, 280, 1720, 515], text: "config.pbtxt\npreprocessing.json\nclass_thresholds.json (classifier)\n\ncompared with the reference\nwithin the tolerances of the task", font: diagram_small, outline: yellow, appear: 3, highlight: [4]}
-      - {type: box, box: [20, 570, 860, 730], text: "every format matches: install_staged_models\n<model>_<format>/<version>/ replaced whole\nother versions kept", font: diagram_small, outline: aqua, appear: 5, highlight: [5]}
-      - {type: box, box: [900, 570, 1740, 730], text: "one format differs: RuntimeError\nthe served models left as they were\nthe staging folder removed", font: diagram_small, outline: red, appear: 5, highlight: [5]}
+      - {type: box, box: [1180, 280, 1720, 515], text: "config.pbtxt, preprocessing.json\nthe files of the task: class or\nscore thresholds, keypoint channels\n\ncompared with the reference\nwithin the tolerances of the task", font: diagram_small, outline: yellow, appear: 3, highlight: [4, 5]}
+      - {type: box, box: [20, 570, 860, 730], text: "every format matches: install_staged_models\n<model>_<format>/<version>/ replaced whole\nother versions kept", font: diagram_small, outline: aqua, appear: 6, highlight: [6]}
+      - {type: box, box: [900, 570, 1740, 730], text: "one format differs: RuntimeError\nthe served models left as they were\nthe staging folder removed", font: diagram_small, outline: red, appear: 6, highlight: [6]}
     narration:
       - "Export experiment loads the checkpoint, trained or averaged weights, and wraps it in the inference model of its task, which keeps the input normalization inside the graph."
       - "Before any file is written, it builds the input contract of the run, so that a run whose preprocessing the contract cannot describe stops right there."
       - "It then switches TF32 off, since PyTorch would otherwise run the reference convolutions at about three significant digits, and computes the eager outputs of a random check batch."
       - "Every format is exported into a staging folder next to the repository, outside the folder Triton reads: the TorchScript trace is run again by torch jit load on the GPU, the ONNX graph by ONNX Runtime on the CPU."
       - "Each exported file gets its Triton configuration and its preprocessing file, and its outputs are compared with the reference within the tolerances of the task."
+      - "A detector also keeps the score threshold its evaluation found for every class, set before the reference so that the checks cover it, and a key point detector gets the names of its channels."
       - "Only when every format matches does install staged models move the version folders into the repository; one mismatch raises an error and leaves the served models untouched."
     # Three significant digits of TF32, as the comment of export_experiment states it
     literal_numbers: [three]
 
   - kind: code
     title: "Traced on one batch, checked on another"
+    # The four coordinates of an image window, the dimensions [4] of build_input_specification
+    literal_numbers: [four]
     code_reference: "vision_training/deployment/export_specifications.py · build_input_specification"
     source:
       file: vision_training/deployment/export_specifications.py
       function: build_input_specification
     highlights:
       - {match: "\"example_shape\": \\[2\\] \\+ image_dimensions, \"check_shape\"", sentences: [0]}
-      - {match: "check_frames = |\"check_shape\": \\[3, check_frames\\]", sentences: [1]}
-      - {match: "\"dimensions\": \\[-1\\] \\+ image_dimensions", sentences: [2]}
+      - {match: "if input_name == IMAGE_WINDOWS_INPUT_NAME:|\"dimensions\": \\[4\\]", sentences: [1]}
+      - {match: "check_frames = |\"check_shape\": \\[3, check_frames\\]", sentences: [2]}
+      - {match: "\"dimensions\": \\[-1\\] \\+ image_dimensions", sentences: [3]}
     narration:
       - "Images are traced on a batch of {{deployment.export.traced_batch_size:words}} and checked on a batch of {{deployment.export.checked_batch_size:words}}, so that an export that froze its batch dimension fails the check instead of failing in Triton."
+      - "A detector also takes the window of the resized photo in every input, four coordinates to which it clips its boxes, checked on the windows of random letterboxed photos."
       - "Sequences are traced with the maximum sequence length of the run, {{deployment.export.traced_frames}} frames for the sequence labeller of the tutorials, and checked with one frame fewer, each following input of the comparison model losing one more."
-      - "The number of frames is declared minus one, dynamic, and find fixed dynamic dimensions refuses an ONNX file whose inputs came out with a fixed batch or frame size."
-      - "Should you export a bidirectional recurrent model, know that this check reads the inputs only: the third chapter shows an output frame dimension that the dynamo export froze."
+      - "The number of frames is declared minus one, dynamic, and find fixed dynamic dimensions refuses an ONNX file whose inputs or outputs came out with a fixed batch or frame size."
+      - "Should you export a bidirectional recurrent model, the dynamo export freezes the frames of its outputs, so restore dynamic output frames makes them dynamic again before that check."
 
   - kind: code
     title: "Tolerances of the comparison"
@@ -179,10 +189,10 @@ scenes:
           - {match: "__0|__1|__2|__3", sentences: [4]}
           - {match: "number_detections", sentences: [5]}
       - {type: box, box: [1140, 250, 1750, 470], text: "pytorch_libtorch: model.pt\nonnxruntime_onnx: model.onnx\nTensorRT: an accelerator\nof the ONNX model", font: diagram_small, outline: blue, appear: 0, highlight: [0, 3]}
-      - {type: box, box: [20, 540, 1750, 680], text: "inputs and outputs stay TYPE_FP32 whatever the precision · engines cached in /tmp of the container,\nwhich docker-compose.yml does not mount · queue delay {{deployment.triton.queue_delay_microseconds}} microseconds, {{deployment.triton.instance_count}} instance on the GPU", font: diagram_small, outline: yellow, appear: 2, highlight: [2, 3]}
+      - {type: box, box: [20, 540, 1750, 680], text: "float inputs and outputs stay TYPE_FP32 whatever the precision · engines cached in /tmp of the container,\nwhich docker-compose.yml does not mount · queue delay {{deployment.triton.queue_delay_microseconds}} microseconds, {{deployment.triton.instance_count}} instance on the GPU", font: diagram_small, outline: yellow, appear: 2, highlight: [2, 3]}
     narration:
       - "Write Triton configuration gives each model its platform, pytorch libtorch or onnxruntime onnx, the max batch size of the export, and a version policy serving the exported version only."
-      - "The inputs and outputs come from the export specification, without the batch dimension, and stay float32 whatever the precision of the engine, so a request keeps its size."
+      - "The inputs and outputs come from the export specification, without the batch dimension, and the floating point ones stay float32 whatever the precision of the engine, so a request keeps its size."
       - "Every model gets dynamic batching with a queue delay of {{deployment.triton.queue_delay_microseconds}} microseconds, and {{deployment.triton.instance_count:words}} instance on the GPU; the third chapter measures what that costs."
       - "With a TensorRT precision, the ONNX model gets the TensorRT accelerator without a workspace limit and an engine cache in the temporary folder of the container, lost whenever the container is recreated."
       - "A TorchScript model names its outputs after their index, as the PyTorch backend of Triton wants them, which get served output names writes for the clients and the ensembles."
@@ -281,7 +291,7 @@ scenes:
       - {text: "Staging folder: the served models replaced only when every format matches", sentences: [2]}
       - {text: "config.pbtxt: max batch {{deployment.export.maximum_batch_size}}, dynamic batching, {{deployment.triton.instance_count}} instance, TensorRT accelerator", sentences: [3]}
       - {text: "preprocessing.json and ONNX metadata: the input contract, version {{constant:vision_training/deployment/input_contract.py#INPUT_CONTRACT_VERSION}}", sentences: [4]}
-      - {text: "Classifier temperature and thresholds, frame selector decoder and ensembles", sentences: [5]}
+      - {text: "Task files: class or score thresholds, keypoint channels, frame selector decoder", sentences: [5]}
       - {text: "Export Sizes panel at every launch: every file estimated, TorchScript traced", sentences: [6]}
     narration:
       - "To recap: the export model script exports any task to TorchScript and ONNX, each model in its own folder of the model repository with one folder per version."
@@ -289,6 +299,6 @@ scenes:
       - "The formats are written into a staging folder outside the folder Triton reads, and the served models are replaced only when every format matches; one mismatch leaves them untouched."
       - "Each model gets its Triton configuration: the max batch size of the export, dynamic batching, {{deployment.triton.instance_count:words}} instance on the GPU, and the TensorRT accelerator when a TensorRT precision is set."
       - "The input contract writes how the training prepared its images into preprocessing json and the ONNX metadata, and its version lets a server refuse a contract it does not know."
-      - "A classifier can carry its saved temperature and class thresholds, and a frame selector gets a decoder on the Python backend of Triton and the ensembles that clients query."
+      - "A classifier carries its saved temperature and thresholds, a detector the score threshold of every class, a key point detector its channel names, and a frame selector a decoder and its ensembles."
       - "The launch of every training prints the Export Sizes panel, every exported file estimated from one forward pass and formulas, only the full precision TorchScript file being traced."
       - "The next chapter starts Triton on this repository, sends it requests, and goes through the serving paths it offers."

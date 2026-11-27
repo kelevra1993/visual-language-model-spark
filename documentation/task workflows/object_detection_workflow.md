@@ -140,7 +140,7 @@ This table gives the iteration 5000 results of the two runs this document quotes
 ### Pitfalls
 Suppose a detection run behaves unexpectedly: these behaviours are the first to check.
 
-- The synthetic configuration stops at 2000 iterations, where few detections reach 0.5. In the DET tutorials run, `mAP@0.5/area` is 12.47 % at iteration 1000 (no detection reaching 0.5) and 37.81 % at 2000 (`suggestions.md`, item 30).
+- The synthetic configuration stops at 2000 iterations, where few detections reach 0.5. In the DET tutorials run, `mAP@0.5/area` is 12.47 % at iteration 1000 (no detection reaching 0.5) and 37.81 % at 2000.
 - Small objects get few anchors: the finest level has a stride of 32 and anchors of 32 and 64 pixels. Block 5 gives a foreground anchor to 8.11 % of the 150,120 training objects under 1/16 of the side (under 32 pixels at 512) of the current dataset. The tutorials run adds block 4 (stride 16, anchors of 16 and 32 pixels): 43.99 %, and its 5,778 test objects under 32 pixels reach `mAP@0.5` 71.25 % at iteration 5000 (80.09 % from 32 to 96 pixels, 73.17 % above, the COCO sizes of that evaluation).
 - With `"joint"` (the run of Stages 3 to 5, audit M3), 166.9 of the 250 proposals per image come from block 5 (Step 4.15). `"per_level"` still ranks all levels together in its last top-k, so it reserves no slots: in the tutorials run, 238.7 of 250 come from block 4, its finest level.
 - The mAP matches detections with the PASCAL VOC rule at every IoU, so `mAP@[0.5:0.95]` and the 101-point values are not those of pycocotools (`match_detections_to_ground_truth()`, audit L6).

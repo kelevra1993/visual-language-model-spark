@@ -71,7 +71,7 @@ To find your way in the code, the table below lists the file and main functions 
 | Configuration checks | `vision_training/configuration_processing/keypoint_checks.py` | `check_keypoint_configuration` |
 | Run name | `vision_training/configuration_processing/run_name.py` | `build_run_name`, `build_keypoint_sections` |
 | Synthetic data generator | `vision_training/data/synthetic/create_synthetic_dataset.py` | `create_synthetic_dataset`, `build_keypoint_labels`, `build_keypoint_label_mapping`, `KEYPOINT_CATEGORIES`, `KEYPOINT_NAMES` |
-| Export | `vision_training/models/keypoints/inference_keypoint_detector.py`, `vision_training/deployment/export_specifications.py`, `vision_training/deployment/input_contract.py` | `InferenceKeypointDetector` (model name `keypoint_detector`, candidates only), `get_export_specification`, `compare_keypoints`; `build_input_contract`, `write_onnx_input_contract`, `write_preprocessing_file` |
+| Export | `vision_training/models/keypoints/inference_keypoint_detector.py`, `vision_training/deployment/export_specifications.py`, `vision_training/deployment/input_contract.py`, `vision_training/deployment/keypoint_deployment.py`, `vision_training/deployment/tensorrt_check.py` | `InferenceKeypointDetector` (model name `keypoint_detector`, candidates only), `get_export_specification`, `compare_keypoints`; `build_input_contract`, `write_onnx_input_contract`, `write_preprocessing_file`; `write_keypoint_channels_file`, `read_keypoint_channels`; `check_tensorrt_engine`, `derive_tf32_tolerances` |
 | Export sizes at launch | `vision_training/deployment/export_size_estimates.py` | `estimate_export_sizes`, `probe_inference_graph`, `print_export_size_summary` |
 
 ### Run It
@@ -179,7 +179,8 @@ main()  --configuration_path to a keypoint_detection configuration
 scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]   same as every task
 vision_training/deployment/export_model.py  [STAGE 6]
 └── export_experiment()   InferenceKeypointDetector -> TorchScript / ONNX + input contract -> config.pbtxt,
-                          preprocessing.json -> compare_keypoints() -> install_staged_models()
+                          preprocessing.json, keypoint_channels.json -> compare_keypoints()
+                          -> check_tensorrt_export() -> install_staged_models()
 client of the exported model  [STEP 6.6]   load_inference_inputs() -> exported model -> group_keypoint_candidates()
 ```
 
@@ -764,7 +765,7 @@ Test Evaluation Iteration 60 (EMA Weights): 100%|██████████|
 > Steps 6.2 to 6.4 are real outputs of a script repeating `export_experiment()` on CPU on iteration 60 (trained weights), maximum batch size 16, TensorRT precision FP32, the models run by TorchScript and ONNX Runtime on CPU; Triton was not started. The input contract and the model repository of Step 6.5 come from the same steps run on 2026-11-12 on iteration 6000 of the GPU run. The client of Step 6.6 uses the ONNX export of that iteration 6000 (its sample `test_000000.png` shows the same three objects, scored 0.90, 0.87 and 0.80).
 
 ### Step 6.1 — `vision_training/deployment/export_model.py` → `export_experiment()`
-Run as a script after training, its settings given as arguments (`parse_export_arguments()`). `export_experiment()` turns TF32 off, loads the checkpoint on CUDA with `load_trained_model()` (hard-coded, hence the CPU script here) and wraps it with `build_inference_model()`. It builds the export specification and the input contract (Step 6.5), exports every format into a staging folder, writes `config.pbtxt` and `preprocessing.json`, and compares the export to the eager model, raising a `RuntimeError` on a mismatch. With TensorRT, the engine is checked too (Step 6.5). `install_staged_models()` then moves the checked models to `<repository>/<model name>_<format>/<version>/`.
+Run as a script after training, its settings given as arguments (`parse_export_arguments()`). `export_experiment()` turns TF32 off, loads the checkpoint on CUDA with `load_trained_model()` (hard-coded, hence the CPU script here) and wraps it with `build_inference_model()`. It builds the export specification and the input contract (Step 6.5), exports every format into a staging folder, writes `config.pbtxt`, `preprocessing.json` and `keypoint_channels.json`, and compares the export to the eager model, raising a `RuntimeError` on a mismatch. With TensorRT, the engine is checked too (Step 6.5). `install_staged_models()` then moves the checked models to `<repository>/<model name>_<format>/<version>/`.
 
 ### Step 6.2 — `load_trained_model()` → `build_inference_model()` → `InferenceKeypointDetector`
 `InferenceKeypointDetector` takes preprocessed images and returns the candidates of every channel (Step 3.10): positions in network input pixels, scores and tags. The grouping is left to the client (Step 6.6). Candidates per channel are `maximum_candidates`, capped by the number of heatmap cells.
@@ -791,7 +792,7 @@ In ONNX Runtime 54 candidates sit at another position than the eager candidate o
 ### Step 6.5 — `write_triton_configuration()` + `write_onnx_input_contract()` / `write_preprocessing_file()`
 So that a server builds the network input from a photo as the loaders did, every export writes the input contract (`input_contract.py`). `build_input_contract()` reads it from `Data.image_settings`; `write_onnx_input_contract()` puts it in the `metadata_props` of `model.onnx`; `write_preprocessing_file()` writes `preprocessing.json` next to both formats. `write_keypoint_channels_file()` (`vision_training/deployment/keypoint_deployment.py`) writes `keypoint_channels.json` there too, from `Data.keypoint_categories`: the class, keypoint and skeleton of every channel, in the order of `build_keypoint_channel_table()` (Step 6.6).
 
-**Example: the model repository** (2026-11-12, iteration 6000; `model.onnx` predates the metadata stripping, now about 269,845 bytes, and the folders the `keypoint_channels.json` of each format)
+**Example: the model repository** (2026-11-12, iteration 6000, before the metadata stripping, which brings `model.onnx` to about 269,845 bytes, and before `keypoint_channels.json`, now written in both version folders)
 ```text
 triton_repository/
 ├── keypoint_detector_onnx/config.pbtxt
