@@ -66,7 +66,7 @@ The values of a stage are searched one pair at a time (the user's choice of 2026
 | 1 | `learning_rate` | 1e-3, 2e-3, 2e-4 (1e-4 not needed) | 15,000 | done, 1e-3 kept |
 | 2 | `RegionProposal.background_iou_threshold.min` | 0.0, 0.1, 0.15 (0.2 dropped) | 15,000 | done, 0.1 kept |
 | 2b | `RegionProposal.easy_negative_fraction` | 0.0, 0.25 | 15,000 | done, not conclusive (0.25 worse), code reverted |
-| 3 | `Neck.type`, feature pyramid (`suggestions.md` item 1) | none, feature_pyramid | 15,000 | done, feature_pyramid kept (+0.0096) |
+| 3 | `Neck.type`, feature pyramid | none, feature_pyramid | 15,000 | done, feature_pyramid kept (+0.0096) |
 | 4 | `Neck.type`, path aggregation | path_aggregation against feature_pyramid (run_9, run_10) | 15,000 | done, tie (-0.0042), feature_pyramid kept, path aggregation code kept for very small objects |
 | 5 | Box loss | smooth L1, CIoU in both stages, CIoU on the detection heads only | 15,000 | done, smooth L1 kept (CIoU -0.0092 and -0.0105), CIoU kept as the `Detector.box_loss` option |
 | 5b | Final NMS | greedy, DIoU-NMS with the exponents 1.0 and 0.6, on test_10000 and an occlusion split | none, evaluation of the checkpoints of stage 5 | done, DIoU-NMS 0.6 kept (occlusion split +0.0034), exported and set in the object detection configurations |

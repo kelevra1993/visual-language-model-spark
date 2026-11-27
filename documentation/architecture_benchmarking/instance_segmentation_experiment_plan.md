@@ -343,5 +343,5 @@ Should the time allow more stages later, these were considered and set aside:
 
 - A boundary refinement in the style of PointRend (https://arxiv.org/abs/1912.08193), whose abstract reports crisp borders and significant gains on COCO, the largest code of all, kept for after stages 2 and 7.
 - Ground truth masks cropped to their boxes (`suggestions.md` item 8): the instance index maps already cut the masks through the loader to a ninth on this dataset.
-- Detections clipped to the image window (`suggestions.md` item 9): the images of the dataset are square, so it changes nothing here.
+- Detections clipped to the image window, since done for every detector: the images of the dataset are square, so it changes nothing here.
 - The normalization of the mask heads: detection stage 6 kept batch normalization for its stability.

@@ -1,14 +1,14 @@
 # Suggestions
 
 > Proposed improvements that are not implemented yet, kept in `documentation/` so that we can come back to them and
-> decide what to implement. They were checked against the code on 2026-10-15, 2026-11-13 and 2026-11-20; the findings of
-> the repository audit of 2026-10-10 were all fixed or dropped by 2026-11-20. The items taken from Mask R-CNN come from
-> a comparison with its Keras / TensorFlow 1 implementation (matterport, commit `3deaec5`) written on 2026-10-12: "Mask
-> R-CNN" means that repository, and "the paper" He et al., 2017. Its file references (`model.py`, `utils.py`,
-> `config.py`, `coco.py`, `nucleus.py`, `visualize.py`) are those of `mrcnn/` and of its samples. An item is removed
-> from this list once it is implemented, or as soon as we decide not to do it. Since 2026-11-23 nothing is added to
-> this list: it only shrinks, a new idea going to the report of the work that found it, and the file is deleted once
-> empty.
+> decide what to implement. They were checked against the code on 2026-10-15, 2026-11-13, 2026-11-20 and 2026-11-27;
+> the findings of the repository audit of 2026-10-10 were all fixed or dropped by 2026-11-20. The items taken from Mask
+> R-CNN come from a comparison with its Keras / TensorFlow 1 implementation (matterport, commit `3deaec5`) written on
+> 2026-10-12: "Mask R-CNN" means that repository, and "the paper" He et al., 2017. Its file references (`model.py`,
+> `utils.py`, `config.py`, `coco.py`, `nucleus.py`, `visualize.py`) are those of `mrcnn/` and of its samples. An item is
+> removed from this list once it is implemented, or as soon as we decide not to do it. Since 2026-11-23 nothing is
+> added to this list: it only shrinks, a new idea going to the report of the work that found it, and the file is
+> deleted once empty.
 
 ## Table Of Content
 - [A. Detector architecture](#a-detector-architecture)
@@ -21,10 +21,6 @@
 - [Suggested Order](#suggested-order)
 
 ## A. Detector architecture
-1. **A transferable neck**: the feature pyramid and path aggregation of this item are implemented (`Neck.type`),
-   but heads trained after a neck are refused by `compare_detection_heads`, the neck not being
-   transferable. A `Neck.pretrained` block would need entries in `TRANSFERABLE_COMPONENTS` (appended last, its order
-   setting the optimizer groups), `PRETRAINED_COMPONENT_NAMES`, `PRETRAINED_TOKEN_PREFIXES` and `COMPONENT_NAMES`.
 2. **Choosing the detection level by box size** (the FPN rule `k = k₀ + log₂(√(wh)/224)`), instead of the level of
    the anchor the proposal came from.
    - **Mask R-CNN** uses `k = 4 + round(log2(√(wh) / 224))`, clamped to [2, 5], with w and h in network input pixels
@@ -73,18 +69,6 @@
      keeps the full precision.
    - **Cost and risk:** medium to high (dataset, augmentations, targets, evaluation), with a small loss of precision
      for large objects. Only worth doing if memory or loader throughput becomes the limit.
-9. **Detections clipped to the image window before the mask head**:
-   - **Mask R-CNN:** `refine_detections_graph` clips the refined boxes to the image window, the letterbox without its
-     padding (`model.py:711`), and the mask head then runs on those boxes (`model.py:2043-2052`).
-   - **Here:** `postprocess_detections` clamps the boxes to the whole input, padding included. With `keep_ratio`, a
-     box can reach into the padding: its mask is predicted over that box, part of it over the padding, and the clients
-     restore the box unclipped (`clip=False`) so that the mask is not squeezed. In the network-resolution
-     evaluation, such boxes also lose IoU.
-   - **Change:** clamp to the letterbox window (`compute_letterbox_region`, `preprocessing.py`) before the mask head;
-     the trainer knows the original sizes from `labels.json`. The exported model would need the windows as a second
-     input (`[B, 4]`); otherwise the clients keep the L22 fix, pasting with the unclipped boxes.
-   - **Cost and risk:** small in the trainer, changing the export signature being the expensive part. A small effect,
-     limited to non-square images.
 10. **Datasets annotating different class subsets**:
     - **Mask R-CNN:** `active_class_ids` (`model.py:1076-1109, 1271-1276`). When the images come from several datasets
       that each annotate a subset of the classes, the classification loss ignores the predictions of the classes that
@@ -95,59 +79,35 @@
       until such a dataset exists.
 
 ## C. Evaluation and deployment
-11. **Per-class score thresholds in the exported detector**: the evaluation finds the score threshold of every class
-    reaching `evaluation.target_precision` (`class_thresholds.json`), but `InferenceDetector` applies the single
-    `Detector.inference.score_threshold` to every class, whatever its precision at that score. `export_model.py`
-    could read the thresholds of the exported checkpoint, as `frame_selection_deployment.py` does for SEL, and
-    `postprocess_detections` could take one threshold per class, a class that never reaches the target precision
-    keeping the global one. The confusion matrix, filled batch by batch before the thresholds are found, could be
-    built again from the kept detections with them, so that it keeps describing the deployed detector.
-12. **Visual checks of the training targets and of the matches**:
-    - **Mask R-CNN:** `inspect_model.ipynb` walks through the region proposal targets (positive anchors with their
-      refinement), the proposals before and after NMS, the sampled RoIs with their positive ratio (`draw_rois`,
-      `visualize.py:208`), the refinement, the per-class NMS, and the 28 × 28 mask targets next to the predicted masks.
-      `display_differences` (`visualize.py:170-205`) draws the ground truth (green) and the detections (red) on one
-      image, each detection captioned "score / IoU", and `plot_overlaps` (`visualize.py:320`) the grid of IoUs between
-      ground truths and detections.
-    - **Here:** `view_input_images` shows the augmented inputs with their boxes and masks. The sample grids show the
-      ground truth next to the detections, without the IoU of each detection. The detection debugging scripts were
-      removed in `6225b4a`, and `visualise_anchors` on 2026-11-14 (it had no caller).
-    - **Change:** (a) a `diagnosis_modes.view_training_targets` flag, shown like `view_input_images` on a training
-      batch, drawing the positive anchors and a sample of the negatives, the top proposals after the filter, the
-      sampled RoIs (the added ground truth boxes included) with their matched ground truth, and for a few positive
-      RoIs the mask target next to the predicted mask, generalising `view_input_data`.
-      This makes failures such as proposals on plain background or shifted mask targets visible at a glance. (b) In
-      `build_detection_sample_grid`, add to the caption of every detection (its class and score) its IoU to the
-      matched ground truth.
-    - **Cost and risk:** (b) is small, (a) medium. No number changes.
-41. **Keypoint and sequence models served with TensorRT**: on 2026-11-22, the tutorial models exported to ONNX and
-    served by Triton 26.01 with the TensorRT `config.pbtxt` that `export_model.py` writes by default (FP32, maximum
-    batch 16, dynamic batching) gave two failures, the five image models (CLS, DET, INS, SEG, SSL) serving batches of
-    1 and 16 in both precisions:
-    - **Keypoint detector** (`keypoint_focal_synthetic/experiments/KPT_..._MC33`): Triton crashed (signal 11 in
-      `libonnxruntime.so`, inside `TRITONBACKEND_ModelInstanceExecute`) at the first batch-1 request, in FP32 and in
-      FP16, about 19 seconds after the engine was built and written to the cache; the same `model.onnx` served by ONNX
-      Runtime without TensorRT answered at batch 1 and 16. Until the cause is found, a keypoint export is written with
-      `--tensorrt_precision None` (keypoint workflow, deployment chapter 2). To find it: serve the graph cut after the
-      heatmaps, then after the candidate extraction (`TopK` and the gathers of the candidates), and try a newer image.
-    - **The four sequence models** (M2O, M2M, SEL and CMP of the tutorial runs): their batch-1 engine is
-      built and answers, but the engine of the largest batch sent (6, 16, 16 and 3, the largest below 1 GB) is not:
-      the request fails with "onnx runtime error 11", the log giving `IBuilder::buildSerializedNetwork: Error Code 10:
-      Could not find any implementation for node {ForeignNode[node_Reshape_...node_softmax]}` with the 4 GB TensorRT
-      workspace of `config.pbtxt`. In FP32 for all four, measured again alone on the idle machine; in FP16 for M2O
-      only, M2M, SEL and CMP building and serving their larger batch. The serving benchmark served this M2M with
-      TensorRT FP32 at batch 16 on 2026-11-17, so an export change since (the dynamic output frames of
-      `restore_dynamic_output_frames`, the stripped metadata) or the larger batch request are the first suspects:
-      export the run with the code of 2026-11-17, compare the graphs, then try a larger `max_workspace_size_bytes`. A
-      served sequence model fails as soon as the dynamic batcher forms a batch above the one its engine was built for.
+41. **What the TensorRT engine check leaves open**: since 2026-11-27 the keypoint detector serves with TensorRT, the
+    `config.pbtxt` of the export sets no TensorRT workspace limit, and the engine check of `export_model.py` accepts an
+    FP32 engine within the TF32 roundings of the eager model (`TF32_DIFFERENCE_FACTOR` of `tensorrt_check.py`). Left:
+    - **The FP16 engine of M2M fails its check**: 2.53e-02 against 1e-02, at the tolerances multiplied by 100 for FP16
+      (`HALF_PRECISION_TOLERANCE_FACTOR`), while the serving benchmark measured its test accuracy at +0.02 points of
+      the eager model. Either a factor per task for the recurrent sequence models, or a check on the test metric (the
+      test split parity) rather than on the outputs.
+    - **Only the batches of the check are built**: the check builds the engine of its batches of 3, and ONNX Runtime
+      builds the engine of every larger batch at its first request in Triton, unchecked. Explicit
+      `trt_profile_min_shapes`, `trt_profile_opt_shapes` and `trt_profile_max_shapes` in `config.pbtxt` would cover
+      the largest batch by construction, at the cost of building the largest engine at every export (M2M 7.2 GiB at
+      16 sequences of 50 frames, the sequence models at 512 pixels about 29 GiB estimated). Whether the ONNX Runtime
+      backend of Triton 26.01 passes these keys is unchecked.
+    - **The SEL tutorial run holds two `class_thresholds.json`** (in `Evaluation/` and `Checkpoint_Evaluation/`): its
+      export installs the network, then raises in `build_decoding_settings` (`find_class_thresholds_path`), so the
+      decoder and the ensembles are never written.
+    - **Report the ONNX Runtime bug upstream**: its TensorRT execution provider (1.20.1 and 1.23.2) left the values of
+      a top-k, a graph output beside indices with three consumers, out of its engine, which crashed Triton (signal 11).
+      The reproduction is kept outside the repository, in
+      `/home/robert_kelevra/.claude/jobs/a75eb28a/tmp/tensorrt_failures/topk_repro`, made by the `make_topk_repro.py`
+      next to that folder; if the folder is gone, the reproduction has to be rebuilt with that script.
 
 ## F. Reference: Mask R-CNN compared stage by stage
 **The mask branch is the same design.** Both use RoIAlign 14 × 14, a stack of 3 × 3 convolutions, a 2 × 2 transposed
 convolution to 28 × 28 and one sigmoid mask per class. The loss is a binary cross entropy on the channel of the ground
 truth class, over the positive proposals only, and at inference the masks are predicted on the final refined boxes. The
 differences lie in what feeds the mask branch (resolution and context of the levels, item 2, the finer inputs of the
-mask heads, off by default, and the neck, `none` in the INS configurations) and in how the
-heads are shared (item 7).
+mask heads, on in the INS example only, and the neck, `none` in the INS synthetic configuration) and in how the heads
+are shared (item 7).
 
 **Where this repository does more than Mask R-CNN:** the export (fixed-shape TorchScript / ONNX), the mask pasting
 (bilinear sampling at pixel centres, instead of resizing to an integer box then thresholding), RoIAlign (aligned,
@@ -159,7 +119,7 @@ average recall by object size and the recall of the anchors and of the proposals
 |---|---|---|
 | Input | Resize so the short side reaches 800 (up only) and the long side stays ≤ 1024, then pad to 1024 × 1024 centred. Modes `crop` (random crops, training) and `pad64` (native size, inference) (`utils.py:388-492`). RGB minus the mean pixel. | Fixed square input, letterboxed centred (`keep_ratio`) or stretched. BGR in [0, 255], then `input_normalization` / `per_sample_normalization`. |
 | Backbone | ResNet-50/101 bottleneck stages C2–C5, pretrained on ImageNet or COCO (`model.py:171-206`). | Stack of `ConvolutionBlock`s (residual, SE, inception options). The detection levels are the outputs of the blocks numbered by the keys of `DetectionLevels`, after their pooling. Pretrained from another run of any task. |
-| Feature pyramid | FPN, P6 for the region proposals only (`model.py:1902-1925`). | `Neck` (item 1): a feature pyramid in the DET configurations, none in the INS ones (the levels keeping the channels of their blocks), or path aggregation, to `output_channels`, without P6. |
+| Feature pyramid | FPN, P6 for the region proposals only (`model.py:1902-1925`). | `Neck`: a feature pyramid in the DET synthetic and example and the INS example configurations, path aggregation in the Open Images DET files, none in the INS synthetic one (the levels keeping the channels of their blocks), to `output_channels`, without P6. Transferable: `Neck.pretrained` loads the neck of another DET or INS run of the same neck type and channels, so that the heads trained behind a neck move with it. |
 | Anchors | One scale per level (32 on P2 to 512 on P6), ratios 0.5 / 1 / 2, corner-aligned (`utils.py:583-619`). | Several scales and ratios per level (`DetectionLevels.<level>.anchors`), corner-aligned, the cell centres having tied with the corners in stage 8 of the detection benchmark. |
 | Region proposal head | One head shared by every level: 3 × 3 conv of 512, then 1 × 1 convs for a 2-class softmax and the offsets (`model.py:830-871`). | One head per level (`DetectionLevels.<level>.region_proposal`): `ConvolutionBlock`, 3 × 3 conv, then 1 × 1 convs for a sigmoid objectness and the offsets. |
 | Region proposal targets | Positive at IoU ≥ 0.7, plus the best anchor(s) of every ground truth. Negative below 0.3. Anchors touching a crowd are never negatives. 256 sampled, at most half positive (`model.py:1445-1553`). | Positive at IoU ≥ 0.5, plus the best anchor(s). Negative below 0.3, 0 included in INS; from 0.1 in DET (stage 2), the anchors overlapping no object being ignored. 256 sampled, at most 128 positive. |
@@ -171,7 +131,7 @@ average recall by object size and the recall of the anchors and of the proposals
 | Mask head | Shared: 4 × (3 × 3 conv 256 + BN + ReLU), 2 × 2 transposed conv 256, 1 × 1 conv to one sigmoid per class (`model.py:956-1005`). | Per level (`DetectionLevels.<level>.mask_head`), or one head read by every level with `MaskHead.shared` (item 7): `ConvolutionBlock` of `[layers, channels]` with module options, configurable pool size, mask resolution and upsampling, optional finer inputs (backbone skips, an image branch on the crop of the input image, fusion convolutions), 1 × 1 conv per class. |
 | Mask targets | `crop_and_resize` of the matched mask (full or mini) inside the positive RoI, rounded at 0.5 (`model.py:577-606`). | `roi_align` (aligned) of the matched full-resolution mask inside the positive proposal, thresholded at 0.5. |
 | Mask loss | BCE of the ground truth class channel, mean over the positives (`model.py:1143-1179`). | Same, computed in float32. |
-| Postprocessing | Class = argmax of each RoI. Score ≥ 0.7, per-class NMS 0.3, top 100. Boxes clipped to the image window, padding excluded (`model.py:684-779`). | Every foreground class of every RoI is a candidate. Score ≥ 0.5 (0.05 in evaluation), batched per-class NMS 0.5 (greedy in INS, DIoU-NMS with the exponent 0.6 in DET), fixed top 100, boxes clamped to the whole input, padding included (item 9). |
+| Postprocessing | Class = argmax of each RoI. Score ≥ 0.7, per-class NMS 0.3, top 100. Boxes clipped to the image window, padding excluded (`model.py:684-779`). | Every foreground class of every RoI is a candidate. Score ≥ 0.5 (0.05 in evaluation), batched per-class NMS 0.5 (greedy in the INS synthetic configuration, DIoU-NMS with the exponent 0.6 in DET and the INS example), fixed top 100. Boxes clipped to the letterbox window of their image (`image_windows`, padding excluded) in the evaluation, the eager models and the exports, the mask heads running on the clipped boxes; the exports keep the score threshold of every class found by the evaluation of the exported checkpoint (`detection_score_thresholds.json`). |
 | Masks at inference | Mask head on the final boxes. Each 28 × 28 mask is resized to its integer box in the original image, then thresholded at 0.5 (`model.py:2417-2480`, `utils.py:560-576`). | Mask head on the final boxes. `paste_instance_masks` samples at pixel centres with sub-pixel boxes. The INS evaluation pastes them at the original resolution with `evaluation.original_resolution` (at the network resolution otherwise), and the clients paste at the original resolution. |
 | Ground truth boxes | Always the tight box of the mask, the dataset boxes being ignored (`model.py:1269`). | The same: the tight box of the mask at the network resolution, the INS annotations needing no `bbox`. |
 | Ground truth masks in memory | Optional 56 × 56 crops in the box (`config.py:103-104`, `utils.py:517-552`). | One `[N, S, S]` uint8 mask per object at the network resolution (item 8), or one `[S, S]` uint8 map of object numbers per image with `Data.instance_index_maps`, expanded on the GPU. |
@@ -182,7 +142,7 @@ average recall by object size and the recall of the anchors and of the proposals
 | Training schedule | Stages selected by layer regular expressions: `heads`, `3+`, `4+`, `5+`, `all` (`model.py:2313-2322`, `coco.py:498-521`). | One stage per run. A loaded component can be frozen whole or given a learning rate multiplier; a schedule needs successive runs. |
 | Batch normalization | `TRAIN_BN: False` by default: the stored statistics are used and never updated (batches of 2). | Trained, with the momentum fixed at 0.1 (`BATCH_NORMALIZATION_MOMENTUM`). `layer` normalization is available for small batches. |
 | Evaluation | `compute_ap` with mask IoU and COCO matching (`utils.py:656-751`). COCO sample: pycocotools `COCOeval` for boxes and masks at the original resolution (`coco.py:342-385`). | Own mAP (area, 11 and 101 points) at 0.5, 0.75 and 0.5:0.95 with VOC matching (kept, audit L6), mean average recall, both by object size, box and mask results per class, proposal recall, at every checkpoint, at the network resolution or, for INS, at the original resolution (`evaluation.original_resolution`). |
-| Visual checks | Notebooks walking through every stage, and `display_differences` (item 12). | `view_input_images`, sample grids and the task workflow notes (item 12). |
+| Visual checks | Notebooks walking through every stage, and `display_differences`. | `view_input_images`, `view_training_targets` (the anchors, proposals, sampled RoIs and mask targets of a real training batch), sample and error images captioning every detection with its IoU, and the task workflow notes. |
 | Deployment | Keras weights only, batch size fixed at build time. | TorchScript / ONNX exports with fixed shapes, served by Triton, with a comparison check. |
 
 Default hyperparameters of Mask R-CNN (`config.py`) against `instance_segmentation/configuration_example.yaml` (the
@@ -218,12 +178,6 @@ DIoU-NMS 0.6, learning rate 1e-3 and the mask heads below):
 | Loss weights | 1 each, configurable | 1 each, configurable (`Optimization.loss_weights`) | Same; tested, the weights of 1 kept |
 
 ## G. Keypoint detection
-14. **Keypoint names next to the exported model**: the export of a KPT run writes no channel names. The clients
-    rebuild the channel table with `build_keypoint_channel_table` from the `keypoint_categories` that
-    `load_experiment_configuration` reads from the `labels.json` of the training data, so a client without the
-    training data cannot name the channels. `export_model.py` could write a `keypoint_channels.json` (class, keypoint
-    name and skeleton of every channel) next to the exported files, read by the clients instead of the training labels.
-    Cost and risk: small.
 16. **Ignored regions, experiment left to run** (`KeypointHead.ignore_unlabelled_objects`, implemented): as in
     HigherHRNet, the heatmap loss leaves out the cells at least half covered by the objects left out of the labels
     (the COCO crowds and the persons without any labelled keypoint), read from their `segmentation`. On in the COCO
@@ -323,6 +277,4 @@ an image holds but also which ones.
     `random_erasing` and `random_plasma_shadow` off on the same probes.
 
 ## Suggested Order
-1. **When the need appears:** item 12 when debugging, item 11 when deploying a class with its own threshold,
-   items 8, 9 and 10 depending on the datasets, items 2 and 39 for the detection, and item 1 when a neck has to be
-   transferred.
+1. **When the need appears:** items 8 and 10 depending on the datasets, and items 2 and 39 for the detection.
