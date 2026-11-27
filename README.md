@@ -411,11 +411,23 @@ The serving paths, timed by the [serving benchmark](documentation/architecture_b
 
 #### Which One When
 To find your way among these paths, start from your situation:
+
+```mermaid
+flowchart LR
+    start([Debugging or changing the model?]) -- yes --> eager[Eager]
+    start -- no --> pytorch([Program links PyTorch?])
+    pytorch -- yes --> torchscript[TorchScript, model.pt]
+    pytorch -- no --> speed([Most images per second on one GPU?])
+    speed -- yes --> tensorrt[TensorRT FP16, check its metric first]
+    speed -- no --> onnx[ONNX Runtime, model.onnx]
+    torchscript & tensorrt & onnx -.-> triton[Triton, for many clients or models]
+```
+
 - **Debugging, evaluating or changing the model**: eager, the reference of every other path.
 - **A C++ or Python service that already links PyTorch**: TorchScript (`torch.jit.load` on `model.pt`), which PyTorch 2.14 marks as deprecated.
 - **No PyTorch where the model runs, or C# or Java**: ONNX with ONNX Runtime, on CPU or GPU.
-- **The most images per second on a known GPU**: ONNX with TensorRT FP16, after measuring its test metric through Triton with `scripts/deployment/evaluate_served_formats.py`, since the export never checks the engine.
-- **Many cameras or services, several models or versions behind one endpoint**: Triton, which also batches requests.
+- **The most images per second on a known GPU**: ONNX with TensorRT FP16, about 3.5 times the eager throughput in the table above. The export never checks the engine, so measure its test metric through Triton first with `scripts/deployment/evaluate_served_formats.py`.
+- **Many cameras or services, several models or versions behind one endpoint**: Triton, which serves any of these files and batches the requests that arrive together.
 
 #### Glossary
 If you are looking for one word of the Deployment section:
