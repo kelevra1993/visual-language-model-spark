@@ -322,16 +322,16 @@ In order to serve a trained run to other programs, read these parts in order: [F
 ### From A Checkpoint To A Served Model
 If words such as eager, ONNX or TensorRT stop you, this part follows one run to a served model: the 35-class synthetic shapes classifier of the README screenshots (512 pixels, iteration 2000). All files, outputs and timings below come from it unless the serving benchmark is named; the [glossary](#glossary) defines other terms.
 
-| Word | What it is | Comparison |
-|---|---|---|
-| Eager | PyTorch running the Python code line by line, each operation sent to the GPU when Python reaches it: how training and evaluation run, and the reference of every export | a cook reading the recipe step by step, free to change a step |
-| Export | `export_model.py` runs the model once, records its operations and weights into `model.pt` and `model.onnx`, checks both against the eager model and writes them with their Triton configuration into `served_models/` | filming the cook once, so the film no longer needs the cook's notes |
-| TorchScript (`model.pt`) | the graph format of PyTorch, run by PyTorch or its C++ library libtorch, in your process or in Triton | the film, playable only by PyTorch players |
-| ONNX (`model.onnx`) | an open graph format of standard operators (opset 18): graph in `model.onnx`, weights in `model.onnx.data`, input contract in its metadata; read by runtimes of any framework | the recipe written in a universal language |
-| ONNX Runtime | the library that runs `model.onnx`: on the CPU for the export check, on the GPU in Triton through its CUDA or TensorRT execution provider | a kitchen that reads the universal recipe |
-| TensorRT | the NVIDIA compiler that turns `model.onnx` into an engine for one GPU model and one TensorRT version; built inside Triton at the first requests, never checked by the export | the recipe rewritten for one kitchen, faster there and useless elsewhere |
-| Precision (FP32 / FP16) | the bits of each computed value: exports store FP32; `tensorrt_precision = "FP16"` lets TensorRT compute in FP16 where faster, `torchscript_precision = "FP16"` does it for the TorchScript network, inputs and outputs staying FP32 | coarser measuring cups: quicker, every measure rounded more |
-| Triton | the NVIDIA inference server, a Docker container that loads `served_models/`, answers HTTP and gRPC requests and batches those that arrive together | a restaurant taking orders from many tables at once |
+| Word | What it is |
+|---|---|
+| Eager | PyTorch running the Python code line by line, each operation sent to the GPU when Python reaches it: how training and evaluation run, and the reference of every export |
+| Export | `export_model.py` runs the model once, records its operations and weights into `model.pt` and `model.onnx`, checks both against the eager model and writes them with their Triton configuration into `served_models/` |
+| TorchScript (`model.pt`) | the graph format of PyTorch, run by PyTorch or its C++ library libtorch, in your process or in Triton |
+| ONNX (`model.onnx`) | an open graph format of standard operators (opset 18): graph in `model.onnx`, weights in `model.onnx.data`, input contract in its metadata; read by runtimes of any framework |
+| ONNX Runtime | the library that runs `model.onnx`: on the CPU for the export check, on the GPU in Triton through its CUDA or TensorRT execution provider |
+| TensorRT | the NVIDIA compiler that turns `model.onnx` into an engine for one GPU model and one TensorRT version; built inside Triton at the first requests, never checked by the export |
+| Precision (FP32 / FP16) | the bits of each computed value: exports store FP32; `tensorrt_precision = "FP16"` lets TensorRT compute in FP16 where faster, `torchscript_precision = "FP16"` does it for the TorchScript network, inputs and outputs staying FP32 |
+| Triton | the NVIDIA inference server, a Docker container that loads `served_models/`, answers HTTP and gRPC requests and batches those that arrive together |
 
 <p align="center">
   <img src="README/deployment_paths_map.png" width="100%" />
