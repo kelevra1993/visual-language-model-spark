@@ -505,21 +505,21 @@ The **Export At T = …** button of the explorer writes to its own repository in
 ### Input Contract
 If a server has to turn a photo into a model input, it reads the input contract written with the model: `preprocessing.json` next to it and the metadata of `model.onnx` (keys in `vision_training/deployment/input_contract.py`). The contract gives the decoding (BGR, as `cv2.imread`), the resize (`stretch`, `keep_ratio` or `tiles`, with its interpolation), the padding and the layout. A run it cannot describe is not exported.
 
-For example, the README classifier is exported with this `preprocessing.json`:
+For example, the README classifier is exported with this `preprocessing.json` (the comments are not in the file):
 
-```json
+```jsonc
 {
-  "input_contract_version": "2",
-  "input_color_order": "BGR",
-  "input_resize": "keep_ratio",
-  "input_size": "512",
-  "input_interpolation": "linear",
-  "input_padding_value": "0",
-  "input_padding_placement": "centred",
-  "input_tile_scale": "none",
-  "input_tile_overlap": "none",
-  "input_layout": "NCHW",
-  "input_value_range": "0-255"
+  "input_contract_version": "2",         // version of these keys
+  "input_color_order": "BGR",            // channel order, as cv2.imread decodes
+  "input_resize": "keep_ratio",          // longest side to input_size, then padded (or stretch, tiles)
+  "input_size": "512",                   // side of the square input, in pixels
+  "input_interpolation": "linear",       // cv2.INTER_LINEAR (or area, none)
+  "input_padding_value": "0",            // value of the padding pixels
+  "input_padding_placement": "centred",  // photo centred in the square
+  "input_tile_scale": "none",            // scale before cutting tiles, none without tiles
+  "input_tile_overlap": "none",          // pixels shared by two tiles, none without tiles
+  "input_layout": "NCHW",                // batch, channels, height, width (NTCHW for sequences)
+  "input_value_range": "0-255"           // pixels as float32, the normalization is in the model
 }
 ```
 
