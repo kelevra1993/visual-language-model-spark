@@ -11,7 +11,8 @@ their 'Detector' section, the smooth L1, the 'nms_criterion' and 'nms_distance_e
 the greedy NMS, the 'proposal_selection' of their 'RegionProposal' section, over all the levels at once, the
 'instance_index_maps' of the 'Data' section of the instance segmentation, one mask per object, and the finer inputs and
 fusion convolutions of its 'MaskHead' section, none; the 'benchmark_speed' diagnosis mode of every task, off; the
-'shared' setting of the 'MaskHead' section of the instance segmentation, one mask head per level; the 'class_layer'
+'shared' setting of the 'MaskHead' section of the instance segmentation, one mask head per level; the
+'view_training_targets' diagnosis mode of the detection tasks, off; the 'class_layer'
 flag of the 'pretrained' block of the 'ClassificationHead' section of the
 classification-like tasks and the 'class_layers' flag of the 'pretrained' block of the 'Detector' section of the
 detection tasks, of the 'MaskHead' section of the instance segmentation and of the 'KeypointHead' section of the
@@ -206,6 +207,13 @@ DIAGNOSIS_BENCHMARK_SPEED_LINES = [
     '# at the configured and largest batch sizes that fit, then exits without training; no run folder is created.',
     'benchmark_speed: False']
 
+# Lines of the training target viewer diagnosis mode added to the 'diagnosis_modes' of the detection runs written before
+# it, off: the comment lines, then the setting
+DIAGNOSIS_VIEW_TRAINING_TARGETS_LINES = [
+    '# Draws the anchors, proposals and sampled RoIs the losses use on every training image (with the mask targets in',
+    '# instance segmentation) with the last checkpoint if any. SPACE: next, ENTER: exit, no training nor run folder.',
+    'view_training_targets: False']
+
 # Settings a task now requires inside sections its files hold, added to the files of its runs written before them: the
 # tasks holding the setting, the setting it is written after (at its indentation), and its lines, whose value
 # reproduces those runs, or the lines of 'lines_when_set' for a file setting its 'key_path' to another value than null
@@ -241,6 +249,10 @@ ADDED_SETTINGS = {"Detector.box_loss": {"tasks": ["object_detection", "instance_
                       "lines": DIAGNOSIS_BENCHMARK_SPEED_LINES},
                   "MaskHead.shared": {"tasks": ["instance_segmentation"], "after": "MaskHead.fusion_convolutions",
                                       "lines": MASK_HEAD_SHARED_LINES},
+                  "ExperimentConfiguration.diagnosis_modes.view_training_targets": {
+                      "tasks": ["object_detection", "instance_segmentation"],
+                      "after": "ExperimentConfiguration.diagnosis_modes.view_input_images",
+                      "lines": DIAGNOSIS_VIEW_TRAINING_TARGETS_LINES},
                   "ClassificationHead.pretrained.class_layer": {
                       "tasks": list(CLASSIFICATION_LIKE_TASKS), "after": "ClassificationHead.pretrained.freeze",
                       "lines": CLASSIFICATION_HEAD_CLASS_LAYER_LINES,
@@ -283,8 +295,9 @@ KEY_LINE_PATTERN = re.compile(pattern=r"^(\s*)([A-Za-z0-9_]+):(.*)$")
 # 'ClassificationHead.pretrained.class_layer' added on 2026-11-24, then '_before_class_layers' for the
 # 'pretrained.class_layers' of the detection, mask and keypoint heads added and the
 # 'SegmentationDecoder.pretrained.load_class_layers' renamed on 2026-11-24, then '_before_mask_scoring_removal' for the
-# removal of the 'MaskHead.mask_scoring' on 2026-11-27
-DEFAULT_BACKUP_SUFFIX = "_before_mask_scoring_removal"
+# removal of the 'MaskHead.mask_scoring' on 2026-11-27, then '_before_view_training_targets' for the
+# 'diagnosis_modes.view_training_targets' of the detection tasks added on 2026-11-27
+DEFAULT_BACKUP_SUFFIX = "_before_view_training_targets"
 
 
 def get_indentation(line: str) -> int:

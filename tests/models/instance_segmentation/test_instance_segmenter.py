@@ -5,6 +5,7 @@ truth without masks and the inference instance segmenter reproducing the eager m
 bilinear upsamplings, without and with the finer inputs of the mask heads (image branch, backbone skips, fusion
 convolutions), whose layers and channels are checked against the configuration, and with one mask head shared by the
 levels ('MaskHead.shared'), trained on the positives of every level and refused for levels of different mask heads.
+The stages of the instance segmenter return the mask targets and masks the mask loss was computed on.
 """
 
 import pytest
@@ -261,7 +262,7 @@ def test_mask_loss_gives_every_level_the_fine_features_of_its_proposals() -> Non
         aggregated_detections = detection_stages["aggregated_detections_dictionary"]
         mask_loss = model.compute_proposal_mask_loss(feature_maps=feature_maps, skip_feature_maps=skip_feature_maps,
                                                      aggregated_detections=aggregated_detections,
-                                                     ground_truth_masks=masks)
+                                                     ground_truth_masks=masks)["mask_loss"]
 
         # Level by level, the fine features computed on the positive proposals of the level alone
         positive_mask = aggregated_detections["sliced_labels"] > 0
@@ -316,7 +317,7 @@ def test_shared_mask_head_trains_on_the_positives_of_every_level() -> None:
         aggregated_detections = detection_stages["aggregated_detections_dictionary"]
         mask_loss = model.compute_proposal_mask_loss(feature_maps=feature_maps, skip_feature_maps=skip_feature_maps,
                                                      aggregated_detections=aggregated_detections,
-                                                     ground_truth_masks=masks)
+                                                     ground_truth_masks=masks)["mask_loss"]
 
         # Level by level, the shared head pooling each level at its own scale
         positive_mask = aggregated_detections["sliced_labels"] > 0
@@ -431,3 +432,55 @@ def test_mask_head_layers_follow_the_fine_inputs(mask_head_settings: Dict[str, A
         level_head(proposal_boxes=torch.tensor(data=[[0.0, 10.0, 10.0, 90.0, 120.0]]),
                    input_tensor=torch.rand(size=(1, level_channels, 16, 16)), skip_feature_maps=skip_feature_maps,
                    fine_features=wrong_fine_features)
+
+
+def test_instance_segmentation_stages_return_the_mask_targets_of_the_loss() -> None:
+    """
+    Verifies the mask entries that forward_instance_segmentation_stages adds to the training targets for the training
+    target viewer ('view_training_targets'): the positive sampled proposals of the detection losses, the mask targets
+    build_mask_targets crops for them from the masks of their matched objects, and the mask logits the mask loss
+    compares with them. The same seed gives the same mask loss through forward, and the evaluation without ground
+    truth returns no targets but the masks of the final detections.
+    """
+    model = build_test_model(dtype=torch.float32, instance_segmentation=True,
+                             mask_head_settings=MIXED_MASK_HEAD_SETTINGS, neck_type="none").train()
+    images, boxes, labels = get_fixed_batch()
+    images, boxes = images.float(), [image_boxes.float() for image_boxes in boxes]
+    masks = build_box_masks(boxes=boxes, image_size=model.input_image_size)
+    torch.manual_seed(seed=4)
+    with torch.no_grad():
+        stages = model.forward_instance_segmentation_stages(input_tensor=images, ground_truth_bounding_boxes=boxes,
+                                                            ground_truth_labels=labels, ground_truth_masks=masks)
+    targets = stages["training_targets"]
+
+    # The mask proposals are the positive sampled proposals of the detection losses, with their labels
+    positives = targets["sampled_labels"] > 0
+    number_positives = int(positives.sum())
+    assert number_positives > 0 and targets["mask_proposals"].shape == (number_positives, 5)
+    assert sorted(map(tuple, targets["mask_proposals"].tolist())) == sorted(
+        map(tuple, targets["sampled_proposals"][positives].tolist()))
+    assert bool((targets["mask_labels"] > 0).all())
+
+    # Targets cropped by build_mask_targets, and the mask loss of the logits against them
+    expected_targets = build_mask_targets(ground_truth_masks=masks, proposal_boxes=targets["mask_proposals"],
+                                          matched_ground_truth_indices=targets["mask_matched_ground_truth_indices"],
+                                          mask_size=model.mask_size)
+    assert torch.equal(input=targets["mask_targets"], other=expected_targets)
+    assert targets["mask_logits"].shape == (number_positives, model.number_classes, model.mask_size, model.mask_size)
+    expected_loss = compute_mask_loss(mask_logits=targets["mask_logits"], labels=targets["mask_labels"],
+                                      mask_targets=expected_targets)
+    assert torch.equal(input=stages["model_output_dictionary"]["mask_loss"], other=expected_loss)
+
+    # Same seed, same mask loss through forward
+    torch.manual_seed(seed=4)
+    with torch.no_grad():
+        outputs = model(input_tensor=images, ground_truth_bounding_boxes=boxes, ground_truth_labels=labels,
+                        ground_truth_masks=masks)
+    assert torch.equal(input=outputs["mask_loss"], other=expected_loss)
+
+    # No targets without ground truth, the masks of the final detections in evaluation mode
+    model.eval()
+    with torch.no_grad():
+        evaluation_stages = model.forward_instance_segmentation_stages(input_tensor=images)
+    assert evaluation_stages["training_targets"] is None
+    assert "final_detection_masks" in evaluation_stages["model_output_dictionary"]

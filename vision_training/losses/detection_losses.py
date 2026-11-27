@@ -1,8 +1,10 @@
 """
 Losses of the two-stage detector: the classification and localisation losses of the region proposal network and of
 the detection head, the localisation loss of the region proposal network being the smooth L1 on the regression offsets
-and that of the detection head the smooth L1 or the Complete-IoU loss on the boxes they decode to ('Detector.box_loss').
-Called by the forward pass of models/detection/two_stage_detector.py during training.
+and that of the detection head the smooth L1 or the Complete-IoU loss on the boxes they decode to ('Detector.box_loss'),
+with the anchor targets of the region proposal network they are computed on (assign_region_proposal_targets). Called by
+the forward pass of models/detection/two_stage_detector.py during training, which also returns these anchor targets to
+the training target viewer ('view_training_targets').
 """
 
 import math
@@ -123,43 +125,69 @@ def compute_localisation_loss(box_loss: str, regression_predictions: torch.Tenso
     raise ValueError(f"Unknown box loss {box_loss!r}, expected one of {BOX_LOSSES}.")
 
 
-def compute_region_proposal_losses(ground_truth_bounding_boxes: List[torch.Tensor],
-                                   aggregated_proposals_dictionary: Dict[str, torch.Tensor],
-                                   region_proposal_configuration: Dict[str, Any]) -> Tuple[torch.Tensor, torch.Tensor]:
+def assign_region_proposal_targets(ground_truth_bounding_boxes: List[torch.Tensor], anchors: torch.Tensor,
+                                   region_proposal_configuration: Dict[str, Any]) -> Dict[str, torch.Tensor]:
     """
-    Computes the Region Proposal Network classification and localisation losses of the two-stage detector.
-
-    This isolated logic extracts positive and negative target anchors, compares the predicted
-    logits and regressed box offsets against the true targets, and generates the two loss
-    components used to train the region proposer.
+    Prepares the training targets of the region proposal network of the two-stage detector for
+    compute_region_proposal_losses: the label of every anchor (foreground, background or ignored), its regression
+    offsets towards its object, and the random sample of positive and negative anchors that the losses are computed
+    on. Run once per forward pass with ground truth, its anchors are also returned by forward_detection_stages for the
+    training target viewer ('view_training_targets'), which draws the very anchors the losses were computed on.
 
     Args:
-        ground_truth_bounding_boxes (List[torch.Tensor]): The batched ground truth boxes.
-        aggregated_proposals_dictionary (Dict[str, torch.Tensor]): The aggregated anchor and prediction tensor.
+        ground_truth_bounding_boxes (List[torch.Tensor]): The [G_i, 4] ground truth boxes of every image, in network
+            input pixels.
+        anchors (torch.Tensor): The [B, A, 4] anchors of every image, those of every level concatenated.
         region_proposal_configuration (Dict[str, Any]): The 'RegionProposal' configuration section, giving the
             anchor IoU thresholds and the sampling counts.
 
     Returns:
-        Tuple[torch.Tensor, torch.Tensor]: The scalar classification loss and localisation loss.
+        Dict[str, torch.Tensor]: The [B, A] 'anchor_labels' (1 foreground, 0 background, -1 ignored), the [B, A, 4]
+            'anchor_target_boxes' (the ground truth box every anchor regresses to), the [B, A, 4]
+            'regression_targets', and the [B, A] boolean 'sampled_positive_mask' and 'sampled_negative_mask'.
     """
-
-    # First assign targets based on ground truth bounding boxes
-    # Here we consider absolutely all anchors targets based on all ground truth boxes
+    # Assign the ground truth boxes to every anchor of its image, absolutely all anchors being labelled
     region_proposal_anchor_targets, region_proposal_anchor_labels = batch_assign_targets_to_anchors(
-        batched_ground_truth_boxes=ground_truth_bounding_boxes,
-        batched_anchors=aggregated_proposals_dictionary["anchors"],
+        batched_ground_truth_boxes=ground_truth_bounding_boxes, batched_anchors=anchors,
         background_iou_threshold=region_proposal_configuration['background_iou_threshold'],
         foreground_iou_threshold=region_proposal_configuration['foreground_iou_threshold'])
 
     # Compute region proposal regression targets
     region_proposal_regression_targets = turn_boxes_to_transformation_targets(
-        ground_truth_boxes=region_proposal_anchor_targets, predicted_boxes=aggregated_proposals_dictionary["anchors"])
+        ground_truth_boxes=region_proposal_anchor_targets, predicted_boxes=anchors)
 
     # Get training samples for region proposal network
     sampled_positive_mask, sampled_negative_mask = sample_positive_and_negative_training_targets(
         labels=region_proposal_anchor_labels,
         desired_positives=region_proposal_configuration['number_training_positives'],
         desired_total=region_proposal_configuration['total_training_samples'])
+    return {"anchor_labels": region_proposal_anchor_labels, "anchor_target_boxes": region_proposal_anchor_targets,
+            "regression_targets": region_proposal_regression_targets, "sampled_positive_mask": sampled_positive_mask,
+            "sampled_negative_mask": sampled_negative_mask}
+
+
+def compute_region_proposal_losses(aggregated_proposals_dictionary: Dict[str, torch.Tensor],
+                                   region_proposal_targets: Dict[str, torch.Tensor]
+                                   ) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Computes the Region Proposal Network classification and localisation losses of the two-stage detector.
+
+    It compares the predicted logits and regressed box offsets of the sampled anchors against the targets of
+    assign_region_proposal_targets, and generates the two loss components used to train the region proposer.
+
+    Args:
+        aggregated_proposals_dictionary (Dict[str, torch.Tensor]): The aggregated anchor and prediction tensor.
+        region_proposal_targets (Dict[str, torch.Tensor]): The anchor labels, regression targets and sampled anchors
+            of assign_region_proposal_targets.
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]: The scalar classification loss and localisation loss.
+    """
+    # Labels, offsets and sampled anchors of assign_region_proposal_targets
+    region_proposal_anchor_labels = region_proposal_targets["anchor_labels"]
+    region_proposal_regression_targets = region_proposal_targets["regression_targets"]
+    sampled_positive_mask = region_proposal_targets["sampled_positive_mask"]
+    sampled_negative_mask = region_proposal_targets["sampled_negative_mask"]
 
     # Compute the classification loss: Simple binary cross entropy loss
     # We use the variant 'with_logits' since the classification scores are raw, un-sigmoid network outputs.

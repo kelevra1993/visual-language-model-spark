@@ -15,13 +15,13 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 21925,
+      "snapshot_bytes": 22197,
       "snapshot_path": "hyperparameter_experiments/object_detection/run_9/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35/training_configuration.yaml",
-      "snapshot_sha256": "3acdd250f6a8e70549688cc18dea179cf82e2dce41ffbd6090716f0e907c276d",
-      "source_bytes": 21925,
+      "snapshot_sha256": "b047b308a4c9183270dfce0a4bcd13269353ae93a4e2aa48361565f5f15d0dab",
+      "source_bytes": 22197,
       "source_kind": "run",
       "source_path": "hyperparameter_experiments/object_detection/run_9/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35/training_configuration.yaml",
-      "source_sha256": "3acdd250f6a8e70549688cc18dea179cf82e2dce41ffbd6090716f0e907c276d"
+      "source_sha256": "b047b308a4c9183270dfce0a4bcd13269353ae93a4e2aa48361565f5f15d0dab"
     },
     {
       "options": {},

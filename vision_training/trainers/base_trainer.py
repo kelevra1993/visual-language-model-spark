@@ -414,11 +414,13 @@ class BaseTrainer(ABC):
 
         # Optional diagnoses ending the program without training nor creating the run folder: the analysis of every
         # split against the model (the anchor coverage of the detection tasks), the viewer of the training and
-        # validation samples fed to the network, then the speed benchmark of the training step and of the inference
+        # validation samples fed to the network, the viewer of the training targets of the detection tasks, then the
+        # speed benchmark of the training step and of the inference
         if self.exits_after_diagnosis:
             self.diagnose_data_splits()
             if self.diagnosis_modes["view_input_images"]:
                 self.view_input_batches()
+            self.view_training_targets()
             if self.diagnosis_modes["benchmark_speed"]:
                 self.benchmark_speed()
             sys.exit()
@@ -737,7 +739,7 @@ class BaseTrainer(ABC):
         Tells whether a diagnosis mode of 'ExperimentConfiguration.diagnosis_modes' ends the program before the
         training, so that the trainer creates no run folder and writes nothing to an existing one: the input viewer
         ('view_input_images') and the speed benchmark ('benchmark_speed') for every task, the detection tasks adding
-        their anchor coverage ('compute_anchor_coverage').
+        their anchor coverage ('compute_anchor_coverage') and their training target viewer ('view_training_targets').
 
         Returns:
             bool: Whether the program exits after the diagnosis.
@@ -749,6 +751,15 @@ class BaseTrainer(ABC):
         Analyses every split against the built model in a diagnosis mode ending the program, printed before the input
         viewer when it is also on: the detection tasks print the anchor coverage of their training, validation and
         test objects ('compute_anchor_coverage'). Nothing for the other tasks.
+        """
+        return None
+
+    def view_training_targets(self) -> None:
+        """
+        Shows the training targets of the training batches in a diagnosis mode ending the program, after the input
+        viewer when it is also on: the detection tasks draw, for every training image, the anchors, proposals and
+        sampled regions of interest their losses are computed on ('view_training_targets'). Nothing for the other
+        tasks, which have no such mode.
         """
         return None
 
@@ -1696,7 +1707,7 @@ class BaseTrainer(ABC):
 
         # Memory capped for the whole benchmark, the inference measured first with the weights of the run
         with limit_process_memory(device=self.device) as memory_budget:
-            checkpoint_iteration = self.load_benchmark_weights()
+            checkpoint_iteration = self.load_last_checkpoint_weights()
             inference_rows, inference_notes = self.benchmark_inference(stored_batch=stored_batch,
                                                                        memory_budget=memory_budget)
             training_rows, training_notes = self.benchmark_training(stored_batch=stored_batch)
@@ -1745,11 +1756,12 @@ class BaseTrainer(ABC):
         """
         return int(batch["sequence_mask"].sum()) if self.COUNTS_FRAMES else None
 
-    def load_benchmark_weights(self) -> Optional[int]:
+    def load_last_checkpoint_weights(self) -> Optional[int]:
         """
-        Loads the trained weights of the last checkpoint of the run folder into the model for the speed benchmark, the
-        optimizer state and the run folder left untouched, so that the post-processing of the detection tasks (NMS,
-        masks, keypoints) is timed on the detections of trained weights.
+        Loads the trained weights of the last checkpoint of the run folder into the model for the diagnosis modes ending
+        the program, the optimizer state and the run folder left untouched: the speed benchmark, so that the
+        post-processing of the detection tasks (NMS, masks, keypoints) is timed on the detections of trained weights,
+        and the training target viewer of the detection tasks, so that its proposals are those of the trained network.
 
         Returns:
             Optional[int]: The iteration of the loaded checkpoint, None when the run has none (the model keeping its

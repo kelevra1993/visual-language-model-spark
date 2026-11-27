@@ -73,7 +73,7 @@ Should you need to change one part of the task, this table gives the file holdin
 | Model | `vision_training/models/detection/two_stage_detector.py`, `feature_neck.py` | `TwoStageDetector`: `forward_detection_stages`, `_prepare_detector_inputs`, `get_level_anchors`, `print_summary`; `FeatureNeck` |
 | Anchors and proposals | `vision_training/models/detection/anchors.py`, `region_proposer.py` | `Anchors.generate_anchors`, `RegionProposal`, `RegionProposalFilter`, `select_best_proposals` |
 | Head and boxes | `vision_training/models/detection/detection_head.py`, `box_operations.py`, `postprocessing.py` | `DetectionHead`, `apply_regression_predictions`, `BOX_REGRESSION_WEIGHTS`, `postprocess_detections` |
-| Targets and losses | `vision_training/models/detection/target_assignment.py`, `vision_training/losses/detection_losses.py` | `batch_assign_targets_to_anchors`, `add_ground_truth_proposals`, `batch_assign_targets_to_proposals`, `sample_positive_and_negative_training_targets`, `compute_region_proposal_losses`, `compute_detection_losses` |
+| Targets and losses | `vision_training/models/detection/target_assignment.py`, `vision_training/losses/detection_losses.py` | `batch_assign_targets_to_anchors`, `add_ground_truth_proposals`, `batch_assign_targets_to_proposals`, `sample_positive_and_negative_training_targets`, `assign_region_proposal_targets`, `compute_region_proposal_losses`, `compute_detection_losses` |
 | Metrics and evaluation | `vision_training/evaluation/detection/mean_average_precision.py`, `average_precision_report.py`, `region_recall.py`, `detection_confusion.py`, `object_sizes.py`, `vision_training/evaluation/recall_intervals.py` | `evaluate_detections`, `summarise_average_precisions`, `summarise_anchor_recall`, `summarise_proposal_recall`, `match_image_detections`, `compute_clopper_pearson_intervals` |
 | Configuration checks and run name | `vision_training/configuration_processing/detection_checks.py`, `run_name.py` | `check_detection_configuration`, `build_detection_sections`, `build_anchors_hash` |
 | Synthetic data | `vision_training/data/synthetic/create_synthetic_dataset.py` | `create_synthetic_dataset` (`--task=instance_segmentation` for the DET configuration) |
@@ -180,7 +180,8 @@ main()                                    entry point of every task, --configura
 │       │       _aggregate_all_anchors(), RegionProposalFilter()
 │       ├── initialise_pretrained_components() / build_optimizer() / ExponentialMovingAverage() / MetricTracker()
 │       ├── print_experiment_information() / print_summary() / export sizes
-│       ├── diagnose_data_splits() / view_input_batches() / benchmark_speed()   diagnosis modes, then exit
+│       ├── diagnose_data_splits() / view_input_batches() / view_training_targets() / benchmark_speed()
+│       │       diagnosis modes, then exit
 │       ├── analyse_training_data() -> measure_anchor_recall()   anchor_recall.csv and .png, first launch
 │       └── restore_last_model()
 └── trainer.run_training_loop()  [STAGE 3]
@@ -198,7 +199,7 @@ main()                                    entry point of every task, --configura
         │   │   │   ├── _prepare_detector_inputs()   add_ground_truth_proposals, assignment, sampling
         │   │   │   ├── _forward_detections() -> DetectionHead.forward()
         │   │   │   ├── aggregate_detection_outputs() + _rearrange_predictions_by_batch()
-        │   │   │   ├── compute_region_proposal_losses()
+        │   │   │   ├── assign_region_proposal_targets() + compute_region_proposal_losses()
         │   │   │   └── compute_detection_losses()
         │   │   └── MetricTracker.accumulate() + log_to_tensorboard()
         │   ├── backward / step_optimizer / save_model / validation pass / interval summary
@@ -460,8 +461,13 @@ Backbone Receptive Field:      Block 5 - Max Pooling : Output 32x32x64 | Stride 
 Model Size:                    Total Model 5,588,349 parameters, 22.38 MB
 ```
 
-### Step 2.20 — `view_input_batches()` / `restore_last_model()`
+### Step 2.20 — `view_input_batches()` / `view_training_targets()` / `restore_last_model()`
 With `view_input_images`, `show_input_samples()` shows an augmented training image next to a validation image, boxes captioned with their class, with a panel giving the object count, a `Class` / `Count` table and the augmentations and removed objects (`Removed objects : 1 (dog)`). A new run starts from scratch (`start_iteration = 1`).
+
+Should the losses need checking, `view_training_targets` shows what they train on, then exits without a run folder:
+- `view_training_targets()` loads the last checkpoint of the run, if any (`load_last_checkpoint_weights()`), and prepares and augments every training batch as Steps 3.7 and 3.8 do;
+- `compute_training_targets()` runs `forward_detection_stages()` in training mode with the ground truth, without gradient, and keeps its `training_targets`: the anchor labels and samples of Step 3.17, the filtered proposals of Step 3.13 and the RoIs sampled in Step 3.14;
+- `build_training_target_windows()` draws one window per image with `build_training_target_grid()` (sampled positive anchors, 20 of the negatives, the best 20 proposals, the sampled RoIs with the ground truth copies dashed) and a panel counting them per object. `view_input_data()` shows the windows like the input viewer.
 
 ### Step 2.21 — `analyse_training_data()` → anchor recall
 Called by `BaseTrainer.__init__()` between `view_input_batches()` and `restore_last_model()`, never in a diagnosis mode that exits. At the first launch of a run, it measures how many training and test objects the anchors can learn, through `measure_anchor_recall()` on each split:
@@ -615,6 +621,8 @@ In training (and in the validation loss), these functions run in turn:
 
 The kept proposals are written `[image index, x_min, y_min, x_max, y_max]` for `roi_align()`. In inference, every filtered proposal is kept.
 
+`add_ground_truth_proposals()` also returns the slots it wrote, so that the training target viewer dashes the ground truth copies.
+
 **Example output** (recorded before `add_ground_truth_proposals()`: the positives are the region proposal ones alone)
 ```text
 proposals (256, 5)   origins (256,)   labels (256,)   regression targets (256, 4)
@@ -635,8 +643,8 @@ The level outputs are concatenated, then grouped by image.
 by image:   classification_scores (2, 128, 10)   box_regressions (2, 128, 10, 4)   detection_boxes (2, 128, 10, 4)
 ```
 
-### Step 3.17 — `compute_region_proposal_losses()`
-`batch_assign_targets_to_anchors()` labels every anchor of the batch at once from its best IoU with a ground truth box (`pad_ground_truths()` pads the ground truths to the largest object count). This table gives the labels.
+### Step 3.17 — `assign_region_proposal_targets()` + `compute_region_proposal_losses()`
+`assign_region_proposal_targets()` gives the anchor targets, read by the losses and by the training target viewer (Step 2.20). `batch_assign_targets_to_anchors()` labels every anchor of the batch at once from its best IoU with a ground truth box (`pad_ground_truths()` pads the ground truths to the largest object count). This table gives the labels.
 
 | IoU with the best ground truth box | Label |
 |---|---|
@@ -645,7 +653,7 @@ by image:   classification_scores (2, 128, 10)   box_regressions (2, 128, 10, 4)
 | otherwise (0.3 to 0.5, and below 0.1) | ignored |
 | the best anchor of a ground truth box (IoU above 0) | foreground, whatever its IoU |
 
-The object detection configurations keep the minimum of 0.1; the instance segmentation ones set 0.0 (audit H1). A small box sharing its best anchor with a larger one gets none. `sample_positive_and_negative_training_targets()` keeps per image at most `number_training_positives` (128) foreground anchors, filled to `total_training_samples` (256) with background ones. The classification loss is the binary cross entropy of the sampled objectness. The regression loss is the smooth L1 (beta 1/9, `LOCALISATION_LOSS_BETA`) on the offsets of the sampled foreground anchors, summed and divided by their number (`REGION_PROPOSAL_BOX_LOSS`).
+The object detection configurations keep the minimum of 0.1; the instance segmentation ones set 0.0 (audit H1). A small box sharing its best anchor with a larger one gets none. `sample_positive_and_negative_training_targets()` keeps per image at most `number_training_positives` (128) foreground anchors, filled to `total_training_samples` (256) with background ones. `compute_region_proposal_losses()` then computes both losses. The classification loss is the binary cross entropy of the sampled objectness. The regression loss is the smooth L1 (beta 1/9, `LOCALISATION_LOSS_BETA`) on the offsets of the sampled foreground anchors, summed and divided by their number (`REGION_PROPOSAL_BOX_LOSS`).
 
 **Example: the anchors of the first batch**
 ```text
@@ -787,9 +795,12 @@ caption:  "plus_sign -> triangle | 4 ground truth boxes | 100 detections with sc
 ```
 
 ### Step 4.6 — `save_sample_images()` → `build_sample_image()` → `build_detection_sample_grid()`
-Two panels side by side: the ground truth boxes and the detections reaching the deployment threshold, every box captioned with its class (and score) in its class colour. A caption bar counts both and a legend names the classes drawn.
+Two panels side by side: the ground truth boxes and the detections reaching the deployment threshold, every box captioned in its class colour. A caption bar counts both and a legend names the classes drawn.
+- A ground truth box gives its class.
+- A detection gives its class, score and IoU (`format_detection_caption()`, e.g. `circle 0.97 IoU 0.91`). The IoU is that with the object `match_image_detections()` gives it (Step 4.5), as `gather_detection_overlaps()` reads it.
+- An unmatched detection gives the IoU of the object it overlaps most, followed by `no match` (`circle 0.41 IoU 0.32 no match`).
 
-**Example: `Evaluation/Iteration_5000/Samples/test_014285.png`** (1028 x 560 pixels)
+**Example: `Evaluation/Iteration_5000/Samples/test_014285.png`** (1028 x 560 pixels, recorded before the IoU in the captions)
 ```text
 caption: "6 ground truth boxes | 4 detections with score >= 0.50"
 panels:  Ground Truth (square, triangle, star, parallelogram, 2 nonagon boxes) | Prediction (square 0.98, triangle 0.58,

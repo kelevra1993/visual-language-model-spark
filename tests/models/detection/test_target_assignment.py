@@ -111,8 +111,10 @@ def test_every_object_gives_a_positive_proposal_with_its_ground_truth_box() -> N
     assert int((target_labels > 0).sum()) == 0
 
     # The added ground truth boxes are the positives of their objects, already in place
-    new_proposals, _ = add_ground_truth_proposals(batched_ground_truth_boxes=boxes, batched_proposals=proposals,
-                                                  batched_proposal_levels=levels, level_anchors=level_anchors)
+    new_proposals, _, written_slots = add_ground_truth_proposals(
+        batched_ground_truth_boxes=boxes, batched_proposals=proposals, batched_proposal_levels=levels,
+        level_anchors=level_anchors)
+    assert written_slots.tolist() == [[False, False, False, False, True, True]]
     target_boxes, target_labels, matched_indices = batch_assign_targets_to_proposals(
         batched_ground_truth_boxes=boxes, batched_proposals=new_proposals, batched_ground_truth_labels=labels,
         foreground_iou_threshold=0.5)
@@ -120,3 +122,25 @@ def test_every_object_gives_a_positive_proposal_with_its_ground_truth_box() -> N
     regression_targets = turn_boxes_to_transformation_targets(ground_truth_boxes=target_boxes,
                                                               predicted_boxes=new_proposals)
     assert torch.allclose(input=regression_targets[0, 4:], other=torch.zeros(size=(2, 4)), atol=1e-6)
+
+
+def test_written_slots_flag_the_ground_truth_copies_of_every_image() -> None:
+    """
+    Verifies the mask of the slots holding a ground truth box, read by the training target viewer to tell these
+    copies from the proposals: the last slots of an image with objects, none for an image without object, and every
+    slot for an image with more objects than slots, whose last objects are kept.
+    """
+    level_anchors = {5: torch.tensor(data=[[0.0, 0.0, 32.0, 32.0]])}
+    boxes = [torch.tensor(data=[[100.0, 100.0, 140.0, 150.0]]), torch.zeros(size=(0, 4)),
+             torch.tensor(data=[[0.0, 0.0, 10.0, 10.0], [20.0, 20.0, 30.0, 30.0], [40.0, 40.0, 50.0, 50.0],
+                                [60.0, 60.0, 70.0, 70.0]])]
+    proposals = torch.tensor(data=[[[300.0, 300.0, 340.0, 340.0]] * 3] * 3)
+    levels = torch.full(size=(3, 3), fill_value=5, dtype=torch.int64)
+    new_proposals, _, written_slots = add_ground_truth_proposals(
+        batched_ground_truth_boxes=boxes, batched_proposals=proposals, batched_proposal_levels=levels,
+        level_anchors=level_anchors)
+    assert written_slots.tolist() == [[False, False, True], [False, False, False], [True, True, True]]
+
+    # The flagged slots hold the ground truth boxes, the others their proposals
+    assert torch.equal(input=new_proposals[~written_slots], other=proposals[~written_slots])
+    assert torch.equal(input=new_proposals[2], other=boxes[2][1:])

@@ -7,7 +7,8 @@ left as it is), the final NMS settings added to their detector section, the prop
 proposal section, the anchors centred on the cell corners removed (a file centring them on the cell centres left as
 it is), the instance index maps (one mask per object) added to the data section of the instance segmentation files,
 the finer inputs of the mask heads (none) added to their mask heads section, the speed benchmark diagnosis mode (off)
-added to the diagnosis modes of every task (a partial draft without them left as it is), the class layer flag added to
+added to the diagnosis modes of every task (a partial draft without them left as it is), the training target viewer
+(off) added to the diagnosis modes of the detection tasks only, the class layer flag added to
 the classification heads and to the detection, mask and keypoint heads (True for heads transferred from another run,
 False otherwise), the class layer flag of the segmentation decoder renamed, and the refusals of a conversion changing
 another setting or the backbone. The script prints its help when launched without arguments, reads every setting of
@@ -993,6 +994,51 @@ def test_conversion_adds_the_speed_benchmark_to_the_diagnosis_modes(tmp_path: Pa
     assert (configuration_folder / "run-1.yaml").read_text(encoding="utf-8") == CONVERTED_DIAGNOSIS_MODES_TEXT
     assert (configuration_folder / "previous_configurations" / "run-1_before_benchmark_speed.yaml").read_text(
         encoding="utf-8") == DIAGNOSIS_MODES_TEXT
+
+
+# Lines of the training target viewer the conversion writes after the input viewer of the detection runs written
+# before it, at the indentation of the diagnosis modes of the repository
+VIEW_TRAINING_TARGETS_TEXT = (
+    "      # Draws the anchors, proposals and sampled RoIs the losses use on every training image (with the mask targets"
+    " in\n      # instance segmentation) with the last checkpoint if any. SPACE: next, ENTER: exit, no training nor run"
+    " folder.\n      view_training_targets: False\n")
+
+
+def test_conversion_adds_the_training_target_viewer_to_the_detection_diagnosis_modes(tmp_path: Path) -> None:
+    """
+    Verifies that the conversion writes the training target viewer diagnosis mode turned off, with its comment lines,
+    right after 'view_input_images' and before the speed benchmark, for the object detection and the instance
+    segmentation only, the classification file getting the speed benchmark alone, and that the check refuses a
+    converted detection file lacking the setting or turning it on.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = tmp_path / "configuration.yaml"
+
+    # The viewer written after the input viewer, before the speed benchmark added in the same conversion, in files
+    # already holding the neck section of the detection tasks
+    for task in ["object_detection", "instance_segmentation"]:
+        original_text = DIAGNOSIS_MODES_TEXT.replace("task: classification", f"task: {task}") + NECK_SECTION_TEXT
+        expected_text = original_text.replace("view_input_images: False\n", "view_input_images: False\n" +
+                                              VIEW_TRAINING_TARGETS_TEXT + BENCHMARK_SPEED_TEXT)
+        converted_text = add_required_settings(configuration_text=original_text, task=task,
+                                               configuration_path=configuration_path)
+        assert converted_text == expected_text
+        assert check_conversion(original_text=original_text, converted_text=converted_text, task=task,
+                                configuration_path=configuration_path) == []
+
+        # Conversions without the setting, or turning the viewer on, are refused
+        for wrong_text in [expected_text.replace(VIEW_TRAINING_TARGETS_TEXT, ""),
+                           expected_text.replace("view_training_targets: False", "view_training_targets: True")]:
+            with pytest.raises(expected_exception=ValueError, match=r"ExperimentConfiguration\.diagnosis_modes\."
+                                                                    r"view_training_targets\.$"):
+                check_conversion(original_text=original_text, converted_text=wrong_text, task=task,
+                                 configuration_path=configuration_path)
+
+    # The other tasks never get it
+    assert "view_training_targets" not in add_required_settings(
+        configuration_text=DIAGNOSIS_MODES_TEXT, task="classification", configuration_path=configuration_path)
 
 
 # Classification head of a task given by its placeholder, written before the class layer flag, trained from random

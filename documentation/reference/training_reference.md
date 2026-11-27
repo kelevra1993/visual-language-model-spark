@@ -10,6 +10,7 @@ To find your way in this reference, the sections are:
 - [Stopping And Resuming](#stopping-and-resuming)
 - [Data Augmentation](#data-augmentation)
 - [Viewing The Input Images](#viewing-the-input-images)
+- [Viewing The Training Targets](#viewing-the-training-targets)
 - [Checking The Anchor Coverage](#checking-the-anchor-coverage)
 - [Benchmarking The Speed](#benchmarking-the-speed)
 - [TensorBoard Monitoring](#tensorboard-monitoring)
@@ -206,6 +207,26 @@ The figure shows the viewer; the animation shows boxes following the flips, rota
   <img src="../../README/augmented_detection_samples.gif" width="100%" />
 </p>
 <p align="center"><em>Augmentation draws of <code>object_detection/configuration_example.yaml</code> on one image.</em></p>
+
+## Viewing The Training Targets
+Suppose a detector learns badly while its inputs look right: `ExperimentConfiguration.diagnosis_modes.view_training_targets: True` (DET, INS) shows what its losses are computed on. Every training batch is prepared and augmented as in training, then run through the model in training mode with its ground truth (`DetectionTrainer.view_training_targets`). Each image gets one window of three panels:
+- **Anchors**: the sampled positive anchors in green, 20 of the sampled negatives in red, the objects in white.
+- **Proposals**: the 20 best proposals kept by the proposal filter, in yellow.
+- **Sampled RoIs**: the positive RoIs in green, the ground truth boxes added to the proposals dashed, 20 negatives in red.
+- **Mask targets** (INS): for every object, its positive RoI with the lowest box IoU. It shows the RoI crop with the target contour, the target (`build_mask_targets`) and the predicted mask of the object class.
+
+The panel counts the anchors, proposals and RoIs, and gives one column per object: positive anchors, best proposal IoU, positive RoIs.
+- The weights are those of the last checkpoint of the run when there is one, read only; otherwise the initial weights.
+- The sampling is random, as in training, so two launches draw other negatives.
+- SPACE shows the next image, ENTER exits without training. It needs a display and creates no run folder.
+
+The figure shows an image of the README instance segmentation run at iteration 6,000.
+
+<p align="center">
+  <img src="../../README/training_targets.png" width="100%" />
+</p>
+
+Look for objects with few positive anchors (anchor scales or ratios too far from the object) or a low best proposal IoU. Also check the share of positive RoIs against `Detector.number_training_positives`.
 
 ## Checking The Anchor Coverage
 Suppose a detector misses objects of one size: `ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage: { activated: True, iou_threshold: 0.5 }` (DET, INS) prints, per split, level and object size, the share of objects whose best anchor overlaps them by at least `iou_threshold`, then exits.

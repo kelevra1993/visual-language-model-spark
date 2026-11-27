@@ -6,7 +6,10 @@ centred on the screen, also saved as the input samples of every training launch)
 the caption bars of the evaluation error images, the class colours, mask overlays, error maps and sample grids of the
 semantic segmentation, the instance mask overlays of the instance segmentation, the keypoints of the objects of an image
 with their skeleton and the keypoint sample grids of the keypoint detection, the selection grids with their probability
-heat map of the frame selection, and the batch mosaic of the self-supervised input viewer. Used by the trainers.
+heat map of the frame selection, the batch mosaic of the self-supervised input viewer, the captions of the detections
+of the detection sample and error images with their overlap with their object, and the training target viewer of the
+detection tasks ('view_training_targets': the anchors, proposals and sampled regions of interest of a training image,
+with the mask targets of a few positive regions for the instance segmentation). Used by the trainers.
 """
 
 import importlib
@@ -52,12 +55,13 @@ PANEL_TABLE_GRID_COLOUR = (110, 110, 110)
 
 class PanelTable(NamedTuple):
     """
-    A two-row table written in the information panel of the input viewer among its lines, e.g. the objects of a
-    detection sample: the titles of its two rows, written in a left column ("Class", "Count"), and its columns, each
-    holding the text of both rows (a class name over its number of objects).
+    A table written in the information panel of the input viewer among its lines, e.g. the objects of a detection
+    sample: the titles of its rows, written in a left column ("Class", "Count"), and its columns, each holding the text
+    of every row (a class name over its number of objects). The training target viewer gives its tables more than two
+    rows (an object over its positive anchors, its best proposal and its positive regions of interest).
     """
-    row_titles: Tuple[str, str]
-    columns: List[Tuple[str, str]]
+    row_titles: Tuple[str, ...]
+    columns: List[Tuple[str, ...]]
 
 
 class ViewerWindow(NamedTuple):
@@ -126,6 +130,27 @@ ERROR_OUTLINE_MARGIN = 4
 ERROR_OUTLINE_DASH_LENGTH = 6
 ERROR_OUTLINE_LEGEND = "Error"
 
+# Name of every overlap written in the caption of a detection of the instance segmentation sample and error images,
+# which give the overlap of the boxes and that of the masks, in this order
+OVERLAP_CAPTION_NAMES = {"boxes": "box", "masks": "mask"}
+
+# Training target viewer of the detection tasks ('view_training_targets'): BGR colours of the ground truth boxes, of the
+# positive and negative targets (anchors and regions of interest) and of the proposals, the length of the dashes of the
+# ground truth boxes added to the proposals, and the legend naming them
+TRAINING_TARGET_COLOURS = {"Ground truth": (255, 255, 255), "Positive": (0, 255, 0), "Negative": (0, 0, 255),
+                           "Proposal": (0, 255, 255)}
+GROUND_TRUTH_COPY_DASH_LENGTH = 6
+GROUND_TRUTH_COPY_LEGEND = "Dashed: ground truth copy"
+
+# Mask targets of the instance segmentation in the training target viewer: the side in pixels of every cell (the
+# image crop, the target and the predicted mask of a region) and the space between two regions
+MASK_TARGET_CELL_SIZE = 112
+MASK_TARGET_SPACING = 12
+
+# Names of the viewers written in the message skipping them when no display is reachable
+INPUT_VIEWER_NAME = "input image viewer"
+TRAINING_TARGET_VIEWER_NAME = "training target viewer"
+
 # Keypoint drawings: BGR colours of the keypoints by the side of the object their name gives (blue left, orange right,
 # yellow for the keypoints of neither side), radius in pixels of their discs, and thickness of the skeleton lines,
 # drawn in the colour of the class of their object
@@ -171,10 +196,12 @@ def convert_image_to_array(image: torch.Tensor) -> np.ndarray:
 
 
 def add_bounding_boxes(bounding_boxes: np.ndarray, image: np.ndarray, input_image_size: int,
-                       color: Tuple[int, int, int] = (0, 255, 0), captions: Optional[List[str]] = None) -> np.ndarray:
+                       color: Tuple[int, int, int] = (0, 255, 0), captions: Optional[List[str]] = None,
+                       thickness: int = 2, dash_length: Optional[int] = None) -> np.ndarray:
     """
     Draws one or more bounding boxes onto the provided image canvas, optionally each with a caption (e.g. its class
-    and score in the detection sample images of the evaluation).
+    and score in the detection sample images of the evaluation), thinner or dashed for the targets of the training
+    target viewer ('view_training_targets', the ground truth boxes added to the proposals being dashed).
 
     This function processes bounding box coordinates, clamps them to the image boundaries
     to prevent out-of-bounds drawing errors, and renders the rectangles using OpenCV.
@@ -187,6 +214,9 @@ def add_bounding_boxes(bounding_boxes: np.ndarray, image: np.ndarray, input_imag
         color (Tuple[int, int, int]): The BGR color tuple for the bounding boxes. Defaults to green (0, 255, 0).
         captions (Optional[List[str]]): The text written above every box in its colour, on a black background.
             Defaults to None, in which case the boxes are drawn without text.
+        thickness (int): The thickness of the box outlines in pixels. Defaults to 2.
+        dash_length (Optional[int]): The length of the dashes of dashed outlines, and of the gaps between them, in
+            pixels. Defaults to None, in which case the outlines are solid.
 
     Returns:
         np.ndarray: The updated image canvas containing the newly drawn bounding boxes.
@@ -204,18 +234,25 @@ def add_bounding_boxes(bounding_boxes: np.ndarray, image: np.ndarray, input_imag
         x_maximum = min(input_image_size, int(x_maximum))
         y_maximum = min(input_image_size, int(y_maximum))
 
-        # Draw the bounding box on the canvas using the provided color
-        cv2.rectangle(img=image, pt1=(x_minimum, y_minimum), pt2=(x_maximum, y_maximum), color=color, thickness=2)
+        # Draw the bounding box on the canvas using the provided color, solid or dashed
+        if dash_length is None:
+            cv2.rectangle(img=image, pt1=(x_minimum, y_minimum), pt2=(x_maximum, y_maximum), color=color,
+                          thickness=thickness)
+        else:
+            draw_dashed_rectangle(image=image, top_left=(x_minimum, y_minimum), bottom_right=(x_maximum, y_maximum),
+                                  colour=color, thickness=thickness, dash_length=dash_length)
 
-        # Write the caption of the box above it, or inside its top when the box touches the top of the image
+        # Write the caption of the box above it, or inside its top when the box touches the top of the image, moved left
+        # when it would run past the right border of the image (a long caption with the overlaps of a detection)
         if captions is not None:
             (caption_width, caption_height), _ = cv2.getTextSize(text=captions[box_index],
                                                                  fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.4,
                                                                  thickness=1)
             caption_bottom = y_minimum - 3 if y_minimum - caption_height - 6 >= 0 else y_minimum + caption_height + 3
-            cv2.rectangle(img=image, pt1=(x_minimum, caption_bottom - caption_height - 3),
-                          pt2=(x_minimum + caption_width + 4, caption_bottom + 3), color=(0, 0, 0), thickness=-1)
-            cv2.putText(img=image, text=captions[box_index], org=(x_minimum + 2, caption_bottom),
+            caption_left = max(0, min(x_minimum, image.shape[1] - caption_width - 4))
+            cv2.rectangle(img=image, pt1=(caption_left, caption_bottom - caption_height - 3),
+                          pt2=(caption_left + caption_width + 4, caption_bottom + 3), color=(0, 0, 0), thickness=-1)
+            cv2.putText(img=image, text=captions[box_index], org=(caption_left + 2, caption_bottom),
                         fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.4, color=color, thickness=1)
 
     return image
@@ -292,36 +329,37 @@ def measure_panel_text_width(text: str) -> int:
     return text_width
 
 
-def split_panel_table(table: PanelTable, maximum_width: int) -> Tuple[int, List[List[Tuple[str, str, int]]]]:
+def split_panel_table(table: PanelTable, maximum_width: int) -> Tuple[int, List[List[Tuple[Union[str, int], ...]]]]:
     """
     Lays out a table of the information panel of the input viewer: the width of its row title column, and its columns
-    grouped into the row pairs fitting the panel, a new pair starting below when the next column does not fit (e.g.
-    an image holding a dozen classes with long names). A column wider than the panel alone keeps a pair of its own.
+    grouped into the row groups fitting the panel (pairs of rows for a two-row table), a new group starting below when
+    the next column does not fit (e.g. an image holding a dozen classes with long names). A column wider than the panel
+    alone keeps a group of its own.
 
     Args:
         table (PanelTable): The table.
         maximum_width (int): The width in pixels the table must fit in.
 
     Returns:
-        Tuple[int, List[List[Tuple[str, str, int]]]]: The width of the row title column, and the row pairs, each a list
-            of columns (top text, bottom text, column width), none for a table without columns.
+        Tuple[int, List[List[Tuple[Union[str, int], ...]]]]: The width of the row title column, and the row groups,
+            each a list of columns (the text of every row, then the column width), none for a table without columns.
     """
     title_width = max(measure_panel_text_width(text=row_title) for row_title in table.row_titles) + \
         2 * PANEL_TABLE_CELL_PADDING
-    row_pairs, current_pair, current_width = [], [], title_width
+    row_groups, current_group, current_width = [], [], title_width
 
-    # Add the columns one by one, sized on their longer text, starting a new pair when a column does not fit
-    for top_text, bottom_text in table.columns:
-        column_width = max(measure_panel_text_width(text=top_text), measure_panel_text_width(text=bottom_text)) + \
+    # Add the columns one by one, sized on their longest text, starting a new group when a column does not fit
+    for column in table.columns:
+        column_width = max(measure_panel_text_width(text=cell_text) for cell_text in column) + \
             2 * PANEL_TABLE_CELL_PADDING
-        if current_pair and current_width + column_width > maximum_width:
-            row_pairs.append(current_pair)
-            current_pair, current_width = [], title_width
-        current_pair.append((top_text, bottom_text, column_width))
+        if current_group and current_width + column_width > maximum_width:
+            row_groups.append(current_group)
+            current_group, current_width = [], title_width
+        current_group.append((*column, column_width))
         current_width += column_width
-    if current_pair:
-        row_pairs.append(current_pair)
-    return title_width, row_pairs
+    if current_group:
+        row_groups.append(current_group)
+    return title_width, row_groups
 
 
 def draw_panel_table_cell(panel: np.ndarray, box: Tuple[int, int, int, int], text: str,
@@ -344,36 +382,37 @@ def draw_panel_table_cell(panel: np.ndarray, box: Tuple[int, int, int, int], tex
                 fontScale=PANEL_LINE_FONT_SCALE, color=colour, thickness=PANEL_LINE_THICKNESS)
 
 
-def draw_panel_table(panel: np.ndarray, row_titles: Tuple[str, str], title_width: int,
-                     row_pairs: List[List[Tuple[str, str, int]]], top: int) -> int:
+def draw_panel_table(panel: np.ndarray, row_titles: Tuple[str, ...], title_width: int,
+                     row_groups: List[List[Tuple[Union[str, int], ...]]], top: int) -> int:
     """
-    Draws a table of the information panel laid out by split_panel_table: every row pair under the previous one, its
+    Draws a table of the information panel laid out by split_panel_table: every row group under the previous one, its
     row titles in the left column in the colour of the group lines and its columns in the colour of the other lines.
 
     Args:
         panel (np.ndarray): The [H, W, 3] uint8 BGR panel, drawn on in place.
-        row_titles (Tuple[str, str]): The titles of the two rows.
+        row_titles (Tuple[str, ...]): The titles of the rows.
         title_width (int): The width of the row title column in pixels.
-        row_pairs (List[List[Tuple[str, str, int]]]): The columns of every row pair (top text, bottom text, width).
+        row_groups (List[List[Tuple[Union[str, int], ...]]]): The columns of every row group (the text of every row,
+            then the width).
         top (int): The top of the table in pixels.
 
     Returns:
         int: The bottom of the table in pixels, its top for a table without columns.
     """
-    for row_pair in row_pairs:
-        # Both rows of the pair: the row title, then the text of every column on that row
+    for row_group in row_groups:
+        # Every row of the group: the row title, then the text of every column on that row
         for row_index, row_title in enumerate(row_titles):
             row_top = top + row_index * PANEL_TABLE_ROW_HEIGHT
             row_bottom = row_top + PANEL_TABLE_ROW_HEIGHT
             draw_panel_table_cell(panel=panel, box=(PANEL_MARGIN, row_top, PANEL_MARGIN + title_width, row_bottom),
                                   text=row_title, colour=PANEL_GROUP_COLOUR)
             column_left = PANEL_MARGIN + title_width
-            for column in row_pair:
-                column_width = column[2]
+            for column in row_group:
+                column_width = column[-1]
                 draw_panel_table_cell(panel=panel, box=(column_left, row_top, column_left + column_width, row_bottom),
                                       text=column[row_index], colour=PANEL_LINE_COLOUR)
                 column_left += column_width
-        top += 2 * PANEL_TABLE_ROW_HEIGHT + PANEL_TABLE_GAP
+        top += len(row_titles) * PANEL_TABLE_ROW_HEIGHT + PANEL_TABLE_GAP
     return top - PANEL_TABLE_GAP
 
 
@@ -398,14 +437,14 @@ def build_information_panel(title: str, lines: List[Union[str, PanelTable]], min
     Returns:
         np.ndarray: The [H, width, 3] uint8 BGR panel.
     """
-    # Lay out the entries first: every line wrapped to the panel width, every table split into the row pairs fitting it
-    laid_out_entries: List[Union[str, Tuple[PanelTable, int, List[List[Tuple[str, str, int]]]]]] = []
+    # Lay out the entries first: every line wrapped to the panel width, every table split into the row groups fitting it
+    laid_out_entries: List[Union[str, Tuple[PanelTable, int, List[List[Tuple[Union[str, int], ...]]]]]] = []
     content_height = 0
     for line in lines:
         if isinstance(line, PanelTable):
-            title_width, row_pairs = split_panel_table(table=line, maximum_width=width - 2 * PANEL_MARGIN)
-            laid_out_entries.append((line, title_width, row_pairs))
-            content_height += len(row_pairs) * (2 * PANEL_TABLE_ROW_HEIGHT + PANEL_TABLE_GAP)
+            title_width, row_groups = split_panel_table(table=line, maximum_width=width - 2 * PANEL_MARGIN)
+            laid_out_entries.append((line, title_width, row_groups))
+            content_height += len(row_groups) * (len(line.row_titles) * PANEL_TABLE_ROW_HEIGHT + PANEL_TABLE_GAP)
         else:
             wrapped_lines = wrap_panel_line(line=line, maximum_width=width - 2 * PANEL_MARGIN)
             laid_out_entries.extend(wrapped_lines)
@@ -428,9 +467,9 @@ def build_information_panel(title: str, lines: List[Union[str, PanelTable]], min
             cv2.putText(img=panel, text=entry, org=(PANEL_MARGIN, line_bottom), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
                         fontScale=PANEL_LINE_FONT_SCALE, color=line_colour, thickness=PANEL_LINE_THICKNESS)
         else:
-            table, title_width, row_pairs = entry
+            table, title_width, row_groups = entry
             line_bottom = draw_panel_table(panel=panel, row_titles=table.row_titles, title_width=title_width,
-                                           row_pairs=row_pairs, top=line_bottom + PANEL_TABLE_GAP)
+                                           row_groups=row_groups, top=line_bottom + PANEL_TABLE_GAP)
 
     # Write the navigation hint at the bottom of the panel
     cv2.putText(img=panel, text=hint, org=(PANEL_MARGIN, panel_height - PANEL_MARGIN),
@@ -568,7 +607,7 @@ def compute_window_positions(window_sizes: List[Tuple[int, int]],
     return window_positions, display_scale
 
 
-def view_input_data(windows: List[ViewerWindow]) -> bool:
+def view_input_data(windows: List[ViewerWindow], viewer_name: str = INPUT_VIEWER_NAME) -> bool:
     """
     Displays preprocessed input images with their ground truth boxes, one window per image, each next to a black
     information panel, so the user can check exactly what is fed to the neural network and how it was augmented.
@@ -576,18 +615,23 @@ def view_input_data(windows: List[ViewerWindow]) -> bool:
     It is the 'view_input_images' diagnosis mode of the trainers (a Training and a Validation window, or the two views
     of the self-supervised task), whose windows the task trainers build (build_input_windows): the object detection
     trainer draws the boxes, and every trainer writes in the panels the target of the sample (its class, its
-    objects...) and, for the training sample, the augmentations drawn for it with their values. The windows are
-    centred on the screen. Execution halts until the user presses SPACE (next image) or ENTER (stop viewing).
+    objects...) and, for the training sample, the augmentations drawn for it with their values. The detection tasks
+    also show the training targets of their training images through it ('view_training_targets'), drawn beforehand
+    into the image of a single window. The windows are centred on the screen. Execution halts until the user presses
+    SPACE (next image) or ENTER (stop viewing).
 
     Args:
         windows (List[ViewerWindow]): The windows to show, side by side in their order, their titles naming them.
+        viewer_name (str): The name of the viewer in the message skipping it without a display. Defaults to
+            INPUT_VIEWER_NAME.
 
     Returns:
         bool: True if the user pressed ENTER to stop the visualization (or no display is available), False otherwise.
     """
     # Build every window: the image with its boxes next to its information panel
     window_images = [build_viewer_window(window=window) for window in windows]
-    return show_viewer_windows(window_images=window_images, window_titles=[window.title for window in windows])
+    return show_viewer_windows(window_images=window_images, window_titles=[window.title for window in windows],
+                               viewer_name=viewer_name)
 
 
 def join_viewer_windows(window_images: List[np.ndarray]) -> np.ndarray:
@@ -618,24 +662,26 @@ def join_viewer_windows(window_images: List[np.ndarray]) -> np.ndarray:
     return joined_image
 
 
-def show_viewer_windows(window_images: List[np.ndarray], window_titles: List[str]) -> bool:
+def show_viewer_windows(window_images: List[np.ndarray], window_titles: List[str],
+                        viewer_name: str = INPUT_VIEWER_NAME) -> bool:
     """
-    Shows the windows of the input viewer ('view_input_images') centred on the screen, scaled down when they would not
-    fit it, and waits for the user: the windows of the samples built by view_input_data, or the batch mosaic of the
-    self-supervised viewer (build_batch_mosaic). Execution halts until the user presses SPACE (next) or ENTER (stop
-    viewing).
+    Shows the windows of the input viewer ('view_input_images') or of the training target viewer
+    ('view_training_targets') centred on the screen, scaled down when they would not fit it, and waits for the user:
+    the windows of the samples built by view_input_data, or the batch mosaic of the self-supervised viewer
+    (build_batch_mosaic). Execution halts until the user presses SPACE (next) or ENTER (stop viewing).
 
     Args:
         window_images (List[np.ndarray]): The [H, W, 3] uint8 BGR content of every window.
         window_titles (List[str]): The title of every window.
+        viewer_name (str): The name of the viewer in the message skipping it without a display. Defaults to
+            INPUT_VIEWER_NAME.
 
     Returns:
         bool: True if the user pressed ENTER to stop the visualization (or no display is available), False otherwise.
     """
     # Skip the viewer when no graphical display is reachable (e.g. SSH without X forwarding) instead of crashing
     if sys.platform.startswith("linux") and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
-        print_color(color="yellow",
-                    output="No display available (DISPLAY is not set). Skipping the input image viewer.")
+        print_color(color="yellow", output=f"No display available (DISPLAY is not set). Skipping the {viewer_name}.")
         return True
 
     # Centre the windows on the screen, scaled down when they would not fit it
@@ -1028,21 +1074,58 @@ def build_segmentation_sample_grid(image: np.ndarray, mask: np.ndarray, class_ma
     return add_caption_bar(image=np.concatenate([grid, legend_bar], axis=0), caption=caption)
 
 
+def format_detection_caption(class_name: str, score: float, overlaps: Optional[Dict[str, float]],
+                             matched: bool) -> str:
+    """
+    Writes the caption of a detection on the detection sample and error images of the evaluation: its class and score,
+    then its intersection over union with the object the matching of the confusion matrix gives it
+    (match_image_detections at an overlap of 0.5), by box and, for the instance segmentation, by mask, so that a box
+    placed loosely around a well found object, or a good box with a poor mask, is read on the image. A detection
+    matched to no object gives its overlap with the object it overlaps the most followed by "no match" (a duplicate
+    of a found object, or a detection too loose to count), and "no match" alone in an image without any object.
+
+    Args:
+        class_name (str): The class of the detection.
+        score (float): Its score.
+        overlaps (Optional[Dict[str, float]]): Its overlap with its object keyed by overlap type ("boxes", "masks"),
+            in caption order, NaN in an image without any object, or None to write the class and score only.
+        matched (bool): Whether the detection found an object.
+
+    Returns:
+        str: The caption, e.g. "circle 0.97 IoU 0.91", "circle 0.97 IoU box 0.91 mask 0.88" or
+            "circle 0.41 IoU 0.32 no match".
+    """
+    caption = f"{class_name} {score:.2f}"
+    if overlaps is None:
+        return caption
+
+    # Overlaps written when the image holds an object, named by their type when there are several
+    if not all(np.isnan(overlap) for overlap in overlaps.values()):
+        if len(overlaps) == 1:
+            caption += f" IoU {next(iter(overlaps.values())):.2f}"
+        else:
+            caption += " IoU " + " ".join(f"{OVERLAP_CAPTION_NAMES[overlap_type]} {overlap:.2f}"
+                                          for overlap_type, overlap in overlaps.items())
+    return caption if matched else f"{caption} no match"
+
+
 def build_detection_sample_grid(image: np.ndarray, ground_truth_boxes: np.ndarray, ground_truth_labels: np.ndarray,
                                 predicted_boxes: np.ndarray, predicted_labels: np.ndarray,
                                 predicted_scores: np.ndarray, class_names: Dict[int, str], class_colours: np.ndarray,
                                 caption: str, ground_truth_masks: Optional[np.ndarray] = None,
                                 predicted_masks: Optional[np.ndarray] = None,
                                 highlighted_ground_truths: Optional[np.ndarray] = None,
-                                highlighted_detections: Optional[np.ndarray] = None) -> np.ndarray:
+                                highlighted_detections: Optional[np.ndarray] = None,
+                                detection_overlaps: Optional[Dict[str, np.ndarray]] = None,
+                                matched_detections: Optional[np.ndarray] = None) -> np.ndarray:
     """
     Lays out one evaluated test image of the object detection in two titled panels side by side, saved and sent to
     TensorBoard at every evaluation so that the detections of the same images can be followed over the training: the
-    ground truth boxes captioned with their class, and the detections captioned with their class and score, every box
-    in the colour of its class. A caption bar names the sample above the panels, and a legend bar below them names the
-    classes drawn. For the instance segmentation, the masks of the objects are painted under their boxes. The error
-    images of the evaluation outline the boxes in error (a missed object, a false positive, an object found with
-    another class) with red dashes, named 'Error' in the legend.
+    ground truth boxes captioned with their class, and the detections captioned with their class, score and overlap
+    with their object (format_detection_caption), every box in the colour of its class. A caption bar names the sample
+    above the panels, and a legend bar below them names the classes drawn. For the instance segmentation, the masks of
+    the objects are painted under their boxes. The error images of the evaluation outline the boxes in error (a missed
+    object, a false positive, an object found with another class) with red dashes, named 'Error' in the legend.
 
     Args:
         image (np.ndarray): The [H, W, 3] uint8 BGR network input.
@@ -1062,12 +1145,25 @@ def build_detection_sample_grid(image: np.ndarray, ground_truth_boxes: np.ndarra
             none. Defaults to None.
         highlighted_detections (Optional[np.ndarray]): The [M] flags of the detections outlined as errors, None for
             none. Defaults to None.
+        detection_overlaps (Optional[Dict[str, np.ndarray]]): The [M] overlap of every detection with its object
+            keyed by overlap type (gather_detection_overlaps), written in its caption. Defaults to None, in which case
+            the captions hold the class and score only.
+        matched_detections (Optional[np.ndarray]): The [M] flags of the detections that found an object, given with
+            the overlaps. Defaults to None.
 
     Returns:
         np.ndarray: The [24 + H + 24, 2 x W + 4, 3] uint8 BGR grid.
     """
     image_size = max(image.shape[:2])
     ground_truth_panel, prediction_panel = image.copy(), image.copy()
+
+    # Caption of every detection: its class and score, then its overlaps with its object when they are given
+    detection_captions = [format_detection_caption(
+        class_name=class_names[int(label)], score=float(score),
+        overlaps=None if detection_overlaps is None else {
+            overlap_type: float(overlaps[detection_index]) for overlap_type, overlaps in detection_overlaps.items()},
+        matched=matched_detections is None or bool(matched_detections[detection_index]))
+        for detection_index, (label, score) in enumerate(zip(predicted_labels, predicted_scores))]
 
     # Masks of the instance segmentation painted first, under the boxes
     if ground_truth_masks is not None:
@@ -1079,7 +1175,7 @@ def build_detection_sample_grid(image: np.ndarray, ground_truth_boxes: np.ndarra
     drawn_class_indices = sorted(set(ground_truth_labels.tolist()) | set(predicted_labels.tolist()))
 
     # Boxes of every class drawn in the colour of the class, the true ones with their class, the detections with their
-    # class and score
+    # caption
     for class_index in drawn_class_indices:
         class_colour = tuple(int(component) for component in class_colours[class_index])
         ground_truth_mask, prediction_mask = ground_truth_labels == class_index, predicted_labels == class_index
@@ -1088,8 +1184,8 @@ def build_detection_sample_grid(image: np.ndarray, ground_truth_boxes: np.ndarra
                            captions=[class_names[class_index]] * int(ground_truth_mask.sum()))
         add_bounding_boxes(bounding_boxes=predicted_boxes[prediction_mask], image=prediction_panel,
                            input_image_size=image_size, color=class_colour,
-                           captions=[f"{class_names[class_index]} {score:.2f}"
-                                     for score in predicted_scores[prediction_mask]])
+                           captions=[detection_captions[detection_index]
+                                     for detection_index in np.flatnonzero(prediction_mask)])
 
     # Boxes in error outlined with red dashes a few pixels around them, on the panel of their side
     for panel, boxes, highlighted_boxes in [(ground_truth_panel, ground_truth_boxes, highlighted_ground_truths),
@@ -1112,6 +1208,164 @@ def build_detection_sample_grid(image: np.ndarray, ground_truth_boxes: np.ndarra
         legend_entries.insert(0, (ERROR_OUTLINE_LEGEND, WRONG_PREDICTION_COLOUR))
     legend_bar = draw_legend_bar(width=grid.shape[1], legend_entries=legend_entries)
     return add_caption_bar(image=np.concatenate([grid, legend_bar], axis=0), caption=caption)
+
+
+def build_training_target_grid(image: np.ndarray, ground_truth_boxes: np.ndarray, ground_truth_captions: List[str],
+                               positive_anchors: np.ndarray, negative_anchors: np.ndarray, proposals: np.ndarray,
+                               positive_regions: np.ndarray, ground_truth_copies: np.ndarray,
+                               negative_regions: np.ndarray) -> np.ndarray:
+    """
+    Lays out the training targets of one training image of the detection tasks in three titled panels side by side,
+    for the training target viewer ('view_training_targets'), so that the user sees what the losses of the detector
+    are computed on before a training: the anchors of the region proposal losses (the sampled positive anchors in
+    green, some of the sampled negative ones in red), the best proposals kept by the region proposal filter (yellow),
+    and the regions of interest sampled for the detection losses (the positive ones in green, those that are ground
+    truth boxes added to the proposals dashed, some of the negative ones in red). The ground truth boxes are drawn in
+    white with their caption over the first two panels, and a legend bar below the panels names the colours.
+
+    Args:
+        image (np.ndarray): The [H, W, 3] uint8 BGR network input.
+        ground_truth_boxes (np.ndarray): The [N, 4] boxes of the objects in network input pixels.
+        ground_truth_captions (List[str]): The caption of every object, e.g. its number and class.
+        positive_anchors (np.ndarray): The [P, 4] sampled positive anchors.
+        negative_anchors (np.ndarray): The [Q, 4] sampled negative anchors drawn.
+        proposals (np.ndarray): The [R, 4] proposals drawn.
+        positive_regions (np.ndarray): The [S, 4] positive regions of interest that are proposals.
+        ground_truth_copies (np.ndarray): The [T, 4] positive regions of interest that are ground truth boxes.
+        negative_regions (np.ndarray): The [U, 4] negative regions of interest drawn.
+
+    Returns:
+        np.ndarray: The [H + 24, 3 x W + 8, 3] uint8 BGR grid.
+    """
+    image_size = max(image.shape[:2])
+    anchor_panel, proposal_panel, region_panel = image.copy(), image.copy(), image.copy()
+
+    # Targets drawn thin, the negatives under the positives, every ground truth box added to the proposals dashed
+    for panel, boxes, colour_name in [(anchor_panel, negative_anchors, "Negative"),
+                                      (anchor_panel, positive_anchors, "Positive"),
+                                      (proposal_panel, proposals, "Proposal"),
+                                      (region_panel, negative_regions, "Negative"),
+                                      (region_panel, positive_regions, "Positive")]:
+        add_bounding_boxes(bounding_boxes=boxes, image=panel, input_image_size=image_size,
+                           color=TRAINING_TARGET_COLOURS[colour_name], thickness=1)
+    add_bounding_boxes(bounding_boxes=ground_truth_copies, image=region_panel, input_image_size=image_size,
+                       color=TRAINING_TARGET_COLOURS["Positive"], thickness=2,
+                       dash_length=GROUND_TRUTH_COPY_DASH_LENGTH)
+
+    # Ground truth boxes with their caption over the targets of the anchor and proposal panels
+    for panel in [anchor_panel, proposal_panel]:
+        add_bounding_boxes(bounding_boxes=ground_truth_boxes, image=panel, input_image_size=image_size,
+                           color=TRAINING_TARGET_COLOURS["Ground truth"], captions=ground_truth_captions)
+    grid = place_panels_side_by_side(panels={"Anchors": anchor_panel, "Proposals": proposal_panel,
+                                             "Sampled RoIs": region_panel})
+
+    # Legend of the colours, then of the dashes of the ground truth copies
+    legend_entries = list(TRAINING_TARGET_COLOURS.items()) + [(GROUND_TRUTH_COPY_LEGEND,
+                                                               TRAINING_TARGET_COLOURS["Positive"])]
+    return np.concatenate([grid, draw_legend_bar(width=grid.shape[1], legend_entries=legend_entries)], axis=0)
+
+
+def crop_box_region(image: np.ndarray, box: np.ndarray, output_size: int, interpolation: int) -> np.ndarray:
+    """
+    Crops the region of a box out of an image into a square cell of the mask target strip of the training target
+    viewer, the box corners mapped onto the cell borders the way RoIAlign maps a proposal onto its mask grid (pixel
+    centres at half pixels on both sides), so that a mask target drawn on the cell lies where it was cropped from.
+    The parts of the box outside the image are black.
+
+    Args:
+        image (np.ndarray): The [H, W] or [H, W, 3] uint8 image.
+        box (np.ndarray): The [4] box (x_min, y_min, x_max, y_max) in image pixels.
+        output_size (int): The side of the cell in pixels.
+        interpolation (int): The OpenCV interpolation, linear for an image, nearest for a mask.
+
+    Returns:
+        np.ndarray: The [output_size, output_size] or [output_size, output_size, 3] crop.
+    """
+    x_minimum, y_minimum, x_maximum, y_maximum = (float(coordinate) for coordinate in box)
+    horizontal_scale = output_size / max(x_maximum - x_minimum, 1e-6)
+    vertical_scale = output_size / max(y_maximum - y_minimum, 1e-6)
+
+    # Affine map from the image pixels to the cell pixels, the box corners landing on the cell borders
+    transform = np.array(object=[[horizontal_scale, 0.0, (0.5 - x_minimum) * horizontal_scale - 0.5],
+                                 [0.0, vertical_scale, (0.5 - y_minimum) * vertical_scale - 0.5]])
+    return cv2.warpAffine(src=image, M=transform, dsize=(output_size, output_size), flags=interpolation,
+                          borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+
+
+def build_mask_target_strip(image: np.ndarray, region_boxes: np.ndarray, mask_targets: np.ndarray,
+                            mask_probabilities: np.ndarray, region_captions: List[str], width: int,
+                            title: str) -> np.ndarray:
+    """
+    Lays out the mask targets of a few positive regions of interest of a training image of the instance segmentation,
+    under the training target grid of the training target viewer ('view_training_targets'): for every region, the
+    image cropped to its box with the contour of its target in green, the binary target cropped from the mask of its
+    object (build_mask_targets), and the mask predicted for the class of the object (white for a probability of 1)
+    with the same contour, each region under its caption bar, the regions placed from left to right in rows fitting
+    the width, under a caption bar holding the title.
+
+    Args:
+        image (np.ndarray): The [H, W, 3] uint8 BGR network input.
+        region_boxes (np.ndarray): The [R, 4] boxes of the regions in network input pixels.
+        mask_targets (np.ndarray): The [R, M, M] mask targets of the regions, 0 or 1.
+        mask_probabilities (np.ndarray): The [R, M, M] mask probabilities predicted for the class of their object.
+        region_captions (List[str]): The caption of every region.
+        width (int): The width of the strip in pixels, that of the grid above it, widened to its widest region.
+        title (str): The text of the caption bar above the strip.
+
+    Returns:
+        np.ndarray: The [24 + rows x (24 + 112 + 12) + 12, width, 3] uint8 BGR strip.
+    """
+    region_blocks = []
+    for region_box, mask_target, mask_probability, region_caption in zip(region_boxes, mask_targets,
+                                                                          mask_probabilities, region_captions):
+        # Target and predicted mask enlarged to the cell with sharp pixels, the image cropped to the box
+        cell_size = (MASK_TARGET_CELL_SIZE, MASK_TARGET_CELL_SIZE)
+        target_cell = cv2.resize(src=(mask_target * 255).astype(np.uint8), dsize=cell_size,
+                                 interpolation=cv2.INTER_NEAREST)
+        probability_cell = cv2.resize(src=(np.clip(a=mask_probability, a_min=0.0, a_max=1.0) * 255).astype(np.uint8),
+                                      dsize=cell_size, interpolation=cv2.INTER_NEAREST)
+        cells = [crop_box_region(image=image, box=region_box, output_size=MASK_TARGET_CELL_SIZE,
+                                 interpolation=cv2.INTER_LINEAR),
+                 cv2.cvtColor(src=target_cell, code=cv2.COLOR_GRAY2BGR),
+                 cv2.cvtColor(src=probability_cell, code=cv2.COLOR_GRAY2BGR)]
+
+        # Contour of the target over the crop and the predicted mask, so that both are compared with it
+        contours, _ = cv2.findContours(image=(target_cell > 127).astype(np.uint8), mode=cv2.RETR_EXTERNAL,
+                                       method=cv2.CHAIN_APPROX_SIMPLE)
+        for cell in [cells[0], cells[2]]:
+            cv2.drawContours(image=cell, contours=contours, contourIdx=-1, color=TRAINING_TARGET_COLOURS["Positive"],
+                             thickness=1)
+
+        # The three cells side by side behind gray gaps, under the caption of the region
+        block = np.full(shape=(MASK_TARGET_CELL_SIZE, 3 * MASK_TARGET_CELL_SIZE + 2 * GRID_GAP, 3), fill_value=128,
+                        dtype=np.uint8)
+        for cell_index, cell in enumerate(cells):
+            cell_left = cell_index * (MASK_TARGET_CELL_SIZE + GRID_GAP)
+            block[:, cell_left:cell_left + MASK_TARGET_CELL_SIZE] = cell
+        region_blocks.append(add_caption_bar(image=block, caption=region_caption))
+
+    # Regions placed from left to right, a new row starting when the next one does not fit the width
+    strip_width = max([width] + [block.shape[1] for block in region_blocks])
+    rows, current_row, current_width = [], [], 0
+    for block in region_blocks:
+        if current_row and current_width + MASK_TARGET_SPACING + block.shape[1] > strip_width:
+            rows.append(current_row)
+            current_row, current_width = [], 0
+        current_width += (MASK_TARGET_SPACING if current_row else 0) + block.shape[1]
+        current_row.append(block)
+    if current_row:
+        rows.append(current_row)
+
+    # Rows copied under one another on a black strip, with a space above every row and below the last one
+    block_height = CAPTION_BAR_HEIGHT + MASK_TARGET_CELL_SIZE
+    strip = np.zeros(shape=(len(rows) * (block_height + MASK_TARGET_SPACING) + MASK_TARGET_SPACING, strip_width, 3),
+                     dtype=np.uint8)
+    for row_index, row in enumerate(rows):
+        block_top, block_left = MASK_TARGET_SPACING + row_index * (block_height + MASK_TARGET_SPACING), 0
+        for block in row:
+            strip[block_top:block_top + block.shape[0], block_left:block_left + block.shape[1]] = block
+            block_left += block.shape[1] + MASK_TARGET_SPACING
+    return add_caption_bar(image=strip, caption=title)
 
 
 def find_keypoint_side(keypoint_name: str) -> str:
