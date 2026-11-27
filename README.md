@@ -53,7 +53,7 @@
   - [Self-Supervised Training Metrics (SSL)](#self-supervised-training-metrics-ssl)
 
 ## Description
-If you are new to the repository, start from its tasks: it trains, evaluates and exports PyTorch models for nine vision tasks, plus a self-supervised task that pre-trains a backbone the other tasks can load. All tasks use the same backbone design (convolution blocks with optional residual, squeeze-and-excitation and inception modules), each run training its own weights unless it loads pre-trained ones, and share the training loop, the configuration format, the evaluation report and the export to Triton; each adds its own dataset, head, losses and metrics.
+If you are new to the repository, start from its tasks: it trains, evaluates and exports PyTorch models for nine vision tasks, plus a self-supervised task that pre-trains backbones. All tasks share one backbone design (each run training its own weights), the training loop, the configuration format, the evaluation report and the export to Triton.
 
 | Code | Task | Input | Output |
 |---|---|---|---|
@@ -72,7 +72,7 @@ If you are new to the repository, start from its tasks: it trains, evaluates and
   <img src="README/architectures.png" width="100%" />
 </p>
 
-When this README, which gives the commands and the settings that matter most, is not enough, the details are in `documentation/`:
+If this README is not enough, see `documentation/`:
 
 | To ... | Read |
 |---|---|
@@ -100,9 +100,9 @@ uv sync
 ```
 
 ### Data Requirements
-For a task to train, it needs a train, a validation and a test split folder, each holding its images in `data/` and a `labels.json` manifest, and a `label_mapping.json` file giving the class of every category ([Label Files](#label-files)). The [synthetic datasets](#quick-start-with-synthetic-data) need none of this.
+For a task to train, it needs train, validation and test folders, each with its images in `data/` and a `labels.json`, plus a `label_mapping.json` ([Label Files](#label-files)). The [synthetic datasets](#quick-start-with-synthetic-data) need none of this.
 
-Should the backbones of classification, object detection or segmentation start from pre-trained weights, the [pretraining reference](documentation/reference/pretraining_reference.md) describes the download of ImageNet-22k, on which the classification configurations train the backbones the other tasks load.
+Should a backbone start from pre-trained weights, see the [pretraining reference](documentation/reference/pretraining_reference.md).
 
 ## Quick Start With Synthetic Data
 In order to check the installation or a configuration within minutes, every task has a synthetic shapes dataset:
@@ -167,14 +167,14 @@ Whenever a training starts, it writes to `<experiment_folder>/<run name>/` ([eve
 </p>
 
 ### Stopping And Resuming
-In case a training has to stop, Ctrl+C saves a checkpoint, and launching the same configuration again resumes from it; `number_iterations` is the total of the run, not the iterations left ([details](documentation/reference/training_reference.md#stopping-and-resuming)).
+In case a training has to stop, Ctrl+C saves a checkpoint and relaunching the configuration resumes it. `number_iterations` is the run total ([details](documentation/reference/training_reference.md#stopping-and-resuming)).
 
 <p align="center">
   <img src="README/resume_rules.png" width="100%" />
 </p>
 
 ### Console And TensorBoard
-So that a run can be followed live, every evaluation prints its report, appended to `Results.txt` ([console output](documentation/reference/training_reference.md#console-output)):
+So that a run can be followed live, every evaluation prints its report into `Results.txt` ([console output](documentation/reference/training_reference.md#console-output)):
 
 <p align="center">
   <img src="README/evaluation_report.png" width="100%" />
@@ -190,7 +190,7 @@ uv run tensorboard --logdir <experiment_folder>/<run name>/Tensorboard
 </p>
 
 ### Augmentation And Diagnosis Modes
-Suppose a run learns nothing: look at what the network receives before blaming the model. `Data.data_augmentation` turns on the augmentation types below ([strengths](documentation/reference/training_reference.md#data-augmentation)).
+Suppose a run learns nothing: first look at what the network receives. `Data.data_augmentation` sets the types below ([strengths](documentation/reference/training_reference.md#data-augmentation)).
 
 <p align="center">
   <img src="README/augmentation_types.jpg" width="100%" />
@@ -205,7 +205,7 @@ Three diagnosis modes of `ExperimentConfiguration.diagnosis_modes` exit without 
 | `benchmark_speed` | before training an architecture, for its training and serving speed | [Benchmarking The Speed](documentation/reference/training_reference.md#benchmarking-the-speed) |
 
 ### Moving Average Of The Weights
-If one wishes to score a smoothed model, `Optimization.exponential_moving_average` keeps an average of the weights, scored next to the trained ones at every evaluation ([choosing the decay](documentation/reference/training_reference.md#moving-average-of-the-weights)).
+If one wishes to score a smoothed model, `Optimization.exponential_moving_average` keeps an average of the weights, evaluated with them ([choosing the decay](documentation/reference/training_reference.md#moving-average-of-the-weights)).
 
 <p align="center">
   <img src="README/moving_average_of_the_weights.png" width="100%" />
@@ -213,427 +213,27 @@ If one wishes to score a smoothed model, `Optimization.exponential_moving_averag
 <p align="center"><em>The reference pair of the object detection benchmark: the averaged weights lead the trained ones at every evaluation.</em></p>
 
 ## Tasks
-Say you bring your own data: every task reads a folder per split with its images in `data/` and a `labels.json` manifest, and `label_mapping.json` maps every category identifier of the manifests to the class index the model predicts (from 1 for DET, INS, KPT and SEG, whose class 0 is the background), merging categories or leaving out those it does not name ([Label Files](#label-files) shows both files for every task). Each task starts from the `configuration_example.yaml` of its folder.
+Say you bring your own data: start from the `configuration_example.yaml` of the task.
 
 <p align="center">
   <img src="README/tasks_dataset_layout.png" width="100%" />
 </p>
 
-| Task | Labels | Own sections | Evaluation | Details |
-|---|---|---|---|---|
-| CLS | `category_id`, or `category_ids` with `ClassificationHead.output_mode: "multi_label"`; `class_folder_manifests.py` converts one folder per class | `ClassificationHead` | accuracy, macro F1, top-5, per-class metrics and thresholds at `target_precision`, misclassified images in `Errors/` | [reference](documentation/reference/tasks_reference.md#classification-cls) · [workflow](documentation/task%20workflows/classification_workflow.md) |
-| DET | COCO, boxes `[x, y, width, height]` in pixels | `DetectionLevels`, `Neck`, `RegionProposal`, `Detector` | mAP@[0.5:0.95] and by object size, anchor and proposal recall, confusion with a background class | [reference](documentation/reference/tasks_reference.md#object-detection-det) · [workflow](documentation/task%20workflows/object_detection_workflow.md) |
-| INS | COCO `segmentation` (polygons or RLE) | the sections of DET, `MaskHead`, `Data.instance_index_maps` | mask and box mAP, `Mask mAP@0.5/area` comparing the checkpoints | [reference](documentation/reference/tasks_reference.md#instance-segmentation-ins) · [workflow](documentation/task%20workflows/instance_segmentation_workflow.md) |
-| KPT | COCO `keypoints`, with the keypoint names and optional `skeleton` of every category | `Backbone` as the stem, `HRNet`, `KeypointHead` | OKS mAP, PCK@0.05, mean OKS | [reference](documentation/reference/tasks_reference.md#keypoint-detection-kpt) · [workflow](documentation/task%20workflows/keypoint_detection_workflow.md) |
-| SEG | `masks/`: uint8 PNG, 0 for the background, 255 ignored | `SegmentationDecoder`, `SegmentationLoss`, `Data.tiling` | mean IoU and Dice, boundary IoU and F1 | [reference](documentation/reference/tasks_reference.md#semantic-segmentation-seg) · [workflow](documentation/task%20workflows/semantic_segmentation_workflow.md) |
-| M2O | frames in `data/<sequence name>/`, one `category_id` per sequence | `Data.sequence_settings`, `TemporalModel` | the CLS metrics on the sequences | [reference](documentation/reference/tasks_reference.md#sequence-classification-m2o) · [workflow](documentation/task%20workflows/sequence_classification_workflow.md) |
-| M2M | `frame_category_ids` | the sections of M2O, `TemporalModel.causal` for live streams | frame metrics, edit score, segment F1@10, @25 and @50 | [reference](documentation/reference/tasks_reference.md#sequence-labelling-m2m) · [workflow](documentation/task%20workflows/sequence_labelling_workflow.md) |
-| CMP | a `before` and an `after` sequence; `pair_list_manifests.py` converts pair lists | the sections of M2O, `Fusion` | the CLS metrics on the pairs | [reference](documentation/reference/tasks_reference.md#sequence-comparison-cmp) · [workflow](documentation/task%20workflows/sequence_comparison_workflow.md) |
-| SEL | the labels of M2M | the sections of M2M, `Selection` | selection accuracy of the Hungarian and greedy decodings, top-k, `selections.csv` | [reference](documentation/reference/tasks_reference.md#frame-selection-sel) · [workflow](documentation/task%20workflows/frame_selection_workflow.md) |
-| SSL | the layout of CLS, the categories only serving the evaluation | `ProjectionHead` (SimCLR or Barlow Twins), `Data.grouped_batches` | k-NN accuracy, effective rank of the representations | [reference](documentation/reference/tasks_reference.md#self-supervised-learning-ssl) · [workflow](documentation/task%20workflows/self_supervised_workflow.md) |
-
-A few behaviours are easy to miss:
-- KPT: the geometric augmentations keep the keypoint names, so the flips and rotations only suit keypoints whose names depend neither on the side nor on the orientation.
-- Sequences are fed whole: one longer than `Data.sequence_settings.maximum_sequence_length` is left out with a warning, and the batches are padded with masked frames. The `mean_pooling`, `max_pooling` and `attention_pooling` temporal modules ignore the frame order; `gru`, `lstm`, `transformer` and `temporal_convolution` follow it and are the only ones of M2M and SEL.
-- M2O: a class given by a motion needs `ClassificationHead.global_pooling: flatten`, the other poolings removing the position of the objects.
-
-<p align="center">
-  <img src="README/sequence_padded_batch.gif" width="100%" />
-</p>
-<p align="center"><em>Four synthetic moving-shape sequences padded to the longest one by <code>collate_padded_sequences</code>, and the <code>sequence_mask</code> of their real frames.</em></p>
-
-To see why a class given by a motion needs flatten, follow one frame through the network. The backbone turns it into a feature map of C channels on an H × W grid, each cell describing the region of the frame under it, and `ClassificationHead.global_pooling` turns that map into the frame vector the temporal model reads:
-- `average` keeps one mean per channel, which is the same wherever the shape is: the frames of a moving shape become the same vector, so the temporal model cannot tell a move to the left from a move to the right and stays at chance. `max` keeps one maximum per channel and loses the position the same way.
-- `flatten` keeps the C × H × W values in their order, so the cells lit by the shape move from frame to frame and the vectors of frames far apart differ.
-
-<p align="center">
-  <img src="README/sequence_pooling_mechanism.gif" width="100%" />
-</p>
-<p align="center"><em>A triangle moving right over 8 frames of 128 pixels, turned into an 8 × 8 feature map by four fixed edge filters, a ReLU and a 16 × 16 average, as a backbone downsampling 16 times would. Average pooling hands the temporal model the same 4 values in every frame, every similarity being 1.00; flatten hands it 256 values whose lit cells follow the shape, the similarity being 0.42 to 0.57 between neighbouring frames and 0.00 between frames far apart. Drawn by <code>documentation/presentation/figures/draw_pooling_similarity_animation.py</code>.</em></p>
-
-<p align="center">
-  <img src="README/sequence_pooling_similarity.png" width="100%" />
-</p>
-<p align="center"><em>The same on two trained M2O runs of the sequence classification tutorial, on the 8 frames of one test sequence: with average pooling (512 pixels, 64 features) every pair of frames scores 1.00, the frames being indistinguishable; with flatten (256 pixels, 16,384 features) the similarity is 0.79 to 0.91 between neighbouring frames and falls to 0.00 between the first and the last, the frame vector following the shape.</em></p>
+| Task | Labels | Details |
+|---|---|---|
+| CLS | `category_id`, or `category_ids` for multi-label | [reference](documentation/reference/tasks_reference.md#classification-cls) · [workflow](documentation/task%20workflows/classification_workflow.md) |
+| DET | COCO boxes | [reference](documentation/reference/tasks_reference.md#object-detection-det) · [workflow](documentation/task%20workflows/object_detection_workflow.md) |
+| INS | COCO `segmentation` (polygons or RLE) | [reference](documentation/reference/tasks_reference.md#instance-segmentation-ins) · [workflow](documentation/task%20workflows/instance_segmentation_workflow.md) |
+| KPT | COCO `keypoints` | [reference](documentation/reference/tasks_reference.md#keypoint-detection-kpt) · [workflow](documentation/task%20workflows/keypoint_detection_workflow.md) |
+| SEG | PNG masks in `masks/` | [reference](documentation/reference/tasks_reference.md#semantic-segmentation-seg) · [workflow](documentation/task%20workflows/semantic_segmentation_workflow.md) |
+| M2O | one `category_id` per sequence | [reference](documentation/reference/tasks_reference.md#sequence-classification-m2o) · [workflow](documentation/task%20workflows/sequence_classification_workflow.md) |
+| M2M | `frame_category_ids` | [reference](documentation/reference/tasks_reference.md#sequence-labelling-m2m) · [workflow](documentation/task%20workflows/sequence_labelling_workflow.md) |
+| CMP | a `before` and an `after` sequence | [reference](documentation/reference/tasks_reference.md#sequence-comparison-cmp) · [workflow](documentation/task%20workflows/sequence_comparison_workflow.md) |
+| SEL | the labels of M2M | [reference](documentation/reference/tasks_reference.md#frame-selection-sel) · [workflow](documentation/task%20workflows/frame_selection_workflow.md) |
+| SSL | the layout of CLS | [reference](documentation/reference/tasks_reference.md#self-supervised-learning-ssl) · [workflow](documentation/task%20workflows/self_supervised_workflow.md) |
 
 ### Label Files
-Before a first launch on your own data, every split needs a `labels.json` listing its images, sequences or pairs with their categories, and the dataset needs one `label_mapping.json` turning these categories into the classes the model predicts. The `//` comments below only explain the examples: the JSON files take none. `class_folder_manifests.py` (one folder per class) and `pair_list_manifests.py` (CMP pair lists) write both files for you.
-
-To turn the categories into classes, `label_mapping.json` (`Data.label_mapping.mapping_file_path`, `mode: "multi_class"`) gives every category identifier of `labels.json`, written as a string, its class index. The classes start at 0 for CLS, M2O, M2M, CMP and SEL, and at 1 for DET, INS, KPT and SEG, whose class 0 is the background; they must have no gaps.
-
-```jsonc
-{                 // CLS, M2O, M2M, CMP, SEL: classes from 0
-  "1": 0,         // circle    -> class 0
-  "2": 1,         // square    -> class 1
-  "4": 1,         // rectangle -> class 1 too: merged with the
-                  //   squares, the class named square+rectangle
-  "5": 2          // triangle  -> class 2
-}                 // star (3), not written, is left out
-```
-
-```jsonc
-{                 // DET, INS, KPT, SEG: classes from 1,
-                  //   class 0 being the background
-  "1": 1,         // circle -> class 1
-  "2": 2,         // square -> class 2
-  "3": 0          // star   -> 0: left out like a category
-}                 //   not written
-```
-
-A category left out skips its samples (CLS, M2O, CMP), leaves the classes of its multi-label samples, a sample of left-out categories only being skipped, makes its frames ignored (M2M) or unselected (SEL), its objects left out (DET, INS, KPT) and its pixels background (SEG). DET, INS and SEG also accept `mode: "binary"`, every category becoming class 1 without a mapping file.
-
-If each image shows one class (CLS, and SSL, whose categories only serve its k-NN evaluation), `labels.json` gives one entry per image, its `file_name` relative to `data/`:
-
-```jsonc
-{
-  "categories": [                     // every category,
-    {"id": 1, "name": "circle"},      //   with an integer identifier
-    {"id": 2, "name": "square"},
-    {"id": 3, "name": "star"}
-  ],
-  "samples": [                        // one entry per image
-    {
-      "id": 1,
-      "file_name": "image_0001.png",  // data/image_0001.png
-      "category_id": 2                // shows a square
-    },
-    {
-      "id": 2,
-      "file_name": "image_0002.png",
-      "category_id": 1
-    },
-    {
-      "id": 3,
-      "file_name": "night/image_0003.png",  // a subfolder of data/
-      "category_id": 3                      //   stays in the name
-    }
-  ]
-}
-```
-
-Should an image hold several classes at once (`ClassificationHead.output_mode: "multi_label"`), every sample lists all of them:
-
-```jsonc
-  "samples": [
-    {
-      "id": 1,
-      "file_name": "image_0001.png",
-      "category_ids": [1, 3]          // a circle and a star
-    },
-    {
-      "id": 2,
-      "file_name": "image_0002.png",
-      "category_ids": [2]             // a square only
-    },
-    {
-      "id": 3,
-      "file_name": "image_0003.png",
-      "category_ids": [1, 2, 3]
-    }
-  ]
-```
-
-For a segmentation (SEG), every image comes with its mask in `masks/`, a single-channel uint8 PNG of the same size holding the category identifier of every pixel, 0 for the background and 255 for the pixels to ignore:
-
-```jsonc
-{
-  "categories": [
-    {"id": 1, "name": "circle"},
-    {"id": 2, "name": "square"},
-    {"id": 3, "name": "star"}
-  ],
-  "samples": [
-    {
-      "id": 1,
-      "file_name": "image_0001.png",
-      "mask_file_name": "image_0001.png",  // masks/image_0001.png
-      "category_ids": [1, 3]               // optional, for the
-    },                                     //   class counts
-    {
-      "id": 2,
-      "file_name": "image_0002.png",
-      "mask_file_name": "image_0002.png",
-      "category_ids": [2]
-    }
-  ]
-}
-```
-
-Whenever objects are located by boxes (DET), `labels.json` is a COCO file: the images, one annotation per object, and the categories; the other keys of a COCO export, such as `area` and `iscrowd`, are not read:
-
-```jsonc
-{
-  "images": [                         // one entry per image
-    {
-      "id": 1,
-      "file_name": "image_0001.png",
-      "width": 512,
-      "height": 512
-    },
-    {
-      "id": 2,
-      "file_name": "image_0002.png",
-      "width": 640,
-      "height": 480
-    }
-  ],
-  "annotations": [                    // one entry per object
-    {
-      "id": 1,
-      "image_id": 1,
-      "category_id": 2,
-      "bbox": [120, 340, 64, 48]      // [x, y, width, height]
-    },                                //   in pixels
-    {
-      "id": 2,
-      "image_id": 1,                  // a second object of image 1
-      "category_id": 1,
-      "bbox": [300, 80, 90, 90]
-    },
-    {
-      "id": 3,
-      "image_id": 2,
-      "category_id": 3,
-      "bbox": [10, 200, 150, 120]
-    }
-  ],
-  "categories": [                     // identifiers may have gaps
-    {"id": 1, "name": "circle"},
-    {"id": 2, "name": "square"},
-    {"id": 3, "name": "star"},
-    {"id": 5, "name": "triangle"}
-  ]
-}
-```
-
-In order to train masks (INS), every annotation also gives its `segmentation`, the box being the tight box of the mask:
-
-```jsonc
-  "annotations": [
-    {
-      "id": 1,
-      "image_id": 1,
-      "category_id": 5,               // a triangle
-      "segmentation": [               // polygons, each a flat
-        [120, 388, 152, 340, 184, 388]  // [x1, y1, x2, y2, ...]
-      ]                               //   list in pixels
-    },
-    {
-      "id": 2,
-      "image_id": 1,
-      "category_id": 2,
-      "segmentation": {               // or a run length encoding,
-        "size": [512, 512],           //   compressed or not
-        "counts": "f\\i01o?1O001..."
-      }
-    }
-  ]
-```
-
-Suppose the objects have named points (KPT). Every category lists the names of its keypoints, and every annotation gives one `x, y, v` triple per name, in the same order, so that the place of a triple in the list says which point it is. The flag `v` says what is known of the point:
-
-- 2, visible: the point is seen in the image.
-- 1, hidden: the point is in the image but covered, by another object for instance, and its position is still known; it is learned and scored like a visible point.
-- 0, not labelled: the position is unknown (outside the image, or never annotated); the triple stays, written `0, 0, 0`, so that the next points keep their places, and the point is neither learned nor scored.
-
-The `skeleton` of a category is optional and only draws lines between its points in the sample images; each pair gives the places of two names in its `keypoints` list, counted from 1:
-
-```jsonc
-  "annotations": [
-    {
-      "id": 1,
-      "image_id": 1,
-      "category_id": 2,               // a square: 4 named points
-      "bbox": [65, 228, 206, 206],
-      "keypoints": [                  // x, y, v of every name
-        65, 228, 2,                   // top_left: visible
-        271, 228, 2,                  // top_right: visible
-        271, 434, 2,                  // bottom_right: visible
-        65, 434, 1                    // bottom_left: hidden under
-      ]                               //   another object, still learned
-    },
-    {
-      "id": 2,
-      "image_id": 1,
-      "category_id": 5,               // a triangle: 3 named points
-      "bbox": [300, 40, 120, 100],
-      "keypoints": [
-        360, 40, 2,                   // top: visible
-        420, 140, 2,                  // bottom_right: visible
-        0, 0, 0                       // bottom_left: not labelled,
-      ]                               //   0, 0, 0 keeps its place
-    }
-  ],
-  "categories": [
-    {
-      "id": 2,
-      "name": "square",
-      "keypoints": [                  // the names, in triple order
-        "top_left",                   // 1
-        "top_right",                  // 2
-        "bottom_right",               // 3
-        "bottom_left"                 // 4
-      ],
-      "skeleton": [                   // lines drawn between points:
-        [1, 2],                       //   top_left to top_right
-        [2, 3],                       //   top_right to bottom_right
-        [3, 4],                       //   bottom_right to bottom_left
-        [4, 1]                        //   bottom_left to top_left
-      ]
-    },
-    {
-      "id": 5,
-      "name": "triangle",
-      "keypoints": [
-        "top",                        // 1
-        "bottom_right",               // 2
-        "bottom_left"                 // 3
-      ],
-      "skeleton": [
-        [1, 2],                       // top to bottom_right
-        [2, 3],                       // bottom_right to bottom_left
-        [3, 1]                        // bottom_left to top
-      ]
-    }
-  ]
-```
-
-Say a whole sequence has one class (M2O): its frames sit in `data/<sequence name>/`, listed in order, and the sequences may differ in length:
-
-```jsonc
-{
-  "categories": [
-    {"id": 1, "name": "moving_left"},
-    {"id": 2, "name": "moving_right"}
-  ],
-  "sequences": [                      // one entry per sequence
-    {
-      "id": 1,
-      "name": "sequence_0001",
-      "category_id": 1,
-      "frames": [                     // in order
-        "sequence_0001/000000.png",
-        "sequence_0001/000001.png",
-        "sequence_0001/000002.png"
-      ]
-    },
-    {
-      "id": 2,
-      "name": "sequence_0002",
-      "category_id": 2,
-      "frames": [                     // another length
-        "sequence_0002/000000.png",
-        "sequence_0002/000001.png"
-      ]
-    }
-  ]
-}
-```
-
-If every frame has its own class (M2M), `frame_category_ids` gives one category per frame, as long as `frames`:
-
-```jsonc
-{
-  "categories": [
-    {"id": 1, "name": "no_change"},
-    {"id": 2, "name": "appearing_circle"},
-    {"id": 3, "name": "disappearing_circle"}
-  ],
-  "sequences": [
-    {
-      "id": 1,
-      "name": "sequence_0001",
-      "frame_category_ids": [1, 2, 1],  // a circle appears
-      "frames": [                       //   on the second frame
-        "sequence_0001/000000.png",
-        "sequence_0001/000001.png",
-        "sequence_0001/000002.png"
-      ]
-    },
-    {
-      "id": 2,
-      "name": "sequence_0002",
-      "frame_category_ids": [1, 3],
-      "frames": [
-        "sequence_0002/000000.png",
-        "sequence_0002/000001.png"
-      ]
-    }
-  ]
-}
-```
-
-So that the frame selection (SEL) knows which frames to choose, it reads the layout of M2M: every frame has the unselected category (`Selection.unselected_category`, which the mapping must map) or a wanted class, every sequence holding exactly `Selection.frames_per_class` frames of every wanted class:
-
-```jsonc
-{
-  "categories": [
-    {"id": 1, "name": "circle"},
-    {"id": 3, "name": "star"},
-    {"id": 6, "name": "unselected"}
-  ],
-  "sequences": [
-    {
-      "id": 1,
-      "name": "sequence_0001",
-      "frame_category_ids": [6, 3, 6, 1],  // frames_per_class 1:
-      "frames": [                          //   the star, then
-        "sequence_0001/000000.png",        //   the circle
-        "sequence_0001/000001.png",
-        "sequence_0001/000002.png",
-        "sequence_0001/000003.png"
-      ]
-    },
-    {
-      "id": 2,
-      "name": "sequence_0002",
-      "frame_category_ids": [1, 3, 6],
-      "frames": [
-        "sequence_0002/000000.png",
-        "sequence_0002/000001.png",
-        "sequence_0002/000002.png"
-      ]
-    }
-  ]
-}
-```
-
-To compare a before and an after sequence (CMP), every pair has one category and two frame lists, which may differ in length:
-
-```jsonc
-{
-  "categories": [
-    {"id": 1, "name": "loss_of_object"},
-    {"id": 2, "name": "same_number_of_objects"}
-  ],
-  "pairs": [                          // one entry per pair
-    {
-      "id": 1,
-      "name": "pair_0001",
-      "category_id": 1,
-      "before": [
-        "pair_0001/before/000000.png",
-        "pair_0001/before/000001.png"
-      ],
-      "after": [                      // may differ in length
-        "pair_0001/after/000000.png"
-      ]
-    },
-    {
-      "id": 2,
-      "name": "pair_0002",
-      "category_id": 2,
-      "before": [
-        "pair_0002/before/000000.png"
-      ],
-      "after": [
-        "pair_0002/after/000000.png",
-        "pair_0002/after/000001.png"
-      ]
-    }
-  ]
-}
-```
+Before a first launch on your own data, read the label file examples of your task in its reference. `class_folder_manifests.py` (one folder per class) and `pair_list_manifests.py` (CMP pair lists) write them for you.
 
 ## Transfer Between Runs
 To be able to start from a trained component, such as a backbone trained on ImageNet for a detector, give its run in the `pretrained` block of the section, the source run being of the same task or of another one:
