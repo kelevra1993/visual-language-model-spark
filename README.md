@@ -337,6 +337,8 @@ Other tools read a run folder:
 ## Tutorials
 If you would rather watch than read, narrated videos cover every task; `tutorials/README.md` explains how to rebuild them.
 
+To watch them, download the [tutorial videos folder](https://drive.google.com/drive/folders/1jWJckDtNZ3AJx_neg4nul87lXXRoeFEj?usp=drive_link) and open its `index.html` in a browser.
+
 <p align="center">
   <img src="README/tutorial_scenes.gif" width="100%" />
 </p>
