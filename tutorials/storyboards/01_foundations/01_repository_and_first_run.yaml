@@ -116,7 +116,7 @@ scenes:
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/classification/configuration_synthetic_shapes.yaml\""}
     narration:
       - "uv sync installs the environment pinned by the lock file, and every script then runs as a module from the repository root."
-      - "Say you want to try a task before any data is at hand: the synthetic data set script draws a shapes data set for it, with nothing to download; its task and its folder are its arguments, its sizes and splits set in its main block like the settings of almost every script but the training."
+      - "Say you want to try a task before any data is at hand: the synthetic data set script draws a shapes data set for it, with nothing to download; its task and its folder are its required arguments, and the split sizes an option over the recipe of each task."
       - "The training takes a single argument, the path of its configuration file, and that file alone defines the run."
 
   # The download prints nothing before it reaches the gated data set of Hugging Face, so the scene shows its commands

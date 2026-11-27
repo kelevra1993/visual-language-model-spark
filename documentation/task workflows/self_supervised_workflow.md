@@ -64,7 +64,7 @@ Should you need to change one part of the task, this table gives the file holdin
 
 ### Run It
 
-In order to train and evaluate the task on the synthetic shapes from scratch, run these commands from the root of the repository, after setting the values of their main blocks and of the configuration.
+In order to train and evaluate the task on the synthetic shapes from scratch, run these commands from the root of the repository, after setting the values of the configuration.
 
 ```bash
 # 1. Synthetic dataset: the classification task (500,000 / 50,000 / 50,000 images of 512 pixels) with its required

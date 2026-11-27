@@ -63,7 +63,7 @@ If you are looking for the code of a step, these are the files of the task and t
 
 ### Run It
 
-In order to generate, train, evaluate and export the synthetic shapes segmenter from scratch, run these commands from the root of the repository, after setting the values of their main blocks.
+In order to generate, train, evaluate and export the synthetic shapes segmenter from scratch, run these commands from the root of the repository.
 
 ```bash
 # 1. Synthetic dataset: the semantic_segmentation task (50,000 / 200 / 200 images of 512 pixels with up to 6 shapes

@@ -1326,7 +1326,7 @@ The same script for every task (see `classification_workflow.md`, Stage 5), conf
 ### Step 5.2 — trainer construction
 The trainer is built from the `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it rather than those of the mapping file (`classification_workflow.md`, Step 5.2).
 
-**Example: the lines of the launch information set by the main block**
+**Example: the lines of the launch information set by the arguments of the script**
 ```text
 - Test Data Folder        : test_reduced_200 (200 images, 709 annotations)
 - Batch Size              : 64

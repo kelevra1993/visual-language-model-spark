@@ -55,7 +55,7 @@ Whenever a part of the task has to change, this table gives the file holding it 
 | Export sizes at launch | `vision_training/deployment/export_size_estimates.py` | `estimate_export_sizes`, `probe_inference_graph`, `print_export_size_summary` |
 
 ### Run It
-In order to generate the dataset, then train, evaluate and export the task, run these commands from the root of the repository after setting the values of their main blocks and of the configuration.
+In order to generate the dataset, then train, evaluate and export the task, run these commands from the root of the repository after setting the values of the configuration.
 
 ```bash
 # Dataset: the frame_selection task of vision_training/data/synthetic/create_synthetic_dataset.py, whose

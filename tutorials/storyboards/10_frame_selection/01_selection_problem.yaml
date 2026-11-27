@@ -194,7 +194,7 @@ scenes:
     title: "Generate, train, evaluate, export"
     code_reference: "vision_training/deployment/export_model.py"
     lines:
-      - {role: comment, text: "# Data: task as an argument, {{frame_selection.dataset.training_sequences:,}} / {{frame_selection.dataset.validation_sequences}} / {{frame_selection.dataset.test_sequences}} sequences of {{frame_selection.dataset.image_size}} pixels in the main block"}
+      - {role: comment, text: "# Data: task as an argument, {{frame_selection.dataset.training_sequences:,}} / {{frame_selection.dataset.validation_sequences}} / {{frame_selection.dataset.test_sequences}} sequences of {{frame_selection.dataset.image_size}} pixels by default"}
       - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=frame_selection --output_folder=~/Data/sequence_data/synthetic_selected_shapes"}
       - {role: comment, text: "# Training: its only argument is the configuration"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml\""}

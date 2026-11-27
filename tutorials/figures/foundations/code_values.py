@@ -9,8 +9,7 @@ images of imagenet_download.py), the host ports of the Triton docker compose fil
 ast.literal_eval refuses), the pixel range given by the input normalization, and values of the synthetic
 classification configuration that need a conversion or a computation (its number of iterations written 1e10, the steps
 averaged by its moving average). The storyboards quote them as {{foundations.<name>}}, so that a sentence follows the
-code when it changes. The readers of main blocks are also used by the classification figures for the settings of the
-synthetic dataset script.
+code when it changes.
 """
 
 import ast
@@ -110,36 +109,6 @@ def read_call_keyword(module_path: Path, function_name: str, called_name: str, k
         raise ValueError(f"Expected one call of {called_name} with the keyword {keyword} in {function_name} of "
                          f"{module_path}, found {len(values)}.")
     return values[0]
-
-
-def read_main_block_value(script_path: Path, variable_name: str) -> Any:
-    """
-    Reads a setting assigned as a literal in the main block of a script (if __name__ == "__main__":), without running
-    it, for the facts of the settings the scripts of the repository keep in their main block (the image size of the
-    synthetic dataset script), which no constant placeholder can read.
-
-    Args:
-        script_path (Path): The Python script.
-        variable_name (str): The variable assigned in its main block.
-
-    Returns:
-        Any: The literal value of its last assignment in the main block.
-
-    Raises:
-        ValueError: If the script has no main block, the variable is not assigned in it, or the value is not a literal.
-    """
-    tree = ast.parse(source=script_path.read_text(encoding="utf-8"), filename=str(script_path))
-    main_blocks = [node for node in tree.body if isinstance(node, ast.If) and
-                   ast.unparse(ast_obj=node.test).replace("'", '"') == '__name__ == "__main__"']
-    if not main_blocks:
-        raise ValueError(f"No main block in {script_path}.")
-
-    # Last assignment of the variable at the top of the main block, as the script would leave it before its calls
-    assignments = [node for node in main_blocks[-1].body if isinstance(node, ast.Assign) and
-                   any(isinstance(target, ast.Name) and target.id == variable_name for target in node.targets)]
-    if not assignments:
-        raise ValueError(f"No assignment of {variable_name} in the main block of {script_path}.")
-    return ast.literal_eval(node_or_string=assignments[-1].value)
 
 
 def read_triton_host_ports(compose_path: Path) -> Dict[str, int]:

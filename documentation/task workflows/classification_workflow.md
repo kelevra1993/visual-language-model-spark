@@ -70,7 +70,7 @@ If you are looking for the code of a step, these are the files of the task and t
 
 ### Run It
 
-In order to train and evaluate the synthetic shapes classifier from scratch, run these commands from the root of the repository, after setting the values of their main blocks.
+In order to train and evaluate the synthetic shapes classifier from scratch, run these commands from the root of the repository.
 
 ```bash
 # 1. Synthetic dataset: the classification task (500,000 / 50,000 / 50,000 images of 512 pixels by default, other
