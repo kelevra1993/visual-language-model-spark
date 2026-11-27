@@ -144,4 +144,3 @@ def write_deployed_thresholds_file(model_folder: Path, record: Dict[str, Any]) -
     thresholds_path = model_folder / DEPLOYED_THRESHOLDS_FILE_NAME
     thresholds_path.write_text(data=json.dumps(obj=record, indent=2) + "\n")
     return thresholds_path
-
