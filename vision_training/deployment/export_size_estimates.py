@@ -8,8 +8,7 @@ stays within 5 % of the real file on the tutorial runs, and measured otherwise: 
 to a temporary file, the FP16 file being that size less the bytes its FP16 weights save, while the ONNX files and the
 TensorRT engines are estimated from what one forward pass of the inference model reads (the weights it uses and the
 constants it computes) and from its number of operators. The constants of the formulas
-and their margins come from scripts/deployment/check_export_size_estimates.py, which compares the estimates with the
-files of real exports.
+and their margins were fitted on the files of real exports of the tutorial runs.
 """
 
 import tempfile
@@ -48,10 +47,9 @@ BATCH_NORMALIZATION_OPERATORS = {"aten.batch_norm", "aten._batch_norm_impl_index
                                  "aten._native_batch_norm_legit", "aten._native_batch_norm_legit_no_training",
                                  "aten.cudnn_batch_norm", "aten.miopen_batch_norm"}
 
-# Constants of the estimates, fitted on the ten tutorial runs of every task with
-# scripts/deployment/check_export_size_estimates.py on 2026-11-21 (PyTorch 2.14, onnxscript 0.7.2), the TensorRT ones on
-# the six engines of the serving benchmark (CLS, DET and M2M in FP32 and FP16, Triton 26.01 with TensorRT 10.14) until
-# the engines of every task are built with --build_tensorrt_engines.
+# Constants of the estimates, fitted on the real exports of the ten tutorial runs of every task on 2026-11-21
+# (PyTorch 2.14, onnxscript 0.7.2), the TensorRT ones on the engines of the serving benchmark and of the tutorial runs
+# (Triton 26.01 with TensorRT 10.14).
 # Bytes torch.save writes for a state dictionary besides the values of its tensors: per tensor (its zip records
 # aligned to 64 bytes and its entry in the pickled dictionary, the characters of its key added), and once (the pickle,
 # version and byte order records and the zip directory)
@@ -112,7 +110,7 @@ class ExportSizeRow(TypedDict):
 class ExportSizes(TypedDict):
     """
     The sizes of the Export Sizes panel (estimate_export_sizes), with the forward pass they were estimated from (None
-    when it failed), read by the calibration of scripts/deployment/check_export_size_estimates.py.
+    when it failed).
     """
     exported_parameters: int
     total_parameters: int
