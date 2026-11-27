@@ -72,6 +72,9 @@ ExperimentConfiguration:
       # Shows the network input: Training and Validation windows with the images and their ground truth boxes. SPACE:
       # next images, ENTER: exit without training (set False to train). Needs a display; no run folder is created.
       view_input_images: False
+      # Draws the anchors, proposals and sampled RoIs the losses use on every training image (with the mask targets in
+      # instance segmentation) with the last checkpoint if any. SPACE: next, ENTER: exit, no training nor run folder.
+      view_training_targets: False
       # Times the training step and the inference (PyTorch, TorchScript, ONNX Runtime, TensorRT) on one training batch,
       # at the configured and largest batch sizes that fit, then exits without training; no run folder is created.
       benchmark_speed: False
@@ -137,11 +140,11 @@ Data:
       random_crop: { activated: True, probability: 0.25 }
       # Random Aspect Crop : 75% to 100% of the width and, separately, of the height, resized back (x0.75 to x1.33
       # stretch; other camera proportions, for keep_ratio False)
-      random_aspect_crop: { activated: False, probability: 0.25 }
+      random_aspect_crop: { activated: True, probability: 0.25 }
       # Random Zoom Out : image shrunk to 50% to 100% of each side on a black canvas, objects appearing smaller
       random_zoom_out: { activated: True, probability: 0.25 }
       # Random Translation : shift of up to 25% along x, y or both, border filled black
-      random_translation: { activated: False, probability: 0.25 }
+      random_translation: { activated: True, probability: 0.25 }
       # Random Left-Right Flip
       random_left_right_flip: { activated: True, probability: 0.5 }
       # Random Up-Down Flip
@@ -161,7 +164,7 @@ Data:
       # Brightness (+-40 levels), contrast and saturation (x0.7 to x1.0)
       brightness_contrast_saturation: { activated: True, probability: 0.25 }
       # Random Hue : hue turned by up to 18 degrees (5% of the circle) either way
-      random_hue: { activated: False, probability: 0.25 }
+      random_hue: { activated: True, probability: 0.25 }
       # CLAHE, clip limit 2.0 on a 4x4 tile grid
       clahe_augment: { activated: True, probability: 0.25 }
       # Laplacian of Gaussian unsharp mask sharpening (sigma 1.5, strength 3)
@@ -177,23 +180,23 @@ Data:
       # Random Colour augmentation : BGR to RGB channel swap
       random_colour_augmentation: { activated: False, probability: 0.25 }
       # Random Gamma : gamma 0.8 to 1.25, darkening or lightening the mid-tones
-      random_gamma: { activated: False, probability: 0.25 }
+      random_gamma: { activated: True, probability: 0.25 }
       # Random Linear Illumination : 13 to 38 level ramp across the image, brightening or darkening one side
-      random_linear_illumination: { activated: False, probability: 0.25 }
+      random_linear_illumination: { activated: True, probability: 0.25 }
       # Random Plasma Shadow : irregular fractal shadows darkening by up to 77 levels
-      random_plasma_shadow: { activated: False, probability: 0.25 }
+      random_plasma_shadow: { activated: True, probability: 0.25 }
       # Random Blur : 9x9 Gaussian kernel, sigma 2.5
       random_blur: { activated: True, probability: 0.25 }
       # Random Motion Blurring : 5 to 15 pixel streak at 0 to 180 degrees (camera or object motion)
-      random_motion_blur: { activated: False, probability: 0.25 }
+      random_motion_blur: { activated: True, probability: 0.25 }
       # Random Haze : uniform grey airlight of 180 to 255 levels taking 20% to 60% of every pixel, a camera fog (after
       # the blurs, before solarization, black-out and erasing)
       random_haze: { activated: True, probability: 0.25 }
       # Random Solarize : pixels at or above 128 levels inverted
-      random_solarize: { activated: False, probability: 0.25 }
+      random_solarize: { activated: True, probability: 0.25 }
       # Random Black Out : grid_size x grid_size cells, each blacked out with probability 0.2 (after the other
       # photometric types but the erasing); labels unchanged, so a hidden object keeps its label
-      random_black_out: { activated: False, probability: 0.25, grid_size: 8 }
+      random_black_out: { activated: True, probability: 0.25, grid_size: 8 }
       # Random Erasing : one black rectangle of 2% to 15% of the image, height / width 0.3 to 3.3, applied last; labels
       # unchanged
       random_erasing: { activated: False, probability: 0.25 }
@@ -292,12 +295,23 @@ DetectionLevels:
 Neck:
   # "none" (heads read the blocks), "feature_pyramid" (top-down path from the coarse levels, kept by the detection
   # benchmark) or "path_aggregation" (the feature pyramid, then a bottom-up path from the fine levels).
-  type: "feature_pyramid"
+  type: "path_aggregation"
   # Channels of every level after the neck, read by the heads (unused with "none").
   output_channels: 64
   normalization:
     # "batch", "layer" (over channels) or "none"
     feature_map_normalization: "batch"
+  # Neck of another DET or INS run initialising this one: same type (not "none"), output_channels, normalization,
+  # levels and level block channels; load it from the run of the heads loaded behind it, which read its outputs.
+  pretrained:
+    # Run folder of the loaded neck, null for random weights; not reloaded when the run resumes.
+    experiment_folder: null
+    # Checkpoint iteration, null for the last one.
+    iteration: null
+    # Freezes the loaded neck (no gradient, frozen batch statistics). Requires experiment_folder.
+    freeze: False
+    # Learning rate factor of the loaded neck, e.g. 0.1 to train it 10x slower.
+    learning_rate_multiplier: 1.0
 
 RegionProposal:
   normalization:
@@ -335,7 +349,7 @@ RegionProposal:
   # Positive and negative anchors sampled per image.
   total_training_samples: 256
   # Region proposal heads of another DET or INS run initialising this one; levels, per-level region_proposal, anchors
-  # per position, normalization and backbone channels must match (other scales or ratios only reported).
+  # per position, normalization, neck type and level channels must match (other scales or ratios only reported).
   pretrained:
     # Run folder of the loaded region proposal heads, null for random weights; not reloaded when the run resumes.
     experiment_folder: null
@@ -386,7 +400,7 @@ Detector:
   # decoded boxes, https://arxiv.org/abs/2005.03572).
   box_loss: "smooth_l1"
   # Detection heads of another DET or INS run initialising this one; levels, per-level detectors, normalization, modules
-  # and backbone channels must match; class layers loaded with class_layers True only (source classes in this run).
+  # and level channels must match, same neck type; class layers loaded with class_layers True only (source classes).
   pretrained:
     # Run folder of the loaded detection heads, null for random weights; not reloaded when the run resumes.
     experiment_folder: null

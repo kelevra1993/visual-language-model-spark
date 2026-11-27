@@ -128,7 +128,7 @@ So that you know what a trained model reaches: the tutorial run of `keypoint_foc
 In case a result surprises you, check these first.
 - **A flip or a large rotation never renames a keypoint**: after a left-right flip, `left_hand` lies on the right and is still trained as `left_hand`. These types only suit names independent of side and orientation ([tasks reference, Keypoint Detection](../reference/tasks_reference.md#keypoint-detection-kpt), Augmentation).
 - **`residual_nets: True` adds no shortcut in the stem**: its three blocks all change the channel count (Step 2.11). Only the HRNet branches and the higher resolution refinement have residual pairs.
-- **A keypoint head transferred with its channel layers** (`KeypointHead.pretrained.class_layers: True`) is checked on the class and keypoint name of every channel, which the source `data.json` records since 2026-11-20 (`compare_keypoint_channels()` of `model_transfer.py`). An older keypoint run can only initialise a head without them. The export writes no channel names: a client rebuilds the channel table from the training `labels.json`.
+- **A keypoint head transferred with its channel layers** (`KeypointHead.pretrained.class_layers: True`) is checked on the class and keypoint name of every channel, which the source `data.json` records since 2026-11-20 (`compare_keypoint_channels()` of `model_transfer.py`). An older keypoint run can only initialise a head without them. The export names every channel in `keypoint_channels.json` (Step 6.6), so a client needs no training labels.
 - **`Matched Objects` and `Mean Keypoint Error (pixels)` need an OKS of at least 0.5** (`MINIMUM_MATCH_SIMILARITY`). Before 2026-10-25 any OKS above 0 matched, so older evaluations can give more matches and larger errors.
 - **The export needs a GPU**: `export_experiment()` loads the checkpoint on CUDA (Step 6.1).
 - **The export check refuses the default TensorRT FP32 engine**: its TF32 roundings move the candidate scores beyond `score_tolerance`. Export with `--tensorrt_precision FP16` (Step 6.5).
@@ -789,9 +789,9 @@ onnx:        model.onnx   3,168,184 bytes   mismatches []   scored candidates 21
 In ONNX Runtime 54 candidates sit at another position than the eager candidate of the same rank; a rank-by-rank comparison would report up to 462 pixels between two correct candidates. `hide_known_export_warnings()` hides the `torch.jit` deprecation notices unless `show_warnings` is True.
 
 ### Step 6.5 — `write_triton_configuration()` + `write_onnx_input_contract()` / `write_preprocessing_file()`
-So that a server builds the network input from a photo as the loaders did, every export writes the input contract (`input_contract.py`). `build_input_contract()` reads it from `Data.image_settings`; `write_onnx_input_contract()` puts it in the `metadata_props` of `model.onnx`; `write_preprocessing_file()` writes `preprocessing.json` next to both formats. It holds no channel names (Step 6.6).
+So that a server builds the network input from a photo as the loaders did, every export writes the input contract (`input_contract.py`). `build_input_contract()` reads it from `Data.image_settings`; `write_onnx_input_contract()` puts it in the `metadata_props` of `model.onnx`; `write_preprocessing_file()` writes `preprocessing.json` next to both formats. `write_keypoint_channels_file()` (`vision_training/deployment/keypoint_deployment.py`) writes `keypoint_channels.json` there too, from `Data.keypoint_categories`: the class, keypoint and skeleton of every channel, in the order of `build_keypoint_channel_table()` (Step 6.6).
 
-**Example: the model repository** (2026-11-12, iteration 6000; `model.onnx` predates the metadata stripping, now about 269,845 bytes)
+**Example: the model repository** (2026-11-12, iteration 6000; `model.onnx` predates the metadata stripping, now about 269,845 bytes, and the folders the `keypoint_channels.json` of each format)
 ```text
 triton_repository/
 ├── keypoint_detector_onnx/config.pbtxt
@@ -803,7 +803,7 @@ triton_repository/
 └── keypoint_detector_torchscript/1/preprocessing.json      346 bytes
 ```
 
-**Example: `preprocessing.json`**, also the custom metadata of `model.onnx`
+**Example: `preprocessing.json`**, also the custom metadata of `model.onnx` (2026-11-12; version 3 adds `"input_image_windows": "none"`)
 ```text
 {"input_contract_version": "2", "input_color_order": "BGR", "input_resize": "keep_ratio", "input_size": "512",
  "input_interpolation": "linear", "input_padding_value": "0", "input_padding_placement": "centred",
@@ -838,7 +838,7 @@ The FP16 engine then answered batches of 1 and 16. In FP32 the engine answers to
 Before 2026-11-27, Triton crashed at the first request (signal 11 in `libonnxruntime`). The ONNX Runtime TensorRT provider (1.20 to 1.23) left `candidate_scores`, the values output of the top-k, out of its engine, its indices feeding three nodes. The scores are now read back at the kept cells. The FP16 scan also stopped on the cell indices divided in float32 (65,535 for the 256 x 256 heatmaps), now divided in integers.
 
 ### Step 6.6 — the client: `load_inference_inputs()` → the exported model → `group_keypoint_candidates()`
-A client preprocesses every image as the input contract says (`load_inference_inputs()`, `preprocess_image()`), sends it, and groups the candidates with `group_keypoint_candidates()` (Step 3.10), the channel table of the run (`build_keypoint_channel_table()`, Step 1.5) and the `KeypointHead.inference` thresholds. Positions are in network input pixels; for another image size, undo the resize and padding, for example with `restore_boxes_to_original_image()` on every point as the box [x, y, x, y]. `vision_training/deployment/run_inference.py` only measures throughput, without grouping.
+A client preprocesses every image as the input contract says (`load_inference_inputs()`, `preprocess_image()`), sends it, and groups the candidates with `group_keypoint_candidates()` (Step 3.10), the channel table of the exported model and the `KeypointHead.inference` thresholds. `read_keypoint_channels()` (`vision_training/deployment/keypoint_deployment.py`) reads that table, the keypoint names and skeletons and the name of every channel from `keypoint_channels.json`, without the training labels. It refuses a file whose channels no longer follow its classes. Positions are in network input pixels; for another image size, undo the resize and padding, for example with `restore_boxes_to_original_image()` on every point as the box [x, y, x, y]. `vision_training/deployment/run_inference.py` only measures throughput, without grouping.
 
 **Example: `test_000000.png` (512x512) through the ONNX model of iteration 6000, then the grouping**
 ```text

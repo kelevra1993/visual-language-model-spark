@@ -23,7 +23,7 @@ Every task has `ExperimentConfiguration` (with `evaluation.per_class_report`, `e
 
 | Key | Tasks |
 |---|---|
-| `DetectionLevels`, `Neck`, `RegionProposal`, `Detector`, `Optimization.loss_weights`, `evaluation.score_threshold` | DET, INS |
+| `DetectionLevels`, `Neck`, `RegionProposal`, `Detector`, `Optimization.loss_weights`, `evaluation.score_threshold`, `diagnosis_modes.compute_anchor_coverage`, `diagnosis_modes.view_training_targets` | DET, INS |
 | `MaskHead`, `Data.instance_index_maps` | INS |
 | `evaluation.original_resolution` | INS, SEG |
 | `evaluation.target_precision`, `evaluation.error_dumps` | DET, INS, CLS, M2O, M2M, CMP, SEL (`target_precision` a list, the first the main target, for CLS, M2O, M2M, CMP) |
@@ -62,6 +62,7 @@ Whenever a task cannot use a value, its check refuses it. Keys not listed accept
 **DET and INS**
 - Every level of `DetectionLevels` holds exactly `anchors`, `region_proposal` and `detector`; INS adds `mask_head`.
 - `Neck.type`: `none`, `feature_pyramid` or `path_aggregation`. With a neck, every level is a whole multiple of the next coarser one.
+- `Neck.pretrained.experiment_folder`: null when `Neck.type` is `none`, a run without neck having no layer to load.
 - `Detector.box_loss`: `smooth_l1` or `complete_iou`. The region proposal network always uses smooth L1.
 - `Detector.nms_criterion`: `iou` or `distance_iou`, with `nms_distance_exponent` a finite positive number. Neither enters the run name.
 - `RegionProposal.proposal_selection`: `joint` or `per_level`. `per_level` makes `pre_nms_proposals` a count per level.
@@ -181,7 +182,7 @@ The table shows what each task draws in its sample images.
 | CLS, M2O, CMP | the input, captioned `true -> predicted probability`, green when right, red when wrong |
 | M2M | the frame grid, each frame captioned `true/predicted`, `X` on the wrong ones |
 | SEL | the thumbnail grid with the selection, and the probability heat map |
-| DET, INS | ground truth boxes next to the detections above `Detector.inference.score_threshold` |
+| DET, INS | ground truth boxes next to the detections above `Detector.inference.score_threshold`, each captioned `class score IoU` with its IoU to the object it matches as in the error images (box and mask IoU for INS), else to its closest object followed by `no match` |
 | SEG | input, true mask, predicted mask and error map |
 | SSL | the image next to two random views, with their cosine similarity |
 | KPT | ground truth objects next to the found objects, with their skeletons |
@@ -209,6 +210,7 @@ The table lists every token, the setting it comes from and its tasks.
 | Backbone | `PT`, `FRZ`, `FBN` | `Backbone.pretrained`, `freeze`, `freeze_normalization_parameters` | all |
 | Levels | `L<blocks>` | the keys of `DetectionLevels` | DET, INS |
 | Levels | `NFPN<channels><BN, LN or NN>`, `NPAN…` | `Neck.type`, `output_channels`, `normalization` | DET, INS |
+| Levels | `NPT`, `NFRZ` | `Neck.pretrained`, `freeze` | DET, INS |
 | Anchors | `A<anchors>.<smallest>-<largest>.<hash>` | anchors per position, scale range, first 6 characters of the SHA-256 of scales and ratios | DET, INS |
 | Region proposal | `RBN`, `RLN`, `RNN`, `R<layers>x<filters>`, `RPL`, `RPT`, `RFRZ` | normalization, convolutions, `per_level` selection, pretrained, frozen | DET, INS |
 | Detector | `DSE`, `DRES`, `DINC`, `DBN`, `DLN`, `DNN` | `Detector.modules`, normalization | DET, INS |

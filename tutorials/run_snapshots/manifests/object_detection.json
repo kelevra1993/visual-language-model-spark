@@ -118,13 +118,13 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 22053,
+      "snapshot_bytes": 22992,
       "snapshot_path": "hyperparameter_experiments/object_detection/run_21/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/training_configuration.yaml",
-      "snapshot_sha256": "28740fa22c337f1d81498002a22f1c9f1a447289e1267e07d468327ce991d39d",
-      "source_bytes": 22053,
+      "snapshot_sha256": "dd630034e5c257273e237c17423bf9aff7c925f83d2c02d919a6df65a1da48fb",
+      "source_bytes": 22992,
       "source_kind": "run",
       "source_path": "hyperparameter_experiments/object_detection/run_21/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/training_configuration.yaml",
-      "source_sha256": "28740fa22c337f1d81498002a22f1c9f1a447289e1267e07d468327ce991d39d"
+      "source_sha256": "dd630034e5c257273e237c17423bf9aff7c925f83d2c02d919a6df65a1da48fb"
     },
     {
       "options": {},
@@ -327,13 +327,13 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 22534,
+      "snapshot_bytes": 23473,
       "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/training_configuration.yaml",
-      "snapshot_sha256": "5040f5bc4b23b97788a78259af26c7ce570aee470cfc80775abab3f76d28579e",
-      "source_bytes": 22534,
+      "snapshot_sha256": "175cdf60de5b4e11f124f9192e5b42cdda8eefa09adbf9b2e2c8504f6465c0a4",
+      "source_bytes": 23473,
       "source_kind": "run",
       "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/training_configuration.yaml",
-      "source_sha256": "5040f5bc4b23b97788a78259af26c7ce570aee470cfc80775abab3f76d28579e"
+      "source_sha256": "175cdf60de5b4e11f124f9192e5b42cdda8eefa09adbf9b2e2c8504f6465c0a4"
     },
     {
       "options": {},
@@ -348,5 +348,5 @@
     }
   ],
   "series": "object_detection",
-  "snapshot_bytes": 4394157
+  "snapshot_bytes": 4396035
 }

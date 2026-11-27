@@ -1,8 +1,9 @@
 """
 Error analysis of the object detection and instance segmentation tasks at the deployment score threshold: matching of
 the detections of a test image to its objects, the confusion matrix with a background row (the false positives) and a
-background column (the missed objects), and the errors of an image grouped into the folders of the error images. Used
-by the detection trainers on every evaluated test image, next to the mean average precision, which keeps the
+background column (the missed objects), the errors of an image grouped into the folders of the error images, and the
+overlap of every detection with the object it is matched to, written in its caption on the sample and error images.
+Used by the detection trainers on every evaluated test image, next to the mean average precision, which keeps the
 detections down to the evaluation score threshold instead.
 """
 
@@ -95,6 +96,38 @@ def match_image_detections(overlaps: torch.Tensor, detection_scores: torch.Tenso
             matched_ground_truth_indices[detection_index] = ground_truth_index
             taken_ground_truths[ground_truth_index] = True
     return matched_ground_truth_indices
+
+
+def gather_detection_overlaps(overlaps: Dict[str, torch.Tensor], matched_ground_truth_indices: torch.Tensor,
+                              matching_overlap_type: str) -> Dict[str, torch.Tensor]:
+    """
+    Gives every detection of a test image its overlap with the object the matching gave it (match_image_detections),
+    for its caption on the sample and error images of the evaluation, by every overlap type given (the boxes, and the
+    masks for the instance segmentation): a matched detection reads its overlaps with its object, a detection matched
+    to no object those with the object it overlaps the most by the matching overlap type, so that a duplicate or a
+    loose box shows how close it came, and every detection of an image without any object gets NaN.
+
+    Args:
+        overlaps (Dict[str, torch.Tensor]): The [D, G] overlaps of the detections with the objects, keyed by overlap
+            type ("boxes", "masks").
+        matched_ground_truth_indices (torch.Tensor): The [D] object found by every detection, -1 for none.
+        matching_overlap_type (str): The overlap type of the matching, which picks the object of an unmatched
+            detection.
+
+    Returns:
+        Dict[str, torch.Tensor]: The [D] float64 overlap of every detection with its object, keyed like the overlaps.
+    """
+    number_detections, number_objects = overlaps[matching_overlap_type].shape
+    if number_objects == 0:
+        return {overlap_type: torch.full(size=(number_detections,), fill_value=float("nan"), dtype=torch.float64)
+                for overlap_type in overlaps}
+
+    # Object of every detection: the matched one, or the one overlapping it the most by the matching overlap type
+    object_indices = torch.where(matched_ground_truth_indices >= 0, matched_ground_truth_indices,
+                                 overlaps[matching_overlap_type].argmax(dim=1))
+    return {overlap_type: overlap_matrix.to(dtype=torch.float64).gather(
+        dim=1, index=object_indices.unsqueeze(dim=1).to(dtype=torch.int64)).squeeze(dim=1)
+        for overlap_type, overlap_matrix in overlaps.items()}
 
 
 def add_to_confusion_matrix(confusion_matrix: torch.Tensor, matched_ground_truth_indices: torch.Tensor,

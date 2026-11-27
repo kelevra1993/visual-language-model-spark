@@ -241,6 +241,7 @@ scenes:
       - {box: [0, 0, 3056, 512], from_sentence: 0}
       - {box: [40, 0, 1480, 512], from_sentence: 1}
       - {box: [1580, 0, 3020, 512], from_sentence: 2}
+      - {box: [0, 0, 3056, 512], from_sentence: 3}
     # Boxes measured on the 3056 x 512 screenshot: the augmentation block of the training panel, its geometric line
     # (none) and its photometric line, then the augmentation line and the key line of the validation panel
     highlights:
@@ -253,6 +254,7 @@ scenes:
       - "To check them, set view input images in the diagnosis modes and launch: a window shows every training image as the network receives it, with the types drawn and their values."
       - "This hollow kite drew no geometric type, and its brightness was raised by about sixteen levels, with a lower contrast and saturation."
       - "The validation images are shown unchanged; space shows the next images, and enter stops without training and without creating the run folder, so set it back to false to train."
+      - "Should a detector learn badly, view training targets in the same diagnosis modes shows the anchors, proposals and regions of interest its losses train on, then stops the same way."
 
   # The first training sample of the README classifier, written by its launch into Input_Samples/ of its run folder
   - kind: image

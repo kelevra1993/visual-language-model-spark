@@ -163,7 +163,7 @@ uv run python -m vision_training.data.data_retriever --dataset_name coco-2017 --
 
 **Configuration**
 - `DetectionLevels`: keyed by the quoted number of the backbone block, finest first. Each level holds its `anchors` (scales in input pixels, aspect ratios height / width), `region_proposal` convolutions and `detector` head.
-- `Neck`: `none`, `feature_pyramid` (top-down path) or `path_aggregation` (plus the bottom-up path of PANet), with `output_channels` per level.
+- `Neck`: `none`, `feature_pyramid` (top-down path) or `path_aggregation` (plus the bottom-up path of PANet), with `output_channels` per level. `Neck.pretrained` loads the neck of another DET or INS run, from the run of the heads loaded behind it ([transfer](training_reference.md#transfer-between-runs)).
 - `RegionProposal.background_iou_threshold.min`: above 0.0, only hard negatives touching an object are sampled as background.
 - `RegionProposal.proposal_selection` (`select_best_proposals`): `joint` takes one top-k and one NMS over all levels; `per_level` suppresses each level alone, as torchvision.
 - `Detector.box_loss`: `smooth_l1` on the offsets, or `complete_iou` (1 - CIoU, https://arxiv.org/abs/2005.03572), off in every configuration.
@@ -192,8 +192,8 @@ DetectionLevels:
 - **By object size**: five sizes on the object side as a share of the image side, doubling from under 1/16 to 1/2 and above, with their pixels at the network input.
 - **Mean average recall** per IoU and size, and **per-class recall** at IoU 0.5 and 0.75 with its 95 % interval.
 - **Anchor recall** of the training and test objects at the first launch (`anchor_recall.csv`, `anchor_recall.png`), and **proposal recall** at every evaluation (`proposal_recall.csv`).
-- **Class thresholds**: `class_thresholds.json`, the threshold of every class reaching `target_precision`.
-- **Confusion matrix** of the deployed detections (score from `Detector.inference.score_threshold`) at IoU 0.5, with a `background` row and column.
+- **Class thresholds**: `class_thresholds.json`, the threshold of every class reaching `target_precision`, built into the export.
+- **Confusion matrix** of the deployed detections (score from the threshold of their class, or `Detector.inference.score_threshold` for a class without one) at IoU 0.5, with a `background` row and column.
 - **Error images**: `Errors/FALSE-POSITIVE/<class>/`, `Errors/MISSED/<class>/` and `Errors/<TRUE>-TO-<PREDICTED>/`.
 
 ## Instance Segmentation (INS)

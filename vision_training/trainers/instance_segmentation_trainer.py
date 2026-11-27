@@ -5,7 +5,9 @@ the evaluation of the checkpoints with the box and mask average precisions and m
 sizing the objects by their mask areas), at the network resolution or, with 'evaluation.original_resolution', at the
 original resolution of the test images (the detections restored to them, scored against the objects of the original
 annotations), the proposal recall, the class thresholds, confusion matrix and error images of the detection trainer
-matched by the masks, the sample and error images painting the masks under the boxes at the network resolution. With
+matched by the masks, the sample and error images painting the masks under the boxes at the network resolution and
+captioning every detection with its box and mask overlaps with its object, and the training target viewer of the
+detection trainer with the mask targets of a few positive regions of interest of every image. With
 'Data.instance_index_maps', the loaders give one instance index map per image, expanded into the masks on the device
 by prepare_batch (and on the CPU for the input viewer). Registered for the instance segmentation task in the task
 registry.
@@ -15,24 +17,30 @@ import numpy as np
 import torch
 
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from vision_training.core.contracts import EvaluationResults, InstanceSegmentationBatch
 from vision_training.data.detection.coco_masks import expand_instance_index_maps
 from vision_training.data.preprocessing import restore_boxes_to_original_image
 from vision_training.evaluation.detection.average_precision_report import summarise_average_precisions
 from vision_training.evaluation.evaluation_report import write_class_metrics_file
+from vision_training.models.detection.box_operations import get_intersection_over_union
 from vision_training.models.instance_segmentation.instance_segmenter import InstanceSegmenter
 from vision_training.models.instance_segmentation.mask_operations import (compute_mask_intersection_over_union,
                                                                           paste_instance_masks)
 from vision_training.trainers.detection_trainer import DetectionTrainer
-from vision_training.utilities.visualization import convert_image_to_array, overlay_instance_masks
+from vision_training.utilities.visualization import (build_mask_target_strip, convert_image_to_array,
+                                                     overlay_instance_masks)
 
 # Number of detection masks of a 1024 x 1024 image pasted and compared with the ground truth masks at once, scaled
 # inversely to the number of pixels of the evaluated image, bounding the memory of the pasted detection masks at any
 # resolution (a 1024 x 1024 float mask takes 4 MB); the ground truth masks of the image are compared all at once
 MASK_OVERLAP_CHUNK_SIZE = 16
 MASK_OVERLAP_REFERENCE_PIXELS = 1024 * 1024
+
+# Positive regions of interest of a training image whose mask targets the training target viewer draws, at most one
+# per object (the region overlapping its object the least, where the cropping of the target matters most)
+MAXIMUM_MASK_TARGET_REGIONS = 8
 
 # Legends of the tables of the methods, the mask mAP@0.5 comparing the checkpoints
 MASK_TABLE_LEGEND = "The mask mAP@0.5 of the area method compares the checkpoints of the run."
@@ -152,7 +160,8 @@ class InstanceSegmentationTrainer(DetectionTrainer):
 
     def forward_pass(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Runs the instance segmenter with the ground truth boxes, labels and masks of the batch, giving its five losses.
+        Runs the instance segmenter with the ground truth boxes, labels and masks of the batch, giving its five losses,
+        with the windows of the images, to which the detections of the validation are clipped.
 
         Args:
             batch (Dict[str, Any]): The prepared batch.
@@ -160,8 +169,119 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         Returns:
             Dict[str, Any]: The outputs of the instance segmenter, with its five losses.
         """
-        return self.model(input_tensor=batch["images"], ground_truth_bounding_boxes=batch["bounding_boxes"],
-                          ground_truth_labels=batch["labels"], ground_truth_masks=batch["instance_masks"])
+        return self.model(input_tensor=batch["images"], image_windows=batch["image_windows"],
+                          ground_truth_bounding_boxes=batch["bounding_boxes"], ground_truth_labels=batch["labels"],
+                          ground_truth_masks=batch["instance_masks"])
+
+    def compute_training_targets(self, batch: Dict[str, Any]) -> Dict[str, torch.Tensor]:
+        """
+        Runs the instance segmenter on a prepared and augmented training batch with its ground truth, as the training
+        step does, and gives the targets its losses were computed on, for the training target viewer: those of the
+        detector with the mask targets and mask logits of the positive regions of interest
+        (forward_instance_segmentation_stages).
+
+        Args:
+            batch (Dict[str, Any]): The prepared and augmented training batch.
+
+        Returns:
+            Dict[str, torch.Tensor]: The training targets of the batch, with their mask entries.
+        """
+        return self.model.forward_instance_segmentation_stages(
+            input_tensor=batch["images"], ground_truth_bounding_boxes=batch["bounding_boxes"],
+            ground_truth_labels=batch["labels"], ground_truth_masks=batch["instance_masks"])["training_targets"]
+
+    def build_mask_target_section(self, batch: Dict[str, Any], training_targets: Dict[str, torch.Tensor],
+                                  sample_index: int, width: int) -> Tuple[Optional[np.ndarray], List[str]]:
+        """
+        Draws the mask targets of a training image under its training target grid in the training target viewer: for
+        every object, the positive region of interest of the mask loss overlapping it the least (where the target
+        cropped from its mask by build_mask_targets differs most from the object), at most
+        MAXIMUM_MASK_TARGET_REGIONS, each shown as the image cropped to the region with the contour of its target, the
+        target, and the mask predicted for the class of the object, captioned with the box overlap of the region with
+        its object and the overlap of the predicted mask (thresholded at the mask threshold) with the target.
+
+        Args:
+            batch (Dict[str, Any]): The prepared and augmented training batch, on the CPU.
+            training_targets (Dict[str, torch.Tensor]): The training targets of the batch, on the CPU.
+            sample_index (int): The index of the image in the batch.
+            width (int): The width of the training target grid in pixels.
+
+        Returns:
+            Tuple[Optional[np.ndarray], List[str]]: The image of the mask targets, None for an image without positive
+                region, and their panel lines.
+        """
+        image_rows = training_targets["mask_proposals"][:, 0].round().long() == sample_index
+        number_regions = int(image_rows.sum())
+        if number_regions == 0:
+            return None, ["Mask targets : none (no positive RoI)"]
+
+        # Positive regions of the image with their object, target and predicted mask of the class of the object
+        region_boxes = training_targets["mask_proposals"][image_rows, 1:].float()
+        region_labels = training_targets["mask_labels"][image_rows].long()
+        region_objects = training_targets["mask_matched_ground_truth_indices"][image_rows].long()
+        mask_targets = training_targets["mask_targets"][image_rows].float()
+        mask_logits = training_targets["mask_logits"][image_rows].float()
+        mask_probabilities = torch.sigmoid(mask_logits[torch.arange(end=number_regions), region_labels])
+
+        # Box overlap of every region with its object, and the region of every object overlapping it the least
+        object_boxes = batch["bounding_boxes"][sample_index].float()
+        box_overlaps = get_intersection_over_union(boxes_1=region_boxes, boxes_2=object_boxes)[
+            torch.arange(end=number_regions), region_objects]
+        shown_regions = []
+        for object_index in torch.unique(input=region_objects).tolist()[:MAXIMUM_MASK_TARGET_REGIONS]:
+            object_regions = torch.nonzero(input=region_objects == object_index).flatten()
+            shown_regions.append(int(object_regions[box_overlaps[object_regions].argmin()]))
+
+        # Overlap of every predicted mask with its target, then the caption of every shown region
+        predicted_masks = mask_probabilities >= self.mask_threshold
+        target_masks = mask_targets >= 0.5
+        mask_intersections = (predicted_masks & target_masks).flatten(start_dim=1).sum(dim=1)
+        mask_unions = (predicted_masks | target_masks).flatten(start_dim=1).sum(dim=1)
+        region_captions = []
+        for region_index in shown_regions:
+            mask_overlap = (f"{float(mask_intersections[region_index] / mask_unions[region_index]):.2f}"
+                            if int(mask_unions[region_index]) > 0 else "none")
+            region_captions.append(f"#{int(region_objects[region_index]) + 1} "
+                                   f"{self.class_names[int(region_labels[region_index])]} | RoI IoU "
+                                   f"{float(box_overlaps[region_index]):.2f} | mask IoU {mask_overlap}")
+        mask_size = mask_targets.shape[-1]
+        strip = build_mask_target_strip(
+            image=convert_image_to_array(image=batch["images"][sample_index]),
+            region_boxes=region_boxes[shown_regions].numpy(), mask_targets=mask_targets[shown_regions].numpy(),
+            mask_probabilities=mask_probabilities[shown_regions].numpy(), region_captions=region_captions, width=width,
+            title="Mask targets: RoI with its target contour | target | predicted mask of the class of its object")
+        return strip, [f"Mask targets : {number_regions} positive RoIs, {len(shown_regions)} drawn (the loosest of "
+                       f"every object)",
+                       f"    Mask : {mask_size} x {mask_size} pixels, predicted masks thresholded at "
+                       f"{self.mask_threshold:.2f} for their IoU"]
+
+    def compute_sample_overlaps(self, ground_truth_boxes: np.ndarray, predicted_boxes: np.ndarray,
+                                ground_truth_masks: Optional[np.ndarray],
+                                predicted_masks: Optional[np.ndarray]) -> Dict[str, torch.Tensor]:
+        """
+        Gives the overlaps of the drawn detections of a sample or error image with its objects like the detection
+        trainer, with the intersection over union of their masks at the network resolution, which matches the
+        detections of a sample image as the masks match them in the evaluation (MATCHING_OVERLAP_TYPE).
+
+        Args:
+            ground_truth_boxes (np.ndarray): The [G, 4] boxes of the objects in network input pixels.
+            predicted_boxes (np.ndarray): The [D, 4] boxes of the drawn detections.
+            ground_truth_masks (Optional[np.ndarray]): The [G, H, W] binary masks of the objects.
+            predicted_masks (Optional[np.ndarray]): The [D, H, W] binary masks of the drawn detections.
+
+        Returns:
+            Dict[str, torch.Tensor]: The [D, G] float64 overlaps of the "boxes" and of the "masks".
+        """
+        overlaps = super().compute_sample_overlaps(ground_truth_boxes=ground_truth_boxes,
+                                                   predicted_boxes=predicted_boxes,
+                                                   ground_truth_masks=ground_truth_masks,
+                                                   predicted_masks=predicted_masks)
+        image_height, image_width = ground_truth_masks.shape[-2], ground_truth_masks.shape[-1]
+        overlaps["masks"] = compute_mask_intersection_over_union(
+            predicted_masks=torch.from_numpy(predicted_masks), ground_truth_masks=torch.from_numpy(ground_truth_masks),
+            chunk_size=max(1, MASK_OVERLAP_CHUNK_SIZE * MASK_OVERLAP_REFERENCE_PIXELS // (image_height * image_width))
+        ).to(dtype=torch.float64)
+        return overlaps
 
     def gather_image_detections(self, batch: Dict[str, Any], predictions: Dict[str, Any],
                                 image_index: int) -> Dict[str, torch.Tensor]:
@@ -171,9 +291,9 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         device of the model from the detection masks pasted into the image, for the mask average precision (the areas
         sizing the detections) and the matching of the confusion matrix. The masks themselves are not kept, since
         those of a whole test split would not fit in memory. With 'evaluation.original_resolution', the detection
-        boxes are restored to the original image (clipped to it for the box average precision, whole for pasting the
-        masks, which cover the box they were predicted in) and the masks are compared with the original ground truth
-        masks; otherwise everything stays at the network resolution.
+        boxes are restored to the original image, both for the box average precision and for pasting the masks, the
+        detector having clipped every box to the window of its image before predicting its mask, and the masks are
+        compared with the original ground truth masks; otherwise everything stays at the network resolution.
 
         Args:
             batch (Dict[str, Any]): The prepared test batch.
@@ -193,10 +313,9 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         if self.original_resolution:
             ground_truth_masks = batch["original_instance_masks"][image_index].to(device=self.device)
             image_height, image_width = ground_truth_masks.shape[-2], ground_truth_masks.shape[-1]
-            detection["boxes"] = self.restore_detection_boxes(boxes=network_boxes, image_height=image_height,
-                                                              image_width=image_width, clip=True).cpu()
             paste_boxes = self.restore_detection_boxes(boxes=network_boxes, image_height=image_height,
-                                                       image_width=image_width, clip=False)
+                                                       image_width=image_width)
+            detection["boxes"] = paste_boxes.cpu()
         else:
             ground_truth_masks = batch["instance_masks"][image_index]
             paste_boxes = network_boxes
@@ -234,19 +353,17 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         ground_truth["mask_areas"] = (ground_truth_masks > 0).flatten(start_dim=1).sum(dim=1).cpu()
         return ground_truth
 
-    def restore_detection_boxes(self, boxes: torch.Tensor, image_height: int, image_width: int,
-                                clip: bool) -> torch.Tensor:
+    def restore_detection_boxes(self, boxes: torch.Tensor, image_height: int, image_width: int) -> torch.Tensor:
         """
         Maps the detection boxes of the network input back to the original test image for the evaluation at the
         original resolution, undoing the resizing and the padding of the preprocessing (Data.image_settings) as a
-        client of the exported model would.
+        client of the exported model would, the boxes clipped to the image.
 
         Args:
-            boxes (torch.Tensor): The [D, 4] [x1, y1, x2, y2] detection boxes in network input pixels.
+            boxes (torch.Tensor): The [D, 4] [x1, y1, x2, y2] detection boxes in network input pixels, inside the window
+                of their image.
             image_height (int): The height of the original image.
             image_width (int): The width of the original image.
-            clip (bool): Whether the boxes stop at the image border, for the box average precision, or are kept whole,
-                for pasting the masks.
 
         Returns:
             torch.Tensor: The [D, 4] float32 boxes in original image pixels, on the device of the given boxes.
@@ -254,8 +371,7 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         image_settings = self.model_configuration["Data"]["image_settings"]
         restored_boxes = restore_boxes_to_original_image(
             bounding_boxes=boxes.detach().to(dtype=torch.float32).cpu().numpy(), image_width=image_width,
-            image_height=image_height, image_size=image_settings["size"], keep_ratio=image_settings["keep_ratio"],
-            clip=clip)
+            image_height=image_height, image_size=image_settings["size"], keep_ratio=image_settings["keep_ratio"])
         return torch.from_numpy(restored_boxes).to(device=boxes.device, dtype=torch.float32)
 
     def compute_mask_overlaps(self, predictions: Dict[str, Any], detection_boxes: torch.Tensor,

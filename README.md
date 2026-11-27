@@ -246,11 +246,12 @@ Suppose a run learns nothing: first look at what the network receives. `Data.dat
   <img src="README/augmentation_types.jpg" width="100%" />
 </p>
 
-Three diagnosis modes of `ExperimentConfiguration.diagnosis_modes` exit without training:
+Four diagnosis modes of `ExperimentConfiguration.diagnosis_modes` exit without training:
 
 | Mode | Use it | Details |
 |---|---|---|
 | `view_input_images` | before a long run, to see the samples as the network receives them | [Viewing The Input Images](documentation/reference/training_reference.md#viewing-the-input-images) |
+| `view_training_targets` (DET, INS) | when a detector learns badly, to see the anchors, proposals and RoIs its losses use | [Viewing The Training Targets](documentation/reference/training_reference.md#viewing-the-training-targets) |
 | `compute_anchor_coverage` (DET, INS) | after changing the image size, the detection levels or the anchors | [Checking The Anchor Coverage](documentation/reference/training_reference.md#checking-the-anchor-coverage) |
 | `benchmark_speed` | before training an architecture, for its training and serving speed | [Benchmarking The Speed](documentation/reference/training_reference.md#benchmarking-the-speed) |
 
@@ -473,8 +474,8 @@ The models go to `vision_training/deployment/triton/served_models/<model name>_<
 | Model name | Inputs | Outputs |
 |---|---|---|
 | `image_classifier` | `images` [B, 3, S, S] | `class_probabilities` [B, K] |
-| `object_detector` | `images` [B, 3, S, S] | `detection_boxes` [B, D, 4]<br>`detection_scores` [B, D]<br>`detection_labels` [B, D]<br>`number_detections` [B] |
-| `instance_segmenter` | `images` [B, 3, S, S] | the four outputs of `object_detector`<br>`detection_masks` [B, D, M, M] |
+| `object_detector` | `images` [B, 3, S, S]<br>`image_windows` [B, 4] | `detection_boxes` [B, D, 4]<br>`detection_scores` [B, D]<br>`detection_labels` [B, D]<br>`number_detections` [B] |
+| `instance_segmenter` | `images` [B, 3, S, S]<br>`image_windows` [B, 4] | the four outputs of `object_detector`<br>`detection_masks` [B, D, M, M] |
 | `keypoint_detector` | `images` [B, 3, S, S] | `candidate_positions` [B, C, N, 2]<br>`candidate_scores` [B, C, N]<br>`candidate_tags` [B, C, N] |
 | `semantic_segmenter` | `images` [B, 3, S, S] | `class_map` [B, S, S]<br>`class_probabilities` [B, K, S, S] |
 | `sequence_classifier` | `images` [B, T, 3, S, S] | `class_probabilities` [B, K] |
@@ -484,6 +485,14 @@ The models go to `vision_training/deployment/triton/served_models/<model name>_<
 | `image_encoder` | `images` [B, 3, S, S] | `representations` [B, F] |
 
 S is `Data.image_settings.size`, K the number of classes, T the number of frames, D the largest number of detections, M `MaskHead.mask_resolution`, C the heatmap channels, N the candidates per channel and F the size of the representation. Inputs are float32 BGR images in [0, 255]; the normalization is inside the model. Client-side post-processing, the SEL decoder and ensembles: [tools reference](documentation/reference/tools_reference.md#export).
+
+Whenever a client sends a photo to a detector or an instance segmenter, it also sends `image_windows`, the [x1, y1, x2, y2] region of the resized photo in the input (`compute_image_window` of `vision_training/data/preprocessing.py`). The model clips its boxes to it, so no box reaches the padding. The evaluation clips them the same way.
+
+The export also writes two files next to the model:
+- `detection_score_thresholds.json` (detectors and instance segmenters): the score threshold built into the model for every class. It is the threshold of `class_thresholds.json` of the exported checkpoint, or `Detector.inference.score_threshold` for a class that never reaches the target precision.
+- `keypoint_channels.json` (keypoint detectors): the class, keypoint and skeleton of every heatmap channel, read by `read_keypoint_channels` of `vision_training/deployment/keypoint_deployment.py`.
+
+A detector or instance segmenter exported before 2026-11-27 takes `images` only: the clients of the repository refuse it, export the run again.
 
 > [!WARNING]
 > Before production, consider these two options:
@@ -509,7 +518,7 @@ For example, the README classifier is exported with this `preprocessing.json` (t
 
 ```jsonc
 {
-  "input_contract_version": "2",         // version of these keys
+  "input_contract_version": "3",         // version of these keys
   "input_color_order": "BGR",            // channel order, as cv2.imread decodes
   "input_resize": "keep_ratio",          // longest side to input_size, then padded (or stretch, tiles)
   "input_size": "512",                   // side of the square input, in pixels
@@ -519,7 +528,8 @@ For example, the README classifier is exported with this `preprocessing.json` (t
   "input_tile_scale": "none",            // scale before cutting tiles, none without tiles
   "input_tile_overlap": "none",          // pixels shared by two tiles, none without tiles
   "input_layout": "NCHW",                // batch, channels, height, width (NTCHW for sequences)
-  "input_value_range": "0-255"           // pixels as float32, the normalization is in the model
+  "input_value_range": "0-255",          // pixels as float32, the normalization is in the model
+  "input_image_windows": "none"          // window of the photo sent with it, resized_photo for the detectors
 }
 ```
 
@@ -560,7 +570,7 @@ Run next to the `model.onnx` of the README classifier, it prints:
 ```text
 keep_ratio 512 BGR NCHW
 images ['batch', 3, 512, 512]
-ValueError: The input contract version 2 cannot describe this input:
+ValueError: The input contract version 3 cannot describe this input:
 input_color_order 'RGB', from the channel order of read_image, is not allowed (allowed: 'BGR')
 ```
 

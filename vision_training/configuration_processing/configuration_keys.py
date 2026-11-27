@@ -33,7 +33,8 @@ PRETRAINED_SECTION_TASKS = {"Backbone": ALL_TASKS, "TemporalModel": tuple(SEQUEN
                             "ClassificationHead": CLASSIFICATION_LIKE_TASKS,
                             "SegmentationDecoder": ("semantic_segmentation",), "RegionProposal": DETECTION_TASKS,
                             "Detector": DETECTION_TASKS, "MaskHead": ("instance_segmentation",),
-                            "HRNet": ("keypoint_detection",), "KeypointHead": ("keypoint_detection",)}
+                            "HRNet": ("keypoint_detection",), "KeypointHead": ("keypoint_detection",),
+                            "Neck": DETECTION_TASKS}
 
 # Every key path the code reads, by the tasks reading it. A path ends at a value: a value that is a dictionary keyed
 # by names checked by the task (the blocks of 'Backbone.convolutions', the losses of 'Optimization.loss_weights', the
@@ -53,6 +54,7 @@ KNOWN_KEY_PATHS: Dict[str, Tuple[str, ...]] = {
     # Evaluation and diagnosis settings of some tasks only
     "ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage.activated": DETECTION_TASKS,
     "ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage.iou_threshold": DETECTION_TASKS,
+    "ExperimentConfiguration.diagnosis_modes.view_training_targets": DETECTION_TASKS,
     "ExperimentConfiguration.evaluation.score_threshold": DETECTION_TASKS,
     **{f"ExperimentConfiguration.evaluation.{key_name}": DETECTION_TASKS + CLASSIFICATION_LIKE_TASKS for key_name in [
         "target_precision", "error_dumps.activated", "error_dumps.maximum_per_class_pair"]},

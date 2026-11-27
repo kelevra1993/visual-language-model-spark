@@ -13,8 +13,9 @@ from torchvision.ops import box_iou, complete_box_iou_loss, distance_box_iou_los
 from typing import Tuple
 
 from vision_training.losses.detection_losses import (ASPECT_RATIO_IOU_THRESHOLD, LOCALISATION_LOSS_BETA,
-                                                     compute_complete_iou_loss, compute_detection_losses,
-                                                     compute_localisation_loss, compute_region_proposal_losses)
+                                                     assign_region_proposal_targets, compute_complete_iou_loss,
+                                                     compute_detection_losses, compute_localisation_loss,
+                                                     compute_region_proposal_losses)
 from vision_training.models.detection.target_assignment import turn_boxes_to_transformation_targets
 
 # Anchor assignment and sampling settings of the region proposal losses, those of the detection fixture, sampling every
@@ -175,7 +176,8 @@ def test_region_proposal_localisation_loss_is_the_smooth_l1_of_the_offsets() -> 
     sampled positive anchors, averaged over the positives of the batch, its 'RegionProposal' section holding no box
     loss: zero offsets give the mean summed smooth L1 of the target offsets of the positive anchors, which differs from
     their CIoU loss, and the target offsets give zero. Each image has one ground truth box overlapping two of the four
-    anchors, the other two not overlapping it.
+    anchors, the other two not overlapping it, which assign_region_proposal_targets labels and samples as the positives
+    of the image with their target offsets.
     """
     anchors = torch.tensor(data=[[104, 96, 196, 186], [90, 110, 220, 170], [310, 250, 350, 410], [280, 280, 380, 380]],
                            dtype=torch.float32).expand(size=(2, -1, -1))
@@ -187,12 +189,21 @@ def test_region_proposal_localisation_loss_is_the_smooth_l1_of_the_offsets() -> 
     target_offsets = turn_boxes_to_transformation_targets(ground_truth_boxes=matched_boxes,
                                                           predicted_boxes=positive_anchors)
 
+    # Anchor targets: the two overlapping anchors of every image are foreground and sampled, with their offsets
+    region_proposal_targets = assign_region_proposal_targets(
+        ground_truth_bounding_boxes=ground_truth_boxes, anchors=anchors,
+        region_proposal_configuration=REGION_PROPOSAL_CONFIGURATION)
+    positive_layout = [[True, True, False, False], [False, False, True, True]]
+    assert region_proposal_targets["sampled_positive_mask"].tolist() == positive_layout
+    assert (region_proposal_targets["anchor_labels"] == 1).tolist() == positive_layout
+    assert torch.allclose(input=region_proposal_targets["regression_targets"][torch.tensor(data=positive_layout)],
+                          other=target_offsets)
+
     # Zero offsets: the smooth L1 of the target offsets, summed over the coordinates and averaged over the positives
     proposals_dictionary = {"anchors": anchors, "classification_scores": torch.zeros(size=(2, 4)),
                             "bounding_box_regressions": torch.zeros(size=(2, 4, 4))}
-    _, localisation_loss = compute_region_proposal_losses(ground_truth_bounding_boxes=ground_truth_boxes,
-                                                          aggregated_proposals_dictionary=proposals_dictionary,
-                                                          region_proposal_configuration=REGION_PROPOSAL_CONFIGURATION)
+    _, localisation_loss = compute_region_proposal_losses(aggregated_proposals_dictionary=proposals_dictionary,
+                                                          region_proposal_targets=region_proposal_targets)
     expected_loss = torch.nn.functional.smooth_l1_loss(input=torch.zeros_like(input=target_offsets),
                                                        target=target_offsets, beta=LOCALISATION_LOSS_BETA,
                                                        reduction="sum") / len(positive_anchors)
@@ -204,8 +215,8 @@ def test_region_proposal_localisation_loss_is_the_smooth_l1_of_the_offsets() -> 
     regressions = torch.zeros(size=(2, 4, 4))
     regressions[0, :2], regressions[1, 2:] = target_offsets[:2], target_offsets[2:]
     _, localisation_loss = compute_region_proposal_losses(
-        ground_truth_bounding_boxes=ground_truth_boxes, region_proposal_configuration=REGION_PROPOSAL_CONFIGURATION,
-        aggregated_proposals_dictionary={**proposals_dictionary, "bounding_box_regressions": regressions})
+        aggregated_proposals_dictionary={**proposals_dictionary, "bounding_box_regressions": regressions},
+        region_proposal_targets=region_proposal_targets)
     assert float(localisation_loss) < 1e-6
 
 

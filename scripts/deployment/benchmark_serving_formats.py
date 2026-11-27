@@ -37,7 +37,7 @@ from vision_training.deployment.deployment_utilities import (load_inference_inpu
                                                              run_local_inference, run_triton_inference)
 from vision_training.deployment.export_formats import hide_known_export_warnings
 from vision_training.deployment.export_model import export_experiment
-from vision_training.deployment.export_specifications import TASK_MODEL_NAMES
+from vision_training.deployment.export_specifications import IMAGE_WINDOWS_INPUT_NAME, TASK_MODEL_NAMES
 from vision_training.deployment.triton_configuration import TORCHSCRIPT_FILE_NAMES
 from vision_training.deployment.triton_server import (build_triton_server, load_served_model, send_server_request,
                                                       start_triton_server, stop_triton_server, unload_served_model)
@@ -397,15 +397,18 @@ def repeat_request(request: Dict[str, np.ndarray], batch_size: int) -> Dict[str,
 def count_frames_per_sample(request: Dict[str, np.ndarray]) -> int:
     """
     Counts the images of one sample of a request, 1 for the image tasks and the number of frames for the sequences,
-    so that the throughput of every model is given in images per second.
+    so that the throughput of every model is given in images per second, the [1, 4] image windows of a detector
+    counting no image.
 
     Args:
-        request (Dict[str, np.ndarray]): The batch-1 request, [1, 3, H, W] or [1, T, 3, H, W] per input.
+        request (Dict[str, np.ndarray]): The batch-1 request, [1, 3, H, W] or [1, T, 3, H, W] per image input, and the
+            [1, 4] 'image_windows' of a detector.
 
     Returns:
         int: The images of one sample, summed over the inputs (both members of a comparison).
     """
-    return sum(input_batch.shape[1] if input_batch.ndim == 5 else 1 for input_batch in request.values())
+    return sum(input_batch.shape[1] if input_batch.ndim == 5 else 1 for input_name, input_batch in request.items()
+               if input_name != IMAGE_WINDOWS_INPUT_NAME)
 
 
 def export_precision_setting(experiment_folder: Path, iteration: int, repository: Path, formats: List[str],

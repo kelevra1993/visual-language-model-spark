@@ -1,8 +1,9 @@
 """
 Bounding box operations of the object detection task: areas, intersection over union, the normalized distance of the
 centres and the Distance-IoU, widths, heights and centers, decoding of the regression predictions and clamping to the
-image. Used by the region proposer, the detection heads, the box losses, the postprocessing and its DIoU-NMS, the
-inference detector, the target assignment and the mean average precision evaluation.
+image or to the window of every image holding its resized photo. Used by the region proposer, the detection heads, the
+box losses, the postprocessing and its DIoU-NMS, the inference detector, the target assignment and the mean average
+precision evaluation.
 """
 
 import math
@@ -256,3 +257,27 @@ def clamp_boxes_to_image_boundaries(boxes: torch.Tensor, input_image_size: int) 
     boxes = boxes.clamp(min=0, max=input_image_size)
 
     return boxes
+
+
+def clamp_boxes_to_image_windows(boxes: torch.Tensor, image_windows: torch.Tensor) -> torch.Tensor:
+    """
+    Clamps the boxes of every image of a batch to its window, the part of the square network input holding the resized
+    image (data/preprocessing.py:compute_image_window), so that the final detections of the detectors
+    (postprocess_detections) never reach into the padding of a letterboxed image, where no object can be. The window
+    of a stretched image is the whole input, which gives the clamp of clamp_boxes_to_image_boundaries. Written with
+    element-wise minimum and maximum so that the TorchScript and ONNX exports keep the window as an input.
+
+    Args:
+        boxes (torch.Tensor): The [B, ..., 4] [x1, y1, x2, y2] boxes of every image, in network input pixels.
+        image_windows (torch.Tensor): The [B, 4] [x1, y1, x2, y2] window of every image, in network input pixels.
+
+    Returns:
+        torch.Tensor: The [B, ..., 4] boxes inside the window of their image, in the type of the boxes.
+    """
+    # Lower and upper bounds [left, top, left, top] and [right, bottom, right, bottom] of every image, broadcast over
+    # the boxes of the image, the batch size left to the reshape so that the traced exports keep it dynamic
+    bound_shape = [-1] + [1] * (boxes.dim() - 2) + [4]
+    windows = image_windows.to(dtype=boxes.dtype)
+    lower_bounds = torch.cat(tensors=[windows[:, :2], windows[:, :2]], dim=1).reshape(bound_shape)
+    upper_bounds = torch.cat(tensors=[windows[:, 2:], windows[:, 2:]], dim=1).reshape(bound_shape)
+    return torch.minimum(torch.maximum(boxes, lower_bounds), upper_bounds)

@@ -4,17 +4,19 @@ segmenter: the level and matched ground truth of the sampled proposals and the p
 carried through forward_detection_stages, and the filtered proposals and the anchors of every level read by the anchor
 and proposal recall of the detection trainers. The box loss of the configuration trains the detection heads, the
 criterion of its final NMS suppresses the detections of the evaluation, and the padding copies of the proposal filter
-never become detections of the evaluation, which match those of the deployed detector.
+never become detections of the evaluation, which match those of the deployed detector. The training targets returned
+for the training target viewer are those the losses were computed on.
 """
 
 import pytest
 import torch
 
 from tests.models.detection.test_detector_baseline import get_fixed_batch
-from tests.testing_utilities import build_test_model
+from tests.testing_utilities import build_test_model, build_whole_input_windows
 from vision_training.deployment.export_specifications import compare_detections
 from vision_training.models.detection.inference_detector import InferenceDetector
 from vision_training.models.detection.postprocessing import postprocess_detections
+from vision_training.models.detection.target_assignment import batch_assign_targets_to_anchors
 
 
 @pytest.mark.parametrize(argnames="neck_type", argvalues=["none", "path_aggregation"])
@@ -37,7 +39,9 @@ def test_detection_stages_carry_levels_and_matched_ground_truths(neck_type: str)
     # Training path: matched ground truth of every positive sampled proposal
     model.train()
     with torch.no_grad():
-        stages = model.forward_detection_stages(input_tensor=images, ground_truth_bounding_boxes=boxes,
+        stages = model.forward_detection_stages(input_tensor=images,
+                                                image_windows=build_whole_input_windows(images=images),
+                                                ground_truth_bounding_boxes=boxes,
                                                 ground_truth_labels=labels)
     detections = stages["aggregated_detections_dictionary"]
     positive_mask = detections["sliced_labels"] > 0
@@ -58,7 +62,7 @@ def test_detection_stages_carry_levels_and_matched_ground_truths(neck_type: str)
     # Inference path: level of every proposal, and proposal of every final detection
     model.eval()
     with torch.no_grad():
-        outputs = model(input_tensor=images)
+        outputs = model(input_tensor=images, image_windows=build_whole_input_windows(images=images))
     proposal_levels = outputs["sliced_origins"]
     assert proposal_levels.shape == outputs["classification_scores"].shape[:2]
     detection_levels = torch.gather(input=proposal_levels, dim=1, index=outputs["final_detection_proposal_indices"])
@@ -105,7 +109,8 @@ def test_complete_iou_box_loss_trains_the_detection_heads_only() -> None:
     for box_loss in ["smooth_l1", "complete_iou"]:
         model = build_test_model(dtype=torch.float64, box_loss=box_loss).train()
         torch.manual_seed(seed=2)
-        outputs = model(input_tensor=images, ground_truth_bounding_boxes=boxes, ground_truth_labels=labels)
+        outputs = model(input_tensor=images, image_windows=build_whole_input_windows(images=images),
+                        ground_truth_bounding_boxes=boxes, ground_truth_labels=labels)
         losses[box_loss] = {key: value for key, value in outputs.items() if key.endswith("_loss")}
 
     # Classification losses and the region proposal localisation loss unchanged, the detection one changed and finite
@@ -143,7 +148,8 @@ def test_final_nms_criterion_of_the_configuration_suppresses_the_evaluated_detec
         assert models[nms_criterion].detection_nms_distance_exponent == nms_distance_exponent
         torch.manual_seed(seed=3)
         with torch.no_grad():
-            outputs[nms_criterion] = models[nms_criterion](input_tensor=images)
+            outputs[nms_criterion] = models[nms_criterion](input_tensor=images,
+                                                           image_windows=build_whole_input_windows(images=images))
 
     # Same head outputs, and the final detections of the criterion and exponent of every model
     for key in ["classification_scores", "detection_boxes"]:
@@ -154,8 +160,9 @@ def test_final_nms_criterion_of_the_configuration_suppresses_the_evaluated_detec
             classification_scores=model_outputs["classification_scores"],
             detection_boxes=model_outputs["detection_boxes"],
             valid_proposal_mask=torch.ones_like(input=model_outputs["classification_scores"][..., 0], dtype=torch.bool),
-            score_threshold=model.detection_score_threshold, nms_iou_threshold=model.detection_nms_iou_threshold,
-            nms_criterion=nms_criterion, nms_distance_exponent=nms_distance_exponent,
+            image_windows=build_whole_input_windows(images=images), score_threshold=model.detection_score_threshold,
+            nms_iou_threshold=model.detection_nms_iou_threshold, nms_criterion=nms_criterion,
+            nms_distance_exponent=nms_distance_exponent,
             maximum_detections=model.maximum_detections, input_image_size=model.input_image_size,
             suppress_candidates_only=True)
         for key, expected_value in expected_detections.items():
@@ -181,8 +188,8 @@ def test_padding_proposals_never_become_evaluated_detections() -> None:
     images = torch.rand(size=(2, 3, 512, 512), generator=torch.Generator().manual_seed(0)) * 255.0
 
     with torch.no_grad():
-        eager_outputs = model(input_tensor=images)
-        inference_outputs = detector(images=images)
+        eager_outputs = model(input_tensor=images, image_windows=build_whole_input_windows(images=images))
+        inference_outputs = detector(images=images, image_windows=build_whole_input_windows(images=images))
 
     # Half of the proposal slots are padding copies
     survivor_counts = eager_outputs["valid_proposal_mask"].sum(dim=1)
@@ -201,3 +208,75 @@ def test_padding_proposals_never_become_evaluated_detections() -> None:
         number_detections = int(eager_outputs["number_detections"][image_index])
         detection_proposals = eager_outputs["final_detection_proposal_indices"][image_index, :number_detections]
         assert bool(eager_outputs["sliced_valid_mask"][image_index, detection_proposals].all())
+
+
+def test_training_targets_are_those_the_losses_were_computed_on() -> None:
+    """
+    Verifies the training targets returned by forward_detection_stages for the training target viewer
+    ('view_training_targets'): the anchors labelled as batch_assign_targets_to_anchors labels them with the
+    'RegionProposal' thresholds, regressing to the boxes of their objects, the sampled anchors among the foreground and
+    background ones within the sampling counts, the filtered proposals with objectness probabilities, and the sampled
+    proposals of the detection losses, the ground truth copies among them being the boxes of their matched object, of
+    its class. The same seed gives the same losses with and without reading the targets, and the evaluation without
+    ground truth returns none.
+    """
+    model = build_test_model(dtype=torch.float64).train()
+    images, boxes, labels = get_fixed_batch()
+    torch.manual_seed(seed=2)
+    with torch.no_grad():
+        stages = model.forward_detection_stages(input_tensor=images, ground_truth_bounding_boxes=boxes,
+                                                ground_truth_labels=labels)
+    targets = stages["training_targets"]
+
+    # Anchors of every level with the labels of the target assignment
+    assert torch.equal(input=targets["anchors"], other=model.anchors)
+    assert targets["anchor_levels"].shape == (model.anchors.shape[0],)
+    assert set(targets["anchor_levels"].tolist()) == {int(level) for level in model.detector_heads_dictionary}
+    _, expected_labels = batch_assign_targets_to_anchors(
+        batched_ground_truth_boxes=boxes, batched_anchors=model.anchors.unsqueeze(dim=0).expand(size=(2, -1, 4)),
+        background_iou_threshold=model.region_proposal_configuration["background_iou_threshold"],
+        foreground_iou_threshold=model.region_proposal_configuration["foreground_iou_threshold"])
+    assert torch.equal(input=targets["anchor_labels"], other=expected_labels)
+
+    # The foreground anchors regress to boxes of the objects of their image
+    for image_index, image_boxes in enumerate(boxes):
+        foreground_targets = targets["anchor_target_boxes"][image_index][expected_labels[image_index] == 1]
+        assert bool((foreground_targets.unsqueeze(dim=1) == image_boxes.unsqueeze(dim=0)).all(dim=-1).any(dim=1).all())
+
+    # Sampled anchors among the foreground and background ones, within the sampling counts of every image
+    positives, negatives = targets["sampled_positive_anchors"], targets["sampled_negative_anchors"]
+    assert bool(positives.any()) and bool((expected_labels[positives] == 1).all())
+    assert bool((expected_labels[negatives] == 0).all()) and not bool((positives & negatives).any())
+    configuration = model.region_proposal_configuration
+    assert bool((positives.sum(dim=1) <= configuration["number_training_positives"]).all())
+    assert bool(((positives | negatives).sum(dim=1) <= configuration["total_training_samples"]).all())
+
+    # Filtered proposals with their objectness probabilities, before the ground truth boxes are added
+    assert targets["proposal_boxes"].shape == (*targets["valid_proposal_mask"].shape, 4)
+    assert targets["proposal_scores"].shape == targets["proposal_levels"].shape == targets["valid_proposal_mask"].shape
+    assert 0.0 <= float(targets["proposal_scores"].min()) and float(targets["proposal_scores"].max()) <= 1.0
+
+    # Sampled proposals: every ground truth copy is the box of its matched object and a positive of its class
+    copies = targets["sampled_ground_truth_copies"]
+    number_sampled = targets["sampled_proposals"].shape[0]
+    assert targets["sampled_labels"].shape == targets["sampled_levels"].shape == copies.shape == (number_sampled,)
+    assert int(copies.sum()) == sum(len(image_boxes) for image_boxes in boxes)
+    for proposal_index in torch.nonzero(input=copies).flatten().tolist():
+        image_index = int(targets["sampled_proposals"][proposal_index, 0])
+        ground_truth_index = int(targets["sampled_matched_ground_truth_indices"][proposal_index])
+        assert torch.equal(input=targets["sampled_proposals"][proposal_index, 1:],
+                           other=boxes[image_index][ground_truth_index])
+        assert int(targets["sampled_labels"][proposal_index]) == int(labels[image_index][ground_truth_index])
+
+    # Same seed, same losses through forward, which drops the targets
+    torch.manual_seed(seed=2)
+    with torch.no_grad():
+        outputs = model(input_tensor=images, ground_truth_bounding_boxes=boxes, ground_truth_labels=labels)
+    for loss_name in [key for key in outputs if key.endswith("_loss")]:
+        assert torch.equal(input=outputs[loss_name], other=stages["model_output_dictionary"][loss_name])
+
+    # No targets without ground truth
+    model.eval()
+    with torch.no_grad():
+        assert model.forward_detection_stages(input_tensor=images, image_windows=build_whole_input_windows(
+            images=images))["training_targets"] is None

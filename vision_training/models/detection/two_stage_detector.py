@@ -21,7 +21,8 @@ from vision_training.models.detection.target_assignment import (turn_boxes_to_tr
                                                                 batch_assign_targets_to_proposals,
                                                                 add_ground_truth_proposals)
 from vision_training.models.detection.postprocessing import postprocess_detections
-from vision_training.losses.detection_losses import compute_detection_losses, compute_region_proposal_losses
+from vision_training.losses.detection_losses import (assign_region_proposal_targets, compute_detection_losses,
+                                                     compute_region_proposal_losses)
 
 
 class TwoStageDetector(TaskModel):
@@ -447,7 +448,7 @@ class TwoStageDetector(TaskModel):
                                  ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
                                  ground_truth_labels: Optional[List[torch.Tensor]] = None
                                  ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor],
-                                            torch.Tensor, Optional[torch.Tensor], torch.Tensor]:
+                                            torch.Tensor, Optional[torch.Tensor], torch.Tensor, Optional[torch.Tensor]]:
         """
         Prepares the formatted inputs required by the Detection Head's RoIAlign and loss functions.
 
@@ -478,6 +479,9 @@ class TwoStageDetector(TaskModel):
                   ground truth), read by the instance segmenter to pick the ground truth masks.
                 - detection_valid_mask (torch.Tensor): The boolean mask of the proposals that may give a final
                   detection, of shape [K]: the valid proposals at inference, every sampled proposal with ground truth.
+                - detection_ground_truth_copies (Optional[torch.Tensor]): The boolean mask of the sampled proposals
+                  that are ground truth boxes written by add_ground_truth_proposals, of shape [K] (None without
+                  ground truth), drawn apart by the training target viewer ('view_training_targets').
         """
         batch_size, number_proposals, _ = filtered_boxes.shape
 
@@ -488,7 +492,7 @@ class TwoStageDetector(TaskModel):
         if ground_truth_bounding_boxes is not None:
             # Add the ground truth boxes to the proposals of their image, at the level of their best anchor, so that
             # every object gives a positive proposal even when the region proposal network misses it
-            filtered_boxes, filtered_origins = add_ground_truth_proposals(
+            filtered_boxes, filtered_origins, ground_truth_slots = add_ground_truth_proposals(
                 batched_ground_truth_boxes=ground_truth_bounding_boxes, batched_proposals=filtered_boxes,
                 batched_proposal_levels=filtered_origins, level_anchors=self.get_level_anchors())
 
@@ -522,6 +526,7 @@ class TwoStageDetector(TaskModel):
             detection_labels = detector_proposal_labels[sampled_mask]
             detection_regression_targets = detection_regression_targets[sampled_mask]
             detection_matched_ground_truth_indices = detector_matched_ground_truth_indices[sampled_mask]
+            detection_ground_truth_copies = ground_truth_slots[sampled_mask]
 
             # Every sampled proposal is a box of the image, a survivor, a copy trained like it or a ground truth box
             # written over the padding; the detections of this path are those of the validation loss only, the
@@ -540,9 +545,11 @@ class TwoStageDetector(TaskModel):
             detection_labels = None
             detection_regression_targets = None
             detection_matched_ground_truth_indices = None
+            detection_ground_truth_copies = None
 
         return (detection_proposals, detection_proposals_origins, detection_labels, detection_regression_targets,
-                detection_batch_indices, detection_matched_ground_truth_indices, detection_valid_mask)
+                detection_batch_indices, detection_matched_ground_truth_indices, detection_valid_mask,
+                detection_ground_truth_copies)
 
     def _forward_region_proposals(
             self, backbone_output_tensor_dictionary: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, torch.Tensor]]:
@@ -648,13 +655,17 @@ class TwoStageDetector(TaskModel):
 
         return detection_output_dictionary
 
-    def forward(self, input_tensor: torch.Tensor, ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
+    def forward(self, input_tensor: torch.Tensor, image_windows: Optional[torch.Tensor] = None,
+                ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
                 ground_truth_labels: Optional[List[torch.Tensor]] = None) -> Dict[str, Any]:
         """
         Executes the forward pass of the TwoStageDetector, whose stages are run by forward_detection_stages.
 
         Args:
             input_tensor (torch.Tensor): The raw input image tensor of shape [Batch, Channels, Height, Width].
+            image_windows (Optional[torch.Tensor]): The [Batch, 4] [x1, y1, x2, y2] window of every image in the
+                network input (data/preprocessing.py:compute_image_window), to which the final detections are clipped,
+                needed in evaluation mode only.
             ground_truth_bounding_boxes (Optional[List[torch.Tensor]]): The ground truth boxes of every image, each of
                 shape [Num_GT, 4].
             ground_truth_labels (Optional[List[torch.Tensor]]): The ground truth labels of every image, each of shape
@@ -663,7 +674,7 @@ class TwoStageDetector(TaskModel):
         Returns:
             Dict[str, Any]: The model output dictionary described in forward_detection_stages.
         """
-        return self.forward_detection_stages(input_tensor=input_tensor,
+        return self.forward_detection_stages(input_tensor=input_tensor, image_windows=image_windows,
                                              ground_truth_bounding_boxes=ground_truth_bounding_boxes,
                                              ground_truth_labels=ground_truth_labels)["model_output_dictionary"]
 
@@ -681,7 +692,7 @@ class TwoStageDetector(TaskModel):
         """
         return []
 
-    def forward_detection_stages(self, input_tensor: torch.Tensor,
+    def forward_detection_stages(self, input_tensor: torch.Tensor, image_windows: Optional[torch.Tensor] = None,
                                  ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
                                  ground_truth_labels: Optional[List[torch.Tensor]] = None) -> Dict[str, Any]:
         """
@@ -693,6 +704,9 @@ class TwoStageDetector(TaskModel):
 
         Args:
             input_tensor (torch.Tensor): The raw input image tensor of shape [Batch, Channels, Height, Width].
+            image_windows (Optional[torch.Tensor]): The [Batch, 4] [x1, y1, x2, y2] window of every image in the
+                network input (data/preprocessing.py:compute_image_window), to which postprocess_detections clips the
+                final detections; needed in evaluation mode, unused in training mode.
             ground_truth_bounding_boxes (Optional[List[torch.Tensor]]): List containing ground truth boxes per image,
                 each of shape [Num_GT, 4].
             ground_truth_labels (Optional[List[torch.Tensor]]): List containing ground truth labels per image, each
@@ -702,8 +716,8 @@ class TwoStageDetector(TaskModel):
             Dict[str, Any]: The 'backbone_output_tensor_dictionary' (feature maps keyed by detection level, after the
                 neck, the backbone blocks themselves without neck), the 'backbone_skip_dictionary' (the skip outputs
                 of the backbone keyed 'skip_<block>', empty for the detector), the
-                'aggregated_detections_dictionary' (see aggregate_detection_outputs) and the
-                'model_output_dictionary', a unified dictionary containing:
+                'aggregated_detections_dictionary' (see aggregate_detection_outputs), the 'training_targets'
+                (described below) and the 'model_output_dictionary', a unified dictionary containing:
                 - "classification_scores" (torch.Tensor): Shape [Batch, Post_NMS_Proposals, number_classes].
                 - "box_regressions" (torch.Tensor): Shape [Batch, Post_NMS_Proposals, number_classes, 4].
                 - "detection_boxes" (torch.Tensor): Shape [Batch, Post_NMS_Proposals, number_classes, 4].
@@ -711,7 +725,7 @@ class TwoStageDetector(TaskModel):
                 - "sliced_valid_mask" (torch.Tensor): Shape [Batch, Post_NMS_Proposals], False for the padding copies
                   of the region proposal filter, in the order of the head outputs.
                 - the final detections of postprocess_detections, in evaluation mode only, the padding copies giving
-                  none, as in the deployed InferenceDetector.
+                  none and the boxes clipped to the window of their image, as in the deployed InferenceDetector.
                 - "proposal_boxes", "proposal_levels" and "valid_proposal_mask" (torch.Tensor): The [Batch,
                   Post_NMS_Proposals, 4] filtered proposals, their level and the mask of the survivors of the
                   suppression, in evaluation mode only, Post_NMS_Proposals being capped by the pre-NMS count and the
@@ -720,7 +734,25 @@ class TwoStageDetector(TaskModel):
                 - "region_proposal_localisation_loss" (Optional[torch.Tensor]): Scalar loss (if training).
                 - "detection_classification_loss" (Optional[torch.Tensor]): Scalar loss (if training).
                 - "detection_regression_loss" (Optional[torch.Tensor]): Scalar loss (if training).
+                The 'training_targets' (None without ground truth) hold the targets the losses were computed on, for
+                the training target viewer ('view_training_targets'): the [A, 4] 'anchors' of every level with their
+                [A] 'anchor_levels', the [B, A] 'anchor_labels' (1 foreground, 0 background, -1 ignored), the
+                [B, A, 4] 'anchor_target_boxes' (the ground truth box every anchor regresses to) and the [B, A]
+                'sampled_positive_anchors' and 'sampled_negative_anchors' of the region proposal losses, the
+                [B, P] filtered 'proposal_boxes' (4 coordinates), 'proposal_scores' (objectness probabilities),
+                'proposal_levels' and 'valid_proposal_mask' before the ground truth boxes are added, and the [K, 5]
+                'sampled_proposals' (image index, then the corners) of the detection losses with their [K]
+                'sampled_labels', 'sampled_matched_ground_truth_indices', 'sampled_ground_truth_copies' and
+                'sampled_levels'.
+
+        Raises:
+            ValueError: If the image windows are missing in evaluation mode.
         """
+        # The final detections of the evaluation mode are clipped to the windows, which must then be given
+        if not self.training and image_windows is None:
+            raise ValueError("The detector needs the image_windows of its images in evaluation mode, the [B, 4] window "
+                             "of every image in the network input (compute_image_window), to clip its detections.")
+
         # Pass the raw image through the backbone to extract the multiscale feature maps, the skip outputs of the mask
         # heads kept apart from the detection levels
         final_backbone_tensor, backbone_output_tensor_dictionary = self.backbone(input_tensor=input_tensor)
@@ -753,7 +785,8 @@ class TwoStageDetector(TaskModel):
         # Prepare the filtered proposals to be safely digested by the Detection Head's RoIAlign
         (detection_proposals, detection_proposals_origins,
          detection_labels, detection_regression_targets, detection_batch_indices,
-         detection_matched_ground_truth_indices, detection_valid_mask) = self._prepare_detector_inputs(
+         detection_matched_ground_truth_indices, detection_valid_mask,
+         detection_ground_truth_copies) = self._prepare_detector_inputs(
             filtered_boxes=filtered_boxes, filtered_origins=filtered_origins, valid_proposal_mask=valid_proposal_mask,
             ground_truth_bounding_boxes=ground_truth_bounding_boxes, ground_truth_labels=ground_truth_labels)
 
@@ -777,14 +810,15 @@ class TwoStageDetector(TaskModel):
             detection_batch_indices=aggregated_detections_dictionary["sliced_batch_indices"],
             prediction_tensors_dictionary=aggregated_detections_dictionary)
 
-        # At inference, turn the raw head outputs into the final thresholded, per-class NMS filtered detections, with
-        # the greedy NMS or DIoU-NMS of 'Detector.nms_criterion', the padding copies of the proposal filter masked as
-        # in the deployed detector, since the NMS cannot remove identical boxes at a threshold of 1.0 nor empty boxes
+        # At inference, turn the raw head outputs into the final thresholded, per-class NMS filtered detections clipped
+        # to the window of their image, with the greedy NMS or DIoU-NMS of 'Detector.nms_criterion', the padding copies
+        # of the proposal filter masked as in the deployed detector, since the NMS cannot remove identical boxes at a
+        # threshold of 1.0 nor empty boxes
         if not self.training:
             model_output_dictionary.update(postprocess_detections(
                 classification_scores=model_output_dictionary["classification_scores"],
                 detection_boxes=model_output_dictionary["detection_boxes"],
-                valid_proposal_mask=model_output_dictionary["sliced_valid_mask"],
+                valid_proposal_mask=model_output_dictionary["sliced_valid_mask"], image_windows=image_windows,
                 score_threshold=self.detection_score_threshold, nms_iou_threshold=self.detection_nms_iou_threshold,
                 nms_criterion=self.detection_nms_criterion, nms_distance_exponent=self.detection_nms_distance_exponent,
                 maximum_detections=self.maximum_detections, input_image_size=self.input_image_size,
@@ -798,12 +832,17 @@ class TwoStageDetector(TaskModel):
         # Train, Validation and Test -> Loss Computation :
         # - For Region Proposal
         # - For Detection
+        training_targets = None
         if ground_truth_bounding_boxes is not None:
-            # Region Proposal Losses
-            region_proposal_classification_loss, region_proposal_localisation_loss = compute_region_proposal_losses(
+            # Region Proposal Losses, on the anchors labelled and sampled after the detection heads, the order of the
+            # random draws of a training step
+            region_proposal_targets = assign_region_proposal_targets(
                 ground_truth_bounding_boxes=ground_truth_bounding_boxes,
-                aggregated_proposals_dictionary=aggregated_proposals_dictionary,
+                anchors=aggregated_proposals_dictionary["anchors"],
                 region_proposal_configuration=self.region_proposal_configuration)
+            region_proposal_classification_loss, region_proposal_localisation_loss = compute_region_proposal_losses(
+                aggregated_proposals_dictionary=aggregated_proposals_dictionary,
+                region_proposal_targets=region_proposal_targets)
 
             # Detection Losses, with the box loss of 'Detector.box_loss'
             (detection_classification_loss, detection_regression_loss) = compute_detection_losses(
@@ -817,10 +856,26 @@ class TwoStageDetector(TaskModel):
             model_output_dictionary["detection_classification_loss"] = detection_classification_loss
             model_output_dictionary["detection_regression_loss"] = detection_regression_loss
 
+            # The targets the losses were computed on, read by the training target viewer: the labelled and sampled
+            # anchors, the filtered proposals before the ground truth boxes are added, and the sampled proposals
+            training_targets = {
+                "anchors": self.anchors,
+                "anchor_levels": aggregated_proposals_dictionary["convolution_block_origin"][0],
+                "anchor_labels": region_proposal_targets["anchor_labels"],
+                "anchor_target_boxes": region_proposal_targets["anchor_target_boxes"],
+                "sampled_positive_anchors": region_proposal_targets["sampled_positive_mask"],
+                "sampled_negative_anchors": region_proposal_targets["sampled_negative_mask"],
+                "proposal_boxes": filtered_boxes, "proposal_scores": filtered_scores,
+                "proposal_levels": filtered_origins, "valid_proposal_mask": valid_proposal_mask,
+                "sampled_proposals": detection_proposals, "sampled_labels": detection_labels,
+                "sampled_matched_ground_truth_indices": detection_matched_ground_truth_indices,
+                "sampled_ground_truth_copies": detection_ground_truth_copies,
+                "sampled_levels": detection_proposals_origins}
+
         return {"backbone_output_tensor_dictionary": backbone_output_tensor_dictionary,
                 "backbone_skip_dictionary": backbone_skip_dictionary,
                 "aggregated_detections_dictionary": aggregated_detections_dictionary,
-                "model_output_dictionary": model_output_dictionary}
+                "model_output_dictionary": model_output_dictionary, "training_targets": training_targets}
 
     def print_summary(self) -> None:
         """

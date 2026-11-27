@@ -10,6 +10,7 @@ To find your way in this reference, the sections are:
 - [Stopping And Resuming](#stopping-and-resuming)
 - [Data Augmentation](#data-augmentation)
 - [Viewing The Input Images](#viewing-the-input-images)
+- [Viewing The Training Targets](#viewing-the-training-targets)
 - [Checking The Anchor Coverage](#checking-the-anchor-coverage)
 - [Benchmarking The Speed](#benchmarking-the-speed)
 - [TensorBoard Monitoring](#tensorboard-monitoring)
@@ -207,6 +208,26 @@ The figure shows the viewer; the animation shows boxes following the flips, rota
 </p>
 <p align="center"><em>Augmentation draws of <code>object_detection/configuration_example.yaml</code> on one image.</em></p>
 
+## Viewing The Training Targets
+Suppose a detector learns badly while its inputs look right: `ExperimentConfiguration.diagnosis_modes.view_training_targets: True` (DET, INS) shows what its losses are computed on. Every training batch is prepared and augmented as in training, then run through the model in training mode with its ground truth (`DetectionTrainer.view_training_targets`). Each image gets one window of three panels:
+- **Anchors**: the sampled positive anchors in green, 20 of the sampled negatives in red, the objects in white.
+- **Proposals**: the 20 best proposals kept by the proposal filter, in yellow.
+- **Sampled RoIs**: the positive RoIs in green, the ground truth boxes added to the proposals dashed, 20 negatives in red.
+- **Mask targets** (INS): for every object, its positive RoI with the lowest box IoU. It shows the RoI crop with the target contour, the target (`build_mask_targets`) and the predicted mask of the object class.
+
+The panel counts the anchors, proposals and RoIs, and gives one column per object: positive anchors, best proposal IoU, positive RoIs.
+- The weights are those of the last checkpoint of the run when there is one, read only; otherwise the initial weights.
+- The sampling is random, as in training, so two launches draw other negatives.
+- SPACE shows the next image, ENTER exits without training. It needs a display and creates no run folder.
+
+The figure shows an image of the README instance segmentation run at iteration 6,000.
+
+<p align="center">
+  <img src="../../README/training_targets.png" width="100%" />
+</p>
+
+Look for objects with few positive anchors (anchor scales or ratios too far from the object) or a low best proposal IoU. Also check the share of positive RoIs against `Detector.number_training_positives`.
+
 ## Checking The Anchor Coverage
 Suppose a detector misses objects of one size: `ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage: { activated: True, iou_threshold: 0.5 }` (DET, INS) prints, per split, level and object size, the share of objects whose best anchor overlaps them by at least `iou_threshold`, then exits.
 - Splits are read from their annotations, no image loaded.
@@ -267,6 +288,7 @@ If one wishes to start a component from a trained run, set the `pretrained` bloc
 | `TemporalModel` | temporal module | M2O, M2M, CMP, SEL |
 | `ClassificationHead` | classification head, class layer with `class_layer: True` | CLS, M2O, M2M, CMP, SEL |
 | `SegmentationDecoder` | U-Net decoder, class layers with `class_layers: True` | SEG |
+| `Neck` | feature pyramid or path aggregation neck | DET, INS |
 | `RegionProposal` | region proposal heads | DET, INS |
 | `Detector` | detection heads, class layers with `class_layers: True` | DET, INS |
 | `MaskHead` | mask heads, class layers with `class_layers: True` | INS |
@@ -280,12 +302,14 @@ The settings defining the layers must match, which is checked at launch. The ima
 | Backbone | `input_channels`, `convolutions`, `modules`, `normalization`, `last_max_pooling`; when one backbone's blocks start the other's, the shared blocks are loaded |
 | Classification head | `fully_connected`, `fully_connected_normalization`, the image size after `flatten` |
 | Transformer with positional embedding | `maximum_sequence_length` |
-| Region proposal, detection and mask heads | detection levels and their head settings, anchors per position, normalization, modules, `Neck.type` `none` in both runs; the mask image branch is not transferred and stays `[0, 0]` |
+| Neck | `type` (not `none`), `output_channels`, `normalization`, the detection levels and the channels of their backbone blocks |
+| Region proposal, detection and mask heads | detection levels and their head settings, anchors per position, normalization, modules, the same `Neck.type` and, with a neck, `Neck.output_channels`; the mask image branch is not transferred and stays `[0, 0]` |
 | High resolution network | `base_width`, `modules_per_stage`, `blocks_per_branch`, `modules`, `normalization`, channels of the last stem block |
 | Keypoint head | `higher_resolution`, `hidden_width`, `HRNet.base_width`; with `class_layers: True`, every channel must predict the same keypoint of the same class |
 
 The transfer follows these rules:
 - A detection run can initialise an instance segmentation run, whose mask heads train alone with the rest frozen.
+- Heads trained behind a neck read its outputs. Load the neck from the same run and iteration (`Neck.pretrained`); otherwise the launch warns that the heads read another neck.
 - A deeper backbone starts with the source blocks; its next blocks stay random. `freeze`, `freeze_normalization_parameters` and `learning_rate_multiplier` apply to the loaded blocks only, stored as `pretrained_backbone_blocks` in every checkpoint.
 - A resumed run does not load the pretrained component again.
 - The averaged weights of the source are loaded when it kept a [moving average](#moving-average-of-the-weights) and the new run has one on.

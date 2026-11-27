@@ -56,7 +56,8 @@ objectness [64, 2304] · offsets [64, 2304, 4] ─► RPN losses: BCE + smooth L
    ▼ training: + ground truth boxes, 128 proposals per image sampled, at most 64 positive (IoU >= 0.5)
 DetectionHead of the level of every proposal: RoIAlign 7x7 ─► 2 conv x 32 ─► FC 1568 > 64 > 32 ─► class + box layers
 logits [64, 128, 36] · offsets [64, 128, 36, 4] ─► detection losses: cross entropy + smooth L1 of the true class
-   ▼ evaluation: postprocess_detections: softmax, score >= 0.05 (0.5 deployed), DIoU-NMS 0.5 per class, top 100
+   ▼ evaluation: postprocess_detections: softmax, boxes clipped to the image window, score >= 0.05 (class thresholds
+     or 0.5 deployed), DIoU-NMS 0.5 per class, top 100
 final_detection_boxes [B, 100, 4], _scores [B, 100], _labels [B, 100] · number_detections [B]
    ▼
 evaluate_detections ─► mAP@0.5 / 0.75 / 0.95 / [0.5:0.95] x area, 11, 101 point · by size · mAR · AP per class
@@ -73,11 +74,11 @@ Should you need to change one part of the task, this table gives the file holdin
 | Model | `vision_training/models/detection/two_stage_detector.py`, `feature_neck.py` | `TwoStageDetector`: `forward_detection_stages`, `_prepare_detector_inputs`, `get_level_anchors`, `print_summary`; `FeatureNeck` |
 | Anchors and proposals | `vision_training/models/detection/anchors.py`, `region_proposer.py` | `Anchors.generate_anchors`, `RegionProposal`, `RegionProposalFilter`, `select_best_proposals` |
 | Head and boxes | `vision_training/models/detection/detection_head.py`, `box_operations.py`, `postprocessing.py` | `DetectionHead`, `apply_regression_predictions`, `BOX_REGRESSION_WEIGHTS`, `postprocess_detections` |
-| Targets and losses | `vision_training/models/detection/target_assignment.py`, `vision_training/losses/detection_losses.py` | `batch_assign_targets_to_anchors`, `add_ground_truth_proposals`, `batch_assign_targets_to_proposals`, `sample_positive_and_negative_training_targets`, `compute_region_proposal_losses`, `compute_detection_losses` |
+| Targets and losses | `vision_training/models/detection/target_assignment.py`, `vision_training/losses/detection_losses.py` | `batch_assign_targets_to_anchors`, `add_ground_truth_proposals`, `batch_assign_targets_to_proposals`, `sample_positive_and_negative_training_targets`, `assign_region_proposal_targets`, `compute_region_proposal_losses`, `compute_detection_losses` |
 | Metrics and evaluation | `vision_training/evaluation/detection/mean_average_precision.py`, `average_precision_report.py`, `region_recall.py`, `detection_confusion.py`, `object_sizes.py`, `vision_training/evaluation/recall_intervals.py` | `evaluate_detections`, `summarise_average_precisions`, `summarise_anchor_recall`, `summarise_proposal_recall`, `match_image_detections`, `compute_clopper_pearson_intervals` |
 | Configuration checks and run name | `vision_training/configuration_processing/detection_checks.py`, `run_name.py` | `check_detection_configuration`, `build_detection_sections`, `build_anchors_hash` |
 | Synthetic data | `vision_training/data/synthetic/create_synthetic_dataset.py` | `create_synthetic_dataset` (`--task=instance_segmentation` for the DET configuration) |
-| Export | `vision_training/models/detection/inference_detector.py`, `vision_training/deployment/export_specifications.py` | `InferenceDetector`, `get_export_specification` (inputs `images`, outputs `detection_boxes`, `detection_scores`, `detection_labels`, `number_detections`) |
+| Export | `vision_training/models/detection/inference_detector.py`, `vision_training/deployment/export_specifications.py`, `vision_training/deployment/detection_deployment.py` | `InferenceDetector`, `get_export_specification` (inputs `images`, `image_windows`, outputs `detection_boxes`, `detection_scores`, `detection_labels`, `number_detections`), `apply_class_score_thresholds` |
 | Export sizes at launch | `vision_training/deployment/export_size_estimates.py` | `estimate_export_sizes`, `probe_inference_graph`, `print_export_size_summary` |
 
 ### Run It
@@ -105,15 +106,15 @@ If one wishes to change what the detector learns or how it filters its outputs, 
 |---|---|---|
 | `DetectionLevels.<5, 6, 7>.anchors` | scales `[32, 64]`, `[64, 128]`, `[128, 256]`, aspect ratios `[0.5, 1.0, 2.0]` | 6 anchors per cell, 2304 in all at 512 pixels (`A6.32-256.e7b72c`); fit measured by `anchor_recall.csv` |
 | `DetectionLevels.<level>.region_proposal`, `.detector` | `[2, 32]`; RoIAlign 7, `[2, 32]`, fully connected `[64, 32]` | the heads of every level (`RBN-R2x32`, `DSE-DRES-DBN-D7.2x32.64.32`) |
-| `Neck.type`, `output_channels`, `normalization` | `feature_pyramid`, 32, batch | merges the levels into `output_channels` channels (`L567-NFPN32BN`); `none` lets the heads read the blocks, `path_aggregation` adds a bottom-up path (`NPAN`) |
+| `Neck.type`, `output_channels`, `normalization` | `feature_pyramid`, 32, batch | merges the levels into `output_channels` channels (`L567-NFPN32BN`); `none` lets the heads read the blocks, `path_aggregation` adds a bottom-up path (`NPAN`); `pretrained` loads the neck of another run (`NPT`) |
 | `RegionProposal.foreground_iou_threshold.min`, `background_iou_threshold` | 0.5; min 0.1, max 0.3 | anchors positive from 0.5, negative from 0.1 to 0.3, ignored below 0.1 and in between, plus the best anchor of every object |
 | `RegionProposal.training`, `.inference`, `nms_iou_threshold` | 1000 then 500; 500 then 250; 0.7 | proposals given to the detection heads per image |
 | `RegionProposal.proposal_selection` | `per_level` | top-k and NMS per level, then the best over all levels (`RPL`); `joint` ranks all anchors at once, as the run of Stages 3 to 5 (Step 3.13) |
 | `RegionProposal.number_training_positives`, `total_training_samples` | 128, 256 | anchors sampled per image for the region proposal losses |
 | `Detector.foreground_iou_threshold`, `number_training_positives`, `total_training_samples` | 0.5, 64, 128 | proposals sampled per image for the detection losses, ground truth boxes included |
-| `Detector.inference.score_threshold`, `maximum_detections`, `Detector.nms_iou_threshold` | 0.5, 100, 0.5 | post-processing of the deployed detector, also used by the sample images, the confusion matrix and the error images |
+| `Detector.inference.score_threshold`, `maximum_detections`, `Detector.nms_iou_threshold` | 0.5, 100, 0.5 | post-processing of the deployed detector, the score threshold kept by the classes without a threshold in `class_thresholds.json`; the sample images and the error images use it for every class |
 | `Detector.nms_criterion`, `nms_distance_exponent` | `distance_iou`, 0.6 | final NMS: plain IoU (`iou`), or the IoU minus the normalized centre distance to the power of the exponent (DIoU-NMS); the run of Stages 3 to 5 ran `iou` |
-| `ExperimentConfiguration.evaluation.score_threshold`, `target_precision` | 0.05, 0.99 | detections kept for the mAP (refused above `Detector.inference.score_threshold`); precision of the class thresholds of `class_thresholds.json` |
+| `ExperimentConfiguration.evaluation.score_threshold`, `target_precision` | 0.05, 0.99 | detections kept for the mAP (refused above `Detector.inference.score_threshold`); precision of the class thresholds of `class_thresholds.json`, those of the confusion matrix and of the export |
 | `Optimization.loss_weights` | 1.0 for each of the four losses | weights in the total loss, the losses being tracked unweighted |
 | `Data.image_settings.size` | 512 | network input; the anchor scales must fit in it |
 
@@ -129,7 +130,7 @@ So that a run folder can be read without opening the code, this table lists the 
 | `Results.txt` | every evaluation | one block per evaluation, two with the moving average (Step 4.13) |
 | `Tensorboard/Train`, `Test`, `Test_EMA` | during the run | the total loss, the four losses and the learning rate; the evaluation scalars (72 for 20 classes and three levels, 90 for 35 classes and four levels), 8 samples and the confusion matrix |
 
-This table gives the iteration 5000 results of the two runs this document quotes, at the deployment threshold for the counts.
+This table gives the iteration 5000 results of the two runs this document quotes. Both were evaluated before the confusion matrix took the class thresholds, so the counts are at 0.5 for every class.
 
 | Run | `mAP@0.5/area` (EMA) | `mAP@[0.5:0.95]` (EMA) | Proposal recall at 0.5 | Right / wrong class / false positives / missed |
 |---|---|---|---|---|
@@ -180,7 +181,8 @@ main()                                    entry point of every task, --configura
 │       │       _aggregate_all_anchors(), RegionProposalFilter()
 │       ├── initialise_pretrained_components() / build_optimizer() / ExponentialMovingAverage() / MetricTracker()
 │       ├── print_experiment_information() / print_summary() / export sizes
-│       ├── diagnose_data_splits() / view_input_batches() / benchmark_speed()   diagnosis modes, then exit
+│       ├── diagnose_data_splits() / view_input_batches() / view_training_targets() / benchmark_speed()
+│       │       diagnosis modes, then exit
 │       ├── analyse_training_data() -> measure_anchor_recall()   anchor_recall.csv and .png, first launch
 │       └── restore_last_model()
 └── trainer.run_training_loop()  [STAGE 3]
@@ -198,7 +200,7 @@ main()                                    entry point of every task, --configura
         │   │   │   ├── _prepare_detector_inputs()   add_ground_truth_proposals, assignment, sampling
         │   │   │   ├── _forward_detections() -> DetectionHead.forward()
         │   │   │   ├── aggregate_detection_outputs() + _rearrange_predictions_by_batch()
-        │   │   │   ├── compute_region_proposal_losses()
+        │   │   │   ├── assign_region_proposal_targets() + compute_region_proposal_losses()
         │   │   │   └── compute_detection_losses()
         │   │   └── MetricTracker.accumulate() + log_to_tensorboard()
         │   ├── backward / step_optimizer / save_model / validation pass / interval summary
@@ -355,7 +357,7 @@ test         20 images -> 1 batch of 40
 ### Step 2.9 — `CocoDetectionDataset.__init__()` (and `__getitem__()`)
 The constructor reads the manifest (`read_manifest()`, parsed once per launch) and shuffles its images once. It packs every image with its annotations into `SerializedRecords` (a read-only NumPy byte buffer, unpacked by `get_image_record()`) and frees the parsed manifest (`release_freed_heap_memory()`), so forked workers copy no Python objects: on 50,000 images, 0.31 GB instead of 0.67 GB, and 0.05 GB copied per worker instead of 0.64 GB. Images sharing an `id` raise a `ValueError`. Categories absent from the label mapping are printed in yellow.
 
-`__getitem__()` reads the image (`read_image()`, OpenCV, BGR, `uint8`), keeps the boxes whose category has a class (`select_image_objects()`), turns COCO `[x, y, width, height]` into `[x_min, y_min, x_max, y_max]` and resizes image and boxes together (`preprocess_image_and_boxes()`, letterbox with `keep_ratio`). Boxes are clipped and filtered only after a geometric augmentation.
+`__getitem__()` reads the image (`read_image()`, OpenCV, BGR, `uint8`), keeps the boxes whose category has a class (`select_image_objects()`), turns COCO `[x, y, width, height]` into `[x_min, y_min, x_max, y_max]` and resizes image and boxes together (`preprocess_image_and_boxes()`, letterbox with `keep_ratio`). Boxes are clipped and filtered only after a geometric augmentation. The sample also holds `image_windows`, the `[x1, y1, x2, y2]` region of the resized image in the input (`compute_image_window()`), to which the evaluation clips the detections (Step 4.4). The example was recorded before that key.
 
 **Example: the first image after shuffling, and its sample**
 ```text
@@ -436,6 +438,8 @@ The backbone, region proposal heads and detection heads can come from other runs
 
 The mask heads of an instance segmentation run do the same with `MaskHead.pretrained.class_layers: True`. With `Optimization.exponential_moving_average.activated`, an `ExponentialMovingAverage` copy is made once the transfers are loaded. The four losses are tracked with their weighted sum.
 
+The current code also transfers the neck (`Neck.pretrained`, last in `TRANSFERABLE_COMPONENTS`), so the dictionary below ends with `'Neck': None`. Heads move only between runs of the same `Neck.type` and `output_channels` (`compare_detection_heads()`). Heads loaded behind a neck that does not come from their checkpoint print a warning (`warn_heads_behind_another_neck()`).
+
 **Example output**
 ```text
 pretrained_checkpoint_paths = {'Backbone': None, 'RegionProposal': None, 'Detector': None}
@@ -460,8 +464,13 @@ Backbone Receptive Field:      Block 5 - Max Pooling : Output 32x32x64 | Stride 
 Model Size:                    Total Model 5,588,349 parameters, 22.38 MB
 ```
 
-### Step 2.20 — `view_input_batches()` / `restore_last_model()`
+### Step 2.20 — `view_input_batches()` / `view_training_targets()` / `restore_last_model()`
 With `view_input_images`, `show_input_samples()` shows an augmented training image next to a validation image, boxes captioned with their class, with a panel giving the object count, a `Class` / `Count` table and the augmentations and removed objects (`Removed objects : 1 (dog)`). A new run starts from scratch (`start_iteration = 1`).
+
+Should the losses need checking, `view_training_targets` shows what they train on, then exits without a run folder:
+- `view_training_targets()` loads the last checkpoint of the run, if any (`load_last_checkpoint_weights()`), and prepares and augments every training batch as Steps 3.7 and 3.8 do;
+- `compute_training_targets()` runs `forward_detection_stages()` in training mode with the ground truth, without gradient, and keeps its `training_targets`: the anchor labels and samples of Step 3.17, the filtered proposals of Step 3.13 and the RoIs sampled in Step 3.14;
+- `build_training_target_windows()` draws one window per image with `build_training_target_grid()` (sampled positive anchors, 20 of the negatives, the best 20 proposals, the sampled RoIs with the ground truth copies dashed) and a panel counting them per object. `view_input_data()` shows the windows like the input viewer.
 
 ### Step 2.21 — `analyse_training_data()` → anchor recall
 Called by `BaseTrainer.__init__()` between `view_input_batches()` and `restore_last_model()`, never in a diagnosis mode that exits. At the first launch of a run, it measures how many training and test objects the anchors can learn, through `measure_anchor_recall()` on each split:
@@ -532,13 +541,13 @@ Weights/Iteration_250/model_000250.pt ... Weights/Iteration_5000/model_005000.pt
  'exponential_moving_average_state']
 exponential_moving_average_state: {'model_state', 'number_updates'}, number_updates 5000
 ```
-Current checkpoints also hold `pretrained_backbone_blocks` (`classification_workflow.md`, Step 2.19), `None` here.
+Current checkpoints also hold `pretrained_backbone_blocks` (`classification_workflow.md`, Step 2.19) and `pretrained_neck`, both `None` here.
 
 ### Step 3.5 — `run_test_evaluation()`
 At every multiple of 500, last in the iteration (`classification_workflow.md`, Step 3.7), once for the trained weights and once for their moving average. See Stage 4.
 
 ### Step 3.6 — `get_next_batch()` → `CocoDetectionDataset.__getitem__()` + `collate_function()`
-A batch that fails to load is dropped and the next one taken (`classification_workflow.md`, Step 3.8). Images are stacked; boxes and labels stay lists, one tensor per image.
+A batch that fails to load is dropped and the next one taken (`classification_workflow.md`, Step 3.8). Images and windows are stacked; boxes and labels stay lists, one tensor per image. The example was recorded before the windows.
 
 **Example: the first batch of the CPU run**
 ```text
@@ -549,7 +558,7 @@ labels               list of 2 tensors   [7, 1]   [1, 1, 5, 1]
 ```
 
 ### Step 3.7 — `run_model_iteration()` → `prepare_batch()`
-It turns the images from `uint8` to `float32` and moves boxes (`float32`) and labels (`int64`) to the device.
+It turns the images from `uint8` to `float32` and moves boxes (`float32`), labels (`int64`) and windows (`float32`) to the device.
 
 ### Step 3.8 — `augment_batch()` → `DataAugmenter.augment_batch(bounding_boxes=..., labels=...)`
 Geometric augmentations move the boxes with the image. `clean_bounding_boxes()` clips them and drops, with their labels, boxes narrower or shorter than 1 pixel or with less than 25 % of their moved area inside the image (`MINIMUM_VISIBLE_AREA_FRACTION`). This configuration turns every geometric type off; in the first batch no image was changed.
@@ -615,6 +624,8 @@ In training (and in the validation loss), these functions run in turn:
 
 The kept proposals are written `[image index, x_min, y_min, x_max, y_max]` for `roi_align()`. In inference, every filtered proposal is kept.
 
+`add_ground_truth_proposals()` also returns the slots it wrote, so that the training target viewer dashes the ground truth copies.
+
 **Example output** (recorded before `add_ground_truth_proposals()`: the positives are the region proposal ones alone)
 ```text
 proposals (256, 5)   origins (256,)   labels (256,)   regression targets (256, 4)
@@ -635,8 +646,8 @@ The level outputs are concatenated, then grouped by image.
 by image:   classification_scores (2, 128, 10)   box_regressions (2, 128, 10, 4)   detection_boxes (2, 128, 10, 4)
 ```
 
-### Step 3.17 — `compute_region_proposal_losses()`
-`batch_assign_targets_to_anchors()` labels every anchor of the batch at once from its best IoU with a ground truth box (`pad_ground_truths()` pads the ground truths to the largest object count). This table gives the labels.
+### Step 3.17 — `assign_region_proposal_targets()` + `compute_region_proposal_losses()`
+`assign_region_proposal_targets()` gives the anchor targets, read by the losses and by the training target viewer (Step 2.20). `batch_assign_targets_to_anchors()` labels every anchor of the batch at once from its best IoU with a ground truth box (`pad_ground_truths()` pads the ground truths to the largest object count). This table gives the labels.
 
 | IoU with the best ground truth box | Label |
 |---|---|
@@ -645,7 +656,7 @@ by image:   classification_scores (2, 128, 10)   box_regressions (2, 128, 10, 4)
 | otherwise (0.3 to 0.5, and below 0.1) | ignored |
 | the best anchor of a ground truth box (IoU above 0) | foreground, whatever its IoU |
 
-The object detection configurations keep the minimum of 0.1; the instance segmentation ones set 0.0 (audit H1). A small box sharing its best anchor with a larger one gets none. `sample_positive_and_negative_training_targets()` keeps per image at most `number_training_positives` (128) foreground anchors, filled to `total_training_samples` (256) with background ones. The classification loss is the binary cross entropy of the sampled objectness. The regression loss is the smooth L1 (beta 1/9, `LOCALISATION_LOSS_BETA`) on the offsets of the sampled foreground anchors, summed and divided by their number (`REGION_PROPOSAL_BOX_LOSS`).
+The object detection configurations keep the minimum of 0.1; the instance segmentation ones set 0.0 (audit H1). A small box sharing its best anchor with a larger one gets none. `sample_positive_and_negative_training_targets()` keeps per image at most `number_training_positives` (128) foreground anchors, filled to `total_training_samples` (256) with background ones. `compute_region_proposal_losses()` then computes both losses. The classification loss is the binary cross entropy of the sampled objectness. The regression loss is the smooth L1 (beta 1/9, `LOCALISATION_LOSS_BETA`) on the offsets of the sampled foreground anchors, summed and divided by their number (`REGION_PROPOSAL_BOX_LOSS`).
 
 **Example: the anchors of the first batch**
 ```text
@@ -724,17 +735,17 @@ Test Evaluation Iteration 5000 (EMA Weights): 100%|█████████�
 The same batches took 21:32 and 01:26 on a GPU shared with other runs.
 
 ### Step 4.2 — `create_evaluation_accumulator()`
-It holds the detections and ground truth of every test image (on the CPU, in network input pixels), the confusion matrix (background included, Step 4.5), the error image folder and counts, and the `proposal_recall` accumulator (Step 4.15, `create_proposal_recall_accumulator()`, added after the example).
+It holds the detections and ground truth of every test image (on the CPU, in network input pixels), from which the confusion matrix is built once the class thresholds are found (Step 4.12), the error image folder and counts, and the `proposal_recall` accumulator (Step 4.15, `create_proposal_recall_accumulator()`, added after the example).
 
 **Example: the accumulator after iteration 12 of the CPU run**
 ```text
 {'detections': 20 entries {'boxes': (100, 4), 'scores': (100,), 'labels': (100,)}, 'ground_truths': 20 entries {'boxes', 'labels'},
- 'confusion_matrix': (10, 10) int64, 'errors_folder': .../Evaluation/Iteration_12/Errors, 'error_counts': {}}
+ 'errors_folder': .../Evaluation/Iteration_12/Errors, 'error_counts': {}}
 first image: best scores [0.1091, 0.1091, 0.1091, 0.1091, 0.1091]   labels [9, 9, 9, 9, 9]   ground truth label [5]
 ```
 
 ### Step 4.3 — `prepare_batch()` + `predict_batch()`
-`predict_batch()` runs the detector without ground truth, as in deployment; with it, the detector would only classify proposals sampled around the true boxes, inflating the mAP. In `eval()` mode the filter keeps 250 proposals per image. The outputs go through `postprocess_detections()` (Step 4.4) with the valid proposal mask (`sliced_valid_mask`), so padding copies never become detections, even at an NMS threshold of 1.0 or for empty boxes. The outputs also keep `proposal_boxes`, `proposal_levels` and `valid_proposal_mask` for the proposal recall (Step 4.15).
+`predict_batch()` runs the detector without ground truth, as in deployment; with it, the detector would only classify proposals sampled around the true boxes, inflating the mAP. It gives the detector the window of every image, as a client gives it to the export; without windows, the detector refuses to run in `eval()` mode. In `eval()` mode the filter keeps 250 proposals per image. The outputs go through `postprocess_detections()` (Step 4.4) with the valid proposal mask (`sliced_valid_mask`), so padding copies never become detections, even at an NMS threshold of 1.0 or for empty boxes. The outputs also keep `proposal_boxes`, `proposal_levels` and `valid_proposal_mask` for the proposal recall (Step 4.15).
 
 **Example: a test batch of the CPU run**
 ```text
@@ -745,9 +756,9 @@ final_detection_labels   [2, 100]           number_detections        [2] [100, 1
 
 ### Step 4.4 — `postprocess_detections()`
 These steps turn the head outputs into the final detections:
-1. the softmax of the class logits, background left out, gives one candidate per proposal and foreground class, its box clamped to the image;
+1. the softmax of the class logits, background left out, gives one candidate per proposal and foreground class, its box clipped to the window of its image (`clamp_boxes_to_image_windows()`), so no box reaches the padding of the letterbox;
 2. one `batched_nms()` call suppresses, per image and class, boxes overlapping a better one by more than `Detector.nms_iou_threshold` (0.8 in the CPU run, 0.5 now);
-3. the survivors reaching the score threshold are kept, the `maximum_detections` (100) best per image returned, empty places padded with score 0, label 0 and an empty box.
+3. the survivors reaching the score threshold are kept, the `maximum_detections` (100) best per image returned, empty places padded with score 0, label 0 and an empty box. The threshold is one number in the evaluation, one per class in the `InferenceDetector` (`class_score_thresholds`, set by the export).
 
 This table gives the two NMS paths.
 
@@ -766,15 +777,15 @@ class probabilities of the first proposal of image 0: [0.1327, 0.0894, 0.0938, 0
 ```
 No class reaches 0.5, so the deployed detector returns nothing. At 0.05, every test image gets 100 `octagon` detections (Step 4.8).
 
-### Step 4.5 — `accumulate_evaluation_batch()` → `match_image_detections()` + `add_to_confusion_matrix()` + `dump_errors()`
-For every image, the valid detections and ground truth are kept on the CPU for the mAP. The detections reaching the deployment threshold are then matched to the objects for the confusion matrix:
+### Step 4.5 — `accumulate_evaluation_batch()` → `match_kept_detections()` + `dump_errors()`
+For every image, the valid detections and ground truth are kept on the CPU for the mAP and the confusion matrix (Step 4.12). With error images, the detections reaching the deployment threshold are matched to the objects (`match_kept_detections()`), the matching of the confusion matrix:
 - `compute_overlap_matrix()` gives the IoU of every detection with every object, whatever their classes;
 - `match_image_detections()` goes twice through the detections by decreasing score, each taking the free object it overlaps most, at least by 0.5: first among the objects of its class, then among the remaining objects of any class (the confusions);
-- `add_to_confusion_matrix()` counts each match in its cell, each unmatched detection in the background row (false positive) and each unmatched object in the background column (missed).
+- each unmatched detection is a false positive, each unmatched object is missed.
 
-The mAP keeps its own matching (Step 4.9). At iteration 5000, 40,479 detections reach 0.5: 34,213 right, 3,228 of the wrong class, 3,038 false positives, and 32,241 of the 69,682 objects missed.
+The mAP keeps its own matching (Step 4.9). At iteration 5000 of the run, evaluated when the confusion matrix still counted the detections reaching 0.5, 40,479 detections reach 0.5: 34,213 right, 3,228 of the wrong class, 3,038 false positives, and 32,241 of the 69,682 objects missed.
 
-With `error_dumps.activated`, `dump_errors()` saves the image once per kind of error it holds (`group_image_errors()`): `Errors/FALSE-POSITIVE/<class>`, `Errors/MISSED/<class>` and `Errors/<TRUE>-TO-<PREDICTED>`. `draw_test_image()` draws it like a sample image (Step 4.6), the error boxes outlined with red dashes and described in the caption. The file is named after the image and the highest error score, at most `maximum_per_class_pair` per folder.
+With `error_dumps.activated`, `dump_errors()` saves the image once per kind of error it holds (`group_image_errors()`): `Errors/FALSE-POSITIVE/<class>`, `Errors/MISSED/<class>` and `Errors/<TRUE>-TO-<PREDICTED>`. `draw_test_image()` draws it like a sample image (Step 4.6), the error boxes outlined with red dashes and described in the caption. The file is named after the image and the highest error score, at most `maximum_per_class_pair` per folder. The class thresholds are only known after the last batch, so the error images keep `Detector.inference.score_threshold` for every class, and their folders can differ from the cells of the confusion matrix.
 
 **Example: the error images of the detection smoke test** (`tests/trainers/test_detection_trainer.py`: 4 test images of 256 pixels, 5 iterations, deployment threshold lowered to 0.05; shortened)
 ```text
@@ -787,9 +798,12 @@ caption:  "plus_sign -> triangle | 4 ground truth boxes | 100 detections with sc
 ```
 
 ### Step 4.6 — `save_sample_images()` → `build_sample_image()` → `build_detection_sample_grid()`
-Two panels side by side: the ground truth boxes and the detections reaching the deployment threshold, every box captioned with its class (and score) in its class colour. A caption bar counts both and a legend names the classes drawn.
+Two panels side by side: the ground truth boxes and the detections reaching the deployment threshold, every box captioned in its class colour. A caption bar counts both and a legend names the classes drawn.
+- A ground truth box gives its class.
+- A detection gives its class, score and IoU (`format_detection_caption()`, e.g. `circle 0.97 IoU 0.91`). The IoU is that with the object `match_image_detections()` gives it (Step 4.5), as `gather_detection_overlaps()` reads it.
+- An unmatched detection gives the IoU of the object it overlaps most, followed by `no match` (`circle 0.41 IoU 0.32 no match`).
 
-**Example: `Evaluation/Iteration_5000/Samples/test_014285.png`** (1028 x 560 pixels)
+**Example: `Evaluation/Iteration_5000/Samples/test_014285.png`** (1028 x 560 pixels, recorded before the IoU in the captions)
 ```text
 caption: "6 ground truth boxes | 4 detections with score >= 0.50"
 panels:  Ground Truth (square, triangle, star, parallelogram, 2 nonagon boxes) | Prediction (square 0.98, triangle 0.58,
@@ -860,13 +874,13 @@ class_index,class,ground_truths,average_precision_50,average_precision_75,averag
 
 ### Step 4.12 — `find_class_score_thresholds()` + `save_error_analysis()`
 From the AP@0.5 matching, `find_score_threshold()` (shared with the classification) keeps the score reaching the target precision with the highest recall over every ground truth box of the class. `save_error_analysis()` writes:
-- `class_thresholds.json`, in the format of the classification tasks (`null` when the precision is never reached);
-- `confusion_matrix.csv`, rows the true classes, columns the predicted ones, background first;
+- `class_thresholds.json`, in the format of the classification tasks (`null` when the precision is never reached), the thresholds the export builds into the model;
+- `confusion_matrix.csv`, rows the true classes, columns the predicted ones, background first, built by `build_deployed_confusion_matrix()` from the detections the exported detector returns: those reaching the threshold of their class, or `Detector.inference.score_threshold` for a class without one, matched as in Step 4.5 and counted by `add_to_confusion_matrix()`;
 - with the per-class report, `confusion_matrix.png`, logged to TensorBoard (shares as `94.03 %`, cells of 0.65 inch per class, the background cell blank).
 
-The report gets a note counting the outcomes and, with error images, a note counting them. At iteration 5000, 17 classes get a threshold and 3 never reach 0.99 (rhombus, kite, capsule). The trapezoid reaches 0.99 only above 0.4119, with a recall of 0.03 %; the plus_sign keeps 91.98 % above 0.6335.
+The report gets a note counting the outcomes, `Confusion Matrix : score >= class thresholds (17 of 20), 0.50 otherwise, IoU >= 0.5 (boxes), ...`, and, with error images, a note counting them, `score >= 0.50 for every class`. At iteration 5000, 17 classes get a threshold and 3 never reach 0.99 (rhombus, kite, capsule). The trapezoid reaches 0.99 only above 0.4119, with a recall of 0.03 %; the plus_sign keeps 91.98 % above 0.6335.
 
-**Example: the files of iteration 5000** (shortened)
+**Example: the files of iteration 5000** (shortened; the matrix of this run counts the detections reaching 0.5, the run being evaluated before the class thresholds of the matrix)
 ```text
 confusion_matrix.csv
 true \ predicted,background,square,circle,triangle,rectangle,...,annulus,capsule,l_shape

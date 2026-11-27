@@ -8,7 +8,7 @@ import torch
 
 from typing import Any, Dict, List, Tuple
 
-from tests.testing_utilities import build_test_model
+from tests.testing_utilities import build_test_model, build_whole_input_windows
 
 # Ground truth of the fixed batch: [x1, y1, x2, y2] boxes in 512 pixel network input coordinates, and their classes
 FIXED_GROUND_TRUTH_BOXES = [[[40.0, 60.0, 200.0, 220.0], [300.0, 280.0, 460.0, 400.0], [100.0, 350.0, 180.0, 500.0]],
@@ -59,7 +59,8 @@ def compute_training_losses() -> Dict[str, float]:
 
     torch.manual_seed(seed=2)
     with torch.no_grad():
-        outputs = model(input_tensor=images, ground_truth_bounding_boxes=boxes, ground_truth_labels=labels)
+        outputs = model(input_tensor=images, image_windows=build_whole_input_windows(images=images),
+                        ground_truth_bounding_boxes=boxes, ground_truth_labels=labels)
     return {key: float(value) for key, value in outputs.items() if key.endswith("_loss")}
 
 
@@ -77,7 +78,7 @@ def compute_inference_summary() -> Dict[str, Any]:
 
     torch.manual_seed(seed=3)
     with torch.no_grad():
-        outputs = model(input_tensor=images)
+        outputs = model(input_tensor=images, image_windows=build_whole_input_windows(images=images))
     return {"number_detections": outputs["number_detections"].tolist(),
             "score_sum": float(outputs["final_detection_scores"].sum()),
             "box_sum": float(outputs["final_detection_boxes"].sum()),

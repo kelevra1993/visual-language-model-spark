@@ -5,7 +5,9 @@ evaluates the box and mask average precisions with its sample images, their rate
 report, and resumes. The weights of the losses in the
 total loss (Optimization.loss_weights) are checked on a training batch, the detections and objects of a test image
 at the original resolution of the image (evaluation.original_resolution), and the instance index maps of the loaders
-(Data.instance_index_maps) expanded into the masks by prepare_batch, by augment_batch and by the input viewer.
+(Data.instance_index_maps) expanded into the masks by prepare_batch, by augment_batch and by the input viewer. The
+training target viewer draws the mask targets of the loosest positive region of every object under the targets of the
+detector, and the detections of the sample images are captioned with their box and mask overlaps with their object.
 """
 
 import csv
@@ -23,7 +25,10 @@ from vision_training.configuration_processing.configuration_loader import load_e
 from vision_training.data.detection.coco_masks import expand_instance_index_maps
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
 from vision_training.evaluation.detection.object_sizes import OBJECT_SIZE_NAMES
-from vision_training.trainers.instance_segmentation_trainer import InstanceSegmentationTrainer
+from vision_training.trainers.instance_segmentation_trainer import (MAXIMUM_MASK_TARGET_REGIONS,
+                                                                    InstanceSegmentationTrainer)
+from vision_training.utilities.visualization import (GRID_GAP, LEGEND_BAR_HEIGHT, build_class_colours,
+                                                     build_detection_sample_grid)
 from tests.fixtures.evaluation_checks import (check_detection_error_analysis, check_sample_images,
                                               read_results_blocks)
 
@@ -294,8 +299,8 @@ def build_original_resolution_test_image() -> Tuple[Dict[str, Any], Dict[str, An
     """
     Builds one test image of 40 x 20 pixels seen by a 10 pixel network keeping the ratio (scale 0.25, two padding rows
     above the image), with two detections and three objects: a square found by the first detection, a band along the
-    top border found by the second detection, whose box starts on the padding, and a one pixel object that vanishes at
-    the network resolution.
+    top border found by the second detection, whose box the detector clipped to the window of the image, and a one
+    pixel object that vanishes at the network resolution.
 
     Returns:
         Tuple[Dict[str, Any], Dict[str, Any]]: The prepared test batch with its objects at both resolutions, and the
@@ -319,13 +324,12 @@ def build_original_resolution_test_image() -> Tuple[Dict[str, Any], Dict[str, An
              "original_bounding_boxes": [torch.tensor(data=[[4.0, 4.0, 12.0, 12.0], [0.0, 0.0, 8.0, 4.0],
                                                             [21.0, 9.0, 22.0, 10.0]])]}
 
-    # Detections of the square (a full mask) and of the band, whose box covers one padding row and whose mask fills
-    # its lower half, the visible part of the box, followed by a padding detection
+    # Detections of the square and of the band, each with a full mask, the box of the band stopping at the top of the
+    # window as the detector clips it, followed by a padding detection
     detection_masks = torch.zeros(size=(1, 3, 4, 4))
-    detection_masks[0, 0] = 1.0
-    detection_masks[0, 1, 2:] = 1.0
+    detection_masks[0, :2] = 1.0
     predictions = {"number_detections": torch.tensor(data=[2]), "final_detection_masks": detection_masks,
-                   "final_detection_boxes": torch.tensor(data=[[[1.0, 3.0, 3.0, 5.0], [0.0, 1.0, 2.0, 3.0],
+                   "final_detection_boxes": torch.tensor(data=[[[1.0, 3.0, 3.0, 5.0], [0.0, 2.0, 2.0, 3.0],
                                                                 [0.0, 0.0, 0.0, 0.0]]]),
                    "final_detection_scores": torch.tensor(data=[[0.9, 0.8, 0.0]]),
                    "final_detection_labels": torch.tensor(data=[[1, 2, 0]])}
@@ -334,10 +338,10 @@ def build_original_resolution_test_image() -> Tuple[Dict[str, Any], Dict[str, An
 
 def test_detections_and_objects_are_gathered_at_the_original_resolution() -> None:
     """
-    Verifies the evaluation at the original resolution of a test image: the detection boxes are restored to the image
-    and clipped to it, the masks are pasted into the whole restored boxes (the band, whose box starts on the padding,
-    then covers exactly its object, where a clipped box would only cover half of it), the overlaps and areas are
-    those of the original masks, and the objects keep the boxes and mask areas of the original annotations, the one
+    Verifies the evaluation at the original resolution of a test image: the detection boxes, clipped by the detector to
+    the window of the image, are restored to the image, the masks are pasted into the restored boxes (the band along
+    the top border then covering exactly its object), the overlaps and areas are those of the original masks, and the
+    objects keep the boxes and mask areas of the original annotations, the one
     pixel object vanishing at the network resolution included, and the image area sizing the objects is that of the
     original image. At the network resolution, the same image keeps its network boxes and areas, and the area of the
     network input.
@@ -349,7 +353,7 @@ def test_detections_and_objects_are_gathered_at_the_original_resolution() -> Non
     trainer.original_resolution, trainer.mask_threshold, trainer.device = True, 0.5, torch.device("cpu")
     trainer.model_configuration = {"Data": {"image_settings": {"size": 10, "keep_ratio": True}}}
 
-    # Detections restored to the original image, the band found by the mask pasted into its whole box
+    # Detections restored to the original image, the band found by the mask pasted into its restored box
     detection = trainer.gather_image_detections(batch=batch, predictions=predictions, image_index=0)
     restored_boxes = torch.tensor(data=[[4.0, 4.0, 12.0, 12.0], [0.0, 0.0, 8.0, 4.0]])
     assert torch.equal(input=detection["boxes"], other=restored_boxes)
@@ -409,7 +413,8 @@ def test_instance_index_maps_are_expanded_into_the_masks() -> None:
              "bounding_boxes": [torch.tensor(data=[[1.0, 1.0, 3.0, 3.0], [0.0, 4.0, 6.0, 6.0]]),
                                 torch.zeros(size=(0, 4))],
              "labels": [torch.tensor(data=[3, 1]), torch.zeros(size=(0,), dtype=torch.int64)],
-             "sample_identifiers": torch.tensor(data=[7, 8]), "instance_index_maps": index_maps}
+             "sample_identifiers": torch.tensor(data=[7, 8]), "instance_index_maps": index_maps,
+             "image_windows": torch.tensor(data=[[0.0, 0.0, 6.0, 6.0]] * 2)}
 
     # Only the attributes read by the preparation, the augmentation and the input viewer, without building the model
     trainer = InstanceSegmentationTrainer.__new__(InstanceSegmentationTrainer)
@@ -440,3 +445,72 @@ def test_instance_index_maps_are_expanded_into_the_masks() -> None:
     mask_batch = {key: value for key, value in batch.items() if key != "instance_index_maps"}
     mask_batch["instance_masks"] = [expected_masks, torch.zeros(size=(0, 6, 6), dtype=torch.uint8)]
     assert torch.equal(trainer.prepare_batch(batch=mask_batch)["instance_masks"][0], expected_masks)
+
+
+def test_training_target_viewer_draws_the_mask_targets(tmp_path: Path) -> None:
+    """
+    Verifies the 'view_training_targets' diagnosis mode of the instance segmentation on a generated synthetic dataset:
+    every training image holding objects is shown with the mask targets of one positive region per object (the GT box
+    copies making every object positive) below the three target panels, its panel counting them, and an image left
+    without object by the augmentations shows none; the program then exits without creating the run folder.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    dataset_folder = tmp_path / "synthetic_shapes"
+    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
+                             split_sizes={"train": 4, "validation": 2, "test": 2}, maximum_objects=3,
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="instance_segmentation")
+    configuration_path = write_smoke_configuration(temporary_directory=tmp_path, dataset_folder=dataset_folder,
+                                                   number_iterations=5, original_resolution=False)
+    configuration = yaml.safe_load(stream=configuration_path.read_text())
+    configuration["ExperimentConfiguration"]["diagnosis_modes"]["view_training_targets"] = True
+    configuration_path.write_text(data=yaml.safe_dump(data=configuration))
+
+    with patch(target="vision_training.trainers.detection_trainer.view_input_data", return_value=False) as view_mock:
+        with pytest.raises(expected_exception=SystemExit):
+            build_trainer(configuration_path=configuration_path)
+    assert not (tmp_path / "experiments").exists() or not any((tmp_path / "experiments").iterdir())
+    assert view_mock.call_count == 4
+    grid_height = SMOKE_IMAGE_SIZE + LEGEND_BAR_HEIGHT
+    for call in view_mock.call_args_list:
+        (window,) = call.kwargs["windows"]
+        lines = [line for line in window.target_lines if isinstance(line, str)]
+        object_line = next(line for line in lines if line.startswith("Objects :"))
+        number_objects = 0 if object_line == "Objects : none" else int(object_line.split(": ")[1])
+
+        # The mask targets of one region per object under the grid, none for an image without object
+        assert window.image.shape[2] >= 3 * SMOKE_IMAGE_SIZE + 2 * GRID_GAP
+        if number_objects == 0:
+            assert window.image.shape[1] == grid_height and "Mask targets : none (no positive RoI)" in lines
+        else:
+            assert window.image.shape[1] > grid_height
+            assert any(line.startswith("Mask targets : ") and
+                       f"{min(number_objects, MAXIMUM_MASK_TARGET_REGIONS)} drawn" in line for line in lines)
+
+
+def test_sample_image_captions_give_the_box_and_mask_overlaps() -> None:
+    """
+    Verifies the overlaps given to the captions of the detections of an instance segmentation sample image, measured
+    at the network resolution: the square found with a box and a mask equal to its own, and the band found by its mask
+    (IoU 1) with a box overlapping its box by half, both matched by their masks as in the evaluation.
+    """
+    batch, predictions = build_original_resolution_test_image()
+
+    # The box of the band one row taller than its object, its mask filling the lower half, the object itself
+    predictions["final_detection_boxes"][0, 1] = torch.tensor(data=[0.0, 1.0, 2.0, 3.0])
+    predictions["final_detection_masks"][0, 1] = 0.0
+    predictions["final_detection_masks"][0, 1, 2:] = 1.0
+
+    # Only the attributes read by the drawing of the sample image, without building the model
+    trainer = InstanceSegmentationTrainer.__new__(InstanceSegmentationTrainer)
+    trainer.mask_threshold, trainer.deployment_score_threshold = 0.5, 0.5
+    trainer.class_names = {0: "background", 1: "square", 2: "band"}
+    trainer.class_colours = build_class_colours(number_classes=3)
+    with patch(target="vision_training.trainers.detection_trainer.build_detection_sample_grid", autospec=True,
+               side_effect=build_detection_sample_grid) as grid_mock:
+        trainer.build_sample_image(batch=batch, predictions=predictions, sample_index=0)
+    grid_arguments = grid_mock.call_args.kwargs
+    assert np.allclose(grid_arguments["detection_overlaps"]["boxes"], [1.0, 0.5])
+    assert np.allclose(grid_arguments["detection_overlaps"]["masks"], [1.0, 1.0])
+    assert grid_arguments["matched_detections"].tolist() == [True, True]

@@ -76,6 +76,9 @@ ExperimentConfiguration:
       # Shows the network input: Training and Validation windows with the images and their ground truth boxes and masks.
       # SPACE: next images, ENTER: exit without training (False to train); needs a display, creates no run folder.
       view_input_images: False
+      # Draws the anchors, proposals and sampled RoIs the losses use on every training image (with the mask targets in
+      # instance segmentation) with the last checkpoint if any. SPACE: next, ENTER: exit, no training nor run folder.
+      view_training_targets: False
       # Times the training step and the inference (PyTorch, TorchScript, ONNX Runtime, TensorRT) on one training batch,
       # at the configured and largest batch sizes that fit, then exits without training; no run folder is created.
       benchmark_speed: False
@@ -307,6 +310,17 @@ Neck:
   normalization:
     # "batch", "layer" (over channels) or "none"
     feature_map_normalization: "batch"
+  # Neck of another DET or INS run initialising this one: same type (not "none"), output_channels, normalization,
+  # levels and level block channels; load it from the run of the heads loaded behind it, which read its outputs.
+  pretrained:
+    # Run folder of the loaded neck, null for random weights; not reloaded when the run resumes.
+    experiment_folder: null
+    # Checkpoint iteration, null for the last one.
+    iteration: null
+    # Freezes the loaded neck (no gradient, frozen batch statistics). Requires experiment_folder.
+    freeze: False
+    # Learning rate factor of the loaded neck, e.g. 0.1 to train it 10x slower.
+    learning_rate_multiplier: 1.0
 
 RegionProposal:
   normalization:

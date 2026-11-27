@@ -152,10 +152,11 @@ class KeypointTrainer(CocoSplitTrainer):
 
     def prepare_batch(self, batch: Dict[str, Any]) -> KeypointBatch:
         """
-        Moves the images (in the precision of the model) and the per-image boxes, classes and keypoints of a keypoint
-        batch to the device, the targets of the losses being built from them by the model, with the ignored regions
-        of the training and validation batches when the loaders give them ('KeypointHead.ignore_unlabelled_objects'),
-        and the objects without labelled keypoint of the test batches, left on the CPU for the evaluation.
+        Moves the images (in the precision of the model), the per-image boxes, classes and keypoints and the window of
+        every image of a keypoint batch to the device, the targets of the losses being built from them by the model (the
+        windows of the detection batches being unused by the keypoint detector), with the ignored regions of the
+        training and validation batches when the loaders give them ('KeypointHead.ignore_unlabelled_objects'), and the
+        objects without labelled keypoint of the test batches, left on the CPU for the evaluation.
 
         Args:
             batch (Dict[str, Any]): The batch dictionary yielded by a keypoint loader.
@@ -170,7 +171,8 @@ class KeypointTrainer(CocoSplitTrainer):
                                      for label_tensor in batch["labels"]],
                           "keypoints": [keypoint_tensor.to(device=self.device, dtype=torch.float32)
                                         for keypoint_tensor in batch["keypoints"]],
-                          "sample_identifiers": batch["sample_identifiers"]}
+                          "sample_identifiers": batch["sample_identifiers"],
+                          "image_windows": batch["image_windows"].to(device=self.device, dtype=torch.float32)}
 
         # The binary regions of the objects without labelled keypoint, kept in uint8 like the instance masks
         if "ignored_regions" in batch:

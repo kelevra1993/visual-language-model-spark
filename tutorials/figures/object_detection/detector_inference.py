@@ -32,11 +32,11 @@ from tutorials.figures.figure_utilities import (SERIES_COLOURS, compute_file_fin
                                                 read_run_configuration, restore_committed_figures, round_fact,
                                                 write_reused_facts)
 from tutorials.figures.object_detection.detection_sources import (BOX_OUTLINE_WIDTH, DETECTION_SAMPLE_ITERATIONS,
-                                                                  SAMPLE_IMAGE_NAME, describe_class_name, draw_box,
-                                                                  find_test_folder, hexadecimal_to_rgb, join_words,
-                                                                  load_caption_fonts, load_run_model,
-                                                                  read_category_names, read_image_annotations,
-                                                                  read_network_image)
+                                                                  SAMPLE_IMAGE_NAME, compute_network_image_window,
+                                                                  describe_class_name, draw_box, find_test_folder,
+                                                                  hexadecimal_to_rgb, join_words, load_caption_fonts,
+                                                                  load_run_model, read_category_names,
+                                                                  read_image_annotations, read_network_image)
 from tutorial_builder.layout import BACKGROUND_COLOUR as FRAME_BACKGROUND_COLOUR
 from tutorial_builder.layout import CARD_COLOUR, DIM_TEXT_COLOUR, TEXT_COLOUR
 from vision_training.evaluation.detection.detection_confusion import MATCHING_INTERSECTION_OVER_UNION_THRESHOLD
@@ -266,7 +266,8 @@ def run_detections(model: TwoStageDetector, input_tensor: torch.Tensor) -> Tuple
         Tuple[Dict[str, Any], int]: The stages of forward_detection_stages and the number of detections.
     """
     with torch.no_grad():
-        stages = model.forward_detection_stages(input_tensor=input_tensor)
+        stages = model.forward_detection_stages(input_tensor=input_tensor,
+                                                image_windows=compute_network_image_window(input_tensor=input_tensor))
     return stages, int(stages["model_output_dictionary"]["number_detections"][0])
 
 
@@ -379,7 +380,7 @@ def filter_image_proposals(aggregated_proposals: Dict[str, torch.Tensor], pre_nm
 def compute_anchor_labels(model: TwoStageDetector, aggregated_proposals: Dict[str, torch.Tensor],
                           object_boxes: torch.Tensor) -> Dict[str, Any]:
     """
-    Labels the anchors of the image for the region proposal loss the way compute_region_proposal_losses does
+    Labels the anchors of the image for the region proposal loss the way assign_region_proposal_targets does
     (batch_assign_targets_to_anchors with the RegionProposal thresholds of the run, then the sampling of
     number_training_positives among total_training_samples anchors), and counts the foreground, background and ignored
     anchors, the foreground ones by level and those that reach the foreground threshold by their overlap, and the
@@ -447,7 +448,7 @@ def compute_detector_targets(model: TwoStageDetector, training_filter: Dict[str,
             and of the sampled proposals by level.
     """
     configuration = model.detector_configuration
-    proposals, proposal_levels = add_ground_truth_proposals(
+    proposals, proposal_levels, _ = add_ground_truth_proposals(
         batched_ground_truth_boxes=[object_boxes], batched_proposals=training_filter["kept_boxes"].unsqueeze(dim=0),
         batched_proposal_levels=training_filter["kept_levels"].unsqueeze(dim=0),
         level_anchors=model.get_level_anchors())

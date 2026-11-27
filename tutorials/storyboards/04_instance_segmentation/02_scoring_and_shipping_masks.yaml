@@ -226,27 +226,31 @@ scenes:
     page: diagram
     title: "The exported instance segmenter"
     code_reference: "vision_training/models/instance_segmentation/inference_instance_segmenter.py · InferenceInstanceSegmenter.predict_masks"
-    # The four outputs of the exported detector (detection_outputs of export_specifications.py) and the zero
-    # padding masks
-    literal_numbers: [four, zero]
+    # The four outputs of the exported detector (detection_outputs of export_specifications.py), the zero
+    # padding masks and the four coordinates of an image window (image_windows of export_specifications.py)
+    literal_numbers: [four, zero, "4"]
     elements:
       - {type: box, box: [20, 250, 300, 410], text: "images\n[B, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Backbone.input_channels}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Data.image_settings.size}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Data.image_settings.size}}]", font: diagram_small, outline: blue, highlight: [3]}
       - {type: box, box: [20, 60, 350, 220], text: "preprocessing.json\nand ONNX metadata:\nthe letterbox of\nthe evaluation", font: diagram_small, outline: yellow, appear: 2, highlight: [2]}
       - {type: arrow, points: [[300, 330], [365, 330]]}
+      # The second input: the window of the resized photo in the input, four coordinates per image
+      - {type: box, box: [20, 430, 300, 560], text: "image_windows\n[B, 4]", font: diagram_small, outline: blue, appear: 5, highlight: [5]}
+      - {type: arrow, points: [[300, 495], [365, 495]], appear: 5}
       - {type: box, box: [370, 60, 1130, 560], fill: null, outline: violet, highlight: [1]}
       - {type: text, position: [750, 90], text: "instance_segmenter", font: diagram_bold, anchor: ma}
-      - {type: text, position: [410, 160], text: "the exported detector, then\nevery level's mask head on all {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections}} detections,\neach detection keeping its own level,\nor the shared mask head once\nthe class channel picked by a gather\nthe sigmoid", font: diagram_text, appear: 1}
+      - {type: text, position: [410, 160], text: "the exported detector, its boxes\nclipped to the windows, then\nevery level's mask head on all {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections}} detections,\neach detection keeping its own level,\nor the shared mask head once\nthe class channel picked by a gather\nthe sigmoid", font: diagram_text, appear: 1}
       - {type: arrow, points: [[1130, 220], [1195, 150]]}
       - {type: text, position: [1205, 150], text: "the four outputs of DET", font: diagram_small, anchor: lm}
       - {type: arrow, points: [[1130, 380], [1195, 380]]}
       - {type: text, position: [1205, 380], text: "detection_masks\n[B, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}, {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}}] FP32", font: diagram_monospace_small, anchor: lm, highlight: [0]}
-      - {type: box, box: [20, 600, 1740, 720], text: "client: restore_boxes_to_original_image(..., clip=False) · paste_instance_masks · pixels >= mask_threshold\na box clipped at the border squeezes its mask", font: diagram_small, outline: yellow, appear: 3, highlight: [3, 4]}
+      - {type: box, box: [20, 600, 1740, 720], text: "client: restore_boxes_to_original_image · paste_instance_masks · pixels >= mask_threshold\nthe boxes come clipped to the window, the masks predicted in them", font: diagram_small, outline: yellow, appear: 3, highlight: [3, 4]}
     narration:
       - "The export writes the segmenter with the four outputs of the detector, then the detection masks: {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections:words}} probability masks of {{config:vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml#MaskHead.mask_resolution}} pixels per image in the frame of their boxes, zero for the padding."
       - "In the graph, every level's mask head runs on all the detections, each keeping its own level, or the shared head once on all of them; the class channel is picked by a gather, then the sigmoid, and the export is checked to a thousandth on the masks."
       - "So that the client letterboxes its images as the evaluation did, the export also writes the colour order, resize, size, interpolation, padding, layout and value range of the run in the preprocessing file next to the model and in the ONNX metadata."
       - "The client pastes the masks itself with paste instance masks, at the boxes brought back to the original image, and keeps the pixels from the mask threshold, which the export does not apply."
-      - "Take an object at the border: restore its box unclipped, since a box clipped at the border squeezes its mask, as the recipe of the tools reference says."
+      - "Take an object at the border of a letterboxed photo: the model clips its box to the photo before the mask head, so its mask fills the clipped box, and the client pastes it at that box restored."
+      - "With every image the client sends its window, the region of the resized photo in the input, and the segmenter keeps the detections of every class from the score threshold its evaluation found on the masks."
 
   - kind: text_panel
     title: "Pitfalls"
@@ -262,11 +266,11 @@ scenes:
           - "masks lose thin walls and points"
           - "mask and box size rows: other objects"
           - "client pastes, thresholds itself"
-          - "restore boxes unclipped"
+          - "client sends the window of every image"
     narration:
       - "The pitfalls of the masks: short runs leave the samples empty, and each level's mask head trains on the positives of its level only, while block {{instance_segmentation.proposal_recall.busiest_block}} takes most proposals, unless the shared setting gives one head all of them."
       - "Polygons or overlapping masks, as in COCO, still travel through the loaders as one full-size mask each."
-      - "Masks pooled from coarse strides lose thin walls and points at strict IoU, the size rows of the mask and box tables hold different objects, and the client must paste with unclipped boxes and apply the threshold."
+      - "Masks pooled from coarse strides lose thin walls and points at strict IoU, the size rows of the mask and box tables hold different objects, and the client must send the window of every image, paste the masks and apply the threshold."
 
   - kind: summary
     title: "Recap"
@@ -287,5 +291,5 @@ scenes:
       - "The mask table heads the report and compares the checkpoints: at iteration {{instance_segmentation.run.checkpoint_iteration:words}}, a mask mAP at 0.5 of {{instance_segmentation.report.trained.mask_methods.area.0:percent}}, against {{instance_segmentation.report.trained.box_methods.area.0:percent}} on the boxes."
       - "Per class at 0.75, the masks lose on the hollow shapes, the {{instance_segmentation.classes.largest_loss.name_text}} most: thin walls pooled from coarse strides hold too few cells for their borders."
       - "On the instance segmentation benchmark, the image branch and the backbone skips tie on the mask mAP over all overlap thresholds, both well above the heads without finer inputs."
-      - "The export ships probability masks in the frame of their boxes: the client pastes them at boxes restored unclipped, and applies the mask threshold itself."
+      - "The export ships probability masks in the frame of their boxes, clipped to the window of their image: the client pastes them at the restored boxes, and applies the mask threshold itself."
       - "That closes the series on instance masks; the keypoint detection series follows."

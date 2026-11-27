@@ -357,8 +357,8 @@ class BaseTrainer(ABC):
                                                                   number_samples=self.number_sample_images)
 
         # Initialize Model and Optimizer, the backbone, the temporal module, the classification head, the
-        # segmentation decoder and the region proposal and detection heads being possibly initialised by the ones of
-        # other runs, through the 'pretrained' settings of the sections the task has
+        # segmentation decoder, the region proposal and detection heads and the neck being possibly initialised by the
+        # ones of other runs, through the 'pretrained' settings of the sections the task has
         self.pretrained_configurations = {section_name: self.model_configuration[section_name]["pretrained"]
                                           for section_name in TRANSFERABLE_COMPONENTS
                                           if section_name in self.model_configuration}
@@ -414,11 +414,13 @@ class BaseTrainer(ABC):
 
         # Optional diagnoses ending the program without training nor creating the run folder: the analysis of every
         # split against the model (the anchor coverage of the detection tasks), the viewer of the training and
-        # validation samples fed to the network, then the speed benchmark of the training step and of the inference
+        # validation samples fed to the network, the viewer of the training targets of the detection tasks, then the
+        # speed benchmark of the training step and of the inference
         if self.exits_after_diagnosis:
             self.diagnose_data_splits()
             if self.diagnosis_modes["view_input_images"]:
                 self.view_input_batches()
+            self.view_training_targets()
             if self.diagnosis_modes["benchmark_speed"]:
                 self.benchmark_speed()
             sys.exit()
@@ -737,7 +739,7 @@ class BaseTrainer(ABC):
         Tells whether a diagnosis mode of 'ExperimentConfiguration.diagnosis_modes' ends the program before the
         training, so that the trainer creates no run folder and writes nothing to an existing one: the input viewer
         ('view_input_images') and the speed benchmark ('benchmark_speed') for every task, the detection tasks adding
-        their anchor coverage ('compute_anchor_coverage').
+        their anchor coverage ('compute_anchor_coverage') and their training target viewer ('view_training_targets').
 
         Returns:
             bool: Whether the program exits after the diagnosis.
@@ -749,6 +751,15 @@ class BaseTrainer(ABC):
         Analyses every split against the built model in a diagnosis mode ending the program, printed before the input
         viewer when it is also on: the detection tasks print the anchor coverage of their training, validation and
         test objects ('compute_anchor_coverage'). Nothing for the other tasks.
+        """
+        return None
+
+    def view_training_targets(self) -> None:
+        """
+        Shows the training targets of the training batches in a diagnosis mode ending the program, after the input
+        viewer when it is also on: the detection tasks draw, for every training image, the anchors, proposals and
+        sampled regions of interest their losses are computed on ('view_training_targets'). Nothing for the other
+        tasks, which have no such mode.
         """
         return None
 
@@ -770,8 +781,9 @@ class BaseTrainer(ABC):
         Builds the optimizer of 'Optimization.optimizer' with its weight decay: Adam (weight decay added to the
         gradients), AdamW (weight decay decoupled from the gradients) or SGD with Nesterov momentum 0.9. Every component
         loaded from another run (backbone, temporal module, classification head, segmentation decoder, region proposal
-        heads, detection heads, mask heads) that is not frozen gets its own parameter group at the learning rate times
-        its 'pretrained.learning_rate_multiplier', so that it can be fine-tuned at another speed than the new layers.
+        heads, detection heads, mask heads, high resolution network, keypoint head, neck) that is not frozen gets its
+        own parameter group at the learning rate times its 'pretrained.learning_rate_multiplier', so that it can be
+        fine-tuned at another speed than the new layers.
         The group is created even with a multiplier of 1, so that the layout of the groups only depends on the transfers
         and freezes written in the run name, and the multiplier can change between two resumptions of a run without
         changing the layout of its checkpoints. The first group holds every other parameter: without such a component,
@@ -953,13 +965,13 @@ class BaseTrainer(ABC):
         """
         Loads the trained components of other runs into the model, for every section whose
         'pretrained.experiment_folder' is set (backbone, temporal module, classification head, segmentation decoder,
-        region proposal heads, detection heads, mask heads, high resolution network, keypoint head), and freezes them
-        when asked, or only the scale and shift of the normalization layers of the backbone. The class names of the run
-        are given to the transfer, so that a run may add classes after those of its source run or hold them at other
-        indices under the same names, and the class layers of the semantic segmentation are loaded with its decoder
-        when 'SegmentationDecoder.pretrained.class_layers' is True (they are never frozen, the new classes having to
-        learn). A run resuming from its own checkpoints does not load them, its checkpoint holding
-        the components it was training, but keeps them frozen. A backbone deeper than its source backbone loads its
+        region proposal heads, detection heads, mask heads, high resolution network, keypoint head, neck), and freezes
+        them when asked, or only the scale and shift of the normalization layers of the backbone. The class names of the
+        run are given to the transfer, so that a run may add classes after those of its source run or hold them at
+        other indices under the same names, and the class layers of the semantic segmentation are loaded with its
+        decoder when 'SegmentationDecoder.pretrained.class_layers' is True (they are never frozen, the new classes
+        having to learn). A run resuming from its own checkpoints does not load them, its checkpoint holding the
+        components it was training, but keeps them frozen. A backbone deeper than its source backbone loads its
         first blocks only, counted in loaded_backbone_blocks (from the configuration of the source run for a new run,
         from the 'pretrained_backbone_blocks' of its last checkpoint for a resumed run, whose source run may be gone):
         only these blocks are frozen, their next blocks learning (see get_transferred_part). A classification,
@@ -1409,7 +1421,7 @@ class BaseTrainer(ABC):
         """
         Prints, in the experiment information, one block per component initialised by the trained one of another run
         (backbone, temporal module, classification head, segmentation decoder, region proposal heads, detection
-        heads, mask heads, high resolution network, keypoint head): its source run folder, then the checkpoint
+        heads, mask heads, high resolution network, keypoint head, neck): its source run folder, then the checkpoint
         iteration it comes from, whether it is frozen, whether the normalization layers of the backbone are frozen, the
         loaded blocks of a backbone deeper than its source backbone (the others starting random), whether the class
         layers of the classification, detection, mask and keypoint heads and of the semantic segmentation are loaded
@@ -1422,7 +1434,8 @@ class BaseTrainer(ABC):
                              "ClassificationHead": "Pretrained Class. Head",
                              "SegmentationDecoder": "Pretrained Seg. Decoder", "RegionProposal": "Pretrained RPN Heads",
                              "Detector": "Pretrained Det. Heads", "MaskHead": "Pretrained Mask Heads",
-                             "HRNet": "Pretrained HRNet", "KeypointHead": "Pretrained Kpt. Head"}
+                             "HRNet": "Pretrained HRNet", "KeypointHead": "Pretrained Kpt. Head",
+                             "Neck": "Pretrained Neck"}
         for section_name, pretrained_configuration in self.pretrained_configurations.items():
             if pretrained_configuration["experiment_folder"] is None:
                 continue
@@ -1696,7 +1709,7 @@ class BaseTrainer(ABC):
 
         # Memory capped for the whole benchmark, the inference measured first with the weights of the run
         with limit_process_memory(device=self.device) as memory_budget:
-            checkpoint_iteration = self.load_benchmark_weights()
+            checkpoint_iteration = self.load_last_checkpoint_weights()
             inference_rows, inference_notes = self.benchmark_inference(stored_batch=stored_batch,
                                                                        memory_budget=memory_budget)
             training_rows, training_notes = self.benchmark_training(stored_batch=stored_batch)
@@ -1745,11 +1758,12 @@ class BaseTrainer(ABC):
         """
         return int(batch["sequence_mask"].sum()) if self.COUNTS_FRAMES else None
 
-    def load_benchmark_weights(self) -> Optional[int]:
+    def load_last_checkpoint_weights(self) -> Optional[int]:
         """
-        Loads the trained weights of the last checkpoint of the run folder into the model for the speed benchmark, the
-        optimizer state and the run folder left untouched, so that the post-processing of the detection tasks (NMS,
-        masks, keypoints) is timed on the detections of trained weights.
+        Loads the trained weights of the last checkpoint of the run folder into the model for the diagnosis modes ending
+        the program, the optimizer state and the run folder left untouched: the speed benchmark, so that the
+        post-processing of the detection tasks (NMS, masks, keypoints) is timed on the detections of trained weights,
+        and the training target viewer of the detection tasks, so that its proposals are those of the trained network.
 
         Returns:
             Optional[int]: The iteration of the loaded checkpoint, None when the run has none (the model keeping its
@@ -3071,7 +3085,8 @@ class BaseTrainer(ABC):
         ('mlflow_run_id', None without tracking or while the run is being opened), the source run of every
         transferable component of the task ('pretrained_backbone', 'pretrained_temporal_module',
         'pretrained_classification_head', 'pretrained_segmentation_decoder', 'pretrained_region_proposer_dictionary',
-        'pretrained_detector_heads_dictionary', 'pretrained_mask_heads_dictionary', None without transfer), the
+        'pretrained_detector_heads_dictionary', 'pretrained_mask_heads_dictionary',
+        'pretrained_high_resolution_network', 'pretrained_keypoint_head', 'pretrained_neck', None without transfer), the
         backbone blocks loaded from a shorter source backbone ('pretrained_backbone_blocks', None when the whole
         backbone or none of it comes from another run, read back when the run resumes) and the moving average of the
         weights of a run keeping one, and records it in the checkpoint registry of the run used to resume the training.

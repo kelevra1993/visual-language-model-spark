@@ -10,6 +10,7 @@ import torch
 from torch import nn
 from typing import Any, Dict, List, Optional, Sequence
 
+from vision_training.data.preprocessing import compute_image_window
 from vision_training.models.classification.inference_classifier import InferenceClassifier
 from vision_training.models.detection.inference_detector import InferenceDetector
 from vision_training.models.instance_segmentation.inference_instance_segmenter import InferenceInstanceSegmenter
@@ -45,10 +46,15 @@ SEQUENCE_TASKS = ["sequence_classification", "sequence_labelling", "sequence_com
 # Tasks whose model gives the class probabilities of every frame [B, T, K] instead of every sequence or pair [B, K]
 FRAME_OUTPUT_TASKS = ["sequence_labelling", "frame_selection"]
 
+# Input of the detectors and instance segmenters giving the [B, 4] [x1, y1, x2, y2] window of every image in the network
+# input (data/preprocessing.py:compute_image_window), to which they clip their detections
+IMAGE_WINDOWS_INPUT_NAME = "image_windows"
+
 # Names of the inputs of the inference model of every task, in the order of the arguments of its forward method:
 # they name the inputs of the ONNX exports, and match the argument names kept by the TorchScript exports, which the
 # Triton PyTorch backend uses to pass every input to its argument
-TASK_INPUT_NAMES = {"object_detection": ["images"], "instance_segmentation": ["images"], "classification": ["images"],
+TASK_INPUT_NAMES = {"object_detection": ["images", IMAGE_WINDOWS_INPUT_NAME],
+                    "instance_segmentation": ["images", IMAGE_WINDOWS_INPUT_NAME], "classification": ["images"],
                     "semantic_segmentation": ["images"], "sequence_classification": ["images"],
                     "sequence_labelling": ["images"],
                     "sequence_comparison": ["before_images", "after_images"], "frame_selection": ["images"],
@@ -341,7 +347,8 @@ def build_input_specification(input_name: str, image_size: int, maximum_sequence
     """
     Describes one input of an exported model, read by the export (names and dynamic dimensions), the Triton
     configuration (one input line) and the checks of the exports (random batches): one image per sample for the image
-    tasks, or one sequence of up to the maximum sequence length frames per sample for the sequence tasks. The batches
+    tasks, or one sequence of up to the maximum sequence length frames per sample for the sequence tasks, and the four
+    window coordinates of every image for the image windows of the detectors (IMAGE_WINDOWS_INPUT_NAME). The batches
     the exports are checked on hold one frame less than the traced ones for the first input, and one more frame less
     for every following input, so that the inputs of the comparison model are checked with different numbers of frames.
 
@@ -358,6 +365,11 @@ def build_input_specification(input_name: str, image_size: int, maximum_sequence
             image tasks), and the 'example_shape' and 'check_shape' of the batches traced at export and checked after.
     """
     image_dimensions = [3, image_size, image_size]
+
+    # Window of every image of the detectors, in the batches of their images
+    if input_name == IMAGE_WINDOWS_INPUT_NAME:
+        return {"name": input_name, "dimensions": [4], "data_type": "TYPE_FP32", "dynamic_frames": False,
+                "maximum_frames": 1, "example_shape": [2, 4], "check_shape": [3, 4]}
 
     # Images: traced on batches of 2 images and checked on batches of 3
     if maximum_sequence_length is None:
@@ -378,8 +390,11 @@ def create_random_inputs(specification: Dict[str, Any], shape_name: str, maximum
     """
     Draws random float BGR inputs in [0, 255] for every input of an export specification, the batches traced at
     export or the batches the exports are compared with the eager model on, their batch size capped at the largest
-    batch size of the exports. The inputs are keyed by name, in the order of the forward arguments of the inference
-    model, so that they are passed by name to the eager and TorchScript models and to ONNX Runtime.
+    batch size of the exports. The image windows of the detectors are those of random letterboxed images
+    (compute_image_window), of sides drawn between half the input size and the input size, so that the checks see
+    detections clipped to a window inside the input. The inputs are keyed by name, in the order of the forward
+    arguments of the inference model, so that they are passed by name to the eager and TorchScript models and to ONNX
+    Runtime.
 
     Args:
         specification (Dict[str, Any]): The export specification, from get_export_specification.
@@ -395,18 +410,29 @@ def create_random_inputs(specification: Dict[str, Any], shape_name: str, maximum
     random_inputs = {}
     for input_specification in specification["inputs"]:
         shape = input_specification[shape_name]
+        batch_size = min(shape[0], maximum_batch_size)
+
+        # Windows of letterboxed images of random sides, the size of the square input given by the images
+        if input_specification["name"] == IMAGE_WINDOWS_INPUT_NAME:
+            image_size = specification["inputs"][0]["dimensions"][-1]
+            image_sides = torch.randint(low=image_size // 2, high=image_size + 1, size=(batch_size, 2),
+                                        generator=generator, device=device).tolist()
+            random_inputs[input_specification["name"]] = torch.from_numpy(np.stack([compute_image_window(
+                image_height=image_height, image_width=image_width, image_size=image_size, keep_ratio=True)
+                for image_height, image_width in image_sides])).to(device=device)
+            continue
         random_inputs[input_specification["name"]] = torch.rand(
-            size=[min(shape[0], maximum_batch_size)] + shape[1:], generator=generator, device=device) * 255.0
+            size=[batch_size] + shape[1:], generator=generator, device=device) * 255.0
     return random_inputs
 
 
 def get_export_specification(task: str, inference_model: nn.Module) -> Dict[str, Any]:
     """
-    Describes how the inference model of a task is exported and served, so that the export, the Triton configuration
-    and the throughput measurement are written once for every task: the inputs in the order of the forward arguments
-    of the inference model ('images', or 'before_images' and 'after_images' for the comparison), the outputs in the
-    order the inference model returns them, the batches used to trace and check the exports, and how the exported
-    outputs are compared with the eager ones.
+    Describes how the inference model of a task is exported and served, so that the export, the Triton configuration and
+    the throughput measurement are written once for every task: the inputs in the order of the forward arguments of the
+    inference model ('images', 'images' and 'image_windows' for the detectors and instance segmenters, or
+    'before_images' and 'after_images' for the comparison), the outputs in the order the inference model returns them,
+    the batches used to trace and check the exports, and how the exported outputs are compared with the eager ones.
 
     Args:
         task (str): The task of the inference model.

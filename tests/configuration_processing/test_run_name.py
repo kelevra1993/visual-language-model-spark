@@ -72,7 +72,8 @@ def get_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, Any]]:
                 "detector": {"roi_align_pool_size": 7, "convolutions": [2, 64], "fully_connected": [256, 128]}}
         for level, scales in [("5", [32, 64, 128]), ("6", [64, 128, 256]), ("7", [128, 256, 512])]}
     model_configuration["Neck"] = {"type": "none", "output_channels": 32,
-                                   "normalization": {"feature_map_normalization": "batch"}}
+                                   "normalization": {"feature_map_normalization": "batch"},
+                                   "pretrained": dict(NO_TRANSFER_SETTINGS)}
     model_configuration["RegionProposal"]["normalization"]["feature_map_normalization"] = "batch"
     # Proposals selected over all the levels at once, which gives no token
     model_configuration["RegionProposal"]["proposal_selection"] = "joint"
@@ -135,7 +136,8 @@ def add_path_aggregation(experiment_configuration: Dict[str, Any], model_configu
         model_configuration (Dict[str, Any]): The model configuration, modified in place.
     """
     model_configuration["Neck"] = {"type": "path_aggregation", "output_channels": 64,
-                                   "normalization": {"feature_map_normalization": "layer"}}
+                                   "normalization": {"feature_map_normalization": "layer"},
+                                   "pretrained": dict(NO_TRANSFER_SETTINGS)}
 
 
 def use_complete_iou_detector_box_loss(experiment_configuration: Dict[str, Any],
@@ -884,6 +886,29 @@ def test_pretrained_detection_head_run_names(region_proposal_freeze: bool | None
     assert build_run_name(experiment_configuration=experiment_configuration,
                           model_configuration=model_configuration) == INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME.replace(
         "_RBN-R2x64_DSE-DRES-DBN-D7.2x64.256.128_MRES", expected_sections)
+
+
+@pytest.mark.parametrize(argnames=("neck_type", "freeze", "expected_levels_section"), argvalues=[
+    ("feature_pyramid", False, "_L567-NFPN32BN-NPT_"), ("feature_pyramid", True, "_L567-NFPN32BN-NPT-NFRZ_"),
+    ("path_aggregation", True, "_L567-NPAN32BN-NPT-NFRZ_")])
+def test_pretrained_neck_run_names(neck_type: str, freeze: bool, expected_levels_section: str) -> None:
+    """
+    Verifies the tokens of a transferred neck at the end of the levels section, after the token of the neck: NPT, then
+    NFRZ when it is frozen, the learning rate multiplier giving no token, so that the runs whose neck starts from random
+    weights keep their names.
+
+    Args:
+        neck_type (str): The 'Neck.type' of the run.
+        freeze (bool): Whether the transferred neck is frozen.
+        expected_levels_section (str): The expected levels section of the run name.
+    """
+    experiment_configuration, model_configuration = get_reference_configurations()
+    model_configuration["Neck"]["type"] = neck_type
+    model_configuration["Neck"]["pretrained"] = {"experiment_folder": "/runs/source", "iteration": None,
+                                                 "freeze": freeze, "learning_rate_multiplier": 0.1}
+    assert build_run_name(experiment_configuration=experiment_configuration,
+                          model_configuration=model_configuration) == REFERENCE_RUN_NAME.replace(
+        "_L567_", expected_levels_section)
 
 
 @pytest.mark.parametrize(argnames=("freeze", "class_layers", "expected_tokens"),

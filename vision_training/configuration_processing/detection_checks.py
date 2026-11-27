@@ -180,8 +180,10 @@ def check_neck_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the 'Neck' section, the layers between the backbone blocks of the detection levels and the region
     proposal, detection and mask heads: its type, the channels of every level after the neck and their normalization,
-    all read even without neck so that switching the type is the only change of a run with a neck. The sizes of the
-    levels, which must be whole multiples of each other, are checked by FeatureNeck once the backbone is built.
+    all read even without neck so that switching the type is the only change of a run with a neck, and the
+    'pretrained' settings initialising the neck with the one of another run, which a run without neck ('none') has no
+    layer to receive. The sizes of the levels, which must be whole multiples of each other, are checked by FeatureNeck
+    once the backbone is built.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'Neck' section.
@@ -202,6 +204,14 @@ def check_neck_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     if feature_map_normalization not in VALID_FEATURE_MAP_NORMALIZATIONS:
         errors.append(f"'Neck.normalization.feature_map_normalization' must be one of "
                       f"{VALID_FEATURE_MAP_NORMALIZATIONS}, got {feature_map_normalization!r}.")
+
+    # Neck initialised by the one of another run, which needs layers to load
+    errors += check_pretrained_configuration(model_configuration=model_configuration, section_name="Neck")
+    neck_source_folder = get_configuration_value(configuration=model_configuration,
+                                                 key_path="Neck.pretrained.experiment_folder")
+    if neck_type == "none" and neck_source_folder is not None:
+        errors.append("'Neck.pretrained.experiment_folder' must be null when 'Neck.type' is \"none\": a run without "
+                      "neck has no layer to load.")
     return errors
 
 
@@ -482,11 +492,13 @@ def check_detection_evaluation_configuration(experiment_configuration: Dict[str,
     return errors
 
 
-def check_anchor_coverage_configuration(experiment_configuration: Dict[str, Any]) -> List[str]:
+def check_detection_diagnosis_modes(experiment_configuration: Dict[str, Any]) -> List[str]:
     """
-    Verifies the 'ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage' diagnosis mode of the object
-    detection and instance segmentation tasks, which prints the anchor recall of the training, validation and test
-    splits then exits: its switch must be a boolean and its threshold an intersection over union within [0, 1].
+    Verifies the diagnosis modes of the object detection and instance segmentation tasks, which end the program before
+    the training: 'ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage', printing the anchor recall of the
+    training, validation and test splits, whose switch must be a boolean and its threshold an intersection over union
+    within [0, 1], and 'ExperimentConfiguration.diagnosis_modes.view_training_targets', the viewer of the anchors,
+    proposals and sampled regions of interest of the training images, whose switch must be a boolean.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -497,7 +509,8 @@ def check_anchor_coverage_configuration(experiment_configuration: Dict[str, Any]
     # Nest the section under its name so that every reported key path matches its location in the YAML file
     configuration = {"ExperimentConfiguration": experiment_configuration}
     key_prefix = "ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage"
-    errors = check_boolean_flags(configuration=configuration, key_paths=[f"{key_prefix}.activated"])
+    errors = check_boolean_flags(configuration=configuration, key_paths=[
+        f"{key_prefix}.activated", "ExperimentConfiguration.diagnosis_modes.view_training_targets"])
     errors += check_intersection_over_union_value(
         value=get_configuration_value(configuration=configuration, key_path=f"{key_prefix}.iou_threshold"),
         key_path=f"{key_prefix}.iou_threshold")
@@ -562,7 +575,7 @@ def check_detection_configuration(experiment_configuration: Dict[str, Any],
     errors = []
     errors += check_detection_evaluation_configuration(experiment_configuration=experiment_configuration,
                                                        model_configuration=model_configuration)
-    errors += check_anchor_coverage_configuration(experiment_configuration=experiment_configuration)
+    errors += check_detection_diagnosis_modes(experiment_configuration=experiment_configuration)
     errors += check_detection_data_configuration(model_configuration=model_configuration)
     errors += check_image_task_sequence_settings(model_configuration=model_configuration)
     errors += check_image_only_augmentation_types(model_configuration=model_configuration)

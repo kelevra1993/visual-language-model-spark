@@ -254,7 +254,7 @@ Should you need to know whether objects are found at all, whatever the score, re
 If you are looking for the share of each class found, with its uncertainty, read the `Per Class Recall` table (`recall_50`, `recall_75` and their [intervals](#recall-intervals)). A recall at 0.75 far below the one at 0.5 means a class found but poorly boxed.
 
 ### Detection Confusion Matrix
-Suppose the deployed detector keeps only detections above `Detector.inference.score_threshold`: this matrix shows its outcomes there (`vision_training/evaluation/detection/detection_confusion.py`, IoU 0.5). False positives go to the `background` row, missed objects to the `background` column. With `error_dumps.activated`, images go to `Errors/FALSE-POSITIVE/<class>/`, `Errors/MISSED/<class>/` and `Errors/<TRUE>-TO-<PREDICTED>/`.
+Suppose the deployed detector keeps only the detections reaching the threshold of their class, from `class_thresholds.json`, or `Detector.inference.score_threshold` for a class without one: this matrix shows its outcomes there (`build_deployed_confusion_matrix` of `vision_training/trainers/detection_trainer.py`, `vision_training/evaluation/detection/detection_confusion.py`, IoU 0.5). False positives go to the `background` row, missed objects to the `background` column. With `error_dumps.activated`, images go to `Errors/FALSE-POSITIVE/<class>/`, `Errors/MISSED/<class>/` and `Errors/<TRUE>-TO-<PREDICTED>/`, at `Detector.inference.score_threshold` for every class, since the class thresholds are only known after the last batch.
 
 The figure shows the four outcomes on one toy image.
 
