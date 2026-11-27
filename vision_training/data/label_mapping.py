@@ -178,7 +178,7 @@ def get_class_names(categories: List[Dict[str, Any]], label_dictionary: Dict[Any
 def write_label_mapping(categories: List[Dict[str, Any]], output_folder: str | Path) -> Path:
     """
     Writes the 'label_mapping.json' file of the 'multi_class' label mapping mode for manifests whose categories are
-    numbered from 1, as built from existing datasets (class folders, pair lists): every category maps to its
+    numbered from 1, as built from the class folders of the ImageNet-22k download: every category maps to its
     identifier minus 1, the classification-like models predicting no background class.
 
     Args:

@@ -1,5 +1,5 @@
 # Sequence comparison dataset template (one class per before/after pair): frames in <split>/data/, <split>/labels.json
-# with categories and pairs (both members' ordered frames, category_id); pair_list_manifests.py converts pair lists.
+# with categories and pairs (both members' ordered frames, category_id).
 ExperimentConfiguration:
   # Task trained, selecting the trainer, model and checks. "sequence_comparison": sequence comparator (one class per
   # before and after sequence pair); needs Data.sequence_settings, TemporalModel, Fusion and ClassificationHead.

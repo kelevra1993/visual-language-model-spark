@@ -28,9 +28,9 @@ torch.set_printoptions(linewidth=1000)
 def read_json(path: str) -> dict[str, Any] | list[Any]:
     """
     Reads and parses a JSON file: the data records of the runs (data.json, compared when a run resumes and read by the
-    transfers between runs), the dataset manifests read by the data scripts, and the pair lists of the comparison
-    manifests. A missing file raises FileNotFoundError, and a malformed one (a data.json truncated by an interrupted
-    write) raises with the file and the position of the error instead of returning None to callers that index it.
+    transfers between runs) and the dataset manifests read by the data scripts. A missing file raises
+    FileNotFoundError, and a malformed one (a data.json truncated by an interrupted write) raises with the file and the
+    position of the error instead of returning None to callers that index it.
 
     Args:
         path (str): The file path to the .json file.
@@ -219,9 +219,9 @@ def get_image_paths(folder: Path, search_subfolders: bool = False) -> List[Path]
 
 def link_folder(link_path: Path, target_folder: Path) -> None:
     """
-    Points 'link_path' to 'target_folder' with a symbolic link, replacing a previous link, so that the manifests built
-    from an existing dataset (class folders, pair lists) read its images where they are instead of copying them into
-    the 'data' folder of every split.
+    Points 'link_path' to 'target_folder' with a symbolic link, replacing a previous link, so that the manifests of
+    the ImageNet-22k download read its class folders where they are instead of copying them into the 'data' folder of
+    every split.
 
     Args:
         link_path (Path): The path of the link, e.g. the 'data' folder of a split.
