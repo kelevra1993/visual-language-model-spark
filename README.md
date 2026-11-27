@@ -630,13 +630,13 @@ Suppose several cameras or services query the same model at once. In the process
 | HTTP and gRPC clients in any language, without PyTorch | a container to run and upgrade |
 | Metrics per model on port 8002 | nothing |
 
-The figure below shows how the batcher groups requests over time:
+The figure below follows the same eight requests in the process without Triton, then through Triton with one instance, as the export writes it, and with two instances, two copies of the model on the GPU:
 
 <p align="center">
-  <img src="README/dynamic_batching_timeline.png" width="100%" />
+  <img src="README/dynamic_batching_requests.png" width="100%" />
 </p>
 
-For one request at a time, Triton is slightly slower: 2.5 milliseconds for a CLS image with TensorRT FP16, against 2.2 in the process. Batching did not help the benchmark models: two instances without batching served more (CLS 1,747 against 1,168 images per second).
+For one request at a time, Triton is slightly slower: 2.5 milliseconds for a CLS image with TensorRT FP16, against 2.2 in the process. Batching did not help the benchmark models: two instances without batching served more (CLS 1,747 against 1,168 images per second). Two instances share one GPU, so each runs slower while both are busy, which the schematic figure does not draw.
 
 #### TensorRT Or TorchScript And ONNX Runtime CUDA
 Whenever latency matters more than a portable file, TensorRT compiles the ONNX graph into an engine for this GPU:
