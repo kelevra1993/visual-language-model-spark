@@ -86,11 +86,16 @@ When this README, which gives the commands and the settings that matter most, is
 ## Prerequisites
 
 ### Package Requirements
-To start on a new machine, install uv (then open a new shell), the Python 3.13 pinned by `.python-version`, and the packages locked in `uv.lock`:
+To start on a new machine:
 
 ```bash
+# Install uv, then open a new shell
 curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install the Python of .python-version
 uv python install
+
+# Install the packages of uv.lock
 uv sync
 ```
 
@@ -103,26 +108,26 @@ Should the backbones of classification, object detection or segmentation start f
 In order to check the installation or a configuration within minutes, every task has a synthetic shapes dataset:
 
 ```bash
-# Generate the dataset of a task (--task from the table below): train, validation, test and label_mapping.json
+# Generate the dataset of a task (--task from the table below)
 uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=classification --output_folder="$HOME/Data/classifier_data/synthetic_shapes"
-# In the synthetic configuration, set the three data folders, Data.label_mapping.mapping_file_path and
-# experiment_folder as absolute paths (no ~ nor $HOME), then train
+
+# Set its absolute paths in the synthetic configuration (no ~ nor $HOME), then train
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/classification/configuration_synthetic_shapes.yaml"
 ```
 
-| Task | `--task` | Synthetic dataset | Configuration |
-|---|---|---|---|
-| CLS | `classification` | one of 35 shapes per image | `classification/configuration_synthetic_shapes.yaml` |
-| CLS (multi-label) | `multi_label_classification` | 5 to 10 shapes per image labelled with their distinct classes | `classification/configuration_synthetic_counted_shapes.yaml` |
-| DET | `instance_segmentation` | the INS images (`--task=object_detection` generates the 1024 pixel images of 5 to 12 shapes of the detection benchmark) | `object_detection/configuration_synthetic_shapes.yaml` |
-| INS | `instance_segmentation` | 5 to 6 shapes per image with their masks | `instance_segmentation/configuration_synthetic_shapes.yaml` |
-| KPT | `keypoint_detection` | 2 to 5 objects per image (shapes, stick figure, house) with their keypoints | `keypoint_detection/configuration_synthetic_shapes.yaml` |
-| SEG | `semantic_segmentation` | 5 to 6 shapes per image with their class mask | `semantic_segmentation/configuration_synthetic_shapes.yaml` |
-| M2O | `sequence_classification` | one shape moving left, right, up or down over 2 to 12 frames | `sequence_classification/configuration_synthetic_sequences.yaml` |
-| M2M | `sequence_labelling` | 5 to 10 shapes per frame, at most one appearing or disappearing per frame | `sequence_labelling/configuration_synthetic_sequences.yaml` |
-| CMP | `sequence_comparison` | a before and an after member, the after one having lost a shape or not | `sequence_comparison/configuration_synthetic_pairs.yaml` |
-| SEL | `frame_selection` | one shape per frame, the largest circle, triangle and star to select | `frame_selection/configuration_synthetic_sequences.yaml` |
-| SSL | `classification`, `self_supervised` | the CLS dataset, or 5 to 10 counted shapes per image | `self_supervised/configuration_synthetic_shapes.yaml`, `configuration_counted_shapes_simclr.yaml`, `configuration_counted_shapes_barlow_twins.yaml` |
+| Task | `--task` | Configuration |
+|---|---|---|
+| CLS | `classification` | `classification/configuration_synthetic_shapes.yaml` |
+| CLS (multi-label) | `multi_label_classification` | `classification/configuration_synthetic_counted_shapes.yaml` |
+| DET | `instance_segmentation` | `object_detection/configuration_synthetic_shapes.yaml` |
+| INS | `instance_segmentation` | `instance_segmentation/configuration_synthetic_shapes.yaml` |
+| KPT | `keypoint_detection` | `keypoint_detection/configuration_synthetic_shapes.yaml` |
+| SEG | `semantic_segmentation` | `semantic_segmentation/configuration_synthetic_shapes.yaml` |
+| M2O | `sequence_classification` | `sequence_classification/configuration_synthetic_sequences.yaml` |
+| M2M | `sequence_labelling` | `sequence_labelling/configuration_synthetic_sequences.yaml` |
+| CMP | `sequence_comparison` | `sequence_comparison/configuration_synthetic_pairs.yaml` |
+| SEL | `frame_selection` | `frame_selection/configuration_synthetic_sequences.yaml` |
+| SSL | `classification`, `self_supervised` | `self_supervised/configuration_synthetic_shapes.yaml`, `configuration_counted_shapes_simclr.yaml`, `configuration_counted_shapes_barlow_twins.yaml` |
 
 <p align="center">
   <img src="README/synthetic_datasets.gif" width="100%" />
