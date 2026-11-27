@@ -422,8 +422,8 @@ The serving paths, timed by the [serving benchmark](documentation/architecture_b
 | In the process, TorchScript | `model.pt` | PyTorch or libtorch | yes | 3.3 | 355 |
 | Triton, TorchScript | `model.pt` | Triton | yes | 4.5 | 320 |
 | Triton, ONNX Runtime CUDA | `model.onnx` | Triton | yes | 3.6 | 435 |
-| Triton, ONNX with TensorRT FP32 | `model.onnx` | Triton, engine tied to one GPU model | the ONNX graph, not the engine | 3.0 | 646 |
-| Triton, ONNX with TensorRT FP16 | `model.onnx` | Triton, engine tied to one GPU model | no | 2.5 | 1,215 |
+| Triton, ONNX with TensorRT FP32 | `model.onnx` | Triton, engine tied to one GPU model | yes, the engine | 3.0 | 646 |
+| Triton, ONNX with TensorRT FP16 | `model.onnx` | Triton, engine tied to one GPU model | yes, the engine against eager FP16 | 2.5 | 1,215 |
 
 #### Which One When
 To find your way among these paths, find your situation in the table: it gives the path to use and the file it runs.
@@ -467,7 +467,7 @@ uv run python -m vision_training.deployment.export_model
 uv run python -m vision_training.deployment.export_model --experiment_folder ~/Data/<run> --iteration 2000 --use_averaged_weights --tensorrt_precision FP16
 ```
 
-Use `--tensorrt_precision None` for a keypoint detector, which crashed Triton 26.01 with TensorRT. The TensorRT FP32 engines of the tutorial sequence models do not build beyond batch 1 (item 41 of `documentation/suggestions.md`).
+With a TensorRT precision, the export also builds and runs the engine in a temporary Triton container, so Docker and a GPU are needed; `--skip_tensorrt_check` skips it. The export refuses a keypoint detector with TensorRT (an FP16 overflow, a crash in FP32): use `--tensorrt_precision None`. The TensorRT FP32 engines of the tutorial sequence models do not build beyond batch 1 (item 41 of `documentation/suggestions.md`).
 
 <p align="center">
   <img src="README/export_pipeline.png" width="100%" />
@@ -566,8 +566,8 @@ If you are looking for what deploys without new code, the table lists what `expo
 | In the process | checkpoint | FP32, TF32 convolutions | the reference |
 | TorchScript | `model.pt` | FP32 | yes |
 | ONNX Runtime CUDA (`--tensorrt_precision None`) | `model.onnx` | FP32 | yes |
-| ONNX with TensorRT FP32 (default) | `model.onnx` | FP32, TF32 allowed | the graph, not the engine |
-| ONNX with TensorRT FP16 | `model.onnx` | FP16 where faster | no |
+| ONNX with TensorRT FP32 (default) | `model.onnx` | FP32, TF32 allowed | yes, the engine |
+| ONNX with TensorRT FP16 | `model.onnx` | FP16 where faster | yes, the engine against eager FP16, after a scan for values above 65,504 |
 
 Triton 26.01 refuses BF16, and native TensorRT engines (`model.plan`) are not implemented.
 
@@ -607,7 +607,7 @@ TensorRT has these costs with the exported configuration:
 - **Engines built at the first request**: up to 34 seconds for DET, and again for every larger batch.
 - **Engines lost with the container**: the engine cache is not mounted, so a recreated container rebuilds them.
 - **Engines tied to one GPU and TensorRT version**: `model.onnx` and `model.pt` run on any GPU.
-- **Unchecked engines**: the export never runs them, and TensorRT allows TF32 in "FP32" engines.
+- **A longer export**: the engine check took about 1 minute for CLS and 11 for DET on a shared GPU, and TensorRT allows TF32 in "FP32" engines.
 
 #### Serving Benchmark Results
 Should you need to pick a serving path, the table gives CLS / DET / M2M in each cell: the 9-class README classifier (512 pixels), the detection benchmark run_9 (1024 pixels) and the sequence labelling tutorial run (in frames). Triton rows use the exported configuration over shared memory; the test metric is in points against eager. To rerun the benchmark, see the [tools reference](documentation/reference/tools_reference.md#serving-benchmark).
