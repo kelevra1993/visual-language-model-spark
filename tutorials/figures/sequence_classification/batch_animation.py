@@ -1,10 +1,10 @@
 """
 Animated padded batch of the sequence classification tutorials (chapters 1 and 2), made by
 tutorials/figures/sequence_classification/figures.py: four sequences drawn by the synthetic generator of the repository
-(generate_moving_shape_sequence, with the frame size and the range of frames of the main block of the generator, the
-way the moving shapes dataset is written), saved and read back as the sequence dataset reads them (at the frame size of
-the run), batched by the collate of the loaders (collate_padded_sequences) and run through the frame encoder of the
-trained flatten run on the CPU. It writes the frames, the frame vectors drawn as heat squares and the layout file of
+(generate_moving_shape_sequence, with the frame size and the range of frames of the task constants of the generator,
+the way the moving shapes dataset is written), saved and read back as the sequence dataset reads them (at the frame
+size of the run), batched by the collate of the loaders (collate_padded_sequences) and run through the frame encoder of
+the trained flatten run on the CPU. It writes the frames, the frame vectors drawn as heat squares and the layout file of
 animations/07_sequence_classification/frame_batches.js, whose phases are the samples, the padded batch, its mask, the
 real frames gathered for the backbone, their vectors and the vectors scattered back; its facts are the real lengths and
 shapes the narration quotes. The family is made again at every build with the checkpoint, its facts written in batch/
@@ -22,11 +22,10 @@ from typing import Any, Dict, List
 from tutorials.figures.figure_utilities import (read_reused_facts, restore_committed_figures, round_fact,
                                                 write_reused_facts)
 from tutorials.figures.sequence_classification.dataset_figures import GENERATOR_TASK, read_generator_frame_range
-from tutorials.figures.sequence_classification.sequence_figure_utilities import (read_generator_setting,
-                                                                                 write_animation_layout,
+from tutorials.figures.sequence_classification.sequence_figure_utilities import (write_animation_layout,
                                                                                  write_vector_square)
 from vision_training.data.sequence.sequence_dataset import collate_padded_sequences, read_sequence_frames
-from vision_training.data.synthetic.create_synthetic_dataset import (MOVEMENT_CATEGORIES,
+from vision_training.data.synthetic.create_synthetic_dataset import (MOVEMENT_CATEGORIES, TASK_IMAGE_SIZES,
                                                                      generate_moving_shape_sequence, save_frames)
 from vision_training.models.sequence.frame_encoder import encode_frames
 from vision_training.models.task_model import TaskModel
@@ -65,8 +64,8 @@ def draw_example_sequences(output_folder: Path) -> Dict[str, Any]:
     """
     Draws the sequences of the example batch with the generator of the repository, the same calls as one chunk of
     generate_sequence_chunk (the number of frames, then the sequence, from one random generator), with the frame size
-    and the range of frames of the main block of the generator, from the first seed giving distinct lengths of at most
-    LONGEST_SHOWN_FRAMES frames, at most MOST_GATHERED_FRAMES frames in all and four directions, and saves their
+    and the range of frames of the task constants of the generator, from the first seed giving distinct lengths of at
+    most LONGEST_SHOWN_FRAMES frames, at most MOST_GATHERED_FRAMES frames in all and four directions, and saves their
     frames with save_frames, the way the dataset is written.
 
     Args:
@@ -79,8 +78,8 @@ def draw_example_sequences(output_folder: Path) -> Dict[str, Any]:
     Raises:
         RuntimeError: If no seed below MAXIMUM_SEED gives such a batch.
     """
-    # Frame size and range of frames the generator draws for the task, read from its main block
-    generator_image_size = read_generator_setting(setting_name="image_sizes", task=GENERATOR_TASK)
+    # Frame size and range of frames the generator draws for the task, read from its task constants
+    generator_image_size = TASK_IMAGE_SIZES[GENERATOR_TASK]
     minimum_frames, maximum_frames = read_generator_frame_range()
     for seed in range(MAXIMUM_SEED):
         random_generator = numpy.random.default_rng(seed=seed)

@@ -18,14 +18,14 @@ Details of every task, completing the [Tasks](../../README.md#tasks) section of 
 - [Self-Supervised Learning (SSL)](#self-supervised-learning-ssl)
 
 ## Synthetic Datasets
-`vision_training/data/synthetic/create_synthetic_dataset.py` generates the dataset of every task, given by its required `--task` argument with the root folder of the dataset (`--output_folder`). Its configuration is listed in the [Quick Start](../../README.md#quick-start-with-synthetic-data).
+`vision_training/data/synthetic/create_synthetic_dataset.py` generates the dataset of every task, given by its required `--task` argument with the root folder of the dataset (`--output_folder`). `--split_sizes` writes other sizes or only some splits (`train=300 validation=30 test=30`, `test=5000`). The image size, shapes per image and frames of every task are its `TASK_*` constants. Its configuration is listed in the [Quick Start](../../README.md#quick-start-with-synthetic-data).
 
 | Task | Content | Classes |
 |---|---|---|
 | CLS | one shape per image | the 35 shapes |
 | CLS | 5 to 10 shapes per image drawn like an M2M frame, labelled with the sorted distinct categories of its shapes in `category_ids` (`--task=multi_label_classification`, 512,000 / 50,000 / 50,000 images), trained in the `multi_label` output mode with the backbone of the M2M launches (`classification/configuration_synthetic_counted_shapes.yaml`) so it can initialise them | the 35 shapes |
 | DET | the INS dataset (`--task=instance_segmentation`), boxes around the visible part of every shape | the 35 shapes |
-| DET | the images of the detection benchmark (`--task=object_detection`): 5 to 12 shapes per 1024 pixel image (512,000 / 50,000 / 50,000 images), labelled with their whole box clipped to the image; the instance segmentation benchmark used the same kind of images labelled with the compressed run length encoding of the visible part of every shape (`--task=instance_segmentation` with the image size, splits of 512,000 / 50,000 / 10,000 images and most shapes per image of the main block set to its values) | the 35 shapes |
+| DET | the images of the detection benchmark (`--task=object_detection`): 5 to 12 shapes per 1024 pixel image (512,000 / 50,000 / 50,000 images), labelled with their whole box clipped to the image; the instance segmentation benchmark used the same kind of images labelled with the compressed run length encoding of the visible part of every shape (`--task=instance_segmentation` with `--split_sizes train=512000 validation=50000 test=10000`, its `TASK_IMAGE_SIZES` and `TASK_MAXIMUM_OBJECTS` entries set to those of `object_detection`) | the 35 shapes |
 | INS | 5 to 6 shapes per image, with the compressed run length encoding of their visible part | the 35 shapes |
 | KPT | 2 to 5 upright objects per image, some keypoints hidden (v = 1) or outside the image | 33 classes: the shapes with keypoints, `stick_figure`, `house` |
 | SEG | 5 to 6 shapes per image, with the class mask | the 35 shapes and the background |

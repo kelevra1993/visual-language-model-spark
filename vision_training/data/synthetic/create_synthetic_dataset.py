@@ -11,21 +11,24 @@ counts, compares or names their shapes are drawn again until every shape is visi
 the self-supervised and multi-label configurations are drawn like the sequence labelling frames, so that their backbone
 can initialise the sequence labelling model, and the occlusion test split of the detection benchmark overlaps its
 objects more, partly in overlapping pairs of a class. Run as a script with the required --task and --output_folder
-arguments (the task and the root folder of the dataset), the image size, split sizes and shapes per image of every task
-being set in its main block; the console describes every split in a rich panel (its samples, the count of every class,
-its generation time) and closes with a panel of the whole dataset.
+arguments (the task and the root folder of the dataset) and the optional split sizes, worker processes and overlap
+settings, the help being printed when no argument is given; the image size, default split sizes, shapes per image and
+frames of every task are the TASK_* constants of the file. The console describes every split in a rich panel (its
+samples, the count of every class, its generation time) and closes with a panel of the whole dataset.
 """
 
 import argparse
 import json
 import math
 import os
+import sys
 import time
 import cv2
 import numpy as np
 
 from functools import partial
 from multiprocessing import Pool
+from pathlib import Path
 from rich.console import Console, Group
 from rich.padding import Padding
 from rich.panel import Panel
@@ -422,6 +425,67 @@ TASK_COUNT_NAMES = {"object_detection": "objects", "instance_segmentation": "obj
                     "sequence_classification": "sequences", "sequence_labelling": "frames",
                     "sequence_comparison": "pairs", "frame_selection": "frames", "self_supervised": "images",
                     "multi_label_classification": "images"}
+
+# Height and width of the square images in pixels, for every task
+TASK_IMAGE_SIZES = {"object_detection": 1024, "instance_segmentation": 512, "keypoint_detection": 512,
+                    "classification": 512, "semantic_segmentation": 512,
+                    "sequence_classification": 512, "sequence_labelling": 512, "sequence_comparison": 512,
+                    "frame_selection": 256, "self_supervised": 512, "multi_label_classification": 512}
+
+# Splits a dataset can hold, in the order they are generated, the split names --split_sizes accepts
+SPLIT_NAMES = ["train", "validation", "test"]
+
+# Number of images (or sequences, or pairs) of every split, all of them labelled, for every task, the default of
+# --split_sizes. The 128000 training images of the instance segmentation are the 2000 iterations of 64 images of the
+# synthetic object detection and instance segmentation configurations, every image being seen once. The 250000 training
+# images of the keypoint detection, of 2 to 5 objects, are seen about 1.3 times by the 20000 iterations of 16 images of
+# its synthetic configuration. The 250000 training sequences of the sequence labelling are seen about 1.5 times by the
+# 6000 iterations of 64 sequences of most launches of its experiment plan, about half a time by the 2000 iterations of
+# its learning rate stage. The 500000 training images of the self-supervised dataset are not labelled for the training,
+# their shape counts only labelling the k-nearest neighbour evaluation of the test split. The 512000 training images of
+# the multi-label classification are seen 5 times by the 10000 iterations of 256 images of its configuration
+# (classification/configuration_synthetic_counted_shapes.yaml). The 512000 training images of the object detection are
+# those of the detection benchmark. The 50000 training images of the semantic segmentation, for 35 classes, are seen
+# about 5 times by the 8000 iterations of 32 images of its tutorial run
+TASK_SPLIT_SIZES = {"object_detection": {"train": 512000, "validation": 50000, "test": 50000},
+                    "instance_segmentation": {"train": 128000, "validation": 20000, "test": 20000},
+                    "keypoint_detection": {"train": 250000, "validation": 50000, "test": 50000},
+                    "classification": {"train": 500000, "validation": 50000, "test": 50000},
+                    "semantic_segmentation": {"train": 50000, "validation": 200, "test": 200},
+                    "sequence_classification": {"train": 2000, "validation": 200, "test": 200},
+                    "sequence_labelling": {"train": 250000, "validation": 50000, "test": 50000},
+                    "sequence_comparison": {"train": 2000, "validation": 200, "test": 200},
+                    "frame_selection": {"train": 2000, "validation": 200, "test": 200},
+                    "self_supervised": {"train": 500000, "validation": 10000, "test": 10000},
+                    "multi_label_classification": {"train": 512000, "validation": 50000, "test": 50000}}
+
+# Maximum number of shapes drawn in one image (at least five for the object detection, instance segmentation and
+# semantic segmentation, at least two for the keypoint detection, one for the classification), in a sequence labelling
+# frame or a self-supervised or multi-label classification image (at least five) or in the before member of a pair (at
+# least two, sequence comparison), for every task (unused by the other tasks)
+TASK_MAXIMUM_OBJECTS = {"object_detection": 12, "instance_segmentation": 6, "keypoint_detection": 5,
+                        "classification": 1, "semantic_segmentation": 6, "sequence_classification": 1,
+                        "sequence_labelling": 10, "sequence_comparison": 6, "frame_selection": 1,
+                        "self_supervised": 10, "multi_label_classification": 10}
+
+# Minimum and maximum number of frames of a sequence or of a member of a pair, every sequence and every member drawing
+# its own number of frames in that range (at least two, at least three for the frame selection, unused by the image
+# tasks)
+TASK_MINIMUM_FRAMES = {"object_detection": 1, "instance_segmentation": 1, "keypoint_detection": 1,
+                       "classification": 1, "semantic_segmentation": 1, "sequence_classification": 2,
+                       "sequence_labelling": 2, "sequence_comparison": 2, "frame_selection": 4, "self_supervised": 1,
+                       "multi_label_classification": 1}
+TASK_MAXIMUM_FRAMES = {"object_detection": 1, "instance_segmentation": 1, "keypoint_detection": 1,
+                       "classification": 1, "semantic_segmentation": 1, "sequence_classification": 12,
+                       "sequence_labelling": 12, "sequence_comparison": 12, "frame_selection": 12,
+                       "self_supervised": 1, "multi_label_classification": 1}
+
+# Number of worker processes generating the images, the default of --number_workers, and probability that an object of
+# a detection or instance segmentation image is placed next to the object placed before it, with its class, the
+# default of create_synthetic_dataset and of --same_class_neighbour_probability: 0 for every dataset, above 0 for the
+# occlusion test split of the detection benchmark, whose largest IoU is 0.6
+DEFAULT_NUMBER_WORKERS = 8
+DEFAULT_SAME_CLASS_NEIGHBOUR_PROBABILITY = 0.0
 
 # Width of the console panels describing the splits and the dataset, whose class table lays the classes out in up to
 # three columns of class and count, indented under the lines of the panel
@@ -3188,7 +3252,8 @@ def build_sequence_labels(sequence_records: List[Dict[str, Any]], split_name: st
 def generate_split(split_folder: str, split_name: str, number_samples: int, image_size: int, maximum_objects: int,
                    minimum_frames: int, maximum_frames: int, number_workers: int, task: str,
                    maximum_object_intersection_over_union: float = MAXIMUM_OBJECT_INTERSECTION_OVER_UNION,
-                   same_class_neighbour_probability: float = 0.0) -> Dict[str, int]:
+                   same_class_neighbour_probability: float = DEFAULT_SAME_CLASS_NEIGHBOUR_PROBABILITY
+                   ) -> Dict[str, int]:
     """
     Generates one split of the synthetic dataset in the folder layout the loaders of the task read: the images (or
     the frame folders of the sequences) in '<split_folder>/data', the class masks of the segmentation images in
@@ -3493,7 +3558,8 @@ def print_dataset_summary(task: str, output_folder: str, label_mapping_path: str
 def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: Dict[str, int], maximum_objects: int,
                              minimum_frames: int, maximum_frames: int, number_workers: int, task: str,
                              maximum_object_intersection_over_union: float = MAXIMUM_OBJECT_INTERSECTION_OVER_UNION,
-                             same_class_neighbour_probability: float = 0.0) -> None:
+                             same_class_neighbour_probability: float = DEFAULT_SAME_CLASS_NEIGHBOUR_PROBABILITY
+                             ) -> None:
     """
     Creates the whole synthetic shapes dataset of a task: the train, validation and test splits, all labelled, and the
     'label_mapping.json' file used by the 'multi_class' label mapping mode of the configuration. The shapes of every
@@ -3621,94 +3687,138 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
                           split_summaries=split_summaries, sample_name=sample_name, count_name=count_name)
 
 
-if __name__ == "__main__":
-    # Task of the dataset, required on the command line so that no file is edited to switch task: "object_detection"
-    # (several shapes per image), "instance_segmentation" (several shapes per image, with the visible part of every
-    # shape), "keypoint_detection" (several upright shapes per image, with the keypoints of every shape),
-    # "classification" (one shape per image), "semantic_segmentation" (several shapes per image, with the class mask of
-    # every image), "sequence_classification" (one shape crossing the frames, labelled with its movement direction),
-    # "sequence_labelling" (5 to 10 shapes per frame, a shape appearing or disappearing from one frame to the next,
-    # labelled per frame), "sequence_comparison" (a before and an after sequence of the same objects, labelled with
-    # whether the after member lost one of them), "frame_selection" (one shape per frame, the largest circle,
-    # triangle and star being the frames to select), "self_supervised" (5 to 10 shapes per image drawn like a
-    # sequence labelling frame, labelled with their number of shapes and keeping the classes of their shapes) or
+def read_split_size_argument(value: str) -> Tuple[str, int]:
+    """
+    Converts one pair of the --split_sizes argument of the generator ('train=300') into a split name and its number of
+    samples, so that a small first dataset or a single split (the occlusion test split of the detection benchmark) is
+    generated without editing TASK_SPLIT_SIZES.
+
+    Args:
+        value (str): The pair given on the command line, '<split>=<number of samples>'.
+
+    Returns:
+        Tuple[str, int]: The split name, one of SPLIT_NAMES, and its number of images, sequences or pairs.
+
+    Raises:
+        argparse.ArgumentTypeError: If the pair has no '=', names another split, or its number of samples is not a
+            whole number of at least 1, which argparse prints after the usage before stopping with status 2.
+    """
+    split_name, separator, number_text = value.partition("=")
+    if not separator or split_name not in SPLIT_NAMES:
+        raise argparse.ArgumentTypeError(f"expected <split>=<number of samples> with a split among "
+                                         f"{', '.join(SPLIT_NAMES)}, got '{value}'")
+
+    # The number of samples must be a whole number of at least one sample
+    try:
+        number_samples = int(number_text)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(f"the number of samples of '{split_name}' must be a whole number, got "
+                                         f"'{number_text}'") from error
+    if number_samples < 1:
+        raise argparse.ArgumentTypeError(f"the number of samples of '{split_name}' must be at least 1, got "
+                                         f"{number_samples}")
+    return split_name, number_samples
+
+
+def parse_synthetic_dataset_arguments(arguments: List[str]) -> argparse.Namespace:
+    """
+    Reads the settings of a synthetic dataset from the command line of the generator, so that a dataset is generated
+    without editing the file: the task and the root folder of the dataset are required, the split sizes default to the
+    entry of the task in TASK_SPLIT_SIZES (only the splits given being written), the worker processes to
+    DEFAULT_NUMBER_WORKERS and the overlap settings to the defaults of create_synthetic_dataset. The image size, the
+    shapes per image and the frames of every task stay the TASK_* constants of the file. Launched without any argument,
+    the script prints the help of every argument and stops. A '~' left by the shell at the start of the folder
+    ('--output_folder=~/Data/...') is expanded to the home folder.
+
+    Args:
+        arguments (List[str]): The command line arguments, without the script name.
+
+    Returns:
+        argparse.Namespace: The task, the output folder, the split sizes as a dictionary in the order of SPLIT_NAMES,
+            the number of workers and the overlap settings, every name a parameter of create_synthetic_dataset.
+
+    Raises:
+        SystemExit: After printing the help when no argument is given, or the usage and the error when the task or the
+            folder is missing, a split pair is malformed or names a split twice, or a value is not a number.
+    """
+    # The description and the example keep their line breaks, argparse wrapping the help of every argument
+    parser = argparse.ArgumentParser(
+        prog="uv run python -m vision_training.data.synthetic.create_synthetic_dataset",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Creates the synthetic shapes dataset of a task, its splits and label_mapping.json, the image\n"
+                    "size, shapes per image and frames of every task being the TASK_* constants of the file.",
+        epilog="Example, a first keypoint dataset of 300 / 30 / 30 images:\n"
+               "  uv run python -m vision_training.data.synthetic.create_synthetic_dataset \\\n"
+               "      --task keypoint_detection --output_folder ~/Data/keypoint_data/synthetic_shapes \\\n"
+               "      --split_sizes train=300 validation=30 test=30")
+    # Task of the dataset: "object_detection" (several shapes per image), "instance_segmentation" (several shapes per
+    # image, with the visible part of every shape), "keypoint_detection" (several upright shapes per image, with the
+    # keypoints of every shape), "classification" (one shape per image), "semantic_segmentation" (several shapes per
+    # image, with the class mask of every image), "sequence_classification" (one shape crossing the frames, labelled
+    # with its movement direction), "sequence_labelling" (5 to 10 shapes per frame, a shape appearing or disappearing
+    # from one frame to the next, labelled per frame), "sequence_comparison" (a before and an after sequence of the same
+    # objects, labelled with whether the after member lost one of them), "frame_selection" (one shape per frame, the
+    # largest circle, triangle and star being the frames to select), "self_supervised" (5 to 10 shapes per image drawn
+    # like a sequence labelling frame, labelled with their number of shapes and keeping the classes of their shapes) or
     # "multi_label_classification" (the same images, labelled with the distinct classes of their shapes)
-    argument_parser = argparse.ArgumentParser(description="Creates the synthetic shapes dataset of a task, the image "
-                                                          "size, split sizes and shapes per image of every task being "
-                                                          "set in the main block.")
-    argument_parser.add_argument("--task", type=str, required=True, choices=list(TASK_SAMPLE_NAMES),
-                                 help="Task of the dataset, e.g. classification.")
-    # Root folder of the created dataset, required on the command line so that every machine writes where its data
-    # lives: the folder the train, validation and test folders and label_mapping.json go to, which the data folders and
-    # the mapping file of the synthetic configuration of the task then point to. Existing images and labels of the same
-    # splits are overwritten
-    argument_parser.add_argument("--output_folder", type=str, required=True,
-                                 help="Root folder of the created dataset, e.g. "
-                                      "~/Data/classifier_data/synthetic_shapes for the classification.")
-    arguments = argument_parser.parse_args()
-    task = arguments.task
-    output_folder = os.path.abspath(os.path.expanduser(arguments.output_folder))
+    parser.add_argument("--task", required=True, choices=list(TASK_SAMPLE_NAMES),
+                        help="Task of the dataset (required).")
+    # Root folder of the dataset, the folder the split folders and label_mapping.json go to, which the data folders
+    # and the mapping file of the synthetic configuration of the task then point to
+    parser.add_argument("--output_folder", type=Path, required=True,
+                        help="Root folder of the created dataset, its existing splits of the same names being "
+                             "overwritten (required), e.g. ~/Data/classifier_data/synthetic_shapes.")
+    # Splits written and their sizes, then the worker processes and the overlap of the objects
+    parser.add_argument("--split_sizes", type=read_split_size_argument, nargs="+", default=None,
+                        metavar="SPLIT=NUMBER",
+                        help=f"Number of images, sequences or pairs of every split written, among "
+                             f"{', '.join(SPLIT_NAMES)}, e.g. train=300 validation=30 test=30, or test=5000 for a "
+                             f"test split alone (default: the sizes of the task in TASK_SPLIT_SIZES).")
+    parser.add_argument("--number_workers", type=int, default=DEFAULT_NUMBER_WORKERS,
+                        help="Worker processes generating the samples (default: %(default)s).")
+    parser.add_argument("--maximum_object_intersection_over_union", type=float,
+                        default=MAXIMUM_OBJECT_INTERSECTION_OVER_UNION,
+                        help="Largest IoU between two objects of an object detection, instance segmentation, keypoint "
+                             "detection, classification or semantic segmentation image, 0.6 for the occlusion test "
+                             "split of the detection benchmark (default: %(default)s).")
+    parser.add_argument("--same_class_neighbour_probability", type=float,
+                        default=DEFAULT_SAME_CLASS_NEIGHBOUR_PROBABILITY,
+                        help="Probability that an object of an object detection or instance segmentation image is "
+                             "placed next to the object placed before it, with its class, at an IoU from 0.5 to the "
+                             "largest IoU, above 0 for the occlusion test split (default: %(default)s).")
 
-    # Height and width of the square images in pixels, for every task
-    image_sizes = {"object_detection": 1024, "instance_segmentation": 512, "keypoint_detection": 512,
-                   "classification": 512, "semantic_segmentation": 512,
-                   "sequence_classification": 512, "sequence_labelling": 512, "sequence_comparison": 512,
-                   "frame_selection": 256, "self_supervised": 512, "multi_label_classification": 512}
-    # Number of images (or sequences, or pairs) of every split, all of them labelled, for every task. The 128000
-    # training images of the instance segmentation are the 2000 iterations of 64 images of the synthetic object
-    # detection and instance segmentation configurations, every image being seen once. The 250000 training images of the
-    # keypoint detection, of 2 to 5 objects, are seen about 1.3 times by the 20000 iterations of 16 images of its
-    # synthetic configuration. The 250000 training sequences of the sequence labelling are seen about 1.5 times by the
-    # 6000 iterations of 64 sequences of most launches of its experiment plan, about half a time by the 2000 iterations
-    # of its learning rate stage. The 500000 training images of the self-supervised dataset are not labelled for the
-    # training, their shape counts only labelling the k-nearest neighbour evaluation of the test split. The 512000
-    # training images of the multi-label classification are seen 5 times by the 10000 iterations of 256 images of its
-    # configuration (classification/configuration_synthetic_counted_shapes.yaml). The 512000 training images of the
-    # object detection are those of the detection benchmark. The 50000 training images of the semantic segmentation, for
-    # 35 classes, are seen about 5 times by the 8000 iterations of 32 images of its tutorial run
-    split_sizes = {"object_detection": {"train": 512000, "validation": 50000, "test": 50000},
-                   "instance_segmentation": {"train": 128000, "validation": 20000, "test": 20000},
-                   "keypoint_detection": {"train": 250000, "validation": 50000, "test": 50000},
-                   "classification": {"train": 500000, "validation": 50000, "test": 50000},
-                   "semantic_segmentation": {"train": 50000, "validation": 200, "test": 200},
-                   "sequence_classification": {"train": 2000, "validation": 200, "test": 200},
-                   "sequence_labelling": {"train": 250000, "validation": 50000, "test": 50000},
-                   "sequence_comparison": {"train": 2000, "validation": 200, "test": 200},
-                   "frame_selection": {"train": 2000, "validation": 200, "test": 200},
-                   "self_supervised": {"train": 500000, "validation": 10000, "test": 10000},
-                   "multi_label_classification": {"train": 512000, "validation": 50000, "test": 50000}}
-    # Maximum number of shapes drawn in one image (at least five for the object detection, instance segmentation and
-    # semantic segmentation, at least two for the keypoint detection, one for the classification), in a sequence
-    # labelling frame or a self-supervised or multi-label classification image (at least five) or in the before member
-    # of a pair (at least two, sequence comparison), for every task (unused by the other tasks)
-    maximum_objects = {"object_detection": 12, "instance_segmentation": 6, "keypoint_detection": 5, "classification": 1,
-                       "semantic_segmentation": 6, "sequence_classification": 1, "sequence_labelling": 10,
-                       "sequence_comparison": 6, "frame_selection": 1, "self_supervised": 10,
-                       "multi_label_classification": 10}
-    # Minimum and maximum number of frames of a sequence or of a member of a pair, every sequence and every member
-    # drawing its own number of frames in that range (at least two, at least three for the frame selection, unused by
-    # the image tasks)
-    minimum_frames = {"object_detection": 1, "instance_segmentation": 1, "keypoint_detection": 1, "classification": 1,
-                      "semantic_segmentation": 1, "sequence_classification": 2, "sequence_labelling": 2,
-                      "sequence_comparison": 2, "frame_selection": 4, "self_supervised": 1,
-                      "multi_label_classification": 1}
-    maximum_frames = {"object_detection": 1, "instance_segmentation": 1, "keypoint_detection": 1, "classification": 1,
-                      "semantic_segmentation": 1, "sequence_classification": 12, "sequence_labelling": 12,
-                      "sequence_comparison": 12, "frame_selection": 12, "self_supervised": 1,
-                      "multi_label_classification": 1}
-    # Largest IoU between two objects of an image drawn by generate_image: 0.3 for every dataset, 0.6 for the occlusion
-    # test split of stage 5b of the detection benchmark, in a folder of its own
-    maximum_object_intersection_over_union = 0.3
-    # Probability that an object of a detection or instance segmentation image is placed next to the object placed
-    # before it, with its class, at an IoU from 0.5 to the cap above: 0 for every dataset, above 0 for the occlusion
-    # test split, whose cap is 0.6
-    same_class_neighbour_probability = 0.0
-    # Number of worker processes generating the images
-    number_workers = 8
+    # Without any argument, the script describes its arguments instead of failing on the missing task
+    if not arguments:
+        parser.print_help()
+        parser.exit(status=0)
+    parsed_arguments = parser.parse_args(args=arguments)
+    parsed_arguments.output_folder = parsed_arguments.output_folder.expanduser()
 
-    create_synthetic_dataset(output_folder=output_folder, image_size=image_sizes[task],
-                             split_sizes=split_sizes[task], maximum_objects=maximum_objects[task],
-                             minimum_frames=minimum_frames[task], maximum_frames=maximum_frames[task],
-                             number_workers=number_workers, task=task,
-                             maximum_object_intersection_over_union=maximum_object_intersection_over_union,
-                             same_class_neighbour_probability=same_class_neighbour_probability)
+    # The sizes of the task without --split_sizes, otherwise the splits given, each once, in the order of SPLIT_NAMES
+    if parsed_arguments.split_sizes is None:
+        parsed_arguments.split_sizes = dict(TASK_SPLIT_SIZES[parsed_arguments.task])
+    else:
+        given_split_names = [split_name for split_name, _ in parsed_arguments.split_sizes]
+        if len(set(given_split_names)) != len(given_split_names):
+            parser.error(message=f"argument --split_sizes: every split is given once, got "
+                                 f"{' '.join(given_split_names)}")
+        given_sizes = dict(parsed_arguments.split_sizes)
+        parsed_arguments.split_sizes = {split_name: given_sizes[split_name] for split_name in SPLIT_NAMES
+                                        if split_name in given_sizes}
+    return parsed_arguments
+
+
+if __name__ == "__main__":
+    # Task, dataset folder, split sizes and generation settings read from the command line, the help printed when none
+    # is given
+    generator_arguments = parse_synthetic_dataset_arguments(arguments=sys.argv[1:])
+    task = generator_arguments.task
+
+    # Image size, shapes per image and frames of the task taken from the constants at the top of the file
+    create_synthetic_dataset(output_folder=str(generator_arguments.output_folder), image_size=TASK_IMAGE_SIZES[task],
+                             split_sizes=generator_arguments.split_sizes, maximum_objects=TASK_MAXIMUM_OBJECTS[task],
+                             minimum_frames=TASK_MINIMUM_FRAMES[task], maximum_frames=TASK_MAXIMUM_FRAMES[task],
+                             number_workers=generator_arguments.number_workers, task=task,
+                             maximum_object_intersection_over_union=(
+                                 generator_arguments.maximum_object_intersection_over_union),
+                             same_class_neighbour_probability=generator_arguments.same_class_neighbour_probability)
