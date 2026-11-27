@@ -1,12 +1,11 @@
 """
-Draws the two figures of the "Number Formats" subsection of the README Deployment section, for the four formats the
-repository uses (FP32, TF32, BF16, FP16): README/number_format_examples.png puts six typical values of the repository
-(a class threshold, a pixel coordinate, two box areas, a box offset and a weight update) on the number line of each
-format, and README/number_format_rounding.png draws the gap between neighbouring values of each format from 1e-6 to
-1e7. FP32, BF16 and FP16 values are rounded by PyTorch; TF32 rounds the FP32 mantissa to 10 bits, ties to even. From
+Draws the figure of "The Same Values In Every Format" in the README Deployment section
+(README/number_format_values.png): six typical values of the repository (a class threshold, a pixel coordinate, two box
+areas, a box offset and a weight update) on the number line of each format the repository uses (FP32, TF32, BF16,
+FP16). FP32, BF16 and FP16 values are rounded by PyTorch; TF32 rounds the FP32 mantissa to 10 bits, ties to even. From
 the repository root:
 
-    uv run python -m documentation.presentation.figures.draw_number_formats --output_folder README
+    uv run python -m documentation.presentation.figures.draw_number_formats --output_path README/number_format_values.png
 """
 
 import argparse
@@ -189,53 +188,11 @@ def draw_examples(output_path: Path) -> None:
     plt.close(figure)
 
 
-def draw_rounding(output_path: Path) -> None:
-    """
-    Draws the gap between neighbouring values of every format from 1e-6 to 1e7 on log axes, with a cross where FP16
-    overflows and dotted lines at a class threshold, a pixel coordinate and a 256 x 256 box area.
-
-    Args:
-        output_path (Path): The PNG file written.
-    """
-    figure, axes = plt.subplots(figsize=(12, 6.6))
-    magnitudes = numpy.logspace(-6, 7, 4000)
-    for format_name, specification in FORMATS.items():
-        kept = magnitudes[magnitudes <= specification["largest_value"]]
-        gaps = [gap_at(value=magnitude, format_name=format_name) for magnitude in kept]
-        # TF32 dashed under FP16, the two having the same gaps below 65,504
-        line_style, z_order = ("--", 3) if format_name == "TF32" else ("-", 2)
-        axes.step(kept, gaps, where="post", color=specification["colour"], linewidth=2.6, linestyle=line_style, zorder=z_order,
-                  label=format_name + (" (same gaps as FP16, range of FP32)" if format_name == "TF32" else ""))
-    axes.scatter([65504], [gap_at(value=65504.0, format_name="FP16")], marker="X", s=160, color=FORMATS["FP16"]["colour"],
-                 zorder=4)
-    axes.text(x=8e4, y=0.5, s="FP16 overflows\nabove 65,504", fontsize=12, fontweight="bold",
-              color=FORMATS["FP16"]["colour"])
-    # Dotted lines at three values of the repository
-    for magnitude, label in [(0.999, "class threshold\n0.999"), (1024, "pixel coordinate\n1024"),
-                             (65536, "area of a\n256 x 256 box")]:
-        axes.axvline(x=magnitude, color="#4a5568", linestyle=":", linewidth=1.3)
-        axes.text(x=magnitude * 1.15, y=2e-9, s=label, fontsize=11, color="#718096")
-    axes.set_xscale("log")
-    axes.set_yscale("log")
-    axes.set_xlim(1e-6, 1e7)
-    axes.set_ylim(1e-13, 1e5)
-    axes.set_xlabel("magnitude of the value", fontsize=13)
-    axes.set_ylabel("gap to the next representable value", fontsize=13)
-    axes.grid(color="#edf2f7")
-    for side in ("top", "right"):
-        axes.spines[side].set_visible(False)
-    axes.legend(loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=4, frameon=False, fontsize=11)
-    figure.tight_layout()
-    figure.savefig(output_path, dpi=150, facecolor="white")
-    plt.close(figure)
-
-
 if __name__ == "__main__":
-    # Folder of the two PNG files, README/ for the README
-    parser = argparse.ArgumentParser(description="Draw the number format figures of the README.")
-    parser.add_argument("--output_folder", type=Path, required=True)
+    # Path of the PNG file, README/number_format_values.png for the README
+    parser = argparse.ArgumentParser(description="Draw the number format figure of the README.")
+    parser.add_argument("--output_path", type=Path, required=True)
     arguments = parser.parse_args()
-    arguments.output_folder.mkdir(parents=True, exist_ok=True)
-    for name, drawer in [("number_format_examples.png", draw_examples), ("number_format_rounding.png", draw_rounding)]:
-        drawer(output_path=arguments.output_folder / name)
-        print(f"Wrote {format_path_link(path=arguments.output_folder / name)}")
+    arguments.output_path.parent.mkdir(parents=True, exist_ok=True)
+    draw_examples(output_path=arguments.output_path)
+    print(f"Wrote {format_path_link(path=arguments.output_path)}")

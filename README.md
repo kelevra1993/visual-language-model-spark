@@ -481,16 +481,9 @@ Before you pick the precision of a served model ([export](#export)), see what FP
 The figure below puts the same values on the number line of each format:
 
 <p align="center">
-  <img src="README/number_format_examples.png" width="100%" />
+  <img src="README/number_format_values.png" width="100%" />
 </p>
 <p align="center"><em>One lane per format: the ticks are the values it holds, the dot the stored value, and an arrow a value stored as inf (FP16 above 65,504).</em></p>
-
-The figure below shows how far apart neighbouring values are in each format, from 10^-6 to 10^7:
-
-<p align="center">
-  <img src="README/number_format_rounding.png" width="100%" />
-</p>
-<p align="center"><em>A stored value moves by up to half the gap. FP16 overflows past the cross. Dotted lines: a class threshold, a pixel coordinate of a 1024-pixel input and a 256 x 256 box area.</em></p>
 
 ### Export
 Once a run is ready to be served, `vision_training/deployment/export_model.py` writes it to the Triton model repository as TorchScript and ONNX, with a Triton configuration per model. It checks every format against the eager model and replaces the served models only when all match. Set in its main block:
