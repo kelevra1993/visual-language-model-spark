@@ -167,7 +167,7 @@ scenes:
           - {match: "dims:", sentences: [1]}
           - {match: "^dynamic_batching|^instance_group", sentences: [2]}
           - {match: "^version_policy", sentences: [0]}
-          - {match: "precision_mode|max_workspace_size_bytes|trt_engine_cache", sentences: [3]}
+          - {match: "precision_mode|trt_engine_cache", sentences: [3]}
       - {type: text, position: [1150, 20], text: "TorchScript of the run_9 detector: outputs", font: diagram_small, colour: dim, anchor: lm, appear: 4}
       - type: listing
         box: [1140, 50, 1750, 200]
@@ -183,7 +183,7 @@ scenes:
       - "Write Triton configuration gives each model its platform, pytorch libtorch or onnxruntime onnx, the max batch size of the export, and a version policy serving the exported version only."
       - "The inputs and outputs come from the export specification, without the batch dimension, and stay float32 whatever the precision of the engine, so a request keeps its size."
       - "Every model gets dynamic batching with a queue delay of {{deployment.triton.queue_delay_microseconds}} microseconds, and {{deployment.triton.instance_count:words}} instance on the GPU; the third chapter measures what that costs."
-      - "With a TensorRT precision, the ONNX model gets the TensorRT accelerator with a workspace of {{deployment.triton.workspace_gigabytes:.0f}} gigabytes and an engine cache in the temporary folder of the container, lost whenever the container is recreated."
+      - "With a TensorRT precision, the ONNX model gets the TensorRT accelerator without a workspace limit and an engine cache in the temporary folder of the container, lost whenever the container is recreated."
       - "A TorchScript model names its outputs after their index, as the PyTorch backend of Triton wants them, which get served output names writes for the clients and the ensembles."
       - "And the number of detections, one value per image, is exposed as a vector of one and reshaped to a scalar for the model."
 

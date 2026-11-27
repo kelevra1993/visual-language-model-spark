@@ -194,7 +194,10 @@ def write_triton_configuration(model_directory: Path, model_name: str, model_ver
 
     # Let ONNX Runtime run the supported parts of the graph with TensorRT, the other operators stay on CUDA; its
     # engines are cached in the container under a prefix naming this export, so that an export of other weights never
-    # loads the engines built from those of an earlier export
+    # loads the engines built from those of an earlier export. No workspace limit is set, TensorRT taking the memory of
+    # the GPU as its limit: TensorRT 10 compiles a whole graph into one Myelin node whose activations are workspace, and
+    # a 4 GiB limit left no kernel for a batch of 16 sequences of 50 frames (7.2 GiB for the sequence labelling
+    # tutorial run) or of 16 images of the keypoint detector
     if export_format == "onnx" and tensorrt_precision is not None:
         engine_cache_prefix = build_tensorrt_engine_cache_prefix(
             model_name=model_name, model_version=model_version, tensorrt_precision=tensorrt_precision,
@@ -202,7 +205,6 @@ def write_triton_configuration(model_directory: Path, model_name: str, model_ver
         configuration += ('optimization { execution_accelerators { gpu_execution_accelerator: [ {\n'
                           '  name: "tensorrt"\n'
                           f'  parameters {{ key: "precision_mode" value: "{tensorrt_precision}" }}\n'
-                          '  parameters { key: "max_workspace_size_bytes" value: "4294967296" }\n'
                           '  parameters { key: "trt_engine_cache_enable" value: "1" }\n'
                           f'  parameters {{ key: "trt_engine_cache_path" value: "{TENSORRT_ENGINE_CACHE_FOLDER}" }}\n'
                           f'  parameters {{ key: "trt_engine_cache_prefix" value: "{engine_cache_prefix}" }}\n'

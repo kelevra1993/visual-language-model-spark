@@ -462,7 +462,7 @@ uv run python -m vision_training.deployment.export_model --experiment_folder ~/D
 #   --show_warnings                           show the harmless library warnings
 ```
 
-With a TensorRT precision, the export also builds and runs the engine in a temporary Triton container, so Docker and a GPU are needed; `--skip_tensorrt_check` skips it. The export refuses a keypoint detector with TensorRT (an FP16 overflow, a crash in FP32): use `--tensorrt_precision None`. The TensorRT FP32 engines of the tutorial sequence models do not build beyond batch 1 (item 41 of `documentation/suggestions.md`).
+With a TensorRT precision, the export also builds and runs the engine in a temporary Triton container, so Docker and a GPU are needed; `--skip_tensorrt_check` skips it. The check compares an FP32 engine with the eager model at the FP32 tolerances. The TF32 roundings of the engine exceed them for the keypoint detector and the M2M and SEL tutorial runs, so the export refuses these. Export the keypoint detector with `--tensorrt_precision FP16`. The FP16 engine of M2M fails its check too: use `--tensorrt_precision None` (item 41 of `documentation/suggestions.md`).
 
 <p align="center">
   <img src="README/export_pipeline.png" width="100%" />

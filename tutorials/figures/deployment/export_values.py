@@ -82,7 +82,6 @@ LISTED_MODEL_FOLDERS = ["image_classifier_onnx", "image_classifier_torchscript",
 # Lines of a config.pbtxt holding a numeric setting the narration quotes, with the pattern of its value
 CONFIGURATION_VALUE_PATTERNS = {"queue_delay_microseconds": r"max_queue_delay_microseconds: (\d+)",
                                 "instance_count": r"kind: KIND_GPU count: (\d+)",
-                                "workspace_bytes": r'key: "max_workspace_size_bytes" value: "(\d+)"',
                                 "maximum_batch_size": r"max_batch_size: (\d+)"}
 
 
@@ -300,7 +299,6 @@ def describe_triton_configurations(output_folder: Path, classification_run_folde
             "triton.queue_delay_milliseconds": configuration_values["queue_delay_microseconds"] /
                                                    MICROSECONDS_PER_MILLISECOND,
             "triton.instance_count": configuration_values["instance_count"],
-            "triton.workspace_gigabytes": configuration_values["workspace_bytes"] / 2 ** 30,
             "classifier.image_size": classification_inference_model.input_image_size,
             "classifier.number_classes": classification_inference_model.number_classes,
             "detector.image_size": detection_stand_in.input_image_size,

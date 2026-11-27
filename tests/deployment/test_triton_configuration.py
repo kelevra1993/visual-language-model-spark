@@ -1,9 +1,9 @@
 """
 Tests of write_triton_configuration of vision_training/deployment/triton_configuration.py: the comparison configuration
 has one input line per member, each with its own varying number of frames, and the output names of the PyTorch backend,
-a misspelled export format or TensorRT precision is refused instead of being served as plain ONNX Runtime, and the
-TensorRT engines of an ONNX export are cached under a prefix naming its files, so that an export of other weights of
-the same graph never loads the engines built from an earlier export.
+a misspelled export format or TensorRT precision is refused instead of being served as plain ONNX Runtime, the
+TensorRT block sets no workspace limit, and the TensorRT engines of an ONNX export are cached under a prefix naming its
+files, so that an export of other weights of the same graph never loads the engines built from an earlier export.
 """
 
 import re
@@ -137,7 +137,8 @@ def test_unknown_export_format_or_precision_is_refused(tmp_path: Path, export_fo
 
 @pytest.mark.parametrize(argnames=("export_format", "tensorrt_precision", "torchscript_precision", "expected_lines",
                                    "absent_lines"), argvalues=[
-    ("onnx", "FP16", "FP16", ['platform: "onnxruntime_onnx"', 'value: "FP16"'], ["default_model_filename"]),
+    ("onnx", "FP16", "FP16", ['platform: "onnxruntime_onnx"', 'value: "FP16"'],
+     ["default_model_filename", "max_workspace_size_bytes"]),
     ("onnx", None, "FP32", ['platform: "onnxruntime_onnx"'], ['name: "tensorrt"']),
     ("torchscript", "FP32", "FP32", ['platform: "pytorch_libtorch"', '"class_probabilities__0"'],
      ['name: "tensorrt"', "default_model_filename"]),
@@ -148,7 +149,8 @@ def test_known_export_formats_get_their_platform(tmp_path: Path, export_format: 
                                                  absent_lines: List[str]) -> None:
     """
     Verifies the platform of the two known formats, the TensorRT block being written for an ONNX model with a
-    precision only, and never for the TorchScript model, whose FP16 file 'model_fp16.pt' is named by
+    precision only, without a workspace limit (the 4 GiB limit left no kernel for the batches of 16 sequences of 50
+    frames), and never for the TorchScript model, whose FP16 file 'model_fp16.pt' is named by
     'default_model_filename', the FP32 'model.pt' being the default of the backend.
 
     Args:
