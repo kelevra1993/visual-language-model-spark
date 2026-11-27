@@ -418,7 +418,7 @@ To find your way among these paths, find your situation in the table: it gives t
 | The program running the model links PyTorch | TorchScript | `model.pt` |
 | The most images per second on one known GPU | ONNX with TensorRT FP16, after checking its metric | `model.onnx` |
 | No PyTorch, or C# or Java | ONNX Runtime, CPU or GPU | `model.onnx` |
-| Many clients or models behind one endpoint | Triton, serving either file | `model.pt` or `model.onnx` |
+| Many clients or models behind one endpoint | Triton, serving either file; on a known GPU, `model.onnx` with TensorRT FP16 after checking its metric | `model.pt` or `model.onnx` |
 
 - **Debugging, evaluating or changing the model**: eager, the reference of every other path.
 - **A C++ or Python service that already links PyTorch**: TorchScript (`torch.jit.load` on `model.pt`), which PyTorch 2.14 marks as deprecated.
