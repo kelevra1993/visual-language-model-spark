@@ -101,12 +101,12 @@ Should the backbones of classification, object detection or segmentation start f
 
 ## Quick Start With Synthetic Data
 In order to check the installation or a configuration within minutes, every task has a synthetic shapes dataset:
-1. Run `vision_training/data/synthetic/create_synthetic_dataset.py` with the task of the dataset (`--task`, its value for every configuration in the table below) and its root folder (`--output_folder`), both required; the folder receives the `train`, `validation` and `test` folders and `label_mapping.json` (existing splits of the same names are overwritten), the image size, split sizes and shapes per image of every task staying in its main block. A panel describes each split once written (its samples, the count of every class, its generation time) and a closing panel gives the label mapping file and the time of every split.
-2. In the synthetic configuration of the task (table below, in `vision_training/configurations/`), point the three data folders and `Data.label_mapping.mapping_file_path` to the `train`, `validation` and `test` folders and the `label_mapping.json` of the generated dataset, and `experiment_folder` to the folder receiving the runs, all as absolute paths: a configuration expands neither `~` nor `$HOME`.
-3. Train with that configuration.
 
 ```bash
+# Generate the dataset of a task (--task from the table below): train, validation, test and label_mapping.json
 uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=classification --output_folder="$HOME/Data/classifier_data/synthetic_shapes"
+# In the synthetic configuration, set the three data folders, Data.label_mapping.mapping_file_path and
+# experiment_folder as absolute paths (no ~ nor $HOME), then train
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/classification/configuration_synthetic_shapes.yaml"
 ```
 
@@ -123,8 +123,6 @@ uv run python -m vision_training.main --configuration_path="vision_training/conf
 | CMP | `sequence_comparison` | a before and an after member, the after one having lost a shape or not | `sequence_comparison/configuration_synthetic_pairs.yaml` |
 | SEL | `frame_selection` | one shape per frame, the largest circle, triangle and star to select | `frame_selection/configuration_synthetic_sequences.yaml` |
 | SSL | `classification`, `self_supervised` | the CLS dataset, or 5 to 10 counted shapes per image | `self_supervised/configuration_synthetic_shapes.yaml`, `configuration_counted_shapes_simclr.yaml`, `configuration_counted_shapes_barlow_twins.yaml` |
-
-Should you need to know what a model of these datasets has to cope with, every task draws its shapes the same way: sizes from 16 pixels up to 80 % of the image side (as many per scale octave; the regular polygons from the size at which they stay distinct from the circle, 21 pixels for the pentagon to 67 for the nonagon, and the keypoint objects from 32 pixels), the small shapes over the large ones, shapes cut by the image border, half of the images and sequences on a textured background, and a fifth of the shapes of a flat background in a colour close to it. The labels follow what the image shows: the DET, INS and KPT labels leave out the shapes mostly hidden, and the other tasks keep 85 % of the pixels of every shape visible ([tasks reference](documentation/reference/tasks_reference.md#synthetic-datasets)).
 
 <p align="center">
   <img src="README/synthetic_datasets.gif" width="100%" />
