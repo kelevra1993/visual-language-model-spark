@@ -5,12 +5,14 @@ inference model, in a staging folder moved into the repository only when every f
 selection the decoder and the ensembles returning the chosen frames, and for the classification the logit temperature
 and the class thresholds saved from the temperature explorer of the exported checkpoint. Every exported model carries
 the input contract of the run (deployment/input_contract.py), in the metadata of the ONNX file and in
-'preprocessing.json' next to it, so that a server builds the input from a photo as the training did. With
-test_split_parity, every format is also served by a temporary Triton container and scored on the whole test split
-against the eager model (deployment/export_parity.py), the summary written to
-'<run>/Export_Parity/Iteration_<n>[_EMA][_T<temperature>]_<precisions>/' and next to the installed models. Run as a
-script with the run folder and the export settings given as arguments (parse_export_arguments), its help printed when
-none is given.
+'preprocessing.json' next to it, so that a server builds the input from a photo as the training did. An ONNX model
+served with TensorRT is also checked as Triton will run it (deployment/tensorrt_check.py): in FP16, a CPU scan of its
+graph for values above the largest FP16 value, then, unless skip_tensorrt_check, its engine built and run by a
+temporary Triton container on the check batches, compared with the eager model. With test_split_parity, every
+format is also served by a temporary Triton container and scored on the whole test split against the eager model
+(deployment/export_parity.py), the summary written to '<run>/Export_Parity/Iteration_<n>[_EMA][_T<temperature>]_
+<precisions>/' and next to the installed models. Run as a script with the run folder and the export settings given as
+arguments (parse_export_arguments), its help printed when none is given.
 """
 
 import argparse
@@ -18,10 +20,13 @@ import json
 import shutil
 import sys
 import tempfile
+import time
+import numpy as np
 import onnxruntime
 import torch
 
 from pathlib import Path
+from torch import nn
 from typing import Any, Dict, List, Optional
 
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
@@ -34,6 +39,9 @@ from vision_training.deployment.frame_selection_deployment import (build_decodin
                                                                    export_frame_selection_decoding)
 from vision_training.deployment.input_contract import (build_input_contract, write_onnx_input_contract,
                                                        write_preprocessing_file)
+from vision_training.deployment.tensorrt_check import (HALF_PRECISION_LARGEST_VALUE, check_tensorrt_engine,
+                                                       describe_half_precision_overflows,
+                                                       find_half_precision_overflows)
 from vision_training.deployment.triton_configuration import (EXPORT_FORMATS, TENSORRT_PRECISIONS,
                                                              TORCHSCRIPT_FILE_NAMES, TORCHSCRIPT_PRECISIONS,
                                                              write_triton_configuration)
@@ -61,9 +69,16 @@ STAGING_FOLDER_PREFIX = ".export_staging_"
 STAGED_MODELS_FOLDER_NAME = "models"
 REPLACED_VERSIONS_FOLDER_NAME = "replaced_versions"
 
-# Folder of the staging folder receiving the TensorRT engines built by the Triton container of the test split parity,
-# removed with it
-PARITY_ENGINE_CACHE_FOLDER_NAME = "parity_tensorrt_engine_cache"
+# Folder of the staging folder receiving the TensorRT engines built by the Triton containers of the TensorRT engine
+# check and of the test split parity, which reuses the engines of the check, removed with it, and the file of the
+# staging folder receiving the server log of the engine check
+STAGED_ENGINE_CACHE_FOLDER_NAME = "tensorrt_engine_cache"
+TENSORRT_CHECK_LOG_NAME = "tensorrt_check_triton_server.log"
+
+# Sentence ending the error of an export whose TensorRT engine check cannot start a Triton container
+TENSORRT_CHECK_REMEDY = ("Export with --skip_tensorrt_check to install the ONNX model without running its TensorRT "
+                         "engine, or with --tensorrt_precision None to serve it with ONNX Runtime CUDA without "
+                         "TensorRT.")
 
 # Factor of the difference tolerances of the random batch check of an FP16 TorchScript export, compared with the eager
 # FP16 copy it was traced from: both run the same FP16 network but may pick other GPU kernels, whose FP16 roundings
@@ -259,10 +274,93 @@ def scale_half_precision_tolerances(comparison_tolerances: Dict[str, float]) -> 
             for name, value in comparison_tolerances.items()}
 
 
+def check_tensorrt_export(model_path: Path, staging_folder: Path, model_name: str, tensorrt_precision: str,
+                          skip_tensorrt_check: bool, inference_model: nn.Module, check_inputs: Dict[str, torch.Tensor],
+                          reference_outputs: List[np.ndarray], specification: Dict[str, Any]) -> List[str]:
+    """
+    Checks the staged ONNX model of an export as Triton will run it with TensorRT, once its ONNX Runtime check passed,
+    so that an engine giving other outputs than the eager model blocks the installation like a failed format check
+    (deployment/tensorrt_check.py). In FP16, the graph is first scanned on the CPU for values above the largest FP16
+    value, a value above it stopping the checks. Then, unless skip_tensorrt_check, the engine is built and run on the
+    check batches by a temporary Triton container and compared with the eager model: an FP32 engine with the FP32 model
+    at the tolerances of the export specification, an FP16 engine with the FP16 copy of the network
+    (convert_to_half_precision) at the tolerances of the FP16 TorchScript check (scale_half_precision_tolerances). Every
+    step prints what it checked and how long it took.
+
+    Args:
+        model_path (Path): The staged 'model.onnx', its config.pbtxt written next to its version folder.
+        staging_folder (Path): The staging folder of the export, holding the staged models, the engine cache and the
+            server log.
+        model_name (str): The Triton model name of the ONNX export.
+        tensorrt_precision (str): 'FP32' or 'FP16', the precision of the engine.
+        skip_tensorrt_check (bool): True to leave the engine unchecked (the FP16 overflow scan still runs).
+        inference_model (nn.Module): The eager inference model of the export, on the GPU.
+        check_inputs (Dict[str, torch.Tensor]): The check batch of every input, keyed by input name.
+        reference_outputs (List[np.ndarray]): The outputs of the FP32 eager model on the check batches.
+        specification (Dict[str, Any]): The export specification of the task.
+
+    Returns:
+        List[str]: The mismatches of the checks, empty when the engine (or, skipped, the FP16 scan) passed.
+    """
+    numpy_inputs = {input_name: input_batch.cpu().numpy() for input_name, input_batch in check_inputs.items()}
+    batch_description = f"{next(iter(numpy_inputs.values())).shape[0]} samples"
+
+    # FP16: every floating point node output of the graph against the largest FP16 value, on the CPU
+    if tensorrt_precision == "FP16":
+        scan_start_time = time.time()
+        scan = find_half_precision_overflows(model_path=model_path, check_inputs=numpy_inputs)
+        if scan["overflows"]:
+            overflow_lines = describe_half_precision_overflows(overflows=scan["overflows"])
+            print_color(color="red", output="\n".join(overflow_lines), indent=1)
+            return overflow_lines
+        print_color(color="green", output=f"TensorRT FP16 Overflow Scan : none of the {scan['scanned_outputs']:,} "
+                                          f"floating point node outputs above {HALF_PRECISION_LARGEST_VALUE:,.0f} on "
+                                          f"{batch_description} (ONNX Runtime CPU, "
+                                          f"{time.time() - scan_start_time:.1f} seconds)", indent=1)
+
+    # Engine left unchecked on request, Triton building it at its first request once installed
+    if skip_tensorrt_check:
+        print_color(color="yellow", output=f"TensorRT {tensorrt_precision} Engine Not Checked (--skip_tensorrt_check) "
+                                           f": built by Triton at its first request, never compared with the eager "
+                                           f"model", indent=1)
+        return []
+
+    # Reference of the engine: the FP32 eager model, or its FP16 copy at the loosened tolerances of FP16
+    reference_name, engine_reference_outputs = "Eager Model", reference_outputs
+    tolerances = specification["comparison_tolerances"]
+    if tensorrt_precision == "FP16":
+        input_names = [input_specification["name"] for input_specification in specification["inputs"]]
+        half_precision_model = convert_to_half_precision(inference_model=inference_model, input_names=input_names)
+        with torch.no_grad():
+            engine_reference_outputs = convert_outputs_to_numpy(outputs=half_precision_model(**check_inputs))
+        del half_precision_model
+        reference_name = "Eager FP16 Model"
+        tolerances = scale_half_precision_tolerances(comparison_tolerances=tolerances)
+
+    # Engine built and run by a temporary Triton container on the check batches
+    engine_check = check_tensorrt_engine(staged_repository=staging_folder / STAGED_MODELS_FOLDER_NAME,
+                                         engine_cache_folder=staging_folder / STAGED_ENGINE_CACHE_FOLDER_NAME,
+                                         log_path=staging_folder / TENSORRT_CHECK_LOG_NAME, model_name=model_name,
+                                         check_inputs=numpy_inputs, reference_outputs=engine_reference_outputs,
+                                         specification=specification, tolerances=tolerances)
+    timing_description = (f"{batch_description} served by Triton, engine built and checked in "
+                          f"{engine_check['engine_check_seconds']:.1f} seconds, Triton started in "
+                          f"{engine_check['server_start_seconds']:.1f} seconds")
+    if engine_check["mismatches"]:
+        mismatch_lines = ([f"TensorRT {tensorrt_precision} Engine Fails Its Check Against The {reference_name} : "
+                           f"{timing_description}"] + engine_check["mismatches"])
+        print_color(color="red", output="\n".join(mismatch_lines), indent=1)
+        return mismatch_lines
+    print_color(color="green", output=f"TensorRT {tensorrt_precision} Engine Matches The {reference_name} : "
+                                      f"{timing_description}", indent=1)
+    return []
+
+
 def export_experiment(experiment_folder: Path, iteration: Optional[int], use_averaged_weights: bool,
                       formats: List[str], repository: Path, model_version: int, maximum_batch_size: int,
                       tensorrt_precision: Optional[str], torchscript_precision: str, use_saved_temperature: bool,
-                      saved_thresholds_path: Optional[Path], test_split_parity: bool) -> None:
+                      saved_thresholds_path: Optional[Path], test_split_parity: bool,
+                      skip_tensorrt_check: bool) -> None:
     """
     Exports a trained experiment of any task to the Triton model repository in every requested format, writes the
     Triton configurations, and checks each export against the eager inference model on a random batch of another
@@ -282,13 +380,18 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
     model of every format, the export stopping before any file is written when the contract cannot describe the input
     of the run. Every format is exported and checked in a staging folder next to the repository, and the models
     replace those of the repository (install_staged_models) only once all of them match the eager model, so that a
-    failed check leaves the served models as they were. With test_split_parity, every format is then served from the
-    staging folder by a temporary Triton container, as it will be served (its TensorRT precision included), and scored
-    on the whole test split of the run with the eager model (run_test_split_parity), even when the random batch check
-    of a format failed; the summary is written to '<run>/Export_Parity/Iteration_<n>[_EMA][_T<temperature>]_
-    <precisions>/' (get_parity_folder) and copied next to every installed model. The parity only reports: the random
-    batch check alone decides the installation, an expected drop of a reduced precision (TensorRT FP16, FP16
-    TorchScript) never stopping an export.
+    failed check leaves the served models as they were. An ONNX model served with TensorRT is checked as Triton will
+    run it once its ONNX Runtime check passed (check_tensorrt_export): in FP16, a CPU scan of its graph for values above
+    the largest FP16 value, then, unless skip_tensorrt_check, its engine built by a temporary Triton container and
+    compared with the eager model on the check batches, a failure blocking the installation like a mismatch, its
+    mismatches recorded with those of the random batch check of the format. With test_split_parity, every format is
+    then served from the staging folder by a temporary Triton container, as it will be served (its TensorRT precision
+    included, reusing the engines of the TensorRT check), and scored on the whole test split of the run with the eager
+    model (run_test_split_parity), even when the random batch check of a format failed; the summary is written to
+    '<run>/Export_Parity/Iteration_<n>[_EMA][_T<temperature>]_<precisions>/' (get_parity_folder) and copied next to
+    every installed model. The parity only reports: the random batch checks (with the TensorRT check) alone decide the
+    installation, an expected drop of a reduced precision (TensorRT FP16, FP16 TorchScript) on the test split never
+    stopping an export.
 
     Args:
         experiment_folder (Path): The experiment folder holding 'Weights' and 'training_configuration.yaml'.
@@ -309,11 +412,15 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
             None to look for them in its evaluation folders (find_saved_thresholds_path).
         test_split_parity (bool): True to score every exported format, served by Triton, on the whole test split of
             the run against the eager model and write the parity summary, False for the random batch check only.
+        skip_tensorrt_check (bool): True to install an ONNX model served with TensorRT without building and running
+            its engine in a temporary Triton container, the FP16 overflow scan still running; not read without the
+            'onnx' format or with tensorrt_precision None.
 
     Raises:
-        RuntimeError: If an exported model does not reproduce the eager outputs, the repository being left unchanged
-            (with test_split_parity, after the parity summary is written), or if test_split_parity is set on a
-            machine where no Triton container can be started (check_triton_available, before anything is read).
+        RuntimeError: If an exported model does not reproduce the eager outputs, or its TensorRT engine fails its
+            checks, the repository being left unchanged (with test_split_parity, after the parity summary is written),
+            or if test_split_parity or the TensorRT engine check needs a Triton container on a machine where none can
+            be started (check_triton_available, before anything is read).
         FileNotFoundError: If use_saved_temperature finds no saved thresholds for the exported checkpoint.
         ValueError: If a format, the model version, the maximum batch size, the TensorRT or the TorchScript precision
             is not one the export accepts (check_export_settings, before anything is loaded), if
@@ -327,9 +434,12 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
                           tensorrt_precision=tensorrt_precision, torchscript_precision=torchscript_precision)
     if saved_thresholds_path is not None and not use_saved_temperature:
         raise ValueError(f"saved_thresholds_path {saved_thresholds_path} is only read with use_saved_temperature.")
-    # The parity serves the exports with Triton in Docker: a machine without it stops here, before the export
+    # The parity and the TensorRT engine check serve the exports with Triton in Docker: a machine without it stops
+    # here, before the export
     if test_split_parity:
-        check_triton_available()
+        check_triton_available(purpose="The test split parity", remedy="Export without --test_split_parity.")
+    if "onnx" in formats and tensorrt_precision is not None and not skip_tensorrt_check:
+        check_triton_available(purpose=f"The TensorRT {tensorrt_precision} engine check", remedy=TENSORRT_CHECK_REMEDY)
 
     # PyTorch runs GPU convolutions in reduced-precision TF32 by default (about 3 significant digits instead of 7),
     # while ONNX Runtime computes the exported model in exact FP32, so the two differ even for a correct export, by up
@@ -471,6 +581,19 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
                             output=mismatch_message if mismatches else f"{export_format} Export Matches The "
                                                                        f"{check_reference_name}", indent=1)
 
+                # ONNX model served with TensorRT: checked as Triton will run it, once its ONNX Runtime check passed, a
+                # failure stopping the export like a mismatch
+                if export_format == "onnx" and tensorrt_precision is not None and not mismatches:
+                    tensorrt_mismatches = check_tensorrt_export(
+                        model_path=model_path, staging_folder=staging_folder, model_name=model_name,
+                        tensorrt_precision=tensorrt_precision, skip_tensorrt_check=skip_tensorrt_check,
+                        inference_model=inference_model, check_inputs=check_inputs,
+                        reference_outputs=reference_outputs, specification=specification)
+                    random_batch_checks[export_format] = tensorrt_mismatches
+                    if tensorrt_mismatches and not test_split_parity:
+                        raise RuntimeError(f"The onnx Export Fails Its TensorRT {tensorrt_precision} Check, The Served "
+                                           f"Models Left Unchanged:\n" + "\n".join(tensorrt_mismatches))
+
                 # FP16 network: its differences from the FP32 eager model on the check batch, for information only,
                 # the test split parity measuring what they cost
                 if export_format == "torchscript" and torchscript_precision == "FP16":
@@ -493,7 +616,7 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
                         weights_directory=experiment_folder / "Weights"),
                     use_averaged_weights=use_averaged_weights, inference_model=inference_model,
                     specification=specification, staged_repository=staging_folder / STAGED_MODELS_FOLDER_NAME,
-                    engine_cache_folder=staging_folder / PARITY_ENGINE_CACHE_FOLDER_NAME, formats=formats,
+                    engine_cache_folder=staging_folder / STAGED_ENGINE_CACHE_FOLDER_NAME, formats=formats,
                     tensorrt_precision=tensorrt_precision, torchscript_precision=torchscript_precision,
                     maximum_batch_size=maximum_batch_size,
                     model_version=model_version, logit_temperature=logit_temperature,
@@ -611,7 +734,7 @@ def parse_export_arguments(arguments: List[str]) -> argparse.Namespace:
                         default=DEFAULT_EXPORT_SETTINGS["torchscript_precision"],
                         help="Precision of the traced network: FP32 writes 'model.pt', FP16 'model_fp16.pt', about "
                              "half the size (default: %(default)s).")
-    # The temperature of a classifier, the test split parity and the warnings
+    # The temperature of a classifier, the test split parity, the TensorRT engine check and the warnings
     parser.add_argument("--use_saved_temperature", action="store_true",
                         help="Classification only: build the temperature saved from the temperature explorer of the "
                              "exported checkpoint into the model and copy its thresholds next to it as "
@@ -624,6 +747,9 @@ def parse_export_arguments(arguments: List[str]) -> argparse.Namespace:
                         help="Also serve every format with a temporary Triton container (Docker needed) and score it "
                              "on the whole test split against the eager model, into <run>/Export_Parity/; a report "
                              "only, the random batch check alone deciding the installation.")
+    parser.add_argument("--skip_tensorrt_check", action="store_true",
+                        help="Install the ONNX model without building and running its TensorRT engine in a temporary "
+                             "Triton container (Docker and a GPU needed otherwise); the FP16 overflow scan still runs.")
     parser.add_argument("--show_warnings", action="store_true",
                         help="Show the harmless library warnings printed during the export.")
 
@@ -656,4 +782,5 @@ if __name__ == "__main__":
                       torchscript_precision=export_arguments.torchscript_precision,
                       use_saved_temperature=export_arguments.use_saved_temperature,
                       saved_thresholds_path=export_arguments.saved_thresholds_path,
-                      test_split_parity=export_arguments.test_split_parity)
+                      test_split_parity=export_arguments.test_split_parity,
+                      skip_tensorrt_check=export_arguments.skip_tensorrt_check)

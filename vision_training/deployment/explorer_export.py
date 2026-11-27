@@ -243,14 +243,16 @@ def run_export_job(job_path: Path) -> Path:
         raise ValueError(f"The thresholds of {saved_thresholds_path} were saved at T = {saved_temperature:g} after the "
                          f"export at T = {job['logit_temperature']:g} was prepared: export again.")
 
-    # Export into the folder of the job, with the thresholds of the page
+    # Export into the folder of the job, with the thresholds of the page, an ONNX model served with TensorRT having its
+    # engine checked by a temporary Triton container as in the export script
     hide_known_export_warnings()
     export_experiment(experiment_folder=Path(job["run_folder"]), iteration=job["iteration"],
                       use_averaged_weights=job["use_averaged_weights"], formats=job["formats"], repository=work_folder,
                       model_version=job["model_version"], maximum_batch_size=job["maximum_batch_size"],
                       tensorrt_precision=job["tensorrt_precision"],
                       torchscript_precision=job["torchscript_precision"], use_saved_temperature=True,
-                      saved_thresholds_path=saved_thresholds_path, test_split_parity=False)
+                      saved_thresholds_path=saved_thresholds_path, test_split_parity=False,
+                      skip_tensorrt_check=False)
 
     # TorchScript file of the other precision of the same checkpoint, weights and temperature kept next to the new one
     kept_torchscript_precisions = keep_other_torchscript_files(

@@ -18,6 +18,7 @@ To find your way in this reference, the sections are:
   - [Group Pattern](#group-pattern)
 - [Deployment](#deployment)
   - [Export](#export)
+  - [TensorRT Check](#tensorrt-check)
   - [Input Contract](#input-contract)
   - [Test Split Parity](#test-split-parity)
   - [FP16 TorchScript Trial](#fp16-torchscript-trial)
@@ -286,7 +287,7 @@ Before serving a model, these sections give the export details the README leaves
 
 ### Export
 Each time `vision_training/deployment/export_model.py` runs, it first checks the settings (`check_export_settings`). Formats are `torchscript` and `onnx`, `tensorrt_precision` "FP32", "FP16" or None, `torchscript_precision` "FP32" or "FP16". A misspelled format is never served as plain ONNX Runtime.
-- **Staging**: models are written into `.export_staging_<random>/` and checked against the PyTorch model. They move into the repository only once every format matches. A checked export replaces its `<model>/<version>/` folder whole.
+- **Staging**: models are written into `.export_staging_<random>/` and checked against the PyTorch model, a TensorRT engine too ([TensorRT Check](#tensorrt-check)). They move into the repository only once every format matches. A checked export replaces its `<model>/<version>/` folder whole.
 - **FP16 TorchScript**: `convert_to_half_precision` (`export_formats.py`) converts convolution, linear and attention weights to FP16, keeps normalization layers in FP32 and runs LSTM, GRU and RNN layers in FP32. The file is `model_fp16.pt`, so it can sit next to `model.pt`. Its check uses tolerances multiplied by `HALF_PRECISION_TOLERANCE_FACTOR` (100).
 - **TensorRT cache**: engines are cached under `<model>_<version>_<precision>_<hash>` (`build_tensorrt_engine_cache_prefix`), so new weights never reuse old engines.
 - **Averaged weights**: `use_averaged_weights` exports the moving average, an error without one.
@@ -315,6 +316,23 @@ The inputs and outputs of every model are listed in the [README](../../README.md
 | `low_confidence` | BOOL | [B, W, N] | choice below its class threshold, or no frame |
 | `candidate_frames` | INT64 | [B, W, k] | the k most probable frames of every class |
 | `candidate_probabilities` | FP32 | [B, W, k] | their probabilities |
+
+### TensorRT Check
+Whenever `--tensorrt_precision` is FP32 or FP16, the export also checks `model.onnx` as Triton will run it (`check_tensorrt_export` of `export_model.py`, `vision_training/deployment/tensorrt_check.py`). It runs once the ONNX Runtime check passed. A failure blocks the installation like a mismatch.
+- **FP16 overflow scan**: ONNX Runtime runs the graph on the CPU with every floating point node output exposed, one sample of the check batches at a time (`find_half_precision_overflows`). A finite value above 65,504, the largest FP16 value, stops the export. The error names the nodes, their op types and largest magnitudes, and suggests `--tensorrt_precision FP32` or `None`. It always runs for FP16.
+- **Engine check**: a temporary Triton container (`export-tensorrt-check-triton-<process>`, free ports) serves the staged model with its `config.pbtxt`, builds the engine and answers the check batches (`check_tensorrt_engine`). An FP32 engine is compared with the eager model at the FP32 tolerances of `comparison_tolerances`. An FP16 engine is compared with the eager FP16 copy (`convert_to_half_precision`) at those tolerances times `HALF_PRECISION_TOLERANCE_FACTOR`. Any infinity or NaN fails. A model Triton cannot build or run fails with the error and crash lines of its log.
+- **Before**: without a GPU, Docker or the Triton image, the export stops before reading the run (`check_triton_available`). The error names `--skip_tensorrt_check` and `--tensorrt_precision None`.
+- **Opt-out**: `--skip_tensorrt_check` installs the model without the engine check, with a yellow line. The FP16 scan still runs. The serving benchmark skips it, since it serves every engine itself.
+- **Console**: one line per step with what was checked and its duration, e.g. `TensorRT FP16 Engine Matches The Eager FP16 Model : 3 samples served by Triton, engine built and checked in 47.9 seconds, Triton started in 4.8 seconds` for the README classifier.
+- **Engines**: built into `tensorrt_engine_cache/` of the staging folder, which the test split parity reuses.
+
+```bash
+# Export with TensorRT FP16, the engine built and checked by a temporary Triton container
+uv run python -m vision_training.deployment.export_model --experiment_folder ~/Data/<run> --tensorrt_precision FP16
+
+# Same export on a machine without Docker, the FP16 overflow scan only
+uv run python -m vision_training.deployment.export_model --experiment_folder ~/Data/<run> --tensorrt_precision FP16 --skip_tensorrt_check
+```
 
 ### Input Contract
 Should a server need to build the input of an exported model from a photo, it reads the input contract instead of assuming a resize or channel order. Every export writes it into the `metadata_props` of `model.onnx` and as `preprocessing.json` next to each model. The table gives its keys, defined in `vision_training/deployment/input_contract.py`.
@@ -346,7 +364,7 @@ check_input_contract(input_contract=input_contract)
 If you are looking for a server-side implementation, `build_input_from_contract` in `tests/deployment/test_input_contract.py` builds inputs from the contract alone. The tests check them pixel for pixel against `preprocess_image`.
 
 ### Test Split Parity
-Should you need to know what an export costs in test metrics before it is served, `--test_split_parity` of `export_model.py` scores every exported format on the whole test split (`run_test_split_parity` of `vision_training/deployment/export_parity.py`). The usual export check uses random inputs and never the TensorRT engines Triton builds.
+Should you need to know what an export costs in test metrics before it is served, `--test_split_parity` of `export_model.py` scores every exported format on the whole test split (`run_test_split_parity` of `vision_training/deployment/export_parity.py`). The usual export check uses random inputs, the [TensorRT check](#tensorrt-check) running the engine on them only.
 - **Before**: the export stops when no Triton container can start (`check_triton_available`).
 - **Rows**: the eager inference model first, as reference, then every format served by its own container on free ports (`export-parity-triton-<process>`). Every row runs even when a format failed the random check.
 - **Requests**: the task's test evaluation with `predict_batch` replaced by `predict_exported_batch`, in batches of `maximum_batch_size`. Detectors are scored at `Detector.inference.score_threshold`, the deployment threshold.
@@ -354,7 +372,7 @@ Should you need to know what an export costs in test metrics before it is served
 - **Stored evaluation**: the `evaluation_summary.csv` row of the iteration is shown next to the rows, except for DET, INS, and a classifier exported at a temperature other than 1.
 - **Failed rows**: a model Triton cannot load or run is recorded with its error and server log, and the server restarts for the other rows.
 - **Outputs**: `<run>/Export_Parity/Iteration_<n>[_EMA][_T<temperature>]_<precisions>/` (e.g. `Iteration_5000_EMA_T3_TorchScript-FP16_TensorRT-FP32`) holds `parity_summary.md`, `parity_summary.json`, `parity_samples.csv`, `row_evaluations/<row>/` and `triton_server.log`. The console prints the headline metric of every row, a change of 0.5 points or more in yellow. Both summaries are copied next to every installed model.
-- **Installation**: decided by the random batch check alone. A precision drop never stops an export.
+- **Installation**: decided by the random batch check and the TensorRT check alone. A precision drop on the test split never stops an export.
 
 ### FP16 TorchScript Trial
 In case you want the cost of an FP16 TorchScript classifier without starting Triton, `scripts/deployment/check_half_precision_parity.py` converts it as the export does, traces it and scores it on the test split against the eager FP32 model. Its arguments are named and default as those of `export_model.py`: `--experiment_folder` (required), `--iteration`, `--use_averaged_weights`, `--use_saved_temperature`, `--saved_thresholds_path` and `--maximum_batch_size`.

@@ -413,7 +413,9 @@ def export_precision_setting(experiment_folder: Path, iteration: int, repository
                              maximum_batch_size: int) -> None:
     """
     Exports one run into the model repository of one precision setting, run in a child process so that the CUDA
-    context of the export never stays in the process of the sweep.
+    context of the export never stays in the process of the sweep. The TensorRT engine check of the export is skipped
+    (its FP16 overflow scan still runs): the benchmark serves every engine itself, and evaluate_served_formats.py scores
+    it on the test split.
 
     Args:
         experiment_folder (Path): The run folder.
@@ -429,7 +431,8 @@ def export_precision_setting(experiment_folder: Path, iteration: int, repository
     export_experiment(experiment_folder=experiment_folder, iteration=iteration, use_averaged_weights=False,
                       formats=formats, repository=repository, model_version=1, maximum_batch_size=maximum_batch_size,
                       tensorrt_precision=tensorrt_precision, torchscript_precision=torchscript_precision,
-                      use_saved_temperature=False, saved_thresholds_path=None, test_split_parity=False)
+                      use_saved_temperature=False, saved_thresholds_path=None, test_split_parity=False,
+                      skip_tensorrt_check=True)
 
 
 def run_in_child_process(target: Any, keyword_arguments: Dict[str, Any]) -> None:

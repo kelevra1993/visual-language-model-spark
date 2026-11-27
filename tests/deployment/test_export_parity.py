@@ -742,10 +742,11 @@ def test_triton_server_of_the_parity_has_its_own_name_and_ports(monkeypatch: pyt
     assert f"--http-port={ports[0]}" in commands[1] and f"--grpc-port={ports[1]}" in commands[1]
     assert "/repository:/models:ro" in commands[1]
 
-    # No docker command on the machine
+    # No docker command on a machine with a GPU, the error naming what needs the container and how to do without it
+    monkeypatch.setattr(triton_server.torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(triton_server.shutil, "which", lambda cmd: None)
-    with pytest.raises(RuntimeError, match="docker command is not found"):
-        check_triton_available()
+    with pytest.raises(RuntimeError, match="The test split parity .* docker command is not found .* Export without"):
+        check_triton_available(purpose="The test split parity", remedy="Export without --test_split_parity.")
 
 
 @pytest.mark.skipif(condition=not torch.cuda.is_available(), reason="The export runs the model on the GPU.")
@@ -765,13 +766,14 @@ def test_export_with_parity_writes_its_summary_whatever_the_random_batch_check(t
     test_input_contract.write_trained_model(experiment_folder=experiment_folder, task="classification",
                                             keep_ratio=True, tiling_configuration=None)
     parity_recorder = ParityRecorder()
-    monkeypatch.setattr(target=export_model, name="check_triton_available", value=lambda: None)
+    monkeypatch.setattr(target=export_model, name="check_triton_available", value=lambda purpose, remedy: None)
     monkeypatch.setattr(target=export_model, name="run_test_split_parity", value=parity_recorder)
     export_settings = {"experiment_folder": experiment_folder, "iteration": test_input_contract.EXPORTED_ITERATION,
                        "use_averaged_weights": False, "formats": ["torchscript", "onnx"], "repository": repository,
                        "model_version": 1, "maximum_batch_size": test_input_contract.TEST_MAXIMUM_BATCH_SIZE,
                        "tensorrt_precision": "FP16", "torchscript_precision": "FP32", "use_saved_temperature": False,
-                       "saved_thresholds_path": None, "test_split_parity": True}
+                       "saved_thresholds_path": None, "test_split_parity": True,
+                       "skip_tensorrt_check": True}
 
     # Both formats fail their check: both are still scored, the summary records the refused installation
     monkeypatch.setattr(target=export_model, name="get_export_specification", value=get_mismatching_specification)

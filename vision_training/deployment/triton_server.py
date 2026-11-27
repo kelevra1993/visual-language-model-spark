@@ -3,10 +3,10 @@ Starts, drives and stops a Triton Inference Server container serving a model rep
 deployment/export_model.py, so that the exported models are measured exactly as Triton serves them (TorchScript with
 the PyTorch backend, ONNX with ONNX Runtime CUDA or TensorRT, the TensorRT engines built at the first requests). A
 server is described by its container name and ports (build_triton_server), so that the test split parity of an export
-(deployment/export_parity.py) runs its own container on free ports next to the server of
-deployment/triton/docker-compose.yml or a benchmark, while the serving benchmark scripts of scripts/deployment keep
-their fixed container and ports. The models are loaded and unloaded one at a time through the repository extension
-(explicit model control).
+(deployment/export_parity.py) and its TensorRT engine check (deployment/tensorrt_check.py) run their own container on
+free ports (start_temporary_triton_server) next to the server of deployment/triton/docker-compose.yml or a benchmark,
+while the serving benchmark scripts of scripts/deployment keep their fixed container and ports. The models are loaded
+and unloaded one at a time through the repository extension (explicit model control).
 """
 
 import json
@@ -17,6 +17,7 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
+import torch
 
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -85,23 +86,31 @@ def find_free_ports(number_ports: int) -> List[int]:
             open_socket.close()
 
 
-def check_triton_available() -> None:
+def check_triton_available(purpose: str, remedy: str) -> None:
     """
-    Refuses to go on when no Triton container can be started on this machine (Docker missing, or the Triton image not
-    pulled), before an export spends time on the models, so that the test split parity never stops halfway for a
-    machine setting.
+    Refuses to go on when no Triton container can be started on this machine (no GPU for the container, Docker
+    missing, or the Triton image not pulled), before an export spends time on the models, so that the test split parity
+    or the TensorRT engine check of an export (deployment/export_model.py) never stops halfway for a machine setting.
+
+    Args:
+        purpose (str): What needs the container, starting the error, e.g. 'The test split parity'.
+        remedy (str): The sentence ending the error, telling how to export without the container.
 
     Raises:
-        RuntimeError: If the docker command is not found, or the Triton image is not on the machine.
+        RuntimeError: If no GPU is visible, the docker command is not found, or the Triton image is not on the machine.
     """
+    if not torch.cuda.is_available():
+        raise RuntimeError(f"{purpose} serves the exported models with Triton in Docker on the GPU, but no GPU is "
+                           f"visible on this machine. {remedy}")
     if shutil.which(cmd="docker") is None:
-        raise RuntimeError("The test split parity serves the exported models with Triton in Docker, but the docker "
-                           "command is not found on this machine.")
+        raise RuntimeError(f"{purpose} serves the exported models with Triton in Docker, but the docker command is not "
+                           f"found on this machine. {remedy}")
     image_check = subprocess.run(args=["docker", "image", "inspect", TRITON_IMAGE], capture_output=True, text=True,
                                  check=False)
     if image_check.returncode != 0:
-        raise RuntimeError(f"The Triton image {TRITON_IMAGE} is not on this machine (docker image inspect: "
-                           f"{image_check.stderr.strip()}): pull it with 'docker pull {TRITON_IMAGE}'.")
+        raise RuntimeError(f"{purpose} needs the Triton image {TRITON_IMAGE}, not on this machine (docker image "
+                           f"inspect: {image_check.stderr.strip()}): pull it with 'docker pull {TRITON_IMAGE}'. "
+                           f"{remedy}")
 
 
 def send_server_request(server: Dict[str, Any], path: str, body: Optional[Dict[str, Any]],
@@ -187,6 +196,28 @@ def start_triton_server(server: Dict[str, Any], repository: Path, engine_cache_f
             raise RuntimeError(f"Triton not ready after {SERVER_START_TIMEOUT_SECONDS} s, see docker logs "
                                f"{server['container_name']}.")
         time.sleep(2)
+
+
+def start_temporary_triton_server(container_name_prefix: str, repository: Path,
+                                  engine_cache_folder: Path) -> Dict[str, Any]:
+    """
+    Starts a Triton container of this process on free ports, named '<prefix>-<process identifier>', for the checks of
+    an export run next to the deployed server or a benchmark: the test split parity (deployment/export_parity.py) and
+    the TensorRT engine check (deployment/tensorrt_check.py), each serving the staged models of the export.
+
+    Args:
+        container_name_prefix (str): The start of the container name, telling which check started it.
+        repository (Path): The model repository served, read only.
+        engine_cache_folder (Path): The folder receiving the TensorRT engines ONNX Runtime builds.
+
+    Returns:
+        Dict[str, Any]: The started server, from build_triton_server, to stop with stop_triton_server.
+    """
+    server_ports = find_free_ports(number_ports=3)
+    server = build_triton_server(container_name=f"{container_name_prefix}-{os.getpid()}", http_port=server_ports[0],
+                                 grpc_port=server_ports[1], metrics_port=server_ports[2])
+    start_triton_server(server=server, repository=repository, engine_cache_folder=engine_cache_folder, environment={})
+    return server
 
 
 def stop_triton_server(server: Dict[str, Any], log_path: Path) -> None:

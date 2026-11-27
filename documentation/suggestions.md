@@ -120,14 +120,6 @@
       `build_detection_sample_grid`, add to the caption of every detection (its class and score) its IoU to the
       matched ground truth.
     - **Cost and risk:** (b) is small, (a) medium. No number changes.
-40. **TensorRT FP16 checked at export**: `export_experiment` (`export_model.py`) checks every export with ONNX
-    Runtime on the CPU in FP32 only, so an FP16 overflow or precision loss of the TensorRT engine is seen only by
-    measuring the test metric through Triton, as `scripts/deployment/evaluate_served_formats.py` does for the models
-    of the serving benchmark (it found the FP16 overflow of the NMS exported in the detectors, fixed on 2026-11-17).
-    A Triton-against-local output comparison in `run_inference.py`, or a CPU check of the intermediate values of the
-    graph against 65,504, the largest FP16 value, would catch it for every task. The engine cache, which could serve
-    the engines of older weights, is named after the exported files since 2026-11-20
-    (`build_tensorrt_engine_cache_prefix`).
 41. **Keypoint and sequence models served with TensorRT**: on 2026-11-22, the tutorial models exported to ONNX and
     served by Triton 26.01 with the TensorRT `config.pbtxt` that `export_model.py` writes by default (FP32, maximum
     batch 16, dynamic batching) gave two failures, the five image models (CLS, DET, INS, SEG, SSL) serving batches of
@@ -332,5 +324,5 @@ an image holds but also which ones.
 
 ## Suggested Order
 1. **When the need appears:** item 12 when debugging, item 11 when deploying a class with its own threshold,
-   item 40 before serving a model in FP16, items 8, 9 and 10 depending on the datasets, items 2 and 39 for the
-   detection, and item 1 when a neck has to be transferred.
+   items 8, 9 and 10 depending on the datasets, items 2 and 39 for the detection, and item 1 when a neck has to be
+   transferred.
