@@ -57,7 +57,7 @@ def pad_ground_truths(batched_ground_truth_boxes: List[torch.Tensor],
 
 def add_ground_truth_proposals(batched_ground_truth_boxes: List[torch.Tensor], batched_proposals: torch.Tensor,
                                batched_proposal_levels: torch.Tensor, level_anchors: Dict[int, torch.Tensor]
-                               ) -> Tuple[torch.Tensor, torch.Tensor]:
+                               ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Adds the ground truth boxes of every image to its filtered proposals before the proposal target assignment of
     the detection heads, as Mask R-CNN does, so that every object of a training batch gives at least one positive
@@ -77,8 +77,10 @@ def add_ground_truth_proposals(batched_ground_truth_boxes: List[torch.Tensor], b
         level_anchors (Dict[int, torch.Tensor]): The [A, 4] anchors of every detection level, keyed by block number.
 
     Returns:
-        Tuple[torch.Tensor, torch.Tensor]: The new [B, P, 4] proposals and their [B, P] levels, the input tensors
-            being left unchanged.
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: The new [B, P, 4] proposals, their [B, P] levels and the
+            [B, P] boolean mask of the slots holding a ground truth box, which the training target viewer
+            ('view_training_targets') reads to tell these copies from the proposals, the input tensors being left
+            unchanged.
     """
     padded_boxes, _, valid_ground_truths = pad_ground_truths(batched_ground_truth_boxes=batched_ground_truth_boxes)
     padded_boxes = padded_boxes.to(dtype=batched_proposals.dtype)
@@ -110,7 +112,7 @@ def add_ground_truth_proposals(batched_ground_truth_boxes: List[torch.Tensor], b
     # Written slots take the ground truth boxes and their levels, the others keep their proposals
     proposals = torch.where(condition=written_slots.unsqueeze(dim=-1), input=slot_boxes, other=batched_proposals)
     proposal_levels = torch.where(condition=written_slots, input=slot_levels, other=batched_proposal_levels)
-    return proposals, proposal_levels
+    return proposals, proposal_levels, written_slots
 
 
 def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tensor], batched_anchors: torch.Tensor,

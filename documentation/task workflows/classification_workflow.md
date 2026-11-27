@@ -488,7 +488,7 @@ The tree below shows the run folder after this step.
 
 ### Step 2.7 — `build_dataloaders()`
 This hook builds the loaders of the three splits (Step 2.8) and keeps `class_names` (one per class index, from the training manifest) for reports, error images and sample images. `BaseTrainer` stores them as `train_dataloader`, `validation_dataloader` and `test_dataloader`.
-- The validation loader is built only when read: `builds_validation_loader` is True when `validation_iteration_ratio > 0` or for a diagnosis mode ending the program (`view_input_images`, `benchmark_speed`, `compute_anchor_coverage` of the detection tasks). Otherwise the loader is `None` and no validation dataset or worker exists. The validation folder is still described and recorded in `data.json`.
+- The validation loader is built only when read: `builds_validation_loader` is True when `validation_iteration_ratio > 0` or for a diagnosis mode ending the program (`view_input_images`, `benchmark_speed`, `compute_anchor_coverage` and `view_training_targets` of the detection tasks). Otherwise the loader is `None` and no validation dataset or worker exists. The validation folder is still described and recorded in `data.json`.
 - `check_loaders_give_batches()` raises a `ValueError` (split, kept samples, folder) when the training or test loader, or the validation loader with `validation_iteration_ratio > 0`, gives no batch. It also refuses a validation loader that does not follow `builds_validation_loader`.
 
 The first class names of ImageNet-1k are its folder names (wnids).

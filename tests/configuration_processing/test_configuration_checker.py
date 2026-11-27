@@ -259,6 +259,26 @@ def remove_benchmark_speed(configuration: Dict[str, Any]) -> None:
     del configuration["ExperimentConfiguration"]["diagnosis_modes"]["benchmark_speed"]
 
 
+def set_invalid_view_training_targets(configuration: Dict[str, Any]) -> None:
+    """
+    Writes the switch of the training target viewer of the detection tasks as text instead of a boolean.
+
+    Args:
+        configuration (Dict[str, Any]): The raw configuration, modified in place.
+    """
+    configuration["ExperimentConfiguration"]["diagnosis_modes"]["view_training_targets"] = "False"
+
+
+def remove_view_training_targets(configuration: Dict[str, Any]) -> None:
+    """
+    Removes the switch of the training target viewer, as in a detection configuration written before it.
+
+    Args:
+        configuration (Dict[str, Any]): The raw configuration, modified in place.
+    """
+    del configuration["ExperimentConfiguration"]["diagnosis_modes"]["view_training_targets"]
+
+
 def set_invalid_loss_weights(configuration: Dict[str, Any]) -> None:
     """
     Sets a negative weight of the classification loss of the region proposals and writes the weight of the box loss of
@@ -326,7 +346,11 @@ IMAGE_ONLY_TYPE_REFUSALS = [f"'Data.data_augmentation.types.{augmentation_type}.
     (activate_image_only_augmentation_types, IMAGE_ONLY_TYPE_REFUSALS),
     (set_invalid_benchmark_speed, ["'ExperimentConfiguration.diagnosis_modes.benchmark_speed' must be True or False, "
                                    "got 'yes'."]),
-    (remove_benchmark_speed, ["Missing configuration key 'ExperimentConfiguration.diagnosis_modes.benchmark_speed'."])])
+    (remove_benchmark_speed, ["Missing configuration key 'ExperimentConfiguration.diagnosis_modes.benchmark_speed'."]),
+    (set_invalid_view_training_targets, ["'ExperimentConfiguration.diagnosis_modes.view_training_targets' must be True "
+                                         "or False, got 'False'."]),
+    (remove_view_training_targets, ["Missing configuration key "
+                                    "'ExperimentConfiguration.diagnosis_modes.view_training_targets'."])])
 def test_inconsistent_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                 modify_function: Callable[[Dict[str, Any]], None],
                                                 expected_messages: List[str]) -> None:

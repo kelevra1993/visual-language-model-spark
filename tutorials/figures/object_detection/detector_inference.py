@@ -380,7 +380,7 @@ def filter_image_proposals(aggregated_proposals: Dict[str, torch.Tensor], pre_nm
 def compute_anchor_labels(model: TwoStageDetector, aggregated_proposals: Dict[str, torch.Tensor],
                           object_boxes: torch.Tensor) -> Dict[str, Any]:
     """
-    Labels the anchors of the image for the region proposal loss the way compute_region_proposal_losses does
+    Labels the anchors of the image for the region proposal loss the way assign_region_proposal_targets does
     (batch_assign_targets_to_anchors with the RegionProposal thresholds of the run, then the sampling of
     number_training_positives among total_training_samples anchors), and counts the foreground, background and ignored
     anchors, the foreground ones by level and those that reach the foreground threshold by their overlap, and the
@@ -448,7 +448,7 @@ def compute_detector_targets(model: TwoStageDetector, training_filter: Dict[str,
             and of the sampled proposals by level.
     """
     configuration = model.detector_configuration
-    proposals, proposal_levels = add_ground_truth_proposals(
+    proposals, proposal_levels, _ = add_ground_truth_proposals(
         batched_ground_truth_boxes=[object_boxes], batched_proposals=training_filter["kept_boxes"].unsqueeze(dim=0),
         batched_proposal_levels=training_filter["kept_levels"].unsqueeze(dim=0),
         level_anchors=model.get_level_anchors())

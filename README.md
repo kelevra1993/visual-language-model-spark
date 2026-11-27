@@ -246,11 +246,12 @@ Suppose a run learns nothing: first look at what the network receives. `Data.dat
   <img src="README/augmentation_types.jpg" width="100%" />
 </p>
 
-Three diagnosis modes of `ExperimentConfiguration.diagnosis_modes` exit without training:
+Four diagnosis modes of `ExperimentConfiguration.diagnosis_modes` exit without training:
 
 | Mode | Use it | Details |
 |---|---|---|
 | `view_input_images` | before a long run, to see the samples as the network receives them | [Viewing The Input Images](documentation/reference/training_reference.md#viewing-the-input-images) |
+| `view_training_targets` (DET, INS) | when a detector learns badly, to see the anchors, proposals and RoIs its losses use | [Viewing The Training Targets](documentation/reference/training_reference.md#viewing-the-training-targets) |
 | `compute_anchor_coverage` (DET, INS) | after changing the image size, the detection levels or the anchors | [Checking The Anchor Coverage](documentation/reference/training_reference.md#checking-the-anchor-coverage) |
 | `benchmark_speed` | before training an architecture, for its training and serving speed | [Benchmarking The Speed](documentation/reference/training_reference.md#benchmarking-the-speed) |
 

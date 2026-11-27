@@ -1,9 +1,13 @@
 """
 Smoke test of DetectionTrainer of vision_training/trainers/detection_trainer.py on a synthetic dataset: training saves
-checkpoints, evaluates with its sample images, its rates written as percentages in the report, and resumes.
+checkpoints, evaluates with its sample images, its rates written as percentages in the report, and resumes. The
+training target viewer ('view_training_targets') shows every training image with the targets of its losses and exits
+without creating the run folder, skipped without a display, and the detections of the sample and error images are
+captioned with their overlap with the object the matching gives them.
 """
 
 import csv
+import numpy as np
 import pytest
 import re
 import torch
@@ -15,8 +19,10 @@ from unittest.mock import patch
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
 from vision_training.evaluation.classification.confusion_matrix import save_confusion_matrix_image
 from vision_training.evaluation.detection.object_sizes import OBJECT_SIZE_NAMES
-from vision_training.trainers.detection_trainer import DetectionTrainer
+from vision_training.trainers.detection_trainer import DRAWN_NEGATIVE_TARGETS, DetectionTrainer
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
+from vision_training.utilities.visualization import (GRID_GAP, LEGEND_BAR_HEIGHT, TRAINING_TARGET_VIEWER_NAME,
+                                                     PanelTable, build_class_colours, build_detection_sample_grid)
 from tests.fixtures.evaluation_checks import (check_detection_error_analysis, check_sample_images,
                                               read_results_blocks)
 
@@ -275,6 +281,119 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     console_output = first_run_output + resumed_output + capsys.readouterr().out
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output
+
+
+def test_training_target_viewer_shows_the_targets_of_every_training_image(tmp_path: Path,
+                                                                          capsys: pytest.CaptureFixture,
+                                                                          monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies the 'view_training_targets' diagnosis mode on a generated synthetic dataset: without a display the viewer
+    is skipped with its message, and with one every training image is shown in one window of the training target
+    viewer, its image the three target panels above their legend, its panel counting the anchors of the model, the
+    sampled regions of interest of the 'Detector' section (all of them, the barely trained detector giving enough
+    proposals) with every object of the image copied among the positives, and a table of the targets of every object,
+    the weights being the initial ones; the program then exits without training nor creating the run folder.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture removing the display variables.
+    """
+    dataset_folder = tmp_path / "synthetic_shapes"
+    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
+                             split_sizes={"train": 4, "validation": 2, "test": 2}, maximum_objects=3,
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="object_detection")
+    configuration_path = write_smoke_configuration(temporary_directory=tmp_path, dataset_folder=dataset_folder,
+                                                   number_iterations=5)
+    configuration = yaml.safe_load(stream=configuration_path.read_text())
+    configuration["ExperimentConfiguration"]["diagnosis_modes"]["view_training_targets"] = True
+    configuration_path.write_text(data=yaml.safe_dump(data=configuration))
+
+    # Without a display, the viewer is skipped with its message and the program exits
+    monkeypatch.delenv(name="DISPLAY", raising=False)
+    monkeypatch.delenv(name="WAYLAND_DISPLAY", raising=False)
+    with pytest.raises(expected_exception=SystemExit):
+        build_trainer(configuration_path=configuration_path)
+    printed_output = capsys.readouterr().out
+    assert "Skipping the training target viewer." in printed_output
+    assert "Weights : initial (no checkpoint in the run folder)" in printed_output
+
+    # With a display, one window per training image, SPACE pressed on every one
+    with patch(target="vision_training.trainers.detection_trainer.view_input_data", return_value=False) as view_mock:
+        with pytest.raises(expected_exception=SystemExit):
+            build_trainer(configuration_path=configuration_path)
+    assert not (tmp_path / "experiments").exists() or not any((tmp_path / "experiments").iterdir())
+    assert view_mock.call_count == 4
+    image_side = SMOKE_IMAGE_SIZE
+    for call in view_mock.call_args_list:
+        assert call.kwargs["viewer_name"] == TRAINING_TARGET_VIEWER_NAME
+        (window,) = call.kwargs["windows"]
+        assert window.title == "Training Targets" and window.bounding_boxes is None
+        assert tuple(window.image.shape) == (3, image_side + LEGEND_BAR_HEIGHT, 3 * image_side + 2 * GRID_GAP)
+
+        # Counts of the panel: the anchors of the model, every sampled region, every object copied among them
+        lines = [line for line in window.target_lines if isinstance(line, str)]
+        number_objects = int(next(line for line in lines if line.startswith("Objects :")).split(": ")[1])
+        assert any(line.startswith("Anchors : ") and f"{DRAWN_NEGATIVE_TARGETS} of the sampled negatives" in line
+                   for line in lines)
+        total_samples = configuration["Detector"]["total_training_samples"]
+        assert any(line.startswith(f"Sampled RoIs : {total_samples}, ") for line in lines)
+        assert any(f"and {number_objects} ground truth copies (dashed)" in line for line in lines)
+        (table,) = [line for line in window.target_lines if isinstance(line, PanelTable)]
+        assert table.row_titles == ("Object", "Positive anchors", "Best proposal IoU", "Positive RoIs")
+        assert len(table.columns) == number_objects
+        assert all(int(column[3]) >= 1 for column in table.columns)
+        assert any(line.startswith("Augmentations") for line in window.augmentation_lines)
+
+
+def build_caption_test_trainer() -> DetectionTrainer:
+    """
+    Builds a DetectionTrainer holding only the attributes read by draw_test_image, without building the model: the
+    deployment score threshold, the class names and colours of a circle and a square.
+
+    Returns:
+        DetectionTrainer: The partial trainer.
+    """
+    trainer = DetectionTrainer.__new__(DetectionTrainer)
+    trainer.deployment_score_threshold = 0.5
+    trainer.class_names = {0: "background", 1: "circle", 2: "square"}
+    trainer.class_colours = build_class_colours(number_classes=3)
+    return trainer
+
+
+def test_sample_image_captions_give_the_overlap_with_the_matched_object() -> None:
+    """
+    Verifies the overlaps given to the captions of the detections of a sample image: the detections are matched as in
+    the evaluation (the best scored circle finds the circle, its less overlapping duplicate finds nothing, the circle
+    detected on the square finds the square as a confusion), each giving its box overlap with its object or, unmatched,
+    with the object it overlaps the most, the detection under the deployment threshold being left out. An error image
+    reads the matching of the evaluation instead of matching again.
+    """
+    batch = {"images": torch.zeros(size=(1, 3, 64, 64)),
+             "bounding_boxes": [torch.tensor(data=[[10.0, 10.0, 30.0, 30.0], [40.0, 40.0, 60.0, 60.0]])],
+             "labels": [torch.tensor(data=[1, 2])]}
+    predictions = {"number_detections": torch.tensor(data=[4]),
+                   "final_detection_scores": torch.tensor(data=[[0.9, 0.8, 0.7, 0.2]]),
+                   "final_detection_boxes": torch.tensor(data=[[[10.0, 10.0, 30.0, 32.0], [12.0, 12.0, 30.0, 30.0],
+                                                                [40.0, 40.0, 60.0, 60.0], [0.0, 0.0, 5.0, 5.0]]]),
+                   "final_detection_labels": torch.tensor(data=[[1, 1, 1, 2]])}
+    trainer = build_caption_test_trainer()
+    with patch(target="vision_training.trainers.detection_trainer.build_detection_sample_grid", autospec=True,
+               side_effect=build_detection_sample_grid) as grid_mock:
+        trainer.build_sample_image(batch=batch, predictions=predictions, sample_index=0)
+    grid_arguments = grid_mock.call_args.kwargs
+    assert np.allclose(grid_arguments["detection_overlaps"]["boxes"], [400 / 440, 324 / 400, 1.0])
+    assert grid_arguments["matched_detections"].tolist() == [True, False, True]
+
+    # The matching of the evaluation, read as it is by an error image
+    with patch(target="vision_training.trainers.detection_trainer.build_detection_sample_grid", autospec=True,
+               side_effect=build_detection_sample_grid) as grid_mock:
+        trainer.draw_test_image(batch=batch, predictions=predictions, sample_index=0, error_description="error",
+                                highlighted_ground_truths=None, highlighted_detections=None,
+                                matched_ground_truth_indices=torch.tensor(data=[-1, 0, 1]))
+    grid_arguments = grid_mock.call_args.kwargs
+    assert np.allclose(grid_arguments["detection_overlaps"]["boxes"], [400 / 440, 324 / 400, 1.0])
+    assert grid_arguments["matched_detections"].tolist() == [False, True, True]
 
 
 def test_confusion_matrix_keeps_the_detections_reaching_their_class_threshold() -> None:

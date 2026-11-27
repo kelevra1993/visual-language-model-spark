@@ -54,6 +54,7 @@ KNOWN_KEY_PATHS: Dict[str, Tuple[str, ...]] = {
     # Evaluation and diagnosis settings of some tasks only
     "ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage.activated": DETECTION_TASKS,
     "ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage.iou_threshold": DETECTION_TASKS,
+    "ExperimentConfiguration.diagnosis_modes.view_training_targets": DETECTION_TASKS,
     "ExperimentConfiguration.evaluation.score_threshold": DETECTION_TASKS,
     **{f"ExperimentConfiguration.evaluation.{key_name}": DETECTION_TASKS + CLASSIFICATION_LIKE_TASKS for key_name in [
         "target_precision", "error_dumps.activated", "error_dumps.maximum_per_class_pair"]},

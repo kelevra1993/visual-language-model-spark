@@ -5,7 +5,8 @@ with one MaskHead per detection level, or with a single MaskHead read by every l
 forward_detection_stages, trains its mask heads on the positive sampled proposals and predicts the mask of every final
 detection. Its mask heads can also read finer inputs than the levels (the image branch and the backbone skips of
 MaskFineInputs and MaskHead), whose backbone outputs it requests through list_backbone_skip_blocks. Registered in
-model_registry.py for the "instance_segmentation" task and wrapped by inference_instance_segmenter.py for the exports.
+model_registry.py for the "instance_segmentation" task and wrapped by inference_instance_segmenter.py for the exports;
+its stages with the mask targets are read by the training target viewer ('view_training_targets').
 """
 
 import torch
@@ -176,7 +177,7 @@ class InstanceSegmenter(TwoStageDetector):
         """
         Runs the two-stage detector, then the mask heads: on the positive sampled proposals with ground truth, giving
         the mask loss, and in evaluation mode on the final detections, clipped to the window of their image, giving
-        their masks.
+        their masks. Its stages are run by forward_instance_segmentation_stages.
 
         Args:
             input_tensor (torch.Tensor): The [B, 3, H, W] input images.
@@ -196,6 +197,43 @@ class InstanceSegmenter(TwoStageDetector):
             ValueError: If ground truth boxes are given without their masks, or the image windows are missing in
                 evaluation mode (forward_detection_stages).
         """
+        return self.forward_instance_segmentation_stages(
+            input_tensor=input_tensor, image_windows=image_windows,
+            ground_truth_bounding_boxes=ground_truth_bounding_boxes, ground_truth_labels=ground_truth_labels,
+            ground_truth_masks=ground_truth_masks)["model_output_dictionary"]
+
+    def forward_instance_segmentation_stages(self, input_tensor: torch.Tensor,
+                                             image_windows: Optional[torch.Tensor] = None,
+                                             ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
+                                             ground_truth_labels: Optional[List[torch.Tensor]] = None,
+                                             ground_truth_masks: Optional[List[torch.Tensor]] = None
+                                             ) -> Dict[str, Any]:
+        """
+        Runs every stage of the instance segmenter: the stages of the two-stage detector (forward_detection_stages),
+        then the mask heads on the positive sampled proposals with ground truth and on the final detections in
+        evaluation mode. Called by forward, and by the training target viewer ('view_training_targets'), which reads
+        the mask targets and the predicted masks of the positive proposals added to the training targets.
+
+        Args:
+            input_tensor (torch.Tensor): The [B, 3, H, W] input images.
+            image_windows (Optional[torch.Tensor]): The [B, 4] [x1, y1, x2, y2] window of every image in the network
+                input (data/preprocessing.py:compute_image_window), needed in evaluation mode only.
+            ground_truth_bounding_boxes (Optional[List[torch.Tensor]]): The [N_i, 4] ground truth boxes of every image.
+            ground_truth_labels (Optional[List[torch.Tensor]]): The [N_i] ground truth labels of every image.
+            ground_truth_masks (Optional[List[torch.Tensor]]): The [N_i, H, W] binary ground truth masks of every image,
+                in the order of its boxes.
+
+        Returns:
+            Dict[str, Any]: The stages of forward_detection_stages, whose 'model_output_dictionary' gains the
+                'mask_loss' with ground truth and the 'final_detection_masks' in evaluation mode, and whose
+                'training_targets' gain, with ground truth, the outputs of compute_proposal_mask_loss other than the
+                loss ('mask_proposals', 'mask_labels', 'mask_matched_ground_truth_indices', 'mask_targets' and
+                'mask_logits').
+
+        Raises:
+            ValueError: If ground truth boxes are given without their masks, or the image windows are missing in
+                evaluation mode (forward_detection_stages).
+        """
         if ground_truth_bounding_boxes is not None and ground_truth_masks is None:
             raise ValueError("The instance segmenter needs the ground truth masks with the ground truth boxes.")
 
@@ -208,23 +246,25 @@ class InstanceSegmenter(TwoStageDetector):
         skip_feature_maps = detection_stages["backbone_skip_dictionary"]
         model_output_dictionary = detection_stages["model_output_dictionary"]
 
-        # Mask loss of the positive sampled proposals
+        # Mask loss of the positive sampled proposals, their targets and masks joining the training targets
         if ground_truth_bounding_boxes is not None:
-            model_output_dictionary["mask_loss"] = self.compute_proposal_mask_loss(
+            mask_outputs = self.compute_proposal_mask_loss(
                 feature_maps=feature_maps, skip_feature_maps=skip_feature_maps,
                 aggregated_detections=detection_stages["aggregated_detections_dictionary"],
                 ground_truth_masks=ground_truth_masks)
+            model_output_dictionary["mask_loss"] = mask_outputs.pop("mask_loss")
+            detection_stages["training_targets"].update(mask_outputs)
 
         # Masks of the final detections
         if not self.training:
             model_output_dictionary["final_detection_masks"] = self.predict_detection_masks(
                 feature_maps=feature_maps, skip_feature_maps=skip_feature_maps,
                 model_output_dictionary=model_output_dictionary)
-        return model_output_dictionary
+        return detection_stages
 
     def compute_proposal_mask_loss(self, feature_maps: Dict[str, torch.Tensor],
                                    skip_feature_maps: Dict[str, torch.Tensor], aggregated_detections: Dict[str, Any],
-                                   ground_truth_masks: List[torch.Tensor]) -> torch.Tensor:
+                                   ground_truth_masks: List[torch.Tensor]) -> Dict[str, torch.Tensor]:
         """
         Runs the mask heads on the positive sampled proposals of every level (predict_box_mask_logits) and compares
         their masks of the ground truth class with the masks of their matched ground truths cropped to the proposals.
@@ -240,7 +280,10 @@ class InstanceSegmenter(TwoStageDetector):
             ground_truth_masks (List[torch.Tensor]): The [N_i, H, W] binary ground truth masks of every image.
 
         Returns:
-            torch.Tensor: The scalar mask loss.
+            Dict[str, torch.Tensor]: The scalar 'mask_loss', and for the training target viewer the R positive
+                proposals it was computed on, in level order: the [R, 5] 'mask_proposals' (image index, then the
+                corners), their [R] 'mask_labels' and 'mask_matched_ground_truth_indices', the [R, M, M]
+                'mask_targets' of build_mask_targets and the [R, number_classes, M, M] 'mask_logits'.
         """
         positive_mask = aggregated_detections["sliced_labels"] > 0
         level_proposals, labels, matched_indices = {}, [], []
@@ -262,11 +305,15 @@ class InstanceSegmenter(TwoStageDetector):
                                                    skip_feature_maps=skip_feature_maps, fine_features=fine_features)
 
         # Targets cropped from the matched ground truth masks, at the resolution of the predicted masks
+        labels_tensor = torch.cat(tensors=labels, dim=0)
+        matched_indices_tensor = torch.cat(tensors=matched_indices, dim=0)
         mask_targets = build_mask_targets(ground_truth_masks=ground_truth_masks, proposal_boxes=proposals_tensor,
-                                          matched_ground_truth_indices=torch.cat(tensors=matched_indices, dim=0),
+                                          matched_ground_truth_indices=matched_indices_tensor,
                                           mask_size=self.mask_size)
-        return compute_mask_loss(mask_logits=mask_logits, labels=torch.cat(tensors=labels, dim=0),
-                                 mask_targets=mask_targets)
+        mask_loss = compute_mask_loss(mask_logits=mask_logits, labels=labels_tensor, mask_targets=mask_targets)
+        return {"mask_loss": mask_loss, "mask_proposals": proposals_tensor, "mask_labels": labels_tensor,
+                "mask_matched_ground_truth_indices": matched_indices_tensor, "mask_targets": mask_targets,
+                "mask_logits": mask_logits}
 
     def predict_box_mask_logits(self, level_boxes: Dict[str, torch.Tensor], feature_maps: Dict[str, torch.Tensor],
                                 skip_feature_maps: Dict[str, torch.Tensor],

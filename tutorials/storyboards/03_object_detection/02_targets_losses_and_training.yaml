@@ -76,7 +76,7 @@ scenes:
 
   - kind: yaml
     title: "The RegionProposal section"
-    code_reference: "vision_training/losses/detection_losses.py · compute_region_proposal_losses"
+    code_reference: "vision_training/losses/detection_losses.py · assign_region_proposal_targets"
     # The background minimum above zero that leaves the anchors overlapping no object ignored
     literal_numbers: [zero]
     source:

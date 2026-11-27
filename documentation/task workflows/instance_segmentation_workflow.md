@@ -62,7 +62,7 @@ To find your way in the code, the table below maps each role to its file and mai
 |---|---|---|
 | Trainer | `vision_training/trainers/instance_segmentation_trainer.py` (bases `detection_trainer.py`, `coco_split_trainer.py`, `base_trainer.py`) | `InstanceSegmentationTrainer`: `prepare_batch`, `augment_batch`, `forward_pass`, `gather_image_detections`, `compute_mask_overlaps`, `compute_evaluation_results`, `get_sample_masks` |
 | Dataset and masks | `vision_training/data/detection/coco_dataset.py`, `coco_masks.py` | `CocoDetectionDataset` (`load_instance_masks`, `load_instance_index_maps`, `load_original_instances`, `add_instance_masks`, `add_instance_index_map`), `build_instance_mask`, `build_instance_index_map`, `find_index_map_objects`, `expand_instance_index_maps`, `decode_run_length_encoding`, `rasterize_polygons`, `compute_mask_bounding_boxes` |
-| Model | `vision_training/models/instance_segmentation/instance_segmenter.py` (base `models/detection/two_stage_detector.py`) | `InstanceSegmenter`: `forward`, `compute_proposal_mask_loss`, `predict_detection_masks`, `print_mask_summary` |
+| Model | `vision_training/models/instance_segmentation/instance_segmenter.py` (base `models/detection/two_stage_detector.py`) | `InstanceSegmenter`: `forward`, `forward_instance_segmentation_stages`, `compute_proposal_mask_loss`, `predict_detection_masks`, `print_mask_summary` |
 | Mask head | `vision_training/models/instance_segmentation/mask_head.py` | `MaskHead`, `count_mask_upsamplings` |
 | Mask targets, pasting and IoU | `vision_training/models/instance_segmentation/mask_operations.py` | `build_mask_targets`, `paste_instance_masks`, `compute_mask_intersection_over_union` |
 | Mask loss | `vision_training/losses/instance_segmentation_losses.py` | `compute_mask_loss` (the four detection losses come from `detection_losses.py`) |
@@ -176,7 +176,7 @@ main()                                                     give an instance_segm
     ├── run_model_iteration()
     │   ├── prepare_batch()                                expand_instance_index_maps() on the device
     │   ├── augment_batch()                                masks moved with the image, boxes recomputed
-    │   └── forward_pass() -> InstanceSegmenter.forward()
+    │   └── forward_pass() -> InstanceSegmenter.forward() -> forward_instance_segmentation_stages()
     │       ├── forward_detection_stages()                 the 4 detection losses
     │       └── compute_proposal_mask_loss()               build_mask_targets() + compute_mask_loss()
     ├── backward() / step_optimizer() / save_model() / summaries
@@ -498,6 +498,11 @@ The model size panel is condensed here: it prints parameters, trainable paramete
 ### Step 2.17 — `view_input_batches()` → `get_input_sample_image()` → `overlay_instance_masks()`
 In case you turn on `diagnosis_modes.view_input_images`, the input viewer of DET (`object_detection_workflow.md`, Step 2.20) draws the boxes over the masks, filled with their class colour by `overlay_instance_masks()`. `Input_Samples/` is drawn the same way. Off in the configuration.
 
+Should the masks need checking, `diagnosis_modes.view_training_targets` runs the training target viewer of DET (same Step 2.20) with the mask targets added:
+- `compute_training_targets()` runs `forward_instance_segmentation_stages()`, whose training targets also hold the positive RoIs of the mask loss, their targets (`build_mask_targets()`) and their mask logits;
+- `build_mask_target_section()` draws under the panels the positive RoI with the lowest box IoU of every object, at most `MAXIMUM_MASK_TARGET_REGIONS` (8). Each shows the RoI crop with the target contour, the target, and the predicted mask of the object class (`build_mask_target_strip()`);
+- each caption gives the box IoU of the RoI with its object, and the IoU of the predicted mask (thresholded at `mask_threshold`) with the target.
+
 ### Step 2.18 — `analyse_training_data()` → anchor recall
 The anchor recall of DET (`object_detection_workflow.md`, Step 2.21), on the boxes of the segmentations: `gather_object_boxes()` reads them with `select_image_objects(boxes_from_segmentation=True)`. It reads the manifest only, without decoding a mask.
 
@@ -589,7 +594,7 @@ instance_masks list of 2: (4, 512, 512) uint8, (3, 512, 512) uint8      <- uncha
 Geometric augmentations move the masks with the image (`InterpolationMode.NEAREST_EXACT`). Each box becomes the tight box of its moved mask (`compute_mask_bounding_boxes()`), since a rotated box would grow. The visible share is measured on mask pixels, scaled by the zoom applied; `clean_bounding_boxes()` removes objects under 1 pixel wide or under 25 % visible (`MINIMUM_VISIBLE_AREA_FRACTION`). Photometric types leave the masks unchanged. Every type is off here.
 
 ### Step 3.9 — `forward_pass()` → `InstanceSegmenter.forward(ground_truth_bounding_boxes=..., ground_truth_labels=..., ground_truth_masks=...)`
-`forward()` runs `forward_detection_stages()` (Step 3.10), then with the ground truth `compute_proposal_mask_loss()` (Steps 3.11 to 3.13), and in evaluation mode `predict_detection_masks()` (Step 4.3). Boxes without masks raise `ValueError: The instance segmenter needs the ground truth masks with the ground truth boxes.` The trainer sums every `_loss` key, each times its `Optimization.loss_weights` weight (1 in the shipped configurations).
+`forward()` returns the outputs of `forward_instance_segmentation_stages()`. It runs `forward_detection_stages()` (Step 3.10), then with the ground truth `compute_proposal_mask_loss()` (Steps 3.11 to 3.13), and in evaluation mode `predict_detection_masks()` (Step 4.3). Boxes without masks raise `ValueError: The instance segmenter needs the ground truth masks with the ground truth boxes.` The trainer sums every `_loss` key, each times its `Optimization.loss_weights` weight (1 in the shipped configurations).
 
 **Example: the outputs of the first iteration of the CPU run**
 ```text
@@ -774,7 +779,9 @@ IoU with a ground truth mask equal to that square and with an empty one: [[1.0, 
 ### Step 4.6 — `save_sample_images()` → `draw_test_image()` → `get_sample_masks()` + `build_detection_sample_grid()`
 The samples of DET (`object_detection_workflow.md`, Step 4.6): ground truth and detections reaching the deployment threshold side by side. `get_sample_masks()` adds the ground truth masks and the detection masks pasted and thresholded at `mask_threshold`, filled with their class colour under the boxes.
 
-**Example: `Evaluation/Iteration_5000/Samples/`, and the content of `test_014285.png`**
+A detection caption gives its box and mask IoU (`semicircle 0.55 IoU box 0.92 mask 0.95`). `compute_sample_overlaps()` computes the mask IoU at the network resolution, and the detections are matched on masks, as in Step 4.5.
+
+**Example: `Evaluation/Iteration_5000/Samples/`, and the content of `test_014285.png`** (recorded before the IoU in the captions)
 ```text
 test_000000.png, test_002857.png, test_005714.png, ..., test_019999.png      every file 1028 x 560 pixels RGB
 

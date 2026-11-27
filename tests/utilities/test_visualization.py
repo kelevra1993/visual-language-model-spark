@@ -5,9 +5,14 @@ with the boxes in the colour of their class, the frame selection image draws the
 of thumbnails above the probability heat map, the keypoint drawings colour every keypoint by its side, join the drawn
 keypoints by the skeleton in the colour of their class, leave the unlabelled keypoints, the predicted ones not found and
 the padding positions out, draw the occluded ones as rings and caption the objects, the input viewer is skipped
-without a display, and its information panel draws a table of the objects per class in row pairs fitting its width.
+without a display, and its information panel draws a table of the objects per class in row pairs fitting its width,
+and tables of more rows. The captions of the detections give their overlaps with their object, and the training target
+viewer draws the anchors, proposals and sampled regions of interest of an image in three panels, dashing the ground
+truth copies, and the mask targets of a few regions next to their predicted masks, the image cropped to every region as
+RoIAlign maps it.
 """
 
+import cv2
 import numpy as np
 import pytest
 import torch
@@ -15,14 +20,18 @@ import torch
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.utilities.visualization import (CAPTION_BAR_HEIGHT, GRID_GAP, HEAT_MAP_ROW_HEIGHT,
                                                      IGNORED_PIXEL_COLOUR, INFORMATION_PANEL_WIDTH,
-                                                     KEYPOINT_SIDE_COLOURS, LEGEND_BAR_HEIGHT, PANEL_LINE_HEIGHT,
-                                                     PANEL_MARGIN, PANEL_TABLE_GAP, PANEL_TABLE_ROW_HEIGHT,
-                                                     PANEL_TITLE_HEIGHT, SELECTION_COLOURS, SELECTION_THUMBNAIL_SIZE,
+                                                     KEYPOINT_SIDE_COLOURS, LEGEND_BAR_HEIGHT, MASK_TARGET_CELL_SIZE,
+                                                     MASK_TARGET_SPACING, PANEL_LINE_HEIGHT, PANEL_MARGIN,
+                                                     PANEL_TABLE_GAP, PANEL_TABLE_ROW_HEIGHT, PANEL_TITLE_HEIGHT,
+                                                     SELECTION_COLOURS, SELECTION_THUMBNAIL_SIZE,
+                                                     TRAINING_TARGET_COLOURS, TRAINING_TARGET_VIEWER_NAME,
                                                      UNSELECTED_FRAME_BRIGHTNESS, WRONG_PREDICTION_COLOUR, PanelTable,
-                                                     ViewerWindow, build_class_colours, build_detection_sample_grid,
-                                                     build_frame_selection_image, build_information_panel,
-                                                     draw_keypoint_objects, overlay_segmentation_mask,
-                                                     split_panel_table, view_input_data)
+                                                     ViewerWindow, add_bounding_boxes, build_class_colours,
+                                                     build_detection_sample_grid, build_frame_selection_image,
+                                                     build_information_panel, build_mask_target_strip,
+                                                     build_training_target_grid, crop_box_region,
+                                                     draw_keypoint_objects, format_detection_caption,
+                                                     overlay_segmentation_mask, split_panel_table, view_input_data)
 
 # Classes of the keypoint drawing tests on a 96 x 96 image: a figure of 4 keypoints and a marker of a single centre
 # keypoint, padded to the 4 keypoints of the figure
@@ -186,18 +195,24 @@ def test_keypoint_objects_draw_the_labelled_keypoints_by_side() -> None:
     assert np.all(predicted_drawing[56, 24] == 100) and np.all(predicted_drawing[80, 32] == 100)
 
 
-def test_viewer_is_skipped_without_a_display(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_viewer_is_skipped_without_a_display(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
     """
-    Verifies that the input viewer stops at once, without opening any window, when no graphical display is reachable.
+    Verifies that the input viewer stops at once, without opening any window, when no graphical display is reachable,
+    its message naming the viewer: the input image viewer by default, the training target viewer when asked.
 
     Args:
         monkeypatch (pytest.MonkeyPatch): The pytest fixture removing the display variables.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed message.
     """
     monkeypatch.delenv(name="DISPLAY", raising=False)
     monkeypatch.delenv(name="WAYLAND_DISPLAY", raising=False)
-    assert view_input_data(windows=[ViewerWindow(image=torch.zeros(size=(3, 8, 8)), bounding_boxes=None, labels=None,
-                                                 label_names=None, title="Training", target_lines=["Class : cat"],
-                                                 augmentation_lines=[], display_input_size=8)])
+    windows = [ViewerWindow(image=torch.zeros(size=(3, 8, 8)), bounding_boxes=None, labels=None, label_names=None,
+                            title="Training", target_lines=["Class : cat"], augmentation_lines=[],
+                            display_input_size=8)]
+    assert view_input_data(windows=windows)
+    assert "Skipping the input image viewer." in capsys.readouterr().out
+    assert view_input_data(windows=windows, viewer_name=TRAINING_TARGET_VIEWER_NAME)
+    assert "Skipping the training target viewer." in capsys.readouterr().out
 
 
 def test_information_panel_draws_its_tables_in_row_pairs() -> None:
@@ -227,3 +242,181 @@ def test_information_panel_draws_its_tables_in_row_pairs() -> None:
     line_area_bottom = PANEL_MARGIN + PANEL_TITLE_HEIGHT + PANEL_LINE_HEIGHT + 5
     assert np.array_equal(table_panel[:line_area_bottom], text_panel[:line_area_bottom])
     assert table_panel[line_area_bottom:].any()
+
+
+def test_information_panel_draws_tables_of_more_rows() -> None:
+    """
+    Verifies that a table of four rows (an object over its targets in the training target viewer) keeps the text of
+    every row in its columns, sized on their longest text, and makes the panel taller by its four rows and its gap.
+    """
+    table = PanelTable(row_titles=("Object", "Positive anchors", "Best proposal IoU", "Positive RoIs"),
+                       columns=[("#1 circle", "12", "0.83", "9"), ("#2 square", "3", "0.41", "1")])
+    _, row_groups = split_panel_table(table=table, maximum_width=INFORMATION_PANEL_WIDTH - 2 * PANEL_MARGIN)
+    assert [[column[:4] for column in row_group] for row_group in row_groups] == [[("#1 circle", "12", "0.83", "9"),
+                                                                                   ("#2 square", "3", "0.41", "1")]]
+    text_panel = build_information_panel(title="Training Targets", lines=["Objects : 2"], minimum_height=0)
+    table_panel = build_information_panel(title="Training Targets", lines=["Objects : 2", table], minimum_height=0)
+    assert table_panel.shape[0] - text_panel.shape[0] == 4 * PANEL_TABLE_ROW_HEIGHT + PANEL_TABLE_GAP
+
+
+def test_detection_caption_gives_the_overlaps_with_the_object() -> None:
+    """
+    Verifies the captions of the detections of the sample and error images: the class and score alone without
+    overlaps, the box overlap of the object detection, the box and mask overlaps of the instance segmentation, the
+    overlap with the closest object followed by "no match" for a detection matched to no object, and "no match" alone
+    in an image without any object.
+    """
+    assert format_detection_caption(class_name="circle", score=0.974, overlaps=None, matched=True) == "circle 0.97"
+    assert format_detection_caption(class_name="circle", score=0.974, overlaps={"boxes": 0.912},
+                                    matched=True) == "circle 0.97 IoU 0.91"
+    assert format_detection_caption(class_name="circle", score=0.974, overlaps={"boxes": 0.912, "masks": 0.876},
+                                    matched=True) == "circle 0.97 IoU box 0.91 mask 0.88"
+    assert format_detection_caption(class_name="circle", score=0.41, overlaps={"boxes": 0.32},
+                                    matched=False) == "circle 0.41 IoU 0.32 no match"
+    assert format_detection_caption(class_name="circle", score=0.41, overlaps={"boxes": float("nan")},
+                                    matched=False) == "circle 0.41 no match"
+
+
+def test_detection_grid_with_overlaps_keeps_its_layout() -> None:
+    """
+    Verifies that the detection sample grid given the overlaps of its detections keeps the layout and the box colours
+    of the grid without them, only its captions changing.
+    """
+    image = np.full(shape=(96, 128, 3), fill_value=100, dtype=np.uint8)
+    class_colours = build_class_colours(number_classes=3)
+    grid_arguments = {"image": image, "ground_truth_boxes": np.array(object=[[20.0, 30.0, 60.0, 70.0]]),
+                      "ground_truth_labels": np.array(object=[1]),
+                      "predicted_boxes": np.array(object=[[22.0, 30.0, 60.0, 70.0]]),
+                      "predicted_labels": np.array(object=[1]), "predicted_scores": np.array(object=[0.9]),
+                      "class_names": {0: "background", 1: "circle", 2: "square"}, "class_colours": class_colours,
+                      "caption": "test"}
+    plain_grid = build_detection_sample_grid(**grid_arguments)
+    overlap_grid = build_detection_sample_grid(**grid_arguments, detection_overlaps={"boxes": np.array(object=[0.95])},
+                                               matched_detections=np.array(object=[True]))
+    assert overlap_grid.shape == plain_grid.shape
+    prediction_panel = overlap_grid[CAPTION_BAR_HEIGHT:CAPTION_BAR_HEIGHT + 96, 128 + GRID_GAP:]
+    assert np.all(prediction_panel[50, 22] == class_colours[1])
+    assert not np.array_equal(overlap_grid, plain_grid)
+
+
+def test_dashed_boxes_leave_gaps_between_their_dashes() -> None:
+    """
+    Verifies that add_bounding_boxes draws a dashed outline with gaps between its dashes, of the given thickness, where
+    the solid outline is continuous.
+    """
+    solid_image = np.zeros(shape=(64, 64, 3), dtype=np.uint8)
+    dashed_image = np.zeros(shape=(64, 64, 3), dtype=np.uint8)
+    box = np.array(object=[[8.0, 8.0, 56.0, 56.0]])
+    add_bounding_boxes(bounding_boxes=box, image=solid_image, input_image_size=64, color=(0, 255, 0), thickness=1)
+    add_bounding_boxes(bounding_boxes=box, image=dashed_image, input_image_size=64, color=(0, 255, 0), thickness=1,
+                       dash_length=4)
+    top_edge_solid, top_edge_dashed = solid_image[8, 8:57, 1] > 0, dashed_image[8, 8:57, 1] > 0
+    assert top_edge_solid.all() and 0 < top_edge_dashed.sum() < top_edge_solid.sum()
+    assert not solid_image[9, 20].any() and not dashed_image[10, 20].any()
+
+
+def test_box_caption_is_moved_inside_the_right_border() -> None:
+    """
+    Verifies that the caption of a box near the right border of the image, longer than the space left, is moved left
+    so that it ends inside the image, its black background starting left of the box, instead of being cut by the
+    border.
+    """
+    image = np.full(shape=(100, 100, 3), fill_value=100, dtype=np.uint8)
+    caption = "hollow_ellipse 0.65 IoU box 0.83 mask 0.71"
+    add_bounding_boxes(bounding_boxes=np.array(object=[[80.0, 40.0, 98.0, 60.0]]), image=image, input_image_size=100,
+                       color=(0, 255, 0), captions=[caption])
+    (caption_width, _), _ = cv2.getTextSize(text=caption, fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.4,
+                                            thickness=1)
+    caption_left = max(0, 100 - caption_width - 4)
+    assert caption_left < 80 and image[36, caption_left].tolist() != [100, 100, 100]
+    assert image[36, max(0, caption_left - 1)].tolist() == [100, 100, 100] or caption_left == 0
+
+
+def test_training_target_grid_draws_every_target_on_its_panel() -> None:
+    """
+    Verifies the three panels of the training target viewer between nothing above and the legend bar below: the
+    positive and negative anchors on the first panel, the proposals on the second, the positive and negative regions
+    of interest and the dashed ground truth copies on the third, the ground truth boxes in white over the first two
+    panels only.
+    """
+    image = np.full(shape=(64, 64, 3), fill_value=50, dtype=np.uint8)
+    no_boxes = np.zeros(shape=(0, 4))
+    grid = build_training_target_grid(
+        image=image, ground_truth_boxes=np.array(object=[[40.0, 40.0, 60.0, 60.0]]), ground_truth_captions=["#1"],
+        positive_anchors=np.array(object=[[4.0, 24.0, 20.0, 40.0]]),
+        negative_anchors=np.array(object=[[24.0, 24.0, 36.0, 40.0]]),
+        proposals=np.array(object=[[4.0, 24.0, 20.0, 40.0]]), positive_regions=np.array(object=[[4.0, 24.0, 20.0, 40.0]]),
+        ground_truth_copies=np.array(object=[[40.0, 40.0, 60.0, 60.0]]), negative_regions=no_boxes)
+    assert grid.shape == (64 + LEGEND_BAR_HEIGHT, 3 * 64 + 2 * GRID_GAP, 3)
+    anchor_panel, proposal_panel = grid[:64, :64], grid[:64, 64 + GRID_GAP:128 + GRID_GAP]
+    region_panel = grid[:64, 128 + 2 * GRID_GAP:]
+
+    # Left edges of the boxes, below the panel titles
+    assert anchor_panel[50, 40].tolist() == list(TRAINING_TARGET_COLOURS["Ground truth"])
+    assert proposal_panel[50, 40].tolist() == list(TRAINING_TARGET_COLOURS["Ground truth"])
+    assert anchor_panel[32, 4].tolist() == list(TRAINING_TARGET_COLOURS["Positive"])
+    assert anchor_panel[32, 24].tolist() == list(TRAINING_TARGET_COLOURS["Negative"])
+    assert proposal_panel[32, 4].tolist() == list(TRAINING_TARGET_COLOURS["Proposal"])
+    assert region_panel[32, 4].tolist() == list(TRAINING_TARGET_COLOURS["Positive"])
+
+    # The ground truth copy dashed in green on the regions panel, with gaps along its left edge, and no white box under
+    # the title of the panel
+    copy_edge = np.all(region_panel[40:61, 40] == TRAINING_TARGET_COLOURS["Positive"], axis=-1)
+    assert 0 < copy_edge.sum() < copy_edge.shape[0]
+    assert not np.any(np.all(region_panel[24:] == TRAINING_TARGET_COLOURS["Ground truth"], axis=-1))
+
+
+def test_box_region_is_cropped_as_roi_align_maps_it() -> None:
+    """
+    Verifies that crop_box_region maps the box corners onto the cell borders: a box equal to a white square fills the
+    cell, a box twice as large around it puts the square in the middle half of the cell, and the parts of a box
+    outside the image are black.
+    """
+    image = np.zeros(shape=(40, 40), dtype=np.uint8)
+    image[10:20, 10:20] = 255
+    full_crop = crop_box_region(image=image, box=np.array(object=[10.0, 10.0, 20.0, 20.0]), output_size=20,
+                                interpolation=cv2.INTER_NEAREST)
+    assert np.all(full_crop == 255)
+    wide_crop = crop_box_region(image=image, box=np.array(object=[5.0, 5.0, 25.0, 25.0]), output_size=20,
+                                interpolation=cv2.INTER_NEAREST)
+    assert np.all(wide_crop[5:15, 5:15] == 255) and not wide_crop[:5].any() and not wide_crop[15:].any()
+    outside_crop = crop_box_region(image=np.full(shape=(40, 40), fill_value=255, dtype=np.uint8),
+                                   box=np.array(object=[-20.0, 0.0, 20.0, 40.0]), output_size=20,
+                                   interpolation=cv2.INTER_NEAREST)
+    assert not outside_crop[:, :10].any() and np.all(outside_crop[:, 10:] == 255)
+
+
+def test_mask_target_strip_places_every_region_with_its_cells() -> None:
+    """
+    Verifies the mask target strip of the training target viewer: every region in a block of three cells (the image
+    crop with the target contour, the target, the predicted mask) under its caption bar, the blocks of a row placed
+    from the left, a block not fitting the width starting a new row, the target cell holding the target enlarged and
+    its contour drawn in green on the crop.
+    """
+    image = np.full(shape=(64, 64, 3), fill_value=80, dtype=np.uint8)
+    mask_targets = np.zeros(shape=(3, 4, 4), dtype=np.float32)
+    mask_targets[:, 1:3, 1:3] = 1.0
+    block_width = 3 * MASK_TARGET_CELL_SIZE + 2 * GRID_GAP
+    strip = build_mask_target_strip(image=image, region_boxes=np.array(object=[[8.0, 8.0, 40.0, 40.0]] * 3),
+                                    mask_targets=mask_targets, mask_probabilities=np.full(shape=(3, 4, 4),
+                                                                                          fill_value=0.5),
+                                    region_captions=["#1", "#2", "#3"], width=2 * block_width + MASK_TARGET_SPACING,
+                                    title="Mask targets")
+    block_height = CAPTION_BAR_HEIGHT + MASK_TARGET_CELL_SIZE
+    assert strip.shape == (CAPTION_BAR_HEIGHT + 2 * (block_height + MASK_TARGET_SPACING) + MASK_TARGET_SPACING,
+                           2 * block_width + MASK_TARGET_SPACING, 3)
+
+    # Target cell of the first region: white in its middle half, black at its border
+    cell_top = CAPTION_BAR_HEIGHT + MASK_TARGET_SPACING + CAPTION_BAR_HEIGHT
+    target_cell = strip[cell_top:cell_top + MASK_TARGET_CELL_SIZE,
+                        MASK_TARGET_CELL_SIZE + GRID_GAP:2 * MASK_TARGET_CELL_SIZE + GRID_GAP]
+    quarter = MASK_TARGET_CELL_SIZE // 4
+    assert np.all(target_cell[quarter + 2:3 * quarter - 2, quarter + 2:3 * quarter - 2] == 255)
+    assert not target_cell[:quarter - 2].any()
+
+    # Contour of the target in green on the crop, the predicted mask a gray of half intensity
+    crop_cell = strip[cell_top:cell_top + MASK_TARGET_CELL_SIZE, :MASK_TARGET_CELL_SIZE]
+    assert np.any(np.all(crop_cell == TRAINING_TARGET_COLOURS["Positive"], axis=-1))
+    probability_cell = strip[cell_top:cell_top + MASK_TARGET_CELL_SIZE, 2 * (MASK_TARGET_CELL_SIZE + GRID_GAP):
+                             3 * MASK_TARGET_CELL_SIZE + 2 * GRID_GAP]
+    assert probability_cell[5, 5].tolist() == [127, 127, 127]

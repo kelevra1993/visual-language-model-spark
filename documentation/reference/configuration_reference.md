@@ -23,7 +23,7 @@ Every task has `ExperimentConfiguration` (with `evaluation.per_class_report`, `e
 
 | Key | Tasks |
 |---|---|
-| `DetectionLevels`, `Neck`, `RegionProposal`, `Detector`, `Optimization.loss_weights`, `evaluation.score_threshold` | DET, INS |
+| `DetectionLevels`, `Neck`, `RegionProposal`, `Detector`, `Optimization.loss_weights`, `evaluation.score_threshold`, `diagnosis_modes.compute_anchor_coverage`, `diagnosis_modes.view_training_targets` | DET, INS |
 | `MaskHead`, `Data.instance_index_maps` | INS |
 | `evaluation.original_resolution` | INS, SEG |
 | `evaluation.target_precision`, `evaluation.error_dumps` | DET, INS, CLS, M2O, M2M, CMP, SEL (`target_precision` a list, the first the main target, for CLS, M2O, M2M, CMP) |
@@ -182,7 +182,7 @@ The table shows what each task draws in its sample images.
 | CLS, M2O, CMP | the input, captioned `true -> predicted probability`, green when right, red when wrong |
 | M2M | the frame grid, each frame captioned `true/predicted`, `X` on the wrong ones |
 | SEL | the thumbnail grid with the selection, and the probability heat map |
-| DET, INS | ground truth boxes next to the detections above `Detector.inference.score_threshold` |
+| DET, INS | ground truth boxes next to the detections above `Detector.inference.score_threshold`, each captioned `class score IoU` with its IoU to the object it matches as in the error images (box and mask IoU for INS), else to its closest object followed by `no match` |
 | SEG | input, true mask, predicted mask and error map |
 | SSL | the image next to two random views, with their cosine similarity |
 | KPT | ground truth objects next to the found objects, with their skeletons |

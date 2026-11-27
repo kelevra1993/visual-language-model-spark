@@ -492,11 +492,13 @@ def check_detection_evaluation_configuration(experiment_configuration: Dict[str,
     return errors
 
 
-def check_anchor_coverage_configuration(experiment_configuration: Dict[str, Any]) -> List[str]:
+def check_detection_diagnosis_modes(experiment_configuration: Dict[str, Any]) -> List[str]:
     """
-    Verifies the 'ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage' diagnosis mode of the object
-    detection and instance segmentation tasks, which prints the anchor recall of the training, validation and test
-    splits then exits: its switch must be a boolean and its threshold an intersection over union within [0, 1].
+    Verifies the diagnosis modes of the object detection and instance segmentation tasks, which end the program before
+    the training: 'ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage', printing the anchor recall of the
+    training, validation and test splits, whose switch must be a boolean and its threshold an intersection over union
+    within [0, 1], and 'ExperimentConfiguration.diagnosis_modes.view_training_targets', the viewer of the anchors,
+    proposals and sampled regions of interest of the training images, whose switch must be a boolean.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -507,7 +509,8 @@ def check_anchor_coverage_configuration(experiment_configuration: Dict[str, Any]
     # Nest the section under its name so that every reported key path matches its location in the YAML file
     configuration = {"ExperimentConfiguration": experiment_configuration}
     key_prefix = "ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage"
-    errors = check_boolean_flags(configuration=configuration, key_paths=[f"{key_prefix}.activated"])
+    errors = check_boolean_flags(configuration=configuration, key_paths=[
+        f"{key_prefix}.activated", "ExperimentConfiguration.diagnosis_modes.view_training_targets"])
     errors += check_intersection_over_union_value(
         value=get_configuration_value(configuration=configuration, key_path=f"{key_prefix}.iou_threshold"),
         key_path=f"{key_prefix}.iou_threshold")
@@ -572,7 +575,7 @@ def check_detection_configuration(experiment_configuration: Dict[str, Any],
     errors = []
     errors += check_detection_evaluation_configuration(experiment_configuration=experiment_configuration,
                                                        model_configuration=model_configuration)
-    errors += check_anchor_coverage_configuration(experiment_configuration=experiment_configuration)
+    errors += check_detection_diagnosis_modes(experiment_configuration=experiment_configuration)
     errors += check_detection_data_configuration(model_configuration=model_configuration)
     errors += check_image_task_sequence_settings(model_configuration=model_configuration)
     errors += check_image_only_augmentation_types(model_configuration=model_configuration)
