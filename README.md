@@ -410,11 +410,15 @@ The serving paths, timed by the [serving benchmark](documentation/architecture_b
 | Triton, ONNX with TensorRT FP16 | `model.onnx` | Triton, engine tied to one GPU model | no | 2.5 | 1,215 |
 
 #### Which One When
-To find your way among these paths, answer the questions of the figure from top to bottom: the first "yes" gives your path, its file and its throughput.
+To find your way among these paths, find your situation in the table: it gives the path to use and the file it runs.
 
-<p align="center">
-  <img src="README/serving_path_choice.png" width="80%" />
-</p>
+| Your situation | Use | File |
+|---|---|---|
+| Debugging, evaluating or changing the model | eager, the reference | the checkpoint |
+| The program running the model links PyTorch | TorchScript | `model.pt` |
+| The most images per second on one known GPU | ONNX with TensorRT FP16, after checking its metric | `model.onnx` |
+| No PyTorch, or C# or Java | ONNX Runtime, CPU or GPU | `model.onnx` |
+| Many clients or models behind one endpoint | Triton, serving either file | `model.pt` or `model.onnx` |
 
 - **Debugging, evaluating or changing the model**: eager, the reference of every other path.
 - **A C++ or Python service that already links PyTorch**: TorchScript (`torch.jit.load` on `model.pt`), which PyTorch 2.14 marks as deprecated.
