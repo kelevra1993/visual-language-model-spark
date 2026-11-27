@@ -18,7 +18,6 @@ run and the constants of the repository.
 """
 
 import json
-import math
 
 import cv2
 import numpy
@@ -29,8 +28,8 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 from typing import Any, Dict, List, Tuple
 
-from tutorials.figures.figure_utilities import (SERIES_COLOURS, SNAPSHOT_OBJECT_SIZE_RANGES, compute_file_fingerprint,
-                                                read_reused_facts, read_run_configuration,
+from tutorials.figures.figure_utilities import (SERIES_COLOURS, compute_file_fingerprint, read_reused_facts,
+                                                read_run_configuration,
                                                 restore_committed_figures, round_fact, write_reused_facts)
 from tutorials.figures.object_detection.detection_sources import (CHECKPOINT_ITERATION, SAMPLE_IMAGE_NAME,
                                                                   SAMPLE_ITERATIONS, compute_network_image_window,
@@ -571,9 +570,9 @@ def describe_mask_geometry(run_folder: Path) -> Dict[str, Any]:
     none of these values depends on the weights, so that no checkpoint is needed) and from the constants of the
     repository: the detection levels and the strides their mask heads pool from, the feature map of the first
     level in a training batch, the kernels of the upsampling and of the mask predictor, the pixels of a mask, the masks
-    compared at once by compute_mask_overlaps at the network resolution of the run (and that resolution), the object
-    size limits of the size tables and the beta of the smooth L1 box loss. Cheap, it runs at every build, outside the
-    reused inference of make_mask_figures, so that its facts never come from an older build.
+    compared at once by compute_mask_overlaps at the network resolution of the run (and that resolution) and the beta
+    of the smooth L1 box loss. Cheap, it runs at every build, outside the reused inference of make_mask_figures, so
+    that its facts never come from an older build.
 
     Args:
         run_folder (Path): The folder of the INS run of tutorial_sources.yaml.
@@ -622,8 +621,6 @@ def describe_mask_geometry(run_folder: Path) -> Dict[str, Any]:
             "geometry.upsampling_stride": upsampling_layer.stride[0],
             "geometry.predictor_kernel": first_head.mask_predictor.kernel_size[0],
             "geometry.mask_pixels": first_head.mask_size ** 2, "geometry.overlap_chunk_size": overlap_chunk_size,
-            "geometry.small_object_limit": f"{int(math.sqrt(SNAPSHOT_OBJECT_SIZE_RANGES['small'][1]))}²",
-            "geometry.large_object_limit": f"{int(math.sqrt(SNAPSHOT_OBJECT_SIZE_RANGES['large'][0]))}²",
             "geometry.box_loss_beta": str(Fraction(LOCALISATION_LOSS_BETA).limit_denominator(max_denominator=100))}
 
 

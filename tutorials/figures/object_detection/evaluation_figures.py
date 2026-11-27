@@ -3,9 +3,10 @@ Evaluation figures of the object detection tutorials (the chapter on the evaluat
 build by tutorials/figures/object_detection/figures.py from the evaluation folder of the last checkpoint of the DET
 run and from its Results.txt: the average precision of every class at IoU 0.5 and 0.75 with the score threshold and
 recall of the class at the target precision (class_metrics.csv, class_thresholds.json), the confusion matrix of the
-detections reaching the deployment threshold (confusion_matrix.csv) with its background row of false positives and
-column of missed objects, the listings of the tables of the report of that checkpoint (methods, object sizes, mean
-average recall), and the proposal recall of every block (proposal_recall.csv). The values the narration quotes are
+deployed detector (confusion_matrix.csv, every class counted from its own threshold or from the deployment one) with
+its background row of false positives and column of missed objects, the listings of the tables of the report of that
+checkpoint (methods, relative object sizes, mean average recall), and the proposal recall of every block and relative
+object size (proposal_recall.csv). The values the narration quotes are
 read from the same files and given as facts, the rates of the report read back between 0 and 1 whether it wrote them as
 percentages ("78.64 %") or with decimals ("0.7864"); the figures and bar labels write the rates as the percentages of
 the reports of the repository (the target precision "99 %"), the score thresholds keeping their decimals.
@@ -29,11 +30,14 @@ from tutorials.figures.figure_utilities import (DOTS_PER_INCH, POINTS_PER_PIXEL,
                                                 TEXT_PRIMARY_COLOUR, TEXT_SECONDARY_COLOUR, compute_pixel_box,
                                                 register_fonts, round_fact, save_figure, style_chart_panel)
 from tutorials.figures.object_detection.detection_sources import (describe_class_name, extract_table, join_words,
-                                                                  parse_table_rows, read_results_block, write_listing)
+                                                                  name_report_row, parse_table_rows,
+                                                                  read_results_block, write_listing)
 from tutorial_builder.layout import NAMED_COLOURS
 from vision_training.evaluation.classification.class_metrics_report import write_target_precision
 from vision_training.evaluation.classification.confusion_matrix import MAXIMUM_CLASSES_WITH_SHARES
 from vision_training.evaluation.detection.detection_confusion import MATCHING_INTERSECTION_OVER_UNION_THRESHOLD
+from vision_training.evaluation.detection.object_sizes import OBJECT_SIZE_NAMES
+from vision_training.evaluation.detection.region_recall import ALL_OBJECTS_GROUP
 from vision_training.evaluation.report_formatting import (PERCENT_DECIMALS, PERCENT_SIGN, format_percentage,
                                                           format_percentage_tick)
 
@@ -204,28 +208,36 @@ def draw_class_average_precision_figure(evaluation_folder: Path, output_path: Pa
 def draw_confusion_matrix_figure(evaluation_folder: Path, score_threshold: float,
                                  output_path: Path) -> Dict[str, Any]:
     """
-    Draws the confusion matrix of the detections reaching the deployment threshold from confusion_matrix.csv, rows the
-    true classes and columns the predicted ones, the background first, every cell coloured by its share of its row and,
-    for at most MATRIX_COUNTS_MAXIMUM_CLASSES classes, labelled with its count (too small to read beyond, as the
-    matrices of the evaluation drop their shares), the background row (false positives) and column (missed objects)
-    and the cell of the largest confusion between two shapes outlined; and gives the totals of the four outcomes and
-    the recall of every class at the threshold. The caption writes the deployment threshold of the run and the overlap
-    of the matching (MATCHING_INTERSECTION_OVER_UNION_THRESHOLD of detection_confusion.py), the values the evaluation
-    counted the matrix with.
+    Draws the confusion matrix of the deployed detector from confusion_matrix.csv, its detections reaching the score
+    threshold of their class (class_thresholds.json, the thresholds the export builds into the model) or the deployment
+    threshold for a class without one (DetectionTrainer.build_deployed_confusion_matrix), rows the true classes and
+    columns the predicted ones, the background first, every cell coloured by its share of its row and, for at most
+    MATRIX_COUNTS_MAXIMUM_CLASSES classes, labelled with its count (too small to read beyond, as the matrices of the
+    evaluation drop their shares), the background row (false positives) and column (missed objects) and the cell of
+    the largest confusion between two shapes outlined; and gives the totals of the four outcomes and the recall of
+    every class at its threshold. The caption writes the thresholds and the overlap of the matching
+    (MATCHING_INTERSECTION_OVER_UNION_THRESHOLD of detection_confusion.py), the values the evaluation counted the matrix
+    with.
 
     Args:
         evaluation_folder (Path): The evaluation folder of the last checkpoint.
-        score_threshold (float): 'Detector.inference.score_threshold' of the run, the deployment threshold.
+        score_threshold (float): 'Detector.inference.score_threshold' of the run, the deployment threshold of the
+            classes without a threshold of their own.
         output_path (Path): The PNG file of the figure.
 
     Returns:
-        Dict[str, Any]: The outcomes, the classes never right at the threshold, the largest confusion between two
-            shapes and the boxes of the background row and column and of its cell, named confusion.*.
+        Dict[str, Any]: The outcomes, the classes with a threshold of their own, the classes never right at their
+            threshold, the largest confusion between two shapes and the boxes of the background row and column and of
+            its cell, named confusion.*.
     """
     with open(file=evaluation_folder / "confusion_matrix.csv", mode="r", encoding="utf-8") as file_handler:
         table = list(csv.reader(file_handler))
     class_names = table[0][1:]
     counts = numpy.array(object=[[int(value) for value in row[1:]] for row in table[1:]])
+
+    # Classes counted from a score threshold of their own, the others from the deployment threshold
+    class_thresholds = json.loads((evaluation_folder / "class_thresholds.json").read_text(encoding="utf-8"))["classes"]
+    threshold_class_count = sum(class_threshold is not None for class_threshold in class_thresholds.values())
 
     # Share of every cell in its row, the background row by its total of false positives
     row_totals = counts.sum(axis=1, keepdims=True)
@@ -280,15 +292,17 @@ def draw_confusion_matrix_figure(evaluation_folder: Path, score_threshold: float
         figure.text(x=0.62, y=0.73 - outcome_index * 0.17, s=outcome_name, color=TEXT_SECONDARY_COLOUR,
                     fontsize=20 * POINTS_PER_PIXEL)
 
-    # Caption: the deployment threshold of the run and the overlap matching a detection to an object
-    figure.text(x=0.62, y=0.9, s=f"Detections with score >= {score_threshold:g}, IoU >= "
-                                 f"{MATCHING_INTERSECTION_OVER_UNION_THRESHOLD:g}", color=TEXT_PRIMARY_COLOUR,
-                fontsize=22 * POINTS_PER_PIXEL)
+    # Caption: the class thresholds, the deployment threshold of the other classes and the overlap matching a detection
+    # to an object
+    figure.text(x=0.62, y=0.9, s=f"Score >= class thresholds ({threshold_class_count} of {len(class_thresholds)}), "
+                                 f"{score_threshold:g} otherwise\nIoU >= {MATCHING_INTERSECTION_OVER_UNION_THRESHOLD:g}",
+                color=TEXT_PRIMARY_COLOUR, fontsize=22 * POINTS_PER_PIXEL, va="bottom")
     figure.canvas.draw()
 
     # Pixel boxes of the background row and column, from the data coordinates of the matrix
     figure_height = figure.bbox.height
-    facts = {}
+    facts = {"confusion.threshold_class_count": threshold_class_count,
+             "confusion.class_count": len(class_thresholds)}
     for name, (data_left, data_top, data_right, data_bottom) in [
             ("background_row", (-0.5, -0.5, counts.shape[1] - 0.5, 0.5)),
             ("background_column", (-0.5, -0.5, 0.5, counts.shape[0] - 0.5)),
@@ -380,7 +394,7 @@ def write_report_listings(results_path: Path, iteration: int, output_folder: Pat
             if table_name == "methods":
                 facts[f"report.{weights_name}.method_count"] = len(table_rows)
             for row_label, values in table_rows.items():
-                row_key = row_label.split(" ")[0].lower()
+                row_key = name_report_row(row_label=row_label)
                 for value_index, value in enumerate(values):
                     facts[f"report.{weights_name}.{table_name}.{row_key}.{value_index}"] = convert_report_value(
                         value=value)
@@ -422,10 +436,12 @@ def read_proposal_recall(evaluation_folder: Path) -> Dict[str, Any]:
     facts["proposal_recall.recall_per_block"] = [round_fact(value=float(rows[block]["recall_50"])) for block in blocks]
     facts["proposal_recall.recall_per_block_labels"] = [format_percentage(value=float(rows[block]["recall_50"]))
                                                         for block in blocks]
+    size_groups = list(OBJECT_SIZE_NAMES) + [ALL_OBJECTS_GROUP]
+    facts["proposal_recall.size_labels"] = [OBJECT_SIZE_NAMES.get(group, "All objects") for group in size_groups]
     facts["proposal_recall.recall_per_size"] = [round_fact(value=float(rows[group]["recall_50"])) for group in
-                                                ["small", "medium", "large", "all"]]
+                                                size_groups]
     facts["proposal_recall.recall_per_size_labels"] = [format_percentage(value=float(rows[group]["recall_50"]))
-                                                       for group in ["small", "medium", "large", "all"]]
+                                                       for group in size_groups]
     return facts
 
 

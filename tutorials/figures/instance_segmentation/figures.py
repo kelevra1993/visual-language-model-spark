@@ -30,9 +30,9 @@ from tutorials.figures.instance_segmentation.mask_figures import (FOUND_MASK_OVE
                                                                   make_mask_figures)
 from tutorials.figures.instance_segmentation.mask_input_benchmark import describe_mask_input_benchmark
 from tutorials.figures.object_detection.detection_sources import (CHECKPOINT_ITERATION, EVALUATION_FOLDER_NAME,
-                                                                  SAMPLE_IMAGE_NAME, SAMPLE_ITERATIONS,
-                                                                  count_scalar_tags, find_test_folder, join_words,
-                                                                  read_test_manifest)
+                                                                  OBJECT_SIZE_SPOKEN_NAMES, SAMPLE_IMAGE_NAME,
+                                                                  SAMPLE_ITERATIONS, count_scalar_tags,
+                                                                  find_test_folder, join_words, read_test_manifest)
 from tutorials.figures.object_detection.evaluation_figures import read_confusion_notes, read_proposal_recall
 from tutorials.figures.object_detection.run_figures import (draw_loss_curves_figure, draw_metric_iterations_figure,
                                                             draw_sample_iterations_figure,
@@ -40,6 +40,7 @@ from tutorials.figures.object_detection.run_figures import (draw_loss_curves_fig
                                                             write_console_summary_listing)
 from vision_training.configuration_processing.configuration_loader import load_configuration
 from vision_training.configuration_processing.configuration_values import get_configuration_value
+from vision_training.evaluation.detection.object_sizes import OBJECT_SIZE_NAMES
 from vision_training.trainers.instance_segmentation_trainer import InstanceSegmentationTrainer
 
 # Console log of the run, next to its folder (one launch, stopped after the evaluation of 6000), and the iterations of
@@ -245,14 +246,16 @@ def check_narrated_comparisons(facts: Dict[str, Any]) -> Dict[str, Any]:
     """
     Checks the comparisons the chapters state about the losses and the report of the run, so that a run trained again
     stops the build instead of being described wrongly: the first annotation of the test manifest compressed, the
-    first mask loss at the logarithm of two, the masks ahead of the boxes at an IoU of 0.95, more small objects by mask
-    area than by box area, and one object size the weakest by mAP@0.5 both by mask and by box, which it names.
+    first mask loss at the logarithm of two, the masks ahead of the boxes at an IoU of 0.95, more objects in the
+    smallest relative size and fewer in the largest one by mask area than by box area; and names the weakest object
+    size by mAP@0.5 of the mask table and of the box table.
 
     Args:
         facts (Dict[str, Any]): The merged facts of the figure families of the series.
 
     Returns:
-        Dict[str, Any]: The weakest object size and its mask and box mAP@0.5, named report.weakest_size*.
+        Dict[str, Any]: The weakest object size of the mask table and of the box table, its name as said and as
+            written and its mAP@0.5, named report.weakest_mask_size* and report.weakest_box_size*.
 
     Raises:
         ValueError: If one of the comparisons does not hold.
@@ -265,22 +268,23 @@ def check_narrated_comparisons(facts: Dict[str, Any]) -> Dict[str, Any]:
                          f"the first chapter names.")
     if facts["report.trained.mask_methods.area.2"] <= facts["report.trained.box_methods.area.2"]:
         raise ValueError("The masks do not beat the boxes at an IoU of 0.95, as the second chapter says.")
-    if facts["report.trained.mask_sizes.small.0"] <= facts["report.trained.box_sizes.small.0"]:
-        raise ValueError("The test objects are not more numerous among the small ones by mask than by box, as the "
-                         "second chapter says.")
+    smallest_size, largest_size = list(OBJECT_SIZE_NAMES)[0], list(OBJECT_SIZE_NAMES)[-1]
+    if (facts[f"report.trained.mask_sizes.{smallest_size}.0"] <= facts[f"report.trained.box_sizes.{smallest_size}.0"]
+            or facts[f"report.trained.mask_sizes.{largest_size}.0"]
+            >= facts[f"report.trained.box_sizes.{largest_size}.0"]):
+        raise ValueError("The test objects are not more numerous in the smallest size and fewer in the largest one by "
+                         "mask than by box, as the second chapter says.")
 
-    # The weakest object size by mAP@0.5, the same by mask and by box ("either way")
-    weakest_sizes = {}
-    for table_name in ["mask_sizes", "box_sizes"]:
-        size_maps = {size: facts[f"report.trained.{table_name}.{size}.1"] for size in ["small", "medium", "large"]}
-        weakest_sizes[table_name] = min(size_maps, key=size_maps.get)
-    if weakest_sizes["mask_sizes"] != weakest_sizes["box_sizes"]:
-        raise ValueError(f"The weakest object size is not the same by mask and by box ({weakest_sizes}), where the "
-                         f"second chapter says it is the weak point either way.")
-    weakest_size = weakest_sizes["mask_sizes"]
-    return {"report.weakest_size": weakest_size,
-            "report.weakest_size_mask_map": facts[f"report.trained.mask_sizes.{weakest_size}.1"],
-            "report.weakest_size_box_map": facts[f"report.trained.box_sizes.{weakest_size}.1"]}
+    # The weakest object size by mAP@0.5 of the mask table and of the box table, named as said and as written
+    weakest_facts = {}
+    for table_name, area_name in [("mask_sizes", "mask"), ("box_sizes", "box")]:
+        size_maps = {size: facts[f"report.trained.{table_name}.{size}.1"] for size in OBJECT_SIZE_NAMES}
+        weakest_size = min(size_maps, key=size_maps.get)
+        weakest_facts.update({f"report.weakest_{area_name}_size": weakest_size,
+                              f"report.weakest_{area_name}_size_text": OBJECT_SIZE_SPOKEN_NAMES[weakest_size],
+                              f"report.weakest_{area_name}_size_name": OBJECT_SIZE_NAMES[weakest_size],
+                              f"report.weakest_{area_name}_size_map": size_maps[weakest_size]})
+    return weakest_facts
 
 
 def describe_quoted_facts(facts: Dict[str, Any]) -> Dict[str, Any]:
