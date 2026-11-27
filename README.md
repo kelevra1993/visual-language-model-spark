@@ -95,7 +95,8 @@ In order to check the installation or a configuration within minutes, every task
 # Generate the dataset of a task (--task from the table below)
 uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=classification --output_folder="$HOME/Data/classifier_data/synthetic_shapes"
 
-# Set its absolute paths in the synthetic configuration (no ~ nor $HOME), then train
+# First edit configuration_synthetic_shapes.yaml: experiment_folder, the three data folders and mapping_file_path
+# must be your own absolute paths (no ~ nor $HOME), then train
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/classification/configuration_synthetic_shapes.yaml"
 ```
 
