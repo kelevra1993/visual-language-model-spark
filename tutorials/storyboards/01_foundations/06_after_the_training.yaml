@@ -79,7 +79,7 @@ scenes:
       - {type: text, position: [30, 390], text: "\u00a0\u00a0\u00a0\u00a0│\u00a0\u00a0\u00a0└── the files of the task, Errors/ when on", font: diagram_monospace, colour: dim, anchor: ls}
       - {type: text, position: [30, 445], text: "\u00a0\u00a0\u00a0\u00a0└── evaluation_summary.csv", font: diagram_monospace, anchor: ls, highlight: [1]}
       - {type: box, box: [1000, 150, 1740, 330], text: "every checkpoint scored on the whole\ntest split, with the trained weights\nand the averaged ones when kept", font: diagram_text, outline: aqua, appear: 0, highlight: [0]}
-      - {type: box, box: [1000, 380, 1740, 560], text: "iteration = \"all\": one row per checkpoint,\nthe best checkpoint printed\nfor the trained and averaged weights", font: diagram_text, outline: violet, appear: 1, highlight: [1]}
+      - {type: box, box: [1000, 380, 1740, 560], text: "--iteration all: one row per checkpoint,\nthe best checkpoint printed\nfor the trained and averaged weights", font: diagram_text, outline: violet, appear: 1, highlight: [1]}
     narration:
       - "The evaluation writes the results file, the test curves and one folder per checkpoint like a training does, in the checkpoint evaluation folder of the run, next to the evaluation folder of the training."
       - "With all the checkpoints, the evaluation summary compares their metrics in one table, and the best checkpoint is printed for the trained and for the averaged weights."
@@ -168,10 +168,12 @@ scenes:
     highlights:
       - {match: 'add_argument\("--formats"|add_argument\("--repository"', sentences: [0]}
       - {match: 'add_argument\("--experiment_folder"|add_argument\("--iteration"|add_argument\("--use_averaged_weights"|add_argument\("--maximum_batch_size"|add_argument\("--tensorrt_precision"', sentences: [1]}
+      - {match: 'add_argument\("--tensorrt_precision"', sentences: [3]}
     narration:
       - "Once a run is trained, the export model script writes it to the Triton model repository, in TorchScript and in ONNX, with the Triton configuration of every model."
       - "Its arguments give the run folder, the iteration, the averaged or the trained weights, the largest batch size and the TensorRT precision; without any, it prints its help."
       - "Every format is checked against the PyTorch model before the served models are replaced, and carries the preprocessing of the run, so that a server builds its inputs as the training did."
+      - "With TensorRT, the default, the engine of the ONNX model is also built and run by a temporary Triton container, which needs Docker and a GPU unless the TensorRT check is skipped."
       - "Their sizes are known before any export: every launch estimates them in its Export Sizes panel, with those of the PyTorch weights, the TensorRT engines Triton builds and the checkpoints."
       - "The deployment series takes it from there: the export and its checks, the serving with Triton, and what the serving benchmark measured for every format."
 

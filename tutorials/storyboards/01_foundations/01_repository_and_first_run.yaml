@@ -98,11 +98,11 @@ scenes:
           - "  reference/    the details of the README"
           - "tutorials/      these videos"
           - "Dockerfile      trainer image"
-          - "README.md       commands, main settings"
+          - "README.md       commands of every task"
     narration:
       - "The training framework is one package: its main module is the entry point of every training, and every task adds its trainer, dataset, model, loss and metrics to the matching folders."
       - "Around it, the scripts evaluate and compare runs and hold the other tools, the tests mirror the package, and the documentation holds the benchmark results, the suggested improvements not made yet, and one workflow document per task that follows a real run function by function."
-      - "The README keeps the commands and the main settings of every task, and the reference documents of the documentation folder give the details: the keys and their values, the outputs, the tools."
+      - "The README keeps the commands, from the synthetic data of every task to the export, and the reference documents of the documentation folder give the details: the keys, the outputs, the metrics and the tools."
 
   - kind: terminal
     title: "Install, generate, train"
@@ -319,8 +319,10 @@ scenes:
     image: "repository:README/mlflow_runs.png"
     # The four launches of the situation, those of the screenshot
     literal_numbers: [four]
+    # Box measured on the 2084 x 880 screenshot: the sort by test accuracy and the table of the four runs, from their run
+    # names to their test accuracy
     views:
-      - {box: [470, 95, 1500, 265], from_sentence: 0}
+      - {box: [40, 285, 1440, 855], from_sentence: 0}
     narration:
       - "Suppose you launch four learning rates of the same configuration, each with its run name suffix: with tracking on, every run is also an MLflow run with its parameters, metrics and artifacts, so the four are compared in one table."
 
