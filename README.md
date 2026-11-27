@@ -317,7 +317,7 @@ If words such as eager, ONNX or TensorRT stop you, this part follows one run to 
 | ONNX (`model.onnx`) | an open graph format of standard operators (opset 18): graph in `model.onnx`, weights in `model.onnx.data`, input contract in its metadata; read by runtimes of any framework |
 | ONNX Runtime | the library that runs `model.onnx`: on the CPU for the export check, on the GPU in Triton through its CUDA or TensorRT execution provider |
 | TensorRT | the NVIDIA compiler that turns `model.onnx` into an engine for one GPU model and one TensorRT version; built inside Triton at the first requests, never checked by the export |
-| Precision (FP32 / FP16) | the bits of each computed value: exports store FP32; `tensorrt_precision = "FP16"` lets TensorRT compute in FP16 where faster, `torchscript_precision = "FP16"` does it for the TorchScript network, inputs and outputs staying FP32 |
+| Precision (FP32 / FP16) | the bits of each computed value: exports store FP32; `--tensorrt_precision FP16` lets TensorRT compute in FP16 where faster, `--torchscript_precision FP16` does it for the TorchScript network, inputs and outputs staying FP32 |
 | Triton | the NVIDIA inference server, a Docker container that loads `served_models/`, answers HTTP and gRPC requests and batches those that arrive together |
 
 <p align="center">
@@ -432,7 +432,7 @@ If you are looking for one word of the Deployment section:
 | Opset | the version of the ONNX operator definitions a file uses | 18 |
 | ONNX Runtime | the Microsoft library that runs ONNX files | the export check (CPU), Triton `onnxruntime_onnx` |
 | Execution provider | the ONNX Runtime plug-in that picks the hardware and kernels of each node | CPU, CUDA, TensorRT |
-| TensorRT | the NVIDIA compiler and runtime that turns a graph into an engine for one GPU | `tensorrt_precision` "FP32" or "FP16" |
+| TensorRT | the NVIDIA compiler and runtime that turns a graph into an engine for one GPU | `--tensorrt_precision` FP32 or FP16 |
 | Engine, plan | the compiled TensorRT network, valid for one GPU model, one TensorRT version and a range of input shapes | `/tmp/tensorrt_engine_cache` of the container |
 | Fusion | several operations in one kernel, intermediate tensors kept out of memory | 9 Conv and Relu pairs of the TensorRT engine |
 | Tactic | a candidate kernel the TensorRT builder times for a layer | 60 for the first convolution |
@@ -450,7 +450,7 @@ If you are looking for one word of the Deployment section:
 | FP32 | 32-bit floating point: 8 exponent and 23 mantissa bits | every export and evaluation |
 | TF32 | Tensor Core mode with the range of FP32 and 10 mantissa bits | eager PyTorch convolutions, TensorRT "FP32" |
 | BF16 | 16 bits: the range of FP32 with 7 mantissa bits | the forward passes of the training |
-| FP16 | 16 bits: 5 exponent bits, largest value 65,504, and 10 mantissa bits | `tensorrt_precision = "FP16"`, `torchscript_precision = "FP16"` |
+| FP16 | 16 bits: 5 exponent bits, largest value 65,504, and 10 mantissa bits | `--tensorrt_precision FP16`, `--torchscript_precision FP16` |
 
 ### The Same Values In Every Format
 Before you pick the precision of a served model ([export](#export)), see what FP32, TF32, BF16 and FP16 store for typical values of the repository (PyTorch 2.14, up to 6 significant digits; TF32 rounds the FP32 mantissa to 10 bits, ties to even):
@@ -473,18 +473,17 @@ The figure below puts the same values on the number line of each format:
 <p align="center"><em>One lane per format: the ticks are the values it holds, the dot the stored value, and an arrow a value stored as inf (FP16 above 65,504).</em></p>
 
 ### Export
-Once a run is ready to be served, `vision_training/deployment/export_model.py` writes it to the Triton model repository as TorchScript and ONNX, with a Triton configuration per model. It checks every format against the eager model and replaces the served models only when all match. Set in its main block:
-
-- `experiment_folder`, `iteration`, `use_averaged_weights`, `maximum_batch_size`;
-- `formats`: `"torchscript"` and `"onnx"`;
-- `tensorrt_precision`: `"FP16"`, `"FP32"`, or `None` for ONNX Runtime CUDA only. Use `None` for a keypoint detector, which crashed Triton 26.01 with TensorRT; the TensorRT FP32 engines of the tutorial sequence models do not build beyond batch 1 (item 41 of `documentation/suggestions.md`);
-- `torchscript_precision`: `"FP32"` or `"FP16"`.
-
-Any other value stops the export before it starts. Then run:
+Once a run is ready to be served, `vision_training/deployment/export_model.py` writes it to the Triton model repository as TorchScript and ONNX. It replaces the served models only when every format matches the eager model.
 
 ```bash
+# List every argument with its default
 uv run python -m vision_training.deployment.export_model
+
+# Export iteration 2000 of a run with its averaged weights, TensorRT in FP16
+uv run python -m vision_training.deployment.export_model --experiment_folder ~/Data/<run> --iteration 2000 --use_averaged_weights --tensorrt_precision FP16
 ```
+
+Use `--tensorrt_precision None` for a keypoint detector, which crashed Triton 26.01 with TensorRT. The TensorRT FP32 engines of the tutorial sequence models do not build beyond batch 1 (item 41 of `documentation/suggestions.md`).
 
 <p align="center">
   <img src="README/export_pipeline.png" width="100%" />
@@ -507,9 +506,9 @@ The models go to `vision_training/deployment/triton/served_models/<model name>_<
 
 S is `Data.image_settings.size`, K the number of classes, F the size of the L2 normalized representation, D the largest number of detections per image, M `MaskHead.mask_resolution`, T the number of frames, C the heatmap channels and N the candidates per channel. Inputs are float32 BGR images in [0, 255], prepared as the [input contract](#input-contract) states; the normalization is inside the model. Client-side post-processing (SEG at full resolution, INS masks, KPT grouping), the SEL decoder and ensembles: [tools reference](documentation/reference/tools_reference.md#export).
 
-Should you want a TorchScript file half the size that uses the FP16 Tensor Cores without TensorRT, set `torchscript_precision = "FP16"`. Convolution, linear and attention weights become FP16; normalization, recurrent layers, buffers, softmax, inputs and outputs stay FP32 (`convert_to_half_precision` in `vision_training/deployment/export_formats.py`). The file is `model_fp16.pt`, so it can sit next to an FP32 `model.pt`. It is checked against the eager FP16 model at 100 times the FP32 tolerances (`HALF_PRECISION_TOLERANCE_FACTOR`).
+Should you want a TorchScript file half the size that uses the FP16 Tensor Cores without TensorRT, add `--torchscript_precision FP16`. Convolution, linear and attention weights become FP16; normalization, recurrent layers, buffers, softmax, inputs and outputs stay FP32 (`convert_to_half_precision` in `vision_training/deployment/export_formats.py`). The file is `model_fp16.pt`, so it can sit next to an FP32 `model.pt`. It is checked against the eager FP16 model at 100 times the FP32 tolerances (`HALF_PRECISION_TOLERANCE_FACTOR`).
 
-Before a format goes to production, above all in FP16, set `test_split_parity = True`. A temporary Triton container (Docker, image of `vision_training/deployment/triton/docker-compose.yml`) serves every format, and the eager model and every format are scored on the whole test split, listing the samples whose outputs moved. The summary goes to `<run>/Export_Parity/Iteration_<n>[_EMA][_T<temperature>]_<precisions>/` (e.g. `Iteration_5000_EMA_T3_TorchScript-FP16_TensorRT-FP32`) and next to every installed model. It is a report only: it never blocks the installation. Cost: one test evaluation per format, plus one for the eager model. Details: [tools reference](documentation/reference/tools_reference.md#test-split-parity).
+Before a format goes to production, above all in FP16, add `--test_split_parity`. A temporary Triton container (Docker, image of `vision_training/deployment/triton/docker-compose.yml`) serves every format, and the eager model and every format are scored on the whole test split, listing the samples whose outputs moved. The summary goes to `<run>/Export_Parity/Iteration_<n>[_EMA][_T<temperature>]_<precisions>/` (e.g. `Iteration_5000_EMA_T3_TorchScript-FP16_TensorRT-FP32`) and next to every installed model. It is a report only: it never blocks the installation. Cost: one test evaluation per format, plus one for the eager model. Details: [tools reference](documentation/reference/tools_reference.md#test-split-parity).
 
 Suppose a classifier reaches its target precision only above a threshold such as 0.999: export it with a logit temperature.
 
@@ -517,7 +516,7 @@ Suppose a classifier reaches its target precision only above a threshold such as
 2. Pick a run, an iteration and **Trained** or **EMA**, and check the balanced accuracy at the top of the page.
 3. Press **Save Thresholds At This Temperature**, then **Export At T = …**.
 
-The export goes to its own Triton model repository, `<run>/Exports/Iteration_<n>[_EMA]_T<temperature>/`. From the script, `use_saved_temperature` builds the saved temperature and thresholds into the model. Details: [tools reference](documentation/reference/tools_reference.md#logit-temperature).
+The export goes to its own Triton model repository, `<run>/Exports/Iteration_<n>[_EMA]_T<temperature>/`. From the script, `--use_saved_temperature` builds the saved temperature and thresholds into the model. Details: [tools reference](documentation/reference/tools_reference.md#logit-temperature).
 
 ### Input Contract
 If a server has to turn a photo into a model input, it reads the input contract written with the model instead of guessing the resize or the channel order.
@@ -594,9 +593,9 @@ If you are looking for what deploys without new code, the table lists what `expo
 |---|---|---|---|
 | In the process | checkpoint, eager PyTorch | FP32, convolutions in TF32 | the reference |
 | TorchScript | `model.pt`, `pytorch_libtorch` | FP32 | exported, checked against eager |
-| ONNX Runtime CUDA | `model.onnx`, `onnxruntime_onnx` | FP32 | `tensorrt_precision = None`, checked against eager |
+| ONNX Runtime CUDA | `model.onnx`, `onnxruntime_onnx` | FP32 | `--tensorrt_precision None`, checked against eager |
 | ONNX with TensorRT FP32 | same file, TensorRT accelerator | FP32, TF32 allowed | default, engine not checked |
-| ONNX with TensorRT FP16 | same file | FP16 where TensorRT finds it faster | `"FP16"`, engine not checked |
+| ONNX with TensorRT FP16 | same file | FP16 where TensorRT finds it faster | `--tensorrt_precision FP16`, engine not checked |
 | BF16 | none | | refused by Triton 26.01 |
 | INT8, native TensorRT engine (`model.plan`) | none | | not implemented |
 

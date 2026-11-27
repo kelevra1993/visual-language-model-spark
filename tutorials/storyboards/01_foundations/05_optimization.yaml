@@ -190,7 +190,7 @@ scenes:
       - {type: arrow, points: [[428, 340], [592, 320]], appear: 0}
       - {type: box, box: [600, 270, 1160, 370], text: "Results.txt: EMA Weights blocks", font: diagram_monospace_small, appear: 0, highlight: [0]}
       - {type: arrow, points: [[428, 370], [592, 440]], appear: 1}
-      - {type: box, box: [600, 390, 1160, 490], text: "export: use_averaged_weights: True", font: diagram_monospace_small, appear: 1, highlight: [1]}
+      - {type: box, box: [600, 390, 1160, 490], text: "export: --use_averaged_weights", font: diagram_monospace_small, appear: 1, highlight: [1]}
       - {type: arrow, points: [[428, 390], [592, 560]], appear: 1}
       - {type: box, box: [600, 510, 1160, 610], text: "a run starting from this one,\nwith a moving average too", font: diagram_small, appear: 1, highlight: [1]}
       - {type: box, box: [1240, 150, 1740, 250], text: "validation curves:\ntrained weights", font: diagram_small, appear: 1}

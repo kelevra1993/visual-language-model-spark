@@ -161,7 +161,7 @@ scenes:
       - {role: comment, text: "# Evaluation into <run>/Checkpoint_Evaluation/: run and iteration in its main block"}
       - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
       - {role: comment, text: "# Export to Torch Script and ONNX: needs CUDA"}
-      - {role: command, text: "uv run python -m vision_training.deployment.export_model"}
+      - {role: command, text: "uv run python -m vision_training.deployment.export_model --experiment_folder=<run folder>"}
     narration:
       - "To reproduce the run, generate the synthetic data set with the task given as an argument to the script, then train with the synthetic configuration."
       - "The training runs to its number of iterations, unless Control C stops it first and saves a checkpoint; the run of these chapters stopped at {{semantic_segmentation.run_iterations}}."

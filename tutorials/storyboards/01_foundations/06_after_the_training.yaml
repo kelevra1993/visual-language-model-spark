@@ -21,6 +21,7 @@ references:
   - "scripts/evaluation/plot_experiment_comparisons.py"
   - "documentation/architecture_benchmarking/experiment_comparisons.yaml"
   - "scripts/embedding/cluster_image_embeddings.py · embed_and_cluster_sources"
+  - "vision_training/deployment/export_model.py · parse_export_arguments"
   - "vision_training/deployment/export_model.py · export_experiment"
   - "vision_training/deployment/input_contract.py · write_preprocessing_file"
   - "vision_training/deployment/export_size_estimates.py · estimate_export_sizes"
@@ -159,17 +160,17 @@ scenes:
 
   - kind: code
     title: "Exporting a model"
-    code_reference: "vision_training/deployment/export_model.py · export_experiment"
+    code_reference: "vision_training/deployment/export_model.py · parse_export_arguments"
     source:
       file: vision_training/deployment/export_model.py
-      start: "^if __name__ == \"__main__\":"
-      end: "^    tensorrt_precision = "
+      start: "^    # The run and the checkpoint to export"
+      end: "needed for a keypoint detector"
     highlights:
-      - {match: "^    formats = |^    repository = ", sentences: [0]}
-      - {match: "^    run_name = |^    experiment_folder = |^    iteration = |^    use_averaged_weights = |^    maximum_batch_size = |^    tensorrt_precision = ", sentences: [1]}
+      - {match: 'add_argument\("--formats"|add_argument\("--repository"', sentences: [0]}
+      - {match: 'add_argument\("--experiment_folder"|add_argument\("--iteration"|add_argument\("--use_averaged_weights"|add_argument\("--maximum_batch_size"|add_argument\("--tensorrt_precision"', sentences: [1]}
     narration:
       - "Once a run is trained, the export model script writes it to the Triton model repository, in TorchScript and in ONNX, with the Triton configuration of every model."
-      - "Set the run folder, the iteration, the averaged or the trained weights, the largest batch size and the TensorRT precision of the ONNX model, then run it as a module."
+      - "Its arguments give the run folder, the iteration, the averaged or the trained weights, the largest batch size and the TensorRT precision; without any, it prints its help."
       - "Every format is checked against the PyTorch model before the served models are replaced, and carries the preprocessing of the run, so that a server builds its inputs as the training did."
       - "Their sizes are known before any export: every launch estimates them in its Export Sizes panel, with those of the PyTorch weights, the TensorRT engines Triton builds and the checkpoints."
       - "The deployment series takes it from there: the export and its checks, the serving with Triton, and what the serving benchmark measured for every format."

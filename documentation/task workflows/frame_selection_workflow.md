@@ -72,10 +72,9 @@ uv run python -m vision_training.main --configuration_path="vision_training/conf
 # task) in its main block; it writes in <run>/Checkpoint_Evaluation/
 uv run python -m scripts.evaluation.evaluate_checkpoint
 
-# Export with the decoder and the ensembles: set run_name, experiment_folder, iteration, use_averaged_weights, formats,
-# repository, model_version, maximum_batch_size and tensorrt_precision in its main block, use_saved_temperature
-# staying False (classification only); the networks are checked in a staging folder before they replace the served ones
-uv run python -m vision_training.deployment.export_model
+# Export with the decoder and the ensembles, the other settings being arguments too (run it without any for its help);
+# the networks are checked in a staging folder before they replace the served ones
+uv run python -m vision_training.deployment.export_model --experiment_folder <run folder> --iteration <iteration>
 ```
 
 ### Configuration Keys To Know First

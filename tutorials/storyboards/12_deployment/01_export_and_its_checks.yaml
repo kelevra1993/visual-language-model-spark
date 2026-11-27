@@ -19,6 +19,7 @@ pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [deployment]
 references:
+  - "vision_training/deployment/export_model.py · parse_export_arguments"
   - "vision_training/deployment/export_model.py · export_experiment"
   - "vision_training/deployment/export_model.py · install_staged_models"
   - "vision_training/deployment/export_formats.py · export_onnx"
@@ -48,18 +49,18 @@ scenes:
 
   - kind: code
     title: "The settings of the export"
-    code_reference: "vision_training/deployment/export_model.py · export_experiment"
+    code_reference: "vision_training/deployment/export_model.py · parse_export_arguments"
     source:
       file: vision_training/deployment/export_model.py
-      start: "^    # Iteration to export"
-      end: "^    tensorrt_precision = "
+      start: "^    # The run and the checkpoint to export"
+      end: "needed for a keypoint detector"
     highlights:
-      - {match: "^    iteration = |^    use_averaged_weights = ", sentences: [0]}
-      - {match: "^    formats = |^    repository = |^    model_version = ", sentences: [1]}
-      - {match: "^    maximum_batch_size = ", sentences: [2]}
-      - {match: "^    tensorrt_precision = ", sentences: [3]}
+      - {match: 'add_argument\("--experiment_folder"|add_argument\("--iteration"|add_argument\("--use_averaged_weights"', sentences: [0]}
+      - {match: 'add_argument\("--formats"|add_argument\("--repository"|add_argument\("--model_version"', sentences: [1]}
+      - {match: 'add_argument\("--maximum_batch_size"', sentences: [2]}
+      - {match: 'add_argument\("--tensorrt_precision"', sentences: [3]}
     narration:
-      - "The main block of export model names the run, the iteration, and whether the trained weights or their moving average are exported; any task goes through the same script."
+      - "The arguments of export model name the run, the iteration, and whether the trained weights or their moving average are exported; any task goes through the same script."
       - "Both formats, TorchScript and ONNX, go to the model repository that the docker compose file mounts, each model in a folder of its version, version {{deployment.export.model_version}} by default."
       - "The largest batch size, {{deployment.export.maximum_batch_size}} here, is written twice: as the upper bound of the dynamic batch dimension of the ONNX graph, and as the max batch size of the Triton configuration."
       - "The TensorRT precision only changes the Triton configuration of the ONNX model: {{deployment.export.tensorrt_precision}} by default, FP16, or none for plain ONNX Runtime on CUDA; the file itself stays float32."

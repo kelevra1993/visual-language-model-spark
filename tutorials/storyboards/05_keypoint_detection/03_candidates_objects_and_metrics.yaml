@@ -192,8 +192,8 @@ scenes:
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml\""}
       - {role: comment, text: "# Evaluation of checkpoints: run and iteration set in its main block"}
       - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
-      - {role: comment, text: "# Export to Torch Script and ONNX: needs CUDA; tensorrt_precision = None for this detector"}
-      - {role: command, text: "uv run python -m vision_training.deployment.export_model"}
+      - {role: comment, text: "# Export to Torch Script and ONNX: needs CUDA, and --tensorrt_precision=None for this detector"}
+      - {role: command, text: "uv run python -m vision_training.deployment.export_model --experiment_folder=<run folder>"}
     narration:
       - "To train a run like it, generate the synthetic key point data set with the task given as an argument to the script, then train with the synthetic configuration set to {{keypoint_detection.run_iterations}} iterations and a cosine decay over {{keypoint_detection.run_decay_iterations}}."
       - "Its test folder holds the first {{keypoint_detection.metrics_test_images}} test images, and every other setting is the one of the configuration file, augmentations included."

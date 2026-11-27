@@ -186,7 +186,7 @@ scenes:
       - {type: text, position: [1225, 530], text: "number_detections [B]", font: diagram_monospace_small, anchor: lm, appear: 3}
       - {type: box, box: [20, 650, 1740, 725], text: "client side: letterbox · restore_boxes_to_original_image · per-class thresholds of class_thresholds.json", font: diagram_small, outline: yellow, appear: 5, highlight: [5]}
     narration:
-      - "The main block of the export module writes the detector as object detector, in TorchScript and ONNX, with its Triton configuration."
+      - "The export module writes the detector as object detector, in TorchScript and ONNX, with its Triton configuration."
       - "It takes float BGR images of {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Data.image_settings.size}} pixels in 0 to 255, letterboxed by the client, the input normalization being part of the model."
       - "For the client to letterbox its images as the evaluation did, the export writes the colour order, resize, size, interpolation, padding, layout and value range of the run in the preprocessing file next to the model and in the ONNX metadata."
       - "It returns {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections:words}} boxes per image in network pixels, their scores and int64 labels, zero for the padding, and the number of detections of every image."
@@ -199,10 +199,10 @@ scenes:
     title: "Export"
     code_reference: "vision_training/deployment/export_model.py · export_experiment"
     lines:
-      - {role: comment, text: "# experiment_folder, iteration, use_averaged_weights, formats ... in the main block"}
-      - {role: command, text: "uv run python -m vision_training.deployment.export_model"}
+      - {role: comment, text: "# Run folder, iteration, formats and weights as arguments; without any, the help"}
+      - {role: command, text: "uv run python -m vision_training.deployment.export_model --experiment_folder=<run folder> --use_averaged_weights"}
     narration:
-      - "One might want to ship the averaged weights: set the run folder, the iteration, the formats and that choice in its main block, then run it as a module."
+      - "One might want to ship the averaged weights: give the run folder and that choice as arguments, the iteration and the formats too, then run it as a module."
 
   - kind: text_panel
     title: "Pitfalls"

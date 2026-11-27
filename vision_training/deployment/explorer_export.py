@@ -19,7 +19,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from vision_training.deployment.export_model import (check_export_settings, export_experiment,
+# The settings the page can choose (EXPORT_FORMATS, TENSORRT_PRECISIONS and TORCHSCRIPT_PRECISIONS, the export refusing
+# any other value) and those it shows first (DEFAULT_EXPORT_SETTINGS, the defaults of the arguments of export_model.py)
+# are imported here for the serve script too
+from vision_training.deployment.export_model import (DEFAULT_EXPORT_SETTINGS, check_export_settings, export_experiment,
                                                      hide_known_export_warnings)
 from vision_training.deployment.triton_configuration import (EXPORT_FORMATS, TENSORRT_PRECISIONS,
                                                              TORCHSCRIPT_FILE_NAMES, TORCHSCRIPT_PRECISIONS)
@@ -37,12 +40,6 @@ PARTIAL_EXPORT_SUFFIX = ".partial"
 EXPORT_JOB_FILE_NAME = "export_job.json"
 EXPORT_LOG_FILE_NAME = "export_log.txt"
 EXPORT_RECORD_FILE_NAME = "export_record.json"
-
-# Settings the page can choose (EXPORT_FORMATS, TENSORRT_PRECISIONS and TORCHSCRIPT_PRECISIONS, imported for the
-# serve script, the export refusing any other value), and those it shows first (the values of the main block of
-# export_model.py)
-DEFAULT_EXPORT_SETTINGS = {"formats": ["torchscript", "onnx"], "model_version": 1, "maximum_batch_size": 16,
-                           "tensorrt_precision": "FP32", "torchscript_precision": "FP32"}
 
 
 def describe_evaluation_folder(evaluation_folder: Path) -> Dict[str, Any]:

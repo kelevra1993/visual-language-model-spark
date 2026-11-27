@@ -9,9 +9,12 @@ read after checking them against the classes of the exported model. An export fa
 model leaves the served models of the repository unchanged, a checked one replacing them. A misspelled format,
 TensorRT or TorchScript precision stops export_experiment before anything is read or written. The random batch check
 of an FP16 TorchScript export loosens the difference tolerances only, and a run exported with an FP16 TorchScript file
-installs an FP16 network with FP32 outputs close to those of the FP32 export.
+installs an FP16 network with FP32 outputs close to those of the FP32 export. The export script prints its help when
+launched without arguments, reads every setting of export_experiment from its command line, DEFAULT_EXPORT_SETTINGS
+for those not given, and refuses a missing run folder or an unknown value before anything is loaded.
 """
 
+import inspect
 import json
 import re
 import pytest
@@ -22,16 +25,23 @@ from typing import Any, Dict, List
 
 from tests.deployment import test_input_contract
 from vision_training.deployment import export_model
-from vision_training.deployment.export_model import (HALF_PRECISION_TOLERANCE_FACTOR, STAGING_FOLDER_PREFIX,
+from vision_training.deployment.export_model import (DEFAULT_EXPORT_SETTINGS, DEFAULT_REPOSITORY,
+                                                     HALF_PRECISION_TOLERANCE_FACTOR, STAGING_FOLDER_PREFIX,
                                                      check_saved_thresholds_location, export_experiment,
-                                                     find_saved_thresholds_path, read_saved_temperature,
-                                                     scale_half_precision_tolerances)
+                                                     find_saved_thresholds_path, parse_export_arguments,
+                                                     read_saved_temperature, scale_half_precision_tolerances)
 from vision_training.evaluation.classification.temperature_explorer import SAVED_THRESHOLDS_FILE_NAME
 from vision_training.trainers.checkpointing import get_checkpoint_file
 
 # Exported run and checkpoint of the tests
 RUN_NAME = "CLS_TEST_MC3"
 EXPORTED_ITERATION = 6
+
+# Every argument of the export script, which its help must describe
+EXPORT_SCRIPT_ARGUMENTS = ["--experiment_folder", "--iteration", "--use_averaged_weights", "--formats", "--repository",
+                           "--model_version", "--maximum_batch_size", "--tensorrt_precision", "--torchscript_precision",
+                           "--use_saved_temperature", "--saved_thresholds_path", "--test_split_parity",
+                           "--show_warnings"]
 
 # Mismatch reported by the comparison of get_mismatching_specification whatever the outputs, and the specification
 # of the task it stands in for
@@ -379,3 +389,80 @@ def test_half_precision_torchscript_export_installs_an_fp16_network(tmp_path: Pa
         probabilities = {precision: traced_model(images=images) for precision, traced_model in traced_models.items()}
     assert probabilities["FP16"].dtype == torch.float32
     assert torch.allclose(input=probabilities["FP16"], other=probabilities["FP32"], atol=1e-2)
+
+
+def test_export_script_without_arguments_prints_its_help(capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the export script launched without any argument prints the help of every one of its arguments and
+    stops without exporting, instead of failing on the missing run folder.
+
+    Args:
+        capsys (pytest.CaptureFixture): The captured console output.
+    """
+    with pytest.raises(expected_exception=SystemExit) as exit_information:
+        parse_export_arguments(arguments=[])
+    assert exit_information.value.code == 0
+    help_text = capsys.readouterr().out
+    assert [argument for argument in EXPORT_SCRIPT_ARGUMENTS if argument not in help_text] == []
+
+
+def test_export_arguments_default_to_the_export_settings() -> None:
+    """
+    Verifies that the export script given only the run folder exports its last checkpoint and trained weights with
+    DEFAULT_EXPORT_SETTINGS (the settings the export form of the temperature explorer starts from) into
+    DEFAULT_REPOSITORY, without saved temperature nor test split parity, and that every parsed argument but
+    show_warnings is a parameter of export_experiment, so that the main block passes them all.
+    """
+    parsed_arguments = parse_export_arguments(arguments=["--experiment_folder", RUN_NAME])
+    assert vars(parsed_arguments) == {"experiment_folder": Path(RUN_NAME), "iteration": None,
+                                      "use_averaged_weights": False, "repository": DEFAULT_REPOSITORY,
+                                      "use_saved_temperature": False, "saved_thresholds_path": None,
+                                      "test_split_parity": False, "show_warnings": False, **DEFAULT_EXPORT_SETTINGS}
+    assert set(vars(parsed_arguments)) - {"show_warnings"} == set(inspect.signature(export_experiment).parameters)
+
+
+def test_export_arguments_reach_every_setting(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that every setting of export_experiment can be given on the command line of the export script: 'None'
+    as TensorRT precision for ONNX Runtime CUDA without TensorRT, one format alone, and paths starting with a '~' the
+    shell leaves after '=' expanded to the home folder.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, standing for the home folder.
+        monkeypatch (pytest.MonkeyPatch): Sets the home folder.
+    """
+    monkeypatch.setenv(name="HOME", value=str(tmp_path))
+    parsed_arguments = parse_export_arguments(arguments=[
+        f"--experiment_folder=~/{RUN_NAME}", "--iteration", str(EXPORTED_ITERATION), "--use_averaged_weights",
+        "--formats", "onnx", "--repository=~/served_models", "--model_version", "3", "--maximum_batch_size", "8",
+        "--tensorrt_precision", "None", "--torchscript_precision", "FP16", "--use_saved_temperature",
+        f"--saved_thresholds_path=~/{SAVED_THRESHOLDS_FILE_NAME}", "--test_split_parity", "--show_warnings"])
+    assert vars(parsed_arguments) == {"experiment_folder": tmp_path / RUN_NAME, "iteration": EXPORTED_ITERATION,
+                                      "use_averaged_weights": True, "formats": ["onnx"],
+                                      "repository": tmp_path / "served_models", "model_version": 3,
+                                      "maximum_batch_size": 8, "tensorrt_precision": None,
+                                      "torchscript_precision": "FP16", "use_saved_temperature": True,
+                                      "saved_thresholds_path": tmp_path / SAVED_THRESHOLDS_FILE_NAME,
+                                      "test_split_parity": True, "show_warnings": True}
+
+
+@pytest.mark.parametrize(argnames="arguments", argvalues=[
+    ["--iteration", "2000"],
+    ["--experiment_folder", RUN_NAME, "--formats", "tensorrt"],
+    ["--experiment_folder", RUN_NAME, "--tensorrt_precision", "FP8"],
+    ["--experiment_folder", RUN_NAME, "--torchscript_precision", "BF16"],
+    ["--experiment_folder", RUN_NAME, "--maximum_batch_size", "large"]])
+def test_export_script_refuses_a_missing_run_or_unknown_values(arguments: List[str],
+                                                              capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the export script stops with its usage and the error, before anything is loaded, when the run
+    folder is missing or a format, a precision or a number is not one the export accepts.
+
+    Args:
+        arguments (List[str]): The command line arguments.
+        capsys (pytest.CaptureFixture): The captured console output.
+    """
+    with pytest.raises(expected_exception=SystemExit) as exit_information:
+        parse_export_arguments(arguments=arguments)
+    assert exit_information.value.code == 2
+    assert "error:" in capsys.readouterr().err

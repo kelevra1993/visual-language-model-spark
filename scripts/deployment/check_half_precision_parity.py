@@ -325,7 +325,7 @@ def check_half_precision_parity(experiment_folder: Path, iteration: Optional[int
 
 if __name__ == "__main__":
     # Classification run whose checkpoint is traced in FP16 (the 35-class synthetic shapes classifier of the README,
-    # kept with the tutorial runs, as in the main block of export_model.py)
+    # kept with the tutorial runs)
     run_name = "CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35"
     experiment_folder = Path.home() / "Data" / "tutorial_runs" / "readme_screenshots" / run_name
     # Iteration of the checkpoint, None for the last one, and True for its moving average of the weights (EMA)
