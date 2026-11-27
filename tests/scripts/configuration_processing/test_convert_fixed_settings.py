@@ -10,19 +10,31 @@ the finer inputs of the mask heads (none) added to their mask heads section, the
 added to the diagnosis modes of every task (a partial draft without them left as it is), the class layer flag added to
 the classification heads and to the detection, mask and keypoint heads (True for heads transferred from another run,
 False otherwise), the class layer flag of the segmentation decoder renamed, and the refusals of a conversion changing
-another setting or the backbone.
+another setting or the backbone. The script prints its help when launched without arguments, reads every setting of
+convert_fixed_settings from its command line, only listing the files and taking DEFAULT_BACKUP_SUFFIX unless told
+otherwise, refuses a command line without any folder or with a missing one, and converts the folders its arguments
+name.
 """
 
+import inspect
 import pytest
+import runpy
+import sys
 
 from pathlib import Path
+from typing import List
 
-from scripts.configuration_processing.convert_fixed_settings import (NECK_SECTION_TEXT, add_required_sections,
-                                                                      add_required_settings, check_conversion,
-                                                                      convert_fixed_settings, remove_fixed_settings,
-                                                                      rename_settings)
+from scripts.configuration_processing import convert_fixed_settings as conversion_script
+from scripts.configuration_processing.convert_fixed_settings import (DEFAULT_BACKUP_SUFFIX, NECK_SECTION_TEXT,
+                                                                      add_required_sections, add_required_settings,
+                                                                      check_conversion, convert_fixed_settings,
+                                                                      parse_conversion_arguments,
+                                                                      remove_fixed_settings, rename_settings)
 from vision_training.data.loaders import NUMBER_LOADER_WORKERS
 from vision_training.evaluation.classification.classification_metrics import TOP_K_ACCURACY_CLASSES
+
+# Every argument of the conversion script, which its help must describe
+CONVERSION_SCRIPT_ARGUMENTS = ["--run_roots", "--configuration_folders", "--write_files", "--backup_suffix"]
 
 # Configuration of a task given by its placeholder, written before the fixed settings, with their comments
 CONFIGURATION_TEXT = """ExperimentConfiguration:
@@ -1214,4 +1226,106 @@ def test_conversion_renames_the_class_layers_flag_of_the_segmentation_decoder(tm
     assert converted_paths == [run_folder / "training_configuration.yaml"]
     assert (run_folder / "training_configuration.yaml").read_text(encoding="utf-8") == expected_text
     assert (run_folder / "training_configuration_before_class_layers.yaml").read_text(
+        encoding="utf-8") == original_text
+
+
+def test_conversion_script_without_arguments_prints_its_help(capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the conversion script launched without any argument prints the help of every one of its arguments
+    and stops without searching any folder, the folders of every machine being its own.
+
+    Args:
+        capsys (pytest.CaptureFixture): The captured console output.
+    """
+    with pytest.raises(expected_exception=SystemExit) as exit_information:
+        parse_conversion_arguments(arguments=[])
+    assert exit_information.value.code == 0
+    help_text = capsys.readouterr().out
+    assert [argument for argument in CONVERSION_SCRIPT_ARGUMENTS if argument not in help_text] == []
+
+
+def test_conversion_arguments_only_list_by_default(tmp_path: Path) -> None:
+    """
+    Verifies that the conversion script given a single folder searches no other folder, only lists the files to
+    convert and names the backups with DEFAULT_BACKUP_SUFFIX, and that its arguments are the parameters of
+    convert_fixed_settings, so that the main block passes them all.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, standing for a launch folder.
+    """
+    parsed_arguments = parse_conversion_arguments(arguments=["--configuration_folders", str(tmp_path)])
+    assert vars(parsed_arguments) == {"run_roots": [], "configuration_folders": [tmp_path], "write_files": False,
+                                      "backup_suffix": DEFAULT_BACKUP_SUFFIX}
+    assert set(vars(parsed_arguments)) == set(inspect.signature(convert_fixed_settings).parameters)
+    assert DEFAULT_BACKUP_SUFFIX.startswith("_before_")
+
+
+def test_conversion_arguments_reach_every_setting(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that every setting of convert_fixed_settings can be given on the command line, several folders of each
+    kind, paths starting with a '~' the shell leaves after '=' being expanded to the home folder.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, standing for the home folder.
+        monkeypatch (pytest.MonkeyPatch): Sets the home folder.
+    """
+    monkeypatch.setenv(name="HOME", value=str(tmp_path))
+    for folder_name in ["runs", "other_runs", "launch_files"]:
+        (tmp_path / folder_name).mkdir()
+    parsed_arguments = parse_conversion_arguments(arguments=[
+        "--run_roots", "~/runs", str(tmp_path / "other_runs"), "--configuration_folders=~/launch_files",
+        "--write_files", "--backup_suffix", "_before_test"])
+    assert vars(parsed_arguments) == {"run_roots": [tmp_path / "runs", tmp_path / "other_runs"],
+                                      "configuration_folders": [tmp_path / "launch_files"], "write_files": True,
+                                      "backup_suffix": "_before_test"}
+
+
+@pytest.mark.parametrize(argnames="arguments", argvalues=[
+    ["--write_files"],
+    ["--backup_suffix", "_before_test"],
+    ["--run_roots"],
+    ["--configuration_folders", "missing_launch_files"]])
+def test_conversion_script_refuses_a_command_line_without_an_existing_folder(arguments: List[str],
+                                                                            capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the conversion script stops with its usage and the error, before any file is read, when no folder is
+    given or a given folder does not exist, which would otherwise list no file.
+
+    Args:
+        arguments (List[str]): The command line arguments.
+        capsys (pytest.CaptureFixture): The captured console output.
+    """
+    with pytest.raises(expected_exception=SystemExit) as exit_information:
+        parse_conversion_arguments(arguments=arguments)
+    assert exit_information.value.code == 2
+    assert "error:" in capsys.readouterr().err
+
+
+def test_conversion_script_converts_the_folders_of_its_arguments(tmp_path: Path,
+                                                                 monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that the main block of the conversion script passes every argument to convert_fixed_settings: a launch
+    file holding fixed settings is only listed without --write_files, then converted with --write_files, its backup
+    named with the given suffix.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, holding the launch folder.
+        monkeypatch (pytest.MonkeyPatch): Sets the command line of the script.
+    """
+    configuration_folder = tmp_path / "launch_files"
+    configuration_folder.mkdir()
+    original_text = CONFIGURATION_TEXT.format(task="classification")
+    (configuration_folder / "run-1.yaml").write_text(data=original_text, encoding="utf-8")
+
+    # Listed only, then converted with its backup, as the script run as a module would do
+    for extra_arguments in [[], ["--write_files"]]:
+        monkeypatch.setattr(target=sys, name="argv", value=[
+            conversion_script.__file__, "--configuration_folders", str(configuration_folder), "--backup_suffix",
+            "_before_test", *extra_arguments])
+        runpy.run_path(path_name=conversion_script.__file__, run_name="__main__")
+        if not extra_arguments:
+            assert (configuration_folder / "run-1.yaml").read_text(encoding="utf-8") == original_text
+            assert not (configuration_folder / "previous_configurations").exists()
+    assert (configuration_folder / "run-1.yaml").read_text(encoding="utf-8") == CONVERTED_CLASSIFICATION_TEXT
+    assert (configuration_folder / "previous_configurations" / "run-1_before_test.yaml").read_text(
         encoding="utf-8") == original_text
