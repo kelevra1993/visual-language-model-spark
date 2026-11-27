@@ -100,50 +100,20 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/classification/configuration_synthetic_shapes.yaml"
 ```
 
-Every other task works the same way: generate its dataset with its `--task`, edit the paths of its synthetic configuration, then train with it:
+Every other task works the same way: generate its dataset with its `--task` and output folder, edit the paths of its configuration, then train with it. The table gives the values of each task:
 
-```bash
-# CLS multi-label
-uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=multi_label_classification --output_folder="$HOME/Data/classifier_data/synthetic_counted_shapes"
-uv run python -m vision_training.main --configuration_path="vision_training/configurations/classification/configuration_synthetic_counted_shapes.yaml"
-
-# DET and INS, which share the instance segmentation dataset
-uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=instance_segmentation --output_folder="$HOME/Data/instance_segmentation_data/synthetic_shapes"
-uv run python -m vision_training.main --configuration_path="vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml"
-uv run python -m vision_training.main --configuration_path="vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml"
-
-# KPT
-uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=keypoint_detection --output_folder="$HOME/Data/keypoint_data/synthetic_shapes"
-uv run python -m vision_training.main --configuration_path="vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml"
-
-# SEG
-uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=semantic_segmentation --output_folder="$HOME/Data/segmentation_data/synthetic_shapes"
-uv run python -m vision_training.main --configuration_path="vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml"
-
-# M2O
-uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=sequence_classification --output_folder="$HOME/Data/sequence_data/synthetic_moving_shapes"
-uv run python -m vision_training.main --configuration_path="vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml"
-
-# M2M
-uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=sequence_labelling --output_folder="$HOME/Data/sequence_data/synthetic_changing_shapes"
-uv run python -m vision_training.main --configuration_path="vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml"
-
-# CMP
-uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=sequence_comparison --output_folder="$HOME/Data/sequence_data/synthetic_object_loss_pairs"
-uv run python -m vision_training.main --configuration_path="vision_training/configurations/sequence_comparison/configuration_synthetic_pairs.yaml"
-
-# SEL
-uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=frame_selection --output_folder="$HOME/Data/sequence_data/synthetic_selected_shapes"
-uv run python -m vision_training.main --configuration_path="vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml"
-
-# SSL on the classification dataset generated above
-uv run python -m vision_training.main --configuration_path="vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml"
-
-# SSL on counted shapes, with SimCLR or Barlow Twins
-uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=self_supervised --output_folder="$HOME/Data/self_supervised_data/synthetic_counted_shapes"
-uv run python -m vision_training.main --configuration_path="vision_training/configurations/self_supervised/configuration_counted_shapes_simclr.yaml"
-uv run python -m vision_training.main --configuration_path="vision_training/configurations/self_supervised/configuration_counted_shapes_barlow_twins.yaml"
-```
+| `--task` | Output folder | Configuration in `vision_training/configurations/` |
+|---|---|---|
+| `multi_label_classification` | `$HOME/Data/classifier_data/synthetic_counted_shapes` | `classification/configuration_synthetic_counted_shapes.yaml` |
+| `instance_segmentation` | `$HOME/Data/instance_segmentation_data/synthetic_shapes` | `object_detection/configuration_synthetic_shapes.yaml`, `instance_segmentation/configuration_synthetic_shapes.yaml` |
+| `keypoint_detection` | `$HOME/Data/keypoint_data/synthetic_shapes` | `keypoint_detection/configuration_synthetic_shapes.yaml` |
+| `semantic_segmentation` | `$HOME/Data/segmentation_data/synthetic_shapes` | `semantic_segmentation/configuration_synthetic_shapes.yaml` |
+| `sequence_classification` | `$HOME/Data/sequence_data/synthetic_moving_shapes` | `sequence_classification/configuration_synthetic_sequences.yaml` |
+| `sequence_labelling` | `$HOME/Data/sequence_data/synthetic_changing_shapes` | `sequence_labelling/configuration_synthetic_sequences.yaml` |
+| `sequence_comparison` | `$HOME/Data/sequence_data/synthetic_object_loss_pairs` | `sequence_comparison/configuration_synthetic_pairs.yaml` |
+| `frame_selection` | `$HOME/Data/sequence_data/synthetic_selected_shapes` | `frame_selection/configuration_synthetic_sequences.yaml` |
+| `classification` (generated above) | `$HOME/Data/classifier_data/synthetic_shapes` | `self_supervised/configuration_synthetic_shapes.yaml` |
+| `self_supervised` | `$HOME/Data/self_supervised_data/synthetic_counted_shapes` | `self_supervised/configuration_counted_shapes_simclr.yaml`, `self_supervised/configuration_counted_shapes_barlow_twins.yaml` |
 
 The figure below shows samples of every synthetic dataset:
 
