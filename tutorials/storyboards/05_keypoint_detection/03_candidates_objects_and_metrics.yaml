@@ -21,6 +21,7 @@ references:
   - "vision_training/deployment/export_specifications.py · compare_keypoints"
   - "vision_training/deployment/deployment_utilities.py · load_inference_inputs"
   - "vision_training/deployment/input_contract.py · write_preprocessing_file"
+  - "vision_training/deployment/keypoint_deployment.py · read_keypoint_channels"
 scenes:
   - kind: title_card
     heading: "From candidates to objects"
@@ -55,10 +56,14 @@ scenes:
       end: "rows = flat_indices //"
     highlights:
       - {match: "window_maxima|local_maxima|topk", sentences: [0]}
+      - {match: "candidate_scores = ", sentences: [1]}
+      - {match: "rows = flat_indices //", sentences: [2]}
     # The zero scores of the padding candidates
     literal_numbers: [zero]
     narration:
       - "The candidates of a channel are its local maxima over {{constant:vision_training/models/keypoints/keypoint_detector.py#CANDIDATE_WINDOW_SIZE:words}} by {{constant:vision_training/models/keypoints/keypoint_detector.py#CANDIDATE_WINDOW_SIZE:words}} cells, the {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#KeypointHead.inference.maximum_candidates}} highest kept and padded with zero scores."
+      - "Their scores are read back at the kept cells, since the TensorRT provider of ONNX Runtime left the top-k scores out of its engine and crashed Triton."
+      - "Their rows come from an integer division, since a division in float32 overflowed half precision on the cells of a large heat map."
 
   - kind: code
     title: "Candidates placed within their cell"
@@ -199,7 +204,7 @@ scenes:
       - "Its test folder holds the first {{keypoint_detection.metrics_test_images}} test images, and every other setting is the one of the configuration file, augmentations included."
       - "The evaluation script skips its maximum error images per class pair with a yellow warning, key point detection saving no error images."
       - "In a situation where no GPU is available, the export cannot run: it loads the checkpoint on CUDA, hard-coded."
-      - "The default FP32 engine misses the tolerances of the check by its TF32 roundings, so the check accepts it within a few times the difference TF32 makes in the eager detector."
+      - "The default FP32 engine of this run misses the tolerances of the check by its TF32 roundings, so the check accepts it within a few times the difference TF32 makes in the eager detector."
 
   - kind: html
     page: diagram
