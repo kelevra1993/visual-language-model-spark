@@ -48,6 +48,7 @@ from tutorials.figures.object_detection.run_figures import (SMOOTHING_WEIGHT, dr
                                                             read_console_summary_facts, smooth_values,
                                                             write_console_summary_listing)
 from vision_training.configuration_processing.configuration_loader import load_configuration
+from vision_training.evaluation.detection.object_sizes import OBJECT_SIZE_NAMES
 from vision_training.losses.detection_losses import LOCALISATION_LOSS_BETA
 from vision_training.trainers.detection_trainer import DetectionTrainer
 
@@ -358,9 +359,11 @@ def check_narrated_claims(facts: Dict[str, Any], iterations: Dict[str, Any]) -> 
     whole test split at the first compared evaluation, every positive anchor and proposal of the image kept by the
     samplings, the block taking the most proposal slots on the image and over the test split (the same, with its
     slots), the two coarsest levels sharing their stride and one scale, the levels overlapping in the objects they
-    cover, the anchor recall of the small objects coming from the finest level alone and no large object reaching an
-    anchor of block 5, the averaged weights leading more from 0.5 to 0.95 than at 0.5, the classes never right at the
-    deployment threshold (the one of the best AP named) and never reaching the target precision.
+    cover, the anchor recall of the objects under a sixteenth of the image side coming from the finest level alone and
+    no object from a quarter of the side reaching an anchor of block 5, the averaged weights leading more from 0.5 to
+    0.95 than at 0.5, the smallest and the largest relative object sizes the weakest by mAP@0.5, the classes never
+    right at their threshold (without a threshold of their own, the one of the best AP named) and never reaching the
+    target precision.
 
     Args:
         facts (Dict[str, Any]): The merged facts of the figure families of the series.
@@ -426,12 +429,14 @@ def check_narrated_claims(facts: Dict[str, Any], iterations: Dict[str, Any]) -> 
     if sum(facts["proposal_recall.recall_per_block"]) <= facts["proposal_recall.all.recall_50"]:
         problems.append("the proposal recalls of the blocks alone do not add up beyond the recall of all the blocks")
 
-    # Anchor recall: the small objects covered by the finest level alone, no large object by block 5
+    # Anchor recall: the objects under a sixteenth of the image side covered by the finest level alone, no object from
+    # a quarter of the side by block 5
     finest_level = facts["run.level_names_text"].split(", ")[0]
-    if facts["anchor_recall.small.recall_all_levels"] != facts[f"anchor_recall.small.recall_block_{finest_level}"]:
-        problems.append(f"the anchor recall of the small objects does not come from block {finest_level} alone")
-    if facts["anchor_recall.large.recall_block_5"] != 0:
-        problems.append("block 5 covers some large objects")
+    if (facts["anchor_recall.under_1_16.recall_all_levels"]
+            != facts[f"anchor_recall.under_1_16.recall_block_{finest_level}"]):
+        problems.append(f"the anchor recall of the smallest objects does not come from block {finest_level} alone")
+    if facts["anchor_recall.1_4_to_1_2.recall_block_5"] != 0 or facts["anchor_recall.1_2_and_above.recall_block_5"] != 0:
+        problems.append("block 5 covers some objects from a quarter of the image side")
 
     # Averaged weights ahead at the checkpoint, more from 0.5 to 0.95 than at 0.5
     lead_50 = facts["metrics.map_50.test_ema_last"] - facts["metrics.map_50.test_last"]
@@ -440,9 +445,20 @@ def check_narrated_claims(facts: Dict[str, Any], iterations: Dict[str, Any]) -> 
         problems.append(f"the lead of the averaged weights is {lead_50:.4f} at 0.5 and {lead_50_95:.4f} from 0.5 to "
                         f"0.95, where the chapter says it grows")
 
-    # Classes never right at the threshold and never reaching the target precision
+    # Both ends of the relative object sizes the weakest by mAP@0.5, the smallest and the largest objects
+    size_maps = {size_key: facts[f"report.trained.sizes.{size_key}.1"] for size_key in OBJECT_SIZE_NAMES}
+    weakest_sizes = sorted(size_maps, key=size_maps.get)[:2]
+    size_ends = [list(OBJECT_SIZE_NAMES)[0], list(OBJECT_SIZE_NAMES)[-1]]
+    if sorted(weakest_sizes) != sorted(size_ends):
+        problems.append(f"the two weakest object sizes by mAP@0.5 are {weakest_sizes}, not the ends {size_ends}")
+
+    # Classes never right at their threshold and never reaching the target precision, those never right having no
+    # threshold of their own
     if not facts["confusion.never_right"] or not facts["classes.without_threshold"]:
-        problems.append("no class is never right at the threshold, or every class reaches the target precision")
+        problems.append("no class is never right at its threshold, or every class reaches the target precision")
+    if not set(facts["confusion.never_right"]) <= set(facts["classes.without_threshold"]):
+        problems.append(f"classes never right at their threshold ({facts['confusion.never_right']}) have a threshold of "
+                        f"their own")
     if problems:
         raise ValueError(f"The DET run does not show what the chapters say ({SAMPLE_IMAGE_NAME}, iteration "
                          f"{iterations['checkpoint_iteration']}): " + "; ".join(problems) + ".")

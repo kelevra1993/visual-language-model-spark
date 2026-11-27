@@ -2,131 +2,131 @@
     "target_precision": 0.99,
     "classes": {
         "square": {
-            "threshold": 0.8822672963142395,
+            "threshold": 0.882291316986084,
             "recall": 0.7611749680715197
         },
         "circle": {
-            "threshold": 0.7635493874549866,
+            "threshold": 0.7638635039329529,
             "recall": 0.7786163522012579
         },
         "triangle": {
-            "threshold": 0.9474146366119385,
-            "recall": 0.15326633165829145
+            "threshold": 0.9478616714477539,
+            "recall": 0.15201005025125627
         },
         "rectangle": {
-            "threshold": 0.9811865091323853,
-            "recall": 0.3360323886639676
+            "threshold": 0.9810881614685059,
+            "recall": 0.33873144399460187
         },
         "pentagon": {
-            "threshold": 0.78957200050354,
+            "threshold": 0.7900818586349487,
             "recall": 0.545816733067729
         },
         "hexagon": {
-            "threshold": 0.8599544763565063,
+            "threshold": 0.8600314855575562,
             "recall": 0.37361282367447596
         },
         "plus_sign": {
-            "threshold": 0.8398375511169434,
+            "threshold": 0.8393543362617493,
             "recall": 0.8875154511742892
         },
         "star": {
-            "threshold": 0.7856155037879944,
+            "threshold": 0.7857247591018677,
             "recall": 0.8859649122807017
         },
         "octagon": {
-            "threshold": 0.8096838593482971,
-            "recall": 0.06015037593984962
+            "threshold": 0.8088875412940979,
+            "recall": 0.06140350877192982
         },
         "rhombus": {
-            "threshold": 0.42786794900894165,
+            "threshold": 0.4278488755226135,
             "recall": 0.008951406649616368
         },
         "parallelogram": {
-            "threshold": 0.927871823310852,
+            "threshold": 0.9277674555778503,
             "recall": 0.012804097311139564
         },
         "trapezoid": null,
         "kite": null,
         "heptagon": {
-            "threshold": 0.8880327939987183,
+            "threshold": 0.887860119342804,
             "recall": 0.15796019900497513
         },
         "nonagon": {
-            "threshold": 0.8002979159355164,
-            "recall": 0.3194805194805195
+            "threshold": 0.7989628314971924,
+            "recall": 0.3207792207792208
         },
         "ellipse": {
-            "threshold": 0.8809790015220642,
+            "threshold": 0.8810100555419922,
             "recall": 0.012430939226519336
         },
         "semicircle": {
-            "threshold": 0.8316090703010559,
+            "threshold": 0.8316043615341187,
             "recall": 0.15523932729624837
         },
         "annulus": {
-            "threshold": 0.7658498883247375,
-            "recall": 0.7931034482758621
+            "threshold": 0.764738917350769,
+            "recall": 0.7943349753694581
         },
         "capsule": {
-            "threshold": 0.7200911045074463,
+            "threshold": 0.7201206088066101,
             "recall": 0.04738760631834751
         },
         "l_shape": {
-            "threshold": 0.8738611340522766,
-            "recall": 0.24399494310998734
+            "threshold": 0.8759585022926331,
+            "recall": 0.2427307206068268
         },
         "hollow_square": {
-            "threshold": 0.8990177512168884,
+            "threshold": 0.8989958763122559,
             "recall": 0.6321989528795812
         },
         "hollow_triangle": {
-            "threshold": 0.8931418657302856,
-            "recall": 0.40559440559440557
+            "threshold": 0.8936181664466858,
+            "recall": 0.40442890442890445
         },
         "hollow_rectangle": {
-            "threshold": 0.9429827928543091,
+            "threshold": 0.9429994225502014,
             "recall": 0.55625
         },
         "hollow_pentagon": {
-            "threshold": 0.7725240588188171,
+            "threshold": 0.7726942300796509,
             "recall": 0.7029077117572693
         },
         "hollow_hexagon": {
-            "threshold": 0.8430881500244141,
+            "threshold": 0.8431454300880432,
             "recall": 0.3038309114927345
         },
         "hollow_octagon": {
-            "threshold": 0.7871347069740295,
+            "threshold": 0.7871094346046448,
             "recall": 0.058823529411764705
         },
         "hollow_rhombus": null,
         "hollow_parallelogram": {
-            "threshold": 0.934197723865509,
+            "threshold": 0.9342599511146545,
             "recall": 0.043256997455470736
         },
         "hollow_trapezoid": null,
         "hollow_kite": {
-            "threshold": 0.5639412999153137,
+            "threshold": 0.5639424324035645,
             "recall": 0.0013123359580052493
         },
         "hollow_heptagon": {
-            "threshold": 0.8556873202323914,
-            "recall": 0.08985879332477535
+            "threshold": 0.8556576371192932,
+            "recall": 0.09114249037227215
         },
         "hollow_nonagon": {
-            "threshold": 0.9037238359451294,
+            "threshold": 0.9037423729896545,
             "recall": 0.033128834355828224
         },
         "hollow_ellipse": {
-            "threshold": 0.8482787013053894,
+            "threshold": 0.8482423424720764,
             "recall": 0.040993788819875775
         },
         "hollow_semicircle": {
-            "threshold": 0.7959004640579224,
+            "threshold": 0.7958395481109619,
             "recall": 0.2727272727272727
         },
         "hollow_capsule": {
-            "threshold": 0.6766265034675598,
+            "threshold": 0.6766788959503174,
             "recall": 0.018300653594771243
         }
     }

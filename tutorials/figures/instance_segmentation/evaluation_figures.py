@@ -3,8 +3,8 @@ Evaluation figures of the instance segmentation tutorials (the chapter on scorin
 build by tutorials/figures/instance_segmentation/figures.py from the last evaluation of the INS run: the AP@0.75 of
 every class on the masks against the boxes of the same detections (class_metrics.csv, its mask_ columns against the box
 columns), where the 28 x 28 masks lose the thin parts of the shapes, and the listings and values of the mask and box
-tables of the report of that checkpoint (Results.txt): the methods, the object sizes counted on the mask areas and on
-the box areas, and the mean average recall of both. The checkpoint is the one evaluated again with the current code
+tables of the report of that checkpoint (Results.txt): the methods, the relative object sizes (the side of an object as
+a share of the image side) measured on the mask areas and on the box areas, and the mean average recall of both. The checkpoint is the one evaluated again with the current code
 (EVALUATION_FOLDER_NAME of detection_sources.py), whose report writes the rates as percentages ("78.64 %"), read back
 between 0 and 1 in the facts; the figure writes its average precisions on an axis of percentages.
 """
@@ -22,8 +22,10 @@ from tutorials.figures.figure_utilities import (DOTS_PER_INCH, POINTS_PER_PIXEL,
                                                 TEXT_SECONDARY_COLOUR, compute_pixel_box, register_fonts, round_fact,
                                                 save_figure, style_chart_panel)
 from tutorials.figures.object_detection.detection_sources import (describe_class_name, extract_table,
-                                                                  parse_table_rows, read_results_block, write_listing)
+                                                                  name_report_row, parse_table_rows,
+                                                                  read_results_block, write_listing)
 from tutorials.figures.object_detection.evaluation_figures import convert_report_value, read_class_metrics
+from vision_training.evaluation.detection.object_sizes import OBJECT_SIZE_NAMES
 from vision_training.evaluation.report_formatting import format_percentage_tick
 
 # Tables of the report of an instance segmentation checkpoint, with the names of their listings and facts
@@ -168,15 +170,16 @@ def write_mask_report_listings(results_path: Path, iteration: int, output_folder
             if not averaged_weights:
                 write_listing(lines=table_lines, output_path=output_folder / f"results_{table_name}.txt")
             for row_label, values in parse_table_rows(table_lines=table_lines).items():
-                row_key = row_label.split(" ")[0].lower()
+                row_key = name_report_row(row_label=row_label)
                 for value_index, value in enumerate(values):
                     facts[f"report.{weights_name}.{table_name}.{row_key}.{value_index}"] = convert_report_value(
                         value=value)
 
-    # Objects of every size by mask area and by box area, the counts of the bars of the size scene
+    # Objects of every relative size by mask area and by box area, the counts and labels of the bars of the size scene
+    facts["report.size_labels"] = list(OBJECT_SIZE_NAMES.values())
     for table_name in ["mask_sizes", "box_sizes"]:
         facts[f"report.{table_name}_counts"] = [facts[f"report.trained.{table_name}.{size}.0"] for size in
-                                                ["small", "medium", "large"]]
+                                                OBJECT_SIZE_NAMES]
         facts[f"report.{table_name}_count_labels"] = [f"{count:,}" for count in facts[f"report.{table_name}_counts"]]
 
     # Common end of the axes of both bar charts, the largest count rounded up to the next SIZE_AXIS_STEP

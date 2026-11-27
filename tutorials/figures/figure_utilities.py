@@ -69,12 +69,6 @@ SERIES_COLOURS = ["#%02x%02x%02x" % NAMED_COLOURS[colour_name] for colour_name i
 SANS_FONT_FAMILY = "Inter"
 MONOSPACE_FONT_FAMILY = "Hack"
 
-# COCO object sizes of the reports of the tutorial run snapshots, on the box area in squared network input pixels
-# (small, medium, large, the lower bound included): the runs were evaluated before the object sizes became relative
-# to the image side (vision_training/evaluation/detection/object_sizes.py), so their files keep these three sizes
-SNAPSHOT_OBJECT_SIZE_RANGES = {"small": (0.0, 32.0 ** 2), "medium": (32.0 ** 2, 96.0 ** 2),
-                               "large": (96.0 ** 2, math.inf)}
-
 # Pixels added on every side of the plot area of a panel to make its reveal region, wide enough for the end dots drawn
 # over the edges of the axes
 REVEAL_MARGIN = 14

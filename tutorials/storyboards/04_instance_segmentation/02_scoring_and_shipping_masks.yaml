@@ -195,18 +195,19 @@ scenes:
     page: diagram
     title: "Object sizes by mask and by box"
     code_reference: "vision_training/evaluation/detection/object_sizes.py · is_in_object_size"
-    # The mask table and the box table
-    literal_numbers: [two]
+    # The mask table and the box table, and the sixteenth and half of the image side bounding the object sizes
+    # (OBJECT_SIZE_SIDE_SHARES of object_sizes.py)
+    literal_numbers: [two, sixteenth, half]
     elements:
       - {type: text, position: [40, 40], text: "test objects by mask area", font: diagram_bold}
-      - {type: bars, box: [40, 100, 820, 330], orientation: horizontal, values: "{{instance_segmentation.report.mask_sizes_counts}}", labels: ["small", "medium", "large"], value_labels: "{{instance_segmentation.report.mask_sizes_count_labels}}", colours: [magenta, magenta, magenta], maximum: "{{instance_segmentation.report.sizes_axis_maximum}}", label_width: 120, highlight: [1]}
+      - {type: bars, box: [40, 100, 820, 380], orientation: horizontal, values: "{{instance_segmentation.report.mask_sizes_counts}}", labels: "{{instance_segmentation.report.size_labels}}", value_labels: "{{instance_segmentation.report.mask_sizes_count_labels}}", colours: [magenta, magenta, magenta, magenta, magenta], maximum: "{{instance_segmentation.report.sizes_axis_maximum}}", label_width: 200, highlight: [1]}
       - {type: text, position: [940, 40], text: "test objects by box area", font: diagram_bold}
-      - {type: bars, box: [940, 100, 1720, 330], orientation: horizontal, values: "{{instance_segmentation.report.box_sizes_counts}}", labels: ["small", "medium", "large"], value_labels: "{{instance_segmentation.report.box_sizes_count_labels}}", colours: [blue, blue, blue], maximum: "{{instance_segmentation.report.sizes_axis_maximum}}", label_width: 120, highlight: [1]}
-      - {type: box, box: [40, 420, 1720, 560], text: "small below {{instance_segmentation.geometry.small_object_limit}}, medium to {{instance_segmentation.geometry.large_object_limit}}, large above · a shape fills only part of its box\nmask mAP@0.5 of the {{instance_segmentation.report.weakest_size}} objects {{instance_segmentation.report.weakest_size_mask_map:percent}} · box {{instance_segmentation.report.weakest_size_box_map:percent}}", font: diagram_small, outline: border, appear: 2, highlight: [2]}
+      - {type: bars, box: [940, 100, 1720, 380], orientation: horizontal, values: "{{instance_segmentation.report.box_sizes_counts}}", labels: "{{instance_segmentation.report.size_labels}}", value_labels: "{{instance_segmentation.report.box_sizes_count_labels}}", colours: [blue, blue, blue, blue, blue], maximum: "{{instance_segmentation.report.sizes_axis_maximum}}", label_width: 200, highlight: [1]}
+      - {type: box, box: [40, 440, 1720, 580], text: "object side / image side, from the mask or the box area · a shape fills only part of its box\nweakest mask mAP@0.5: {{instance_segmentation.report.weakest_mask_size_name}}, {{instance_segmentation.report.weakest_mask_size_map:percent}} · weakest box mAP@0.5: {{instance_segmentation.report.weakest_box_size_name}}, {{instance_segmentation.report.weakest_box_size_map:percent}}", font: diagram_small, outline: border, appear: 2, highlight: [2]}
     narration:
-      - "The size tables measure the objects differently: by mask area for the mask table, by box area for the box table."
-      - "So {{instance_segmentation.report.trained.mask_sizes.small.0:,}} test objects are small by their mask but only {{instance_segmentation.report.trained.box_sizes.small.0:,}} by their box, and {{instance_segmentation.report.trained.mask_sizes.large.0:,}} are large against {{instance_segmentation.report.trained.box_sizes.large.0:,}}: the two rows of a size hold different objects."
-      - "The {{instance_segmentation.report.weakest_size}} objects are the weak point either way, at a mask mAP of {{instance_segmentation.report.weakest_size_mask_map:percent}} and a box mAP of {{instance_segmentation.report.weakest_size_box_map:percent}}."
+      - "The size tables take the side of an object as a share of the image side, but measure it differently: from the mask area for the mask table, from the box area for the box table."
+      - "So {{instance_segmentation.report.trained.mask_sizes.under_1_16.0:,}} test objects are under a sixteenth of the side by their mask but only {{instance_segmentation.report.trained.box_sizes.under_1_16.0:,}} by their box, and {{instance_segmentation.report.trained.mask_sizes.1_2_and_above.0:,}} reach half the side against {{instance_segmentation.report.trained.box_sizes.1_2_and_above.0:,}}: the two rows of a size hold different objects."
+      - "The weakest masks are those of the objects {{instance_segmentation.report.weakest_mask_size_text}}, at a mask mAP of {{instance_segmentation.report.weakest_mask_size_map:percent}}, and the weakest boxes those {{instance_segmentation.report.weakest_box_size_text}}, at {{instance_segmentation.report.weakest_box_size_map:percent}}."
 
   - kind: yaml
     title: "Scoring at the original resolution"

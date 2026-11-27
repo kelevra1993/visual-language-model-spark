@@ -1,0 +1,13 @@
+split,split_folder,iou_threshold,objects,count,recall_block_4,recall_block_5,recall_block_6,recall_block_7,recall_all_levels
+Training,/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/train,0.500000,all,703879,0.176420,0.228947,0.257598,0.416009,0.780170
+Training,/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/train,0.500000,under_1_16,150120,0.439948,0.081122,0.000000,0.000000,0.439948
+Training,/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/train,0.500000,1_16_to_1_8,143890,0.404010,0.511154,0.095698,0.000000,0.798235
+Training,/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/train,0.500000,1_8_to_1_4,174260,0.000000,0.432819,0.503816,0.388362,0.821175
+Training,/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/train,0.500000,1_4_to_1_2,178644,0.000000,0.000000,0.446435,0.941420,0.941420
+Training,/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/train,0.500000,1_2_and_above,56965,0.000000,0.000000,0.000000,1.000000,1.000000
+Test,/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/test_5000,0.500000,all,27448,0.179904,0.231347,0.257651,0.415440,0.783445
+Test,/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/test_5000,0.500000,under_1_16,5778,0.447387,0.087747,0.000000,0.000000,0.447387
+Test,/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/test_5000,0.500000,1_16_to_1_8,5739,0.410002,0.511936,0.093745,0.000000,0.803450
+Test,/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/test_5000,0.500000,1_8_to_1_4,6689,0.000000,0.434295,0.505756,0.384213,0.818508
+Test,/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/test_5000,0.500000,1_4_to_1_2,7045,0.000000,0.000000,0.447268,0.941945,0.941945
+Test,/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/test_5000,0.500000,1_2_and_above,2197,0.000000,0.000000,0.000000,1.000000,1.000000

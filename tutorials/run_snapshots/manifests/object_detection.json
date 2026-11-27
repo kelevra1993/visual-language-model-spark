@@ -162,57 +162,68 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 6622,
+      "snapshot_bytes": 8052,
       "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/Iteration_5000/class_metrics.csv",
-      "snapshot_sha256": "a38fd303d1ac0505ef3ab588ae377910bd33b932c94e5d8c5922fb7f2d4cc135",
-      "source_bytes": 6622,
+      "snapshot_sha256": "f4745af70154d9a40d09fe7050e75f80affcf39b49e7acd74068b329922ab894",
+      "source_bytes": 8052,
       "source_kind": "run",
       "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/Iteration_5000/class_metrics.csv",
-      "source_sha256": "a38fd303d1ac0505ef3ab588ae377910bd33b932c94e5d8c5922fb7f2d4cc135"
+      "source_sha256": "f4745af70154d9a40d09fe7050e75f80affcf39b49e7acd74068b329922ab894"
     },
     {
       "options": {},
       "reduction": "copy",
       "snapshot_bytes": 3953,
       "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/Iteration_5000/class_thresholds.json",
-      "snapshot_sha256": "c0f4cd91fb114c066bb27e4a460b6b010cf531ee8bedd135f774e055bcca5be9",
+      "snapshot_sha256": "afc96040cb006046f3647078be081ee2e6fbe1818ac9fd82f49bee94b5103e0f",
       "source_bytes": 3953,
       "source_kind": "run",
       "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/Iteration_5000/class_thresholds.json",
-      "source_sha256": "c0f4cd91fb114c066bb27e4a460b6b010cf531ee8bedd135f774e055bcca5be9"
+      "source_sha256": "afc96040cb006046f3647078be081ee2e6fbe1818ac9fd82f49bee94b5103e0f"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 3683,
+      "snapshot_bytes": 3600,
       "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/Iteration_5000/confusion_matrix.csv",
-      "snapshot_sha256": "d7ac72ec8e6ad5ac0b31c6400b54355061e943597da6121dd6f11a8291c8ac5d",
-      "source_bytes": 3683,
+      "snapshot_sha256": "05de9d5c8f167a267d21ceb0124556ac748003baa234e01cc92d16ed46764af4",
+      "source_bytes": 3600,
       "source_kind": "run",
       "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/Iteration_5000/confusion_matrix.csv",
-      "source_sha256": "d7ac72ec8e6ad5ac0b31c6400b54355061e943597da6121dd6f11a8291c8ac5d"
+      "source_sha256": "05de9d5c8f167a267d21ceb0124556ac748003baa234e01cc92d16ed46764af4"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 360,
+      "snapshot_bytes": 449,
       "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/Iteration_5000/proposal_recall.csv",
-      "snapshot_sha256": "e8de19218c8719ec042db509686dd3196a14d2c8c4c2f69136c8bb0ea5cf9559",
-      "source_bytes": 360,
+      "snapshot_sha256": "b3d486e384f4a6b5662a9e46d46b8bfe9f2fcde555c934f2e7f4438e7d40b59b",
+      "source_bytes": 449,
       "source_kind": "run",
       "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/Iteration_5000/proposal_recall.csv",
-      "source_sha256": "e8de19218c8719ec042db509686dd3196a14d2c8c4c2f69136c8bb0ea5cf9559"
+      "source_sha256": "b3d486e384f4a6b5662a9e46d46b8bfe9f2fcde555c934f2e7f4438e7d40b59b"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 49042,
+      "snapshot_bytes": 75695,
       "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/Results.txt",
-      "snapshot_sha256": "b79220eb12b5fa8326c579fc1843669fd58008cbc441bd6c73b1b8a973626b43",
-      "source_bytes": 49042,
+      "snapshot_sha256": "c7e60ab4acee1150f8d4f431ac3de9c5e0276c37b81072cfd9338ae466240eb8",
+      "source_bytes": 75695,
       "source_kind": "run",
       "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/Results.txt",
-      "source_sha256": "b79220eb12b5fa8326c579fc1843669fd58008cbc441bd6c73b1b8a973626b43"
+      "source_sha256": "c7e60ab4acee1150f8d4f431ac3de9c5e0276c37b81072cfd9338ae466240eb8"
+    },
+    {
+      "options": {},
+      "reduction": "copy",
+      "snapshot_bytes": 2004,
+      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/anchor_recall.csv",
+      "snapshot_sha256": "235a3dcb6756db8036bb9f351e3cce1604e28c2b0707f6d693a1fc81438eae84",
+      "source_bytes": 2004,
+      "source_kind": "run",
+      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/Checkpoint_Evaluation/anchor_recall.csv",
+      "source_sha256": "235a3dcb6756db8036bb9f351e3cce1604e28c2b0707f6d693a1fc81438eae84"
     },
     {
       "options": {},
@@ -293,17 +304,6 @@
     },
     {
       "options": {},
-      "reduction": "copy",
-      "snapshot_bytes": 328,
-      "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/anchor_recall.csv",
-      "snapshot_sha256": "9a96e2349330069251215c6363e24cf8c8eef7ea23d395c279fcdc87eea907e7",
-      "source_bytes": 328,
-      "source_kind": "run",
-      "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/anchor_recall.csv",
-      "source_sha256": "9a96e2349330069251215c6363e24cf8c8eef7ea23d395c279fcdc87eea907e7"
-    },
-    {
-      "options": {},
       "reduction": "tutorials.figures.object_detection.snapshot_reductions:reduce_data_record",
       "snapshot_bytes": 12229,
       "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/data.json",
@@ -348,5 +348,5 @@
     }
   ],
   "series": "object_detection",
-  "snapshot_bytes": 4396035
+  "snapshot_bytes": 4425800
 }

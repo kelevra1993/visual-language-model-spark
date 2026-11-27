@@ -29,6 +29,7 @@ from tutorial_builder.layout import MONOSPACE_FONT_PATH, SANS_SEMIBOLD_FONT_PATH
 from tutorial_builder.figure_context import read_thread_count
 from vision_training.data.preprocessing import compute_image_window, read_image
 from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
+from vision_training.evaluation.detection.object_sizes import OBJECT_SIZE_NAMES
 from vision_training.evaluation.report_formatting import PERCENT_SIGN
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.models.model_loading import load_trained_model
@@ -69,6 +70,14 @@ DETECTION_SAMPLE_ITERATIONS = [1000, 3000, 5000]
 # and proposal recall the evaluation chapters read, so that their listings write the rates as the reports of the
 # repository do; the sample images and the curves of every evaluation stay those of the training
 EVALUATION_FOLDER_NAME = CHECKPOINT_EVALUATION_FOLDER_NAME
+
+# Every relative object size of OBJECT_SIZE_NAMES (object_sizes.py) as the narration says it, the side of the objects
+# as a share of the image side, for the sizes named by a fact rather than typed (the weakest size of a report)
+OBJECT_SIZE_SPOKEN_NAMES = {"under_1_16": "under a sixteenth of the image side",
+                            "1_16_to_1_8": "from a sixteenth to an eighth of the image side",
+                            "1_8_to_1_4": "from an eighth to a quarter of the image side",
+                            "1_4_to_1_2": "from a quarter to half the image side",
+                            "1_2_and_above": "from half the image side"}
 
 # Value of a row of a Results.txt table: a number, followed by the percent sign of the reports when it is a rate written
 # as a percentage ("78.64 %", the reports written since the percentages; "0.7864" before them), or the dash of a missing
@@ -390,8 +399,9 @@ def parse_table_rows(table_lines: List[str]) -> Dict[str, List[str]]:
         table_lines (List[str]): The lines of a table (extract_table).
 
     Returns:
-        Dict[str, List[str]]: The values of every row, keyed by its label, e.g. {"Small (< 32²)": ["184", "1.47 %"]},
-            or {"Small (< 32²)": ["184", "0.0147"]} for a report written before the percentages.
+        Dict[str, List[str]]: The values of every row, keyed by its label, e.g. {"Under 1/16            < 32":
+            ["5778", "71.24 %", ...]} (the pixels of a size, not a value, stay in the label), or {"Area": ["0.7524",
+            ...]} for a report written before the percentages.
     """
     rows = {}
     rule_indices = [line_index for line_index, line in enumerate(table_lines) if line.strip().startswith("─")]
@@ -403,6 +413,25 @@ def parse_table_rows(table_lines: List[str]) -> Dict[str, List[str]]:
         # Values found one by one, so that the space before the percent sign does not split a percentage in two
         rows[match.group(1).strip()] = re.findall(pattern=REPORT_VALUE_PATTERN, string=match.group(2))
     return rows
+
+
+def name_report_row(row_label: str) -> str:
+    """
+    Gives the key of a row of a Results.txt table in the names of the facts: the key of its relative object size in
+    OBJECT_SIZE_NAMES of object_sizes.py (e.g. "1_16_to_1_8" for "1/16 to 1/8   32 to 64", the pixels of the size
+    being part of the label for parse_table_rows), or the first word of any other label in lower case (e.g. "area",
+    "all"), so that the facts of the size rows keep names without slashes.
+
+    Args:
+        row_label (str): The label of the row (parse_table_rows).
+
+    Returns:
+        str: The key of the row.
+    """
+    for size_key, size_name in OBJECT_SIZE_NAMES.items():
+        if row_label == size_name or row_label.startswith(f"{size_name} "):
+            return size_key
+    return row_label.split(" ")[0].lower()
 
 
 def write_listing(lines: List[str], output_path: Path) -> None:

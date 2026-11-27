@@ -74,52 +74,55 @@ scenes:
     page: diagram
     title: "The report of a checkpoint"
     code_reference: "vision_training/evaluation/detection/average_precision_report.py · summarise_average_precisions"
-    # The overlaps of the columns of the report (mAP@0.5, @0.75, @0.95) and the names of the eleven and hundred and
-    # one point methods
-    literal_numbers: ["0.5", "0.75", "0.95", "101", eleven, hundred]
+    # The overlaps of the columns of the report (mAP@0.5, @0.75, @0.95), the names of the eleven and hundred and one
+    # point methods, and the sixteenth, eighth and half of the image side bounding the object sizes
+    # (OBJECT_SIZE_SIDE_SHARES of object_sizes.py)
+    literal_numbers: ["0.5", "0.75", "0.95", "101", eleven, hundred, sixteenth, eighth, half]
     elements:
       - {type: text, position: [30, 20], text: "Results.txt · {{object_detection.report.trained.header}}", font: diagram_bold}
       - type: listing
-        box: [30, 70, 900, 270]
+        box: [30, 60, 900, 220]
         font: diagram_monospace_small
-        source: {file: "figures:object_detection/listings/results_methods.txt"}
+        source: {file: "figures:object_detection/listings/results_methods.txt", start: "Mean Average", end: "101 Point"}
         highlights:
           - {match: "^ Area", sentences: [1, 2]}
           - {match: "Method", sentences: [0]}
       - type: listing
-        box: [30, 300, 1100, 470]
+        box: [30, 240, 1180, 470]
         font: diagram_monospace_small
         appear: 3
-        source: {file: "figures:object_detection/listings/results_sizes.txt", start: "Mean Average", end: "Large"}
+        source: {file: "figures:object_detection/listings/results_sizes.txt", start: "Mean Average", end: "and above"}
         highlights:
-          - {match: "Small", sentences: [3]}
+          - {match: "^ Under|and above", sentences: [3]}
       - type: listing
-        box: [30, 500, 1100, 700]
+        box: [30, 490, 1180, 730]
         font: diagram_monospace_small
         appear: 4
-        source: {file: "figures:object_detection/listings/results_recall.txt", start: "Mean Average", end: "Large"}
+        source: {file: "figures:object_detection/listings/results_recall.txt", start: "Mean Average", end: "and above"}
         highlights:
-          - {match: "^ All|Small", sentences: [4]}
+          - {match: "^ All|^ Under", sentences: [4]}
       - {type: box, box: [1180, 70, 1740, 270], text: "PASCAL VOC matching at every IoU:\nmAP@[0.5:0.95] and 101 points\nare not those of pycocotools", font: diagram_small, outline: red, appear: 2, highlight: [2]}
     narration:
       - "Every evaluated checkpoint appends its report to the results file; the mAP is computed with {{object_detection.report.trained.method_count:words}} methods, the area under the interpolated curve, eleven points and a hundred and one points."
       - "At iteration {{object_detection.run.checkpoint_iteration:words}} the area method gives {{object_detection.report.trained.methods.area.0:percent}} at an overlap of 0.5, {{object_detection.report.trained.methods.area.1:percent}} at 0.75, and {{object_detection.report.trained.methods.area.2:percent}} at 0.95: the boxes are rarely that tight."
       - "The matching follows the PASCAL VOC rule at every threshold, so the average from 0.5 to 0.95, {{object_detection.report.trained.methods.area.3:percent}}, is not the number of the official COCO tools, which match a detection to the best ground truth still free."
-      - "By size, the {{object_detection.report.trained.sizes.small.0}} small test objects score {{object_detection.report.trained.sizes.small.1:percent}}, against {{object_detection.report.trained.sizes.medium.1:percent}} for the medium and {{object_detection.report.trained.sizes.large.1:percent}} for the large ones."
-      - "The mean average recall counts the objects found at all: {{object_detection.report.trained.recall.all.1:percent}} at 0.5, but {{object_detection.report.trained.recall.small.1:percent}} for the small ones; if, for instance, you see a low mAP with a high recall, good boxes are ranked below false positives."
+      - "The sizes take the side of an object as a share of the image side, and both ends are the weakest: {{object_detection.report.trained.sizes.under_1_16.1:percent}} under a sixteenth, {{object_detection.report.trained.sizes.1_2_and_above.1:percent}} from half the side, against {{object_detection.report.trained.sizes.1_16_to_1_8.1:percent}} from a sixteenth to an eighth."
+      - "The mean average recall counts the objects found at all: {{object_detection.report.trained.recall.all.1:percent}} at 0.5, but {{object_detection.report.trained.recall.under_1_16.1:percent}} under a sixteenth of the side; if, for instance, you see a low mAP with a high recall, good boxes are ranked below false positives."
 
   - kind: html
     page: diagram
     title: "Proposal recall"
     code_reference: "vision_training/evaluation/detection/region_recall.py · accumulate_proposal_recall"
+    # The sixteenth of the image side bounding the smallest object size (OBJECT_SIZE_SIDE_SHARES of object_sizes.py)
+    literal_numbers: [sixteenth]
     elements:
       - {type: text, position: [40, 30], text: "proposal_recall.csv · objects overlapped by a proposal by {{constant:vision_training/evaluation/detection/region_recall.py#PROPOSAL_RECALL_THRESHOLDS[0]}}", font: diagram_bold}
-      - {type: bars, box: [40, 110, 820, 400], orientation: horizontal, values: "{{object_detection.proposal_recall.recall_per_size}}", labels: ["small", "medium", "large", "all"], value_labels: "{{object_detection.proposal_recall.recall_per_size_labels}}", colours: [red, blue, blue, aqua], maximum: 1.0, label_width: 140, highlight: [0]}
+      - {type: bars, box: [40, 110, 820, 430], orientation: horizontal, values: "{{object_detection.proposal_recall.recall_per_size}}", labels: "{{object_detection.proposal_recall.size_labels}}", value_labels: "{{object_detection.proposal_recall.recall_per_size_labels}}", colours: [red, blue, blue, blue, blue, aqua], maximum: 1.0, label_width: 200, highlight: [0]}
       - {type: text, position: [940, 30], text: "proposals of one block alone", font: diagram_bold, appear: 1}
       - {type: bars, box: [940, 110, 1720, 400], orientation: horizontal, values: "{{object_detection.proposal_recall.recall_per_block}}", labels: "{{object_detection.proposal_recall.block_labels}}", value_labels: "{{object_detection.proposal_recall.recall_per_block_labels}}", colours: [violet, blue, aqua, magenta], maximum: 1.0, label_width: 140, appear: 1, highlight: [1]}
-      - {type: text, position: [40, 470], text: "{{object_detection.inference.evaluation_filter.valid_count}} valid proposals per image at the inference settings of the filter,\nthe padding copies left out with the valid mask", font: diagram_small, colour: dim}
+      - {type: text, position: [40, 490], text: "{{object_detection.inference.evaluation_filter.valid_count}} valid proposals per image at the inference settings of the filter,\nthe padding copies left out with the valid mask", font: diagram_small, colour: dim}
     narration:
-      - "The proposal recall measures what the region proposal network hands the heads: {{object_detection.proposal_recall.all.recall_50:percent}} of the test objects have a proposal overlapping them by {{constant:vision_training/evaluation/detection/region_recall.py#PROPOSAL_RECALL_THRESHOLDS[0]}}, but only {{object_detection.proposal_recall.small.recall_50:percent}} of the small ones."
+      - "The proposal recall measures what the region proposal network hands the heads: {{object_detection.proposal_recall.all.recall_50:percent}} of the test objects have a proposal overlapping them by {{constant:vision_training/evaluation/detection/region_recall.py#PROPOSAL_RECALL_THRESHOLDS[0]}}, but only {{object_detection.proposal_recall.under_1_16.recall_50:percent}} of those under a sixteenth of the image side."
       - "Each block alone reaches {{object_detection.proposal_recall.block_4.recall_50:percent}}, {{object_detection.proposal_recall.block_5.recall_50:percent}}, {{object_detection.proposal_recall.block_6.recall_50:percent}} and {{object_detection.proposal_recall.block_7.recall_50:percent}} of the objects: the levels overlap in what they cover."
 
   - kind: image
@@ -156,11 +159,10 @@ scenes:
       - {box: "{{object_detection.confusion.background_column_box}}", sentences: [1]}
       - {box: "{{object_detection.confusion.largest_cell_box}}", sentences: [3]}
     narration:
-      - "Evaluated before the matrix took the class thresholds, this run counts the detections at the deployment threshold of {{object_detection.run.score_threshold}}, matched at an overlap of {{constant:vision_training/evaluation/detection/detection_confusion.py#MATCHING_INTERSECTION_OVER_UNION_THRESHOLD}}: {{object_detection.confusion.right:,}} right, {{object_detection.confusion.wrong_class:,}} of the wrong class."
-      - "The background row holds the {{object_detection.confusion.false_positives:,}} false positives, the background column the {{object_detection.confusion.missed:,}} missed objects."
-      - "No detection of the {{object_detection.confusion.never_right_text}} classes is right at {{object_detection.run.score_threshold}}, although the {{object_detection.confusion.never_right_best.name_text}} reaches an AP of {{object_detection.confusion.never_right_best.ap_50:percent}}: its right detections all score below the threshold."
+      - "The matrix counts the detections the deployed detector keeps: every class from its own threshold, the one the export builds into the model, {{object_detection.confusion.threshold_class_count:words}} classes of {{object_detection.confusion.class_count:words}} here, the others from {{object_detection.run.score_threshold}}; matched at an overlap of {{constant:vision_training/evaluation/detection/detection_confusion.py#MATCHING_INTERSECTION_OVER_UNION_THRESHOLD}}, {{object_detection.confusion.right:,}} are right, {{object_detection.confusion.wrong_class:,}} of the wrong class."
+      - "The background row holds only {{object_detection.confusion.false_positives:,}} false positives, but the background column {{object_detection.confusion.missed:,}} missed objects: thresholds aiming at a precision of {{object_detection.classes.target_precision:percent_label}} give up recall."
+      - "Not one detection of the {{object_detection.confusion.never_right_text}} is right at {{object_detection.run.score_threshold}}, the threshold of the classes without one of their own, although the {{object_detection.confusion.never_right_best.name_text}} reaches an AP of {{object_detection.confusion.never_right_best.ap_50:percent}}: its right detections all score lower."
       - "The largest confusion, outlined, puts {{object_detection.confusion.largest.count:,}} objects of the {{object_detection.confusion.largest.true_name_text}} class in the {{object_detection.confusion.largest.predicted_name_text}} column, against {{object_detection.confusion.largest.right_count:,}} found right."
-      - "An evaluation now counts every class from its own threshold, the one the export builds into the model, and a class without one from {{object_detection.run.score_threshold}}."
 
   - kind: html
     page: diagram
@@ -213,13 +215,14 @@ scenes:
 
   - kind: text_panel
     title: "Pitfalls"
-    # The overlaps of the metric name mAP from 0.5 to 0.95, and the residual pairs of two layers of ConvolutionBlock
-    # (residual_parity in convolution_block.py)
-    literal_numbers: ["0.5", "0.95", two-layer, 2-layer]
+    # The overlaps of the metric name mAP from 0.5 to 0.95, the residual pairs of two layers of ConvolutionBlock
+    # (residual_parity in convolution_block.py), and the sixteenth of the image side bounding the smallest object size
+    # (OBJECT_SIZE_SIDE_SHARES of object_sizes.py)
+    literal_numbers: ["0.5", "0.95", two-layer, 2-layer, sixteenth]
     columns:
       - heading: "Training"
         lines:
-          - "stride {{object_detection.inference.level_4.stride}} at best: {{object_detection.anchor_recall.small.recall_all_levels:percent}} of small boxes anchored"
+          - "stride {{object_detection.inference.level_4.stride}} at best: {{object_detection.anchor_recall.under_1_16.recall_all_levels:percent}} anchored {{object_detection.anchor_recall.under_1_16.name}}"
           - "anchors on the cell corners"
           - "joint selection: copies fill the slots"
       - heading: "Evaluation and tools"
@@ -227,24 +230,26 @@ scenes:
           - "mAP@[0.5:0.95]: VOC matching, not COCO's"
           - "2-layer heads changing channels: no shortcut"
     narration:
-      - "To close, the pitfalls: even at the finest stride, {{object_detection.inference.level_4.stride}} pixels, only {{object_detection.anchor_recall.small.recall_all_levels:percent}} of the small objects get an anchor reaching the foreground threshold, and the anchors sit on the cell corners; and the joint selection of older configurations fills only {{object_detection.proposal_selection.joint_proposals_per_image:.0f}} of the {{object_detection.proposal_selection.inference_post_nms}} slots of the benchmark with real proposals, the rest with copies."
+      - "To close, the pitfalls: even at the finest stride, {{object_detection.inference.level_4.stride}} pixels, only {{object_detection.anchor_recall.under_1_16.recall_all_levels:percent}} of the objects under a sixteenth of the image side get an anchor reaching the foreground threshold, and the anchors sit on the cell corners."
+      - "The joint selection of older configurations fills only {{object_detection.proposal_selection.joint_proposals_per_image:.0f}} of the {{object_detection.proposal_selection.inference_post_nms}} slots of the benchmark with real proposals, the rest with copies."
       - "The mAP from 0.5 to 0.95 is not the COCO one; and a two-layer head whose first convolution changes the channel count adds no shortcut."
 
   - kind: summary
     title: "Recap"
-    # The overlaps of the metric names mAP at 0.5 and from 0.5 to 0.95
-    literal_numbers: ["0.5", "0.95"]
+    # The overlaps of the metric names mAP at 0.5 and from 0.5 to 0.95, and the sixteenth and half of the image side
+    # bounding the object sizes (OBJECT_SIZE_SIDE_SHARES of object_sizes.py)
+    literal_numbers: ["0.5", "0.95", sixteenth, half]
     items:
       - {text: "Evaluation at score {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.evaluation.score_threshold}}, deployment at the class thresholds or {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.score_threshold}}; NMS {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.nms_iou_threshold}} per class; {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections}} per image", sentences: [0]}
       - {text: "mAP@0.5 {{object_detection.report.trained.methods.area.0:percent}} at {{object_detection.run.checkpoint_iteration}}, {{object_detection.samples.metrics[1]:percent}} at {{object_detection.samples.iterations[1]}}", sentences: [1]}
-      - {text: "Small objects: mAP@0.5 {{object_detection.report.trained.sizes.small.1:percent}}, proposal recall {{object_detection.proposal_recall.small.recall_50:percent}}", sentences: [2]}
+      - {text: "Sizes {{object_detection.anchor_recall.under_1_16.name}} and {{object_detection.anchor_recall.1_2_and_above.name}} weakest: mAP@0.5 {{object_detection.report.trained.sizes.under_1_16.1:percent}} and {{object_detection.report.trained.sizes.1_2_and_above.1:percent}}", sentences: [2]}
       - {text: "Moving average: tighter boxes, mAP@[0.5:0.95] {{object_detection.metrics.map_50_95.test_ema_last:percent}}, trained {{object_detection.metrics.map_50_95.test_last:percent}}", sentences: [3]}
       - {text: "class_thresholds.json: per-class scores at precision {{object_detection.classes.target_precision:percent_label}}, built into the export", sentences: [4]}
       - {text: "object_detector: images and windows in; boxes, scores, labels, count out; letterbox client side", sentences: [5]}
     narration:
       - "To recap: the evaluation scores at {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.evaluation.score_threshold}} so that the precision recall curves keep their low end, the deployment at the threshold of every class or {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.score_threshold}}, and a suppression per class keeps the best {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#Detector.inference.maximum_detections:words}} detections per image."
       - "The mAP at 0.5 reaches {{object_detection.report.trained.methods.area.0:percent}} at iteration {{object_detection.run.checkpoint_iteration:words}}, against {{object_detection.samples.metrics[1]:percent}} at {{object_detection.samples.iterations[1]:words}}; its PASCAL VOC matching makes the average from 0.5 to 0.95 differ from that of the COCO tools."
-      - "Small objects are the weakest size, {{object_detection.report.trained.sizes.small.1:percent}} at 0.5, and the one the proposals cover least, {{object_detection.proposal_recall.small.recall_50:percent}} of them against {{object_detection.proposal_recall.all.recall_50:percent}} of all objects."
+      - "The sizes are the object side as a share of the image side, and both ends are the weakest at 0.5, {{object_detection.report.trained.sizes.under_1_16.1:percent}} under a sixteenth and {{object_detection.report.trained.sizes.1_2_and_above.1:percent}} from half the side; the proposals cover the smallest objects least, {{object_detection.proposal_recall.under_1_16.recall_50:percent}} of them against {{object_detection.proposal_recall.all.recall_50:percent}} of all."
       - "The moving average of the weights tightens the boxes, {{object_detection.metrics.map_50_95.test_ema_last:percent}} from 0.5 to 0.95 against {{object_detection.metrics.map_50_95.test_last:percent}} for the trained weights, so compare both before choosing which to export."
       - "Class thresholds json gives every class the score keeping its highest recall at a precision of {{object_detection.classes.target_precision:percent_label}}, and the export builds it into the model; {{object_detection.classes.without_threshold_count:words}} classes never reach it in this run."
       - "The exported object detector takes the images and their windows and returns padded boxes, scores, labels and the number of detections per image, while the letterbox and the box restoration stay on the client side."

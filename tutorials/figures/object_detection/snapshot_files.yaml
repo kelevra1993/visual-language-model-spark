@@ -11,8 +11,6 @@ runs:
       # Settings, iterations, test folder and label mapping of the run, and the model built untrained from them
       - path: training_configuration.yaml
       - path: label_dictionary.json
-      # Anchor recall of the training objects, the grid of the anchor coverage scene
-      - path: anchor_recall.csv
       # Image and object counts of the splits; the file names of every image are dropped (4.8 MB to a few KB)
       - path: data.json
         reduction: tutorials.figures.object_detection.snapshot_reductions:reduce_data_record
@@ -27,8 +25,11 @@ runs:
       - path: Evaluation/Iteration_1000/Samples/test_000000.png
       - path: Evaluation/Iteration_3000/Samples/test_000000.png
       - path: Evaluation/Iteration_5000/Samples/test_000000.png
-      # Last checkpoint evaluated again after the training: report tables, classes, confusion matrix, proposal recall
+      # Last checkpoint evaluated again after the training: report tables, classes, confusion matrix, proposal recall,
+      # and the anchor recall of the training and test objects with the relative object sizes, measured by the launch
+      # of that evaluation (the grid of the anchor coverage scene)
       - path: Checkpoint_Evaluation/Results.txt
+      - path: Checkpoint_Evaluation/anchor_recall.csv
       - path: Checkpoint_Evaluation/Iteration_5000/class_metrics.csv
       - path: Checkpoint_Evaluation/Iteration_5000/class_thresholds.json
       - path: Checkpoint_Evaluation/Iteration_5000/confusion_matrix.csv
