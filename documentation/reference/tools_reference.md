@@ -1,6 +1,6 @@
 # Tools Reference
 
-Settings and outputs of the scripts run after a training, completing the [Evaluating Checkpoints](../../README.md#evaluating-checkpoints), [Comparing Launches](../../README.md#comparing-launches), [Clustering Image Embeddings](../../README.md#clustering-image-embeddings) and [Deployment](../../README.md#deployment) sections of the README. Every setting is a variable of the main block of its script.
+Settings and outputs of the scripts run after a training, completing the [Evaluating Checkpoints](../../README.md#evaluating-checkpoints) and [Deployment](../../README.md#deployment) sections of the README. Every setting is a variable of the main block of its script.
 
 ## Table Of Content
 - [Evaluating Checkpoints](#evaluating-checkpoints)
@@ -41,6 +41,17 @@ Whenever the checkpoints of a trained run must be judged again, on another split
 
 It writes `Results.txt`, `Tensorboard/Test` (and `Tensorboard/Test_EMA` for the averaged weights when the run kept a moving average), `training_configuration.yaml`, `label_dictionary.json`, `data.json` (its test split being the evaluated one) and one `Iteration_<n>/[EMA/]` folder per checkpoint, laid out as in the `Evaluation/` folder of the training, directly in `<run>/Checkpoint_Evaluation/`. A checkpoint evaluated again with error images replaces the `Errors/` folder of its iteration and weights. Every evaluated checkpoint adds its row to `Checkpoint_Evaluation/evaluation_summary.csv` (the averaged weights in `ema_<scalar>` columns with their number of updates restored with the checkpoint in `ema_number_updates`, every rate between 0 and 1, the rows of the earlier launches into the folder kept, in increasing iteration order) and draws `Checkpoint_Evaluation/evaluation_curves.png` again, as during the training, the window of the moving average ending at the highest evaluated iteration ([Run Folder](training_reference.md#run-folder)). `iteration = "all"` evaluates every checkpoint, and the best of the evaluated iterations is printed for both weights, its value written like in the report: `Best Checkpoint : iteration 2000 (Accuracy 81.76 %)`, the headline metric of every task (`mAP@0.5/area` of DET, `Mean IoU` of SEG, `Hungarian Selection Accuracy` of SEL, ...) being a rate written as a percentage, except the effective rank of an SSL run without labelled test images, which keeps 4 decimals.
 
+To find where a classifier fails, read its confusion matrix (counts coloured by their share of the true class, precision and recall in the margins; above 1,000 classes no image is drawn, and `confusion_cells.csv` lists the non-zero cells as `true_class,predicted_class,count` in place of `confusion_matrix.csv`), then the misclassified images saved in `Errors/<true>-TO-<predicted>/` (at most `maximum_error_images_per_class_pair` per pair), named after the sample and the probability of the predicted class.
+
+<p align="center">
+  <img src="../../README/confusion_matrix.png" width="80%" />
+</p>
+
+<p align="center">
+  <img src="../../README/evaluation_error_images.png" width="100%" />
+</p>
+<p align="center"><em>The confusion matrix of the 35 classes of the synthetic shapes classifier of the README screenshots, evaluated at iteration 2000 (accuracy 81.76 %), and the error folders of its three largest confusions: hollow parallelograms read as hollow trapezoids, trapezoids as parallelograms and rectangles as squares.</em></p>
+
 ### Logit Temperature
 A classifier trained with the cross entropy is often overconfident: its probabilities are squeezed against 0 and 1, and its thresholds at a high precision end up at 0.999 or above. Dividing the class logits by a temperature T above 1 before the softmax spreads them without changing the predicted class, so the accuracy and the confusion matrix stay the same. With two classes (or in multi-label mode) the recall at a target precision stays the same and only the threshold moves; with more classes it can move a little.
 
@@ -73,6 +84,15 @@ It writes, drawn in the Inter font of the reports when it is installed in `/usr/
 - `seen_and_never_seen_groups.png`, with a manifest: the balanced accuracy on the samples of the groups having at least one training sample and on those of the groups never seen, with their numbers of groups and samples. The predictions must give the confusion matrix of the evaluation exactly, and every training and evaluated sample needs its group.
 - `report_values.json`: the numbers shown, to fill the tables of the report: accuracy, balanced accuracy and recall of every class, the temperature, the written and exact threshold, recall and precision of every class at every target precision, the balanced accuracy of the kept checkpoint during the training, and the groups, classes, samples and recall of the seen, never seen and all samples.
 
+<p align="center">
+  <img src="../../README/report_precision_recall_curves.png" width="90%" />
+</p>
+
+<p align="center">
+  <img src="../../README/report_training_curves.png" width="80%" />
+</p>
+<p align="center"><em>The precision-recall curves and the training curves drawn for the classifier above at iteration 2000 (test balanced accuracy 81.65 %), the curves shown for the first nine of its 35 classes (the script draws one panel per class): a dot marks the threshold reaching 99 % precision, reached by these nine and never by trapezoid, hollow parallelogram and hollow kite, at a logit temperature of 1 since no temperature was saved. The confusion matrix of the report is the one shown above; the chart of the groups needs a group manifest, which the synthetic shapes do not have.</em></p>
+
 ### Scoring A Large Split
 Say a rare class must be mined from a split far larger than a test split: `scripts/evaluation/score_image_split.py` scores every image of it with one checkpoint, without the metrics, error images and second weights of `evaluate_checkpoint.py`. Its settings are command line options, not variables of its main block.
 
@@ -101,6 +121,16 @@ To decide which setting of a stage of a hyperparameter experiment to keep, `scri
 | `output_path` | the CSV file, `<experiment_folder>/results.csv` |
 
 Every row is a launch and its weights (`evaluated_weights`: `trained`, or `ema` from `Tensorboard/Test_EMA` for a launch keeping a moving average). It gives the metric at every evaluated iteration, its mean, the mean of the last evaluations (`<metric column>_last_<n>_mean`, which ignores how fast a launch starts), whether the launch finished, the swept settings of the experiment (`TASK_SWEPT_SETTINGS`) and the run folder. The launches of the same settings and weights are grouped in the order of their first launch, followed by a `mean` row. Settings given as lists, such as the `[layers, channels]` of the mask heads or the backbone blocks of their skips, which the driver of the instance segmentation experiment adds to the swept settings of the detection, are compared by their values (`make_hashable`) and written as the configuration gives them (`[4, 64]`). A launch still training leaves its future cells empty, so the file can be written at any time.
+
+<p align="center">
+  <img src="../../README/comparing_launches_flow.png" width="100%" />
+</p>
+
+Before trusting a gap between two settings, compare it with the spread of the launches of each: in the repeated squeeze-and-excitation stage below, six launches per setting overlap, and the means differ by 0.21 points for a standard error of 1.11 points.
+
+<p align="center">
+  <img src="../../README/launch_comparison_stage_figure.png" width="80%" />
+</p>
 
 ### Comparing The Best Evaluations Of Runs
 `scripts/evaluation/compare_best_evaluations.py` prints Markdown tables comparing the best test evaluation of runs, over the trained (`Tensorboard/Test`) and averaged (`Tensorboard/Test_EMA`) weights.
@@ -166,6 +196,11 @@ Any instance segmentation configuration can be given, the counts following its s
 An asked layer outside the run stops the script before any inference, with the valid range. The images are read with the preprocessing of the run.
 
 HDBSCAN runs on a single core, its time growing with the square of the images and with the dimensions. On 31,805 images of block 6, it took 116 seconds at 200 dimensions and 487 at 800, the clusters agreeing closely (adjusted Rand index of 0.81 and more). The timings of every layer and setting are at the top of the script.
+
+<p align="center">
+  <img src="../../README/embedding_clusters.png" width="100%" />
+</p>
+<p align="center"><em>A run on 720 synthetic shapes, one folder for each of nine of the 35 classes: the clusters follow what the layer of the classifier separates, one cluster for each of six shapes, the stars split in two and the rectangles shared between a cluster of their own and the cluster of the squares.</em></p>
 
 ### Stored Features And Relaunch
 The features of a source are stored in `<output_root>/<run name>/Iteration_<n>[_EMA]/<source>/`:
