@@ -41,7 +41,7 @@ EXPORTED_ITERATION = 6
 EXPORT_SCRIPT_ARGUMENTS = ["--experiment_folder", "--iteration", "--use_averaged_weights", "--formats", "--repository",
                            "--model_version", "--maximum_batch_size", "--tensorrt_precision", "--torchscript_precision",
                            "--use_saved_temperature", "--saved_thresholds_path", "--test_split_parity",
-                           "--show_warnings"]
+                           "--skip_tensorrt_check", "--show_warnings"]
 
 # Mismatch reported by the comparison of get_mismatching_specification whatever the outputs, and the specification
 # of the task it stands in for
@@ -277,7 +277,7 @@ def test_unknown_export_settings_stop_the_export_before_anything_is_read(tmp_pat
                              "repository": repository, "model_version": 1, "maximum_batch_size": 4,
                              "tensorrt_precision": "FP16", "torchscript_precision": "FP32",
                              "use_saved_temperature": False, "saved_thresholds_path": None,
-                             "test_split_parity": False, **export_settings})
+                             "test_split_parity": False, "skip_tensorrt_check": False, **export_settings})
     assert not repository.exists()
 
 
@@ -369,7 +369,8 @@ def test_half_precision_torchscript_export_installs_an_fp16_network(tmp_path: Pa
                           use_averaged_weights=False, formats=["torchscript"], repository=repository, model_version=1,
                           maximum_batch_size=test_input_contract.TEST_MAXIMUM_BATCH_SIZE,
                           tensorrt_precision=None, torchscript_precision=torchscript_precision,
-                          use_saved_temperature=False, saved_thresholds_path=None, test_split_parity=False)
+                          use_saved_temperature=False, saved_thresholds_path=None, test_split_parity=False,
+                          skip_tensorrt_check=False)
         model_directory = repository / "image_classifier_torchscript"
         assert sorted(path.name for path in (model_directory / "1").glob(pattern="*.pt")) == [file_name]
         assert (('default_model_filename: "model_fp16.pt"' in (model_directory / "config.pbtxt").read_text()) ==
@@ -410,14 +411,16 @@ def test_export_arguments_default_to_the_export_settings() -> None:
     """
     Verifies that the export script given only the run folder exports its last checkpoint and trained weights with
     DEFAULT_EXPORT_SETTINGS (the settings the export form of the temperature explorer starts from) into
-    DEFAULT_REPOSITORY, without saved temperature nor test split parity, and that every parsed argument but
-    show_warnings is a parameter of export_experiment, so that the main block passes them all.
+    DEFAULT_REPOSITORY, without saved temperature nor test split parity and with the TensorRT engine check, and that
+    every parsed argument but show_warnings is a parameter of export_experiment, so that the main block passes them
+    all.
     """
     parsed_arguments = parse_export_arguments(arguments=["--experiment_folder", RUN_NAME])
     assert vars(parsed_arguments) == {"experiment_folder": Path(RUN_NAME), "iteration": None,
                                       "use_averaged_weights": False, "repository": DEFAULT_REPOSITORY,
                                       "use_saved_temperature": False, "saved_thresholds_path": None,
-                                      "test_split_parity": False, "show_warnings": False, **DEFAULT_EXPORT_SETTINGS}
+                                      "test_split_parity": False, "skip_tensorrt_check": False,
+                                      "show_warnings": False, **DEFAULT_EXPORT_SETTINGS}
     assert set(vars(parsed_arguments)) - {"show_warnings"} == set(inspect.signature(export_experiment).parameters)
 
 
@@ -436,14 +439,16 @@ def test_export_arguments_reach_every_setting(tmp_path: Path, monkeypatch: pytes
         f"--experiment_folder=~/{RUN_NAME}", "--iteration", str(EXPORTED_ITERATION), "--use_averaged_weights",
         "--formats", "onnx", "--repository=~/served_models", "--model_version", "3", "--maximum_batch_size", "8",
         "--tensorrt_precision", "None", "--torchscript_precision", "FP16", "--use_saved_temperature",
-        f"--saved_thresholds_path=~/{SAVED_THRESHOLDS_FILE_NAME}", "--test_split_parity", "--show_warnings"])
+        f"--saved_thresholds_path=~/{SAVED_THRESHOLDS_FILE_NAME}", "--test_split_parity", "--skip_tensorrt_check",
+        "--show_warnings"])
     assert vars(parsed_arguments) == {"experiment_folder": tmp_path / RUN_NAME, "iteration": EXPORTED_ITERATION,
                                       "use_averaged_weights": True, "formats": ["onnx"],
                                       "repository": tmp_path / "served_models", "model_version": 3,
                                       "maximum_batch_size": 8, "tensorrt_precision": None,
                                       "torchscript_precision": "FP16", "use_saved_temperature": True,
                                       "saved_thresholds_path": tmp_path / SAVED_THRESHOLDS_FILE_NAME,
-                                      "test_split_parity": True, "show_warnings": True}
+                                      "test_split_parity": True, "skip_tensorrt_check": True,
+                                      "show_warnings": True}
 
 
 @pytest.mark.parametrize(argnames="arguments", argvalues=[

@@ -17,7 +17,6 @@ also serve the test metric rows of the serving benchmark (scripts/deployment/eva
 import csv
 import functools
 import json
-import os
 import shutil
 import time
 import urllib.error
@@ -39,9 +38,9 @@ from vision_training.data.sequence.sequence_pair_dataset import split_pair_membe
 from vision_training.deployment.deployment_utilities import (get_triton_output_names, run_local_inference,
                                                              run_triton_inference)
 from vision_training.deployment.triton_configuration import EXPORT_FORMATS
-from vision_training.deployment.triton_server import (TritonServerError, build_triton_server, find_free_ports,
-                                                      load_served_model, start_triton_server, stop_triton_server,
-                                                      unload_served_model)
+from vision_training.deployment.triton_server import (TritonServerError, load_served_model,
+                                                      start_temporary_triton_server, start_triton_server,
+                                                      stop_triton_server, unload_served_model)
 from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
 from vision_training.evaluation.evaluation_curves import (AVERAGED_WEIGHTS_COLUMN_PREFIX, ITERATION_COLUMN,
                                                           read_evaluation_summary)
@@ -887,7 +886,8 @@ def run_test_split_parity(experiment_folder: Path, checkpoint_path: Path, iterat
         maximum_batch_size (int): The largest batch size of the exported models, the size of the test batches.
         model_version (int): The Triton version of the exported models.
         logit_temperature (float): The logit temperature built into an exported classifier, 1 for the other tasks.
-        random_batch_checks (Dict[str, List[str]]): The mismatches of the random batch check of every format.
+        random_batch_checks (Dict[str, List[str]]): The mismatches of the random batch check of every format, with
+            those of the TensorRT check for the ONNX format.
 
     Returns:
         Tuple[Dict[str, Any], Dict[str, List[Dict[str, Any]]]]: The summary of the parity, with its 'parity_folder'
@@ -930,11 +930,8 @@ def run_test_split_parity(experiment_folder: Path, checkpoint_path: Path, iterat
     sample_records = {}
 
     # Served rows: one Triton container on free ports serving the staged models one at a time
-    server_ports = find_free_ports(number_ports=3)
-    server = build_triton_server(container_name=f"{PARITY_CONTAINER_PREFIX}-{os.getpid()}",
-                                 http_port=server_ports[0], grpc_port=server_ports[1], metrics_port=server_ports[2])
-    start_triton_server(server=server, repository=staged_repository, engine_cache_folder=engine_cache_folder,
-                        environment={})
+    server = start_temporary_triton_server(container_name_prefix=PARITY_CONTAINER_PREFIX,
+                                           repository=staged_repository, engine_cache_folder=engine_cache_folder)
     # The server log is kept and the container removed whatever ends the rows
     try:
         for export_format in formats:
