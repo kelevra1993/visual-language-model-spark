@@ -137,13 +137,12 @@ uv run python -m vision_training.main --configuration_path="vision_training/conf
 ## Training
 
 ### Launching A Run
-Once a dataset is ready, copy the `configuration_example.yaml` of the task (`vision_training/configurations/<task>/`), fill `experiment_folder`, the three data folders and the label mapping file with absolute paths (every key is explained by its comment), and run:
+Once a dataset is ready, start from the example configuration of its task:
 
 ```bash
+# Copy vision_training/configurations/<task>/configuration_example.yaml, fill its folders as absolute paths
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/classification/my_configuration.yaml"
 ```
-
-The configuration is checked before anything starts, in three passes that each stop the program: the removed settings (such as `resume_training`), listed together; then the keys the task does not read (a misspelled key, a section of another task), listed together; then the values, where a missing key stops the check at once with its path and every unusable value or inconsistent combination is listed together.
 
 <p align="center">
   <img src="README/launch_flow.png" width="100%" />
@@ -151,132 +150,67 @@ The configuration is checked before anything starts, in three passes that each s
 <p align="center"><em>The run name decides the folder, and the last checkpoint of that folder decides between a new run and a resume.</em></p>
 
 ### Run Folder
-Whenever a training starts, it writes to `<experiment_folder>/<run name>/`, the name being built from its settings ([Run Names](#run-names)):
+Whenever a training starts, it writes to `<experiment_folder>/<run name>/` ([every file](documentation/reference/training_reference.md#run-folder)):
 
 ```text
 <experiment_folder>/<run name>/
 ├── training_configuration.yaml        # Configuration of the last start of the run
-├── data.json                          # Class counts, data folder and SHA-256 of labels.json and images of every split
-├── label_dictionary.json              # Class index of every category, the classes of the run
-├── Input_Samples/                     # First 10 samples of every split as fed to the network, and samples.json
-├── Weights/Iteration_<n>/model_<n>.pt # Weights, optimizer state, moving average of the weights, metadata
-├── Tensorboard/                       # Train, Validation, Test and Test_EMA curves
+├── Weights/Iteration_<n>/model_<n>.pt # Checkpoints
+├── Tensorboard/                       # Curves
 ├── Results.txt                        # Report of every evaluated checkpoint
-├── evaluation_curves.png              # Headline metric of every evaluation, drawn again after each one
-├── Evaluation/evaluation_summary.csv  # Every test scalar of every evaluated iteration, one row each
-├── Evaluation/Iteration_<n>/          # Evaluation files of iteration n, EMA/ for the averaged weights
-├── Checkpoint_Evaluation/             # Evaluations of scripts/evaluation/evaluate_checkpoint.py, with the
-│                                      # Report_Figures/ of scripts/evaluation/draw_report_figures.py
-└── mlflow_run.json                    # MLflow run of the training, with the tracking on
+├── Evaluation/                        # Evaluation files and evaluation_summary.csv
+└── Checkpoint_Evaluation/             # Evaluations of scripts/evaluation/evaluate_checkpoint.py
 ```
-
-So that the test results of a run can be followed at a glance, without TensorBoard, every evaluation adds the row of its iteration to `Evaluation/evaluation_summary.csv` (every test scalar, those of the averaged weights in `ema_` columns with their number of updates in `ema_number_updates`, a checkpoint evaluated again replacing its row) and draws `evaluation_curves.png` again from it: the headline metric of `Results.txt` for the trained and the averaged weights against the iteration, the best iteration of each ringed with its value and, with the moving average on, the iterations the averaged weights of the highest evaluated iteration look back over shaded up to it, 1/(1 − d) for the decay d of their last update given by their number of updates, with the configured 1/(1 − decay) in grey behind it while the warm-up still lowers d. Both files are sent to MLflow when the tracking is on. A run evaluated before these files existed starts its summary at its next evaluation from its TensorBoard test curves, whose values TensorBoard keeps in float32.
-
-To be able to check afterwards what a run was fed, without a display, every launch that trains writes `Input_Samples/` before its first iteration: the first 10 samples of every split by identifier, the same at every launch, drawn as the input viewer draws them into `Training/`, `Validation/` and `Test/` (`sample_00.png` to `sample_09.png`), the training ones augmented on the device as the training step augments them, with `samples.json` giving the source file or sequence, the labels drawn, the augmentations and the input size of each. A resumed run keeps the folder unless its configuration or data changed, the previous one being then kept as `Input_Samples_until_iteration_<n>`; a training without validation loader has no `Validation/`, and the MLflow tracking receives the folder.
-
-A checkpoint is saved every `intermediate_weight_saving_iterations` iterations (0 saves none), a checkpoint evaluated on the whole test split every `weight_saving_iterations` iterations and a console summary printed every `information_dump` iterations, here with the settings of the classification run of the README images:
 
 <p align="center">
   <img src="README/run_folder_schedule.png" width="100%" />
 </p>
 
 ### Stopping And Resuming
-In case a training has to stop, Ctrl+C saves a checkpoint of the last step, and launching the same configuration again resumes from the last checkpoint of its run folder with its optimizer state.
+In case a training has to stop, Ctrl+C saves a checkpoint, and launching the same configuration again resumes from it; `number_iterations` is the total of the run, not the iterations left ([details](documentation/reference/training_reference.md#stopping-and-resuming)).
 
 <p align="center">
   <img src="README/resume_rules.png" width="100%" />
 </p>
 
-- `number_iterations` is the total of the run, not the iterations left.
-- The settings without a run name token (left box above) may change between resumptions: the changes are printed and the previous configuration is kept as `training_configuration_until_iteration_<n>.yaml`. A change of a setting with a run name token (right box) gives another run name, so a new run folder.
-- Changed labels (another SHA-256 of a `labels.json`) stop the resume, unless `ExperimentConfiguration.allow_data_change_on_resume` is true.
-- To train the same settings from scratch, give the run another `run_name_suffix` or `experiment_folder`, or move its run folder away.
-- A failing iteration is reported in yellow, with the traceback of its error the first time that error occurs in the run, and skipped, as is an unreadable batch; a batch whose loss is NaN or infinite is reported in red and skipped without optimizer step, so the weights stay finite. More than 5 failing iterations in a row stop the training, saving a checkpoint.
-- A failed save (a full disk, or weights holding NaN, which are never saved), a failed test evaluation (an unreadable test image) or more than 20 dropped batches among the last 200 of a split stop the training at once with status FAILED and the traceback of the error, instead of training on without checkpoints, evaluations or most of the data.
-
 ### Console And TensorBoard
-So that a run can be followed live, the trainer prints at launch the run name, its folders as clickable links, the settings and data changed since the last start, the transferred components, the splits, the model summary, the model size and the size of every file the model will be exported to ([Export Sizes](#export-sizes)).
-
-<p align="center">
-  <img src="README/experiment_launch_information.png" width="100%" />
-</p>
-
-Every `information_dump` iterations it prints the averages of the interval for both splits, each with its change since the previous summary (green when better) and `Best` when it is the best of the run for its split.
-
-<p align="center">
-  <img src="README/interval_summary.png" width="100%" />
-</p>
-
-At every evaluation it prints the report appended to `Results.txt` (with `evaluation.per_class_report`, the classes worst first and their recall with its 95 % confidence interval). Every task writes its rates as percentages ("94.03 %") in the report and the interval summaries, their changes in percentage points ("+0.52 points" in the reports, "+0.52 %" in the interval summaries, aligned with the losses), while the thresholds, ranks, counts, pixel errors and losses keep their values; the files, TensorBoard and MLflow always keep 0 to 1.
+So that a run can be followed live, every evaluation prints its report, appended to `Results.txt` ([console output](documentation/reference/training_reference.md#console-output)):
 
 <p align="center">
   <img src="README/evaluation_report.png" width="100%" />
 </p>
-<p align="center"><em>The report of the synthetic shapes classifier of the README screenshots at iteration 2000, up to its per-class table of the 35 classes; the recall table with its intervals and the links to the files of the evaluation follow it.</em></p>
-
-To follow the curves rather than the console, TensorBoard holds `Train` and `Validation` (every iteration), `Test` (scalars and sample images at every evaluation) and `Test_EMA` (the averaged weights, with the moving average on); open http://localhost:6006 after:
 
 ```bash
+# Curves of the run, on http://localhost:6006
 uv run tensorboard --logdir <experiment_folder>/<run name>/Tensorboard
 ```
 
 <p align="center">
   <img src="README/tensorboard.png" width="100%" />
 </p>
-<p align="center"><em>The scalars of the same classifier with the smoothing set to 0 (TensorBoard smooths by 0.6 by default, pulling the last points towards the earlier ones): the accuracy and total loss of every training and validation iteration, and the accuracy and balanced accuracy of the four test evaluations, the last balanced accuracy being the 81.65 % of the report above.</em></p>
 
 ### Augmentation And Diagnosis Modes
-Suppose a run learns nothing: look at what the network receives before blaming the model.
-
-`Data.data_augmentation` augments the training images on the device right before the forward pass (`vision_training/data/augmentations.py`): a global `probability`, then 28 types with their own `activated` and `probability`. The strengths are hard-coded in `SUPERVISED_AUGMENTATION_STRENGTHS` (`SELF_SUPERVISED_AUGMENTATION_STRENGTHS` for the SSL views). The geometric types move the boxes, masks and keypoints with the image; `random_perspective` and `random_jigsaw` are refused for DET, INS, SEG and KPT. `uv run python -m scripts.data.visualize_augmentation_strengths` draws one figure per type.
+Suppose a run learns nothing: look at what the network receives before blaming the model. `Data.data_augmentation` turns on the augmentation types below ([strengths](documentation/reference/training_reference.md#data-augmentation)).
 
 <p align="center">
   <img src="README/augmentation_types.jpg" width="100%" />
 </p>
-<p align="center"><em>Every type applied alone, at the strengths of the supervised tasks.</em></p>
 
-Before a long training, `ExperimentConfiguration.diagnosis_modes.view_input_images: True` shows the training and validation samples as the network receives them, with their targets and drawn augmentations (SPACE for the next samples, ENTER to exit; needs a display).
+Three diagnosis modes of `ExperimentConfiguration.diagnosis_modes` exit without training:
 
-<p align="center">
-  <img src="README/input_viewer.png" width="100%" />
-</p>
-
-<p align="center">
-  <img src="README/augmented_detection_samples.gif" width="100%" />
-</p>
-<p align="center"><em>Draws of the augmentation of <code>object_detection/configuration_example.yaml</code> on one image, as the input viewer draws them: the boxes follow the flips, rotations and zoom-outs (unchanged draws skipped).</em></p>
-
-Should you change the image size, the detection levels or their anchors, check that the anchors still reach the objects of every split before training: `diagnosis_modes.compute_anchor_coverage: { activated: True, iou_threshold: 0.5 }` (DET, INS) prints, for the training, validation and test splits, the share of the objects whose best anchor overlaps them by at least `iou_threshold`, in every level (`Block <n>`, the blocks of `DetectionLevels`) and in all of them (`All Levels`), for all the objects and every object size, by box area in network input pixels. It reads the annotations without loading any image.
-
-<p align="center">
-  <img src="README/anchor_coverage.png" width="100%" />
-</p>
-<p align="center"><em>The console of <code>vision_training.main</code> on a copy of <code>object_detection/configuration_synthetic_shapes.yaml</code> with the mode activated, on its synthetic shapes (512 pixels, shapes of 16 pixels to 80 % of the side, boxes of their visible parts): the anchors of blocks 5, 6 and 7 (strides 32, 64 and 64, scales 32 to 256) cover 64.04 % of the training objects, but 8.11 % of the small ones.</em></p>
-
-Read the `All Levels` column size by size: the region proposal network makes an anchor foreground from `RegionProposal.foreground_iou_threshold.min`, and an object under it in every level only gets its single best anchor as foreground, so a size with a low share is learnt from few anchors. Small objects ask for smaller scales on a finer level (a lower block, of smaller stride), large ones for a larger scale on the last level, elongated ones for other `aspect_ratios`. The three splits should give close shares; a split covered differently holds objects of other sizes or shapes.
-
-Say you have set an architecture and want its training time and serving speed before training it: `diagnosis_modes.benchmark_speed: True` times it on one batch of the training loader kept in memory, its samples repeated to every batch size, so that neither the loader nor the processor slows it down (`vision_training/trainers/speed_benchmark.py`).
-- Inference first, with the weights of the last checkpoint of the run folder when there is one: the test evaluation (`predict_batch`), the inference model, TorchScript, ONNX Runtime CUDA and ONNX Runtime with TensorRT in FP32 and FP16, at a batch of 1, at the configured batch size and at the largest one that fits. The ONNX Runtime formats need the GPU build of ONNX Runtime (`onnxruntime-gpu`); without it they are reported as not available.
-- Then the training step of the training loop (augmentation, bfloat16 forward pass, backward pass, optimizer step, moving average of the weights) at the configured batch size and at the largest one that fits, with the training time of `number_iterations` at the configured batch size.
-- The largest batch sizes are searched up to 2048, in the memory left once 40 GB of the machine (integrated GPU such as the GB10) or 2 GB of the GPU (discrete GPU) are kept free; the benchmark refuses to start with less free memory.
-- Every row gives the milliseconds per batch, the images (or sequences, pairs and frames) per second, the spread of its timing windows and its peak memory. Other processes on the GPU are named in the report, their work slowing the measured times down.
-
-These diagnosis modes exit without training and create no run folder.
+| Mode | Use it | Details |
+|---|---|---|
+| `view_input_images` | before a long run, to see the samples as the network receives them | [Viewing The Input Images](documentation/reference/training_reference.md#viewing-the-input-images) |
+| `compute_anchor_coverage` (DET, INS) | after changing the image size, the detection levels or the anchors | [Checking The Anchor Coverage](documentation/reference/training_reference.md#checking-the-anchor-coverage) |
+| `benchmark_speed` | before training an architecture, for its training and serving speed | [Benchmarking The Speed](documentation/reference/training_reference.md#benchmarking-the-speed) |
 
 ### Moving Average Of The Weights
-If one wishes to score a smoothed model, `Optimization.exponential_moving_average` keeps a second copy of the weights, moved towards the trained ones after every optimizer step: `ema_weights = decay × ema_weights + (1 − decay) × current_weights`. Every test evaluation then scores both (`EMA Weights` report, `Evaluation/Iteration_<n>/EMA/`, `Test_EMA`). It gives no run name token, so it can be switched on or off when a run resumes.
-
-Before choosing the decay, read it as a window: the average looks back about 1 / (1 − decay) iterations, which carry about 63 % of its weight, the older ones fading geometrically. A decay of 0.99 averages about the last 100 iterations, 0.999 the last 1,000 and 0.9998 the last 5,000. The n-th update uses the decay min(decay, (1 + n) / (10 + n)), so a short run averages fewer iterations than its decay says: 0.9998 is only reached after about 45,000 iterations, and the detection launches below, stopped at iteration 15,000, made their last update with a decay of 0.9994, a window of about 1,670 iterations.
-
-<p align="center">
-  <img src="README/moving_average_window.png" width="100%" />
-</p>
-<p align="center"><em>How many trained weights one averaged model mixes, for the decay 0.9998 of the detection launches below. Left: the share of their averaged weights of iteration 15,000 held by every 100 iterations of the training. The warm-up lowered the decay of the last update to 0.9994, so the last 1,668 iterations carry 65 % of the average and the last 5,000 iterations 97 %; the same decay used from the first update would give the last 5,000 iterations 63 % and leave 5.0 % to the random starting weights. Right: the window 1 / (1 − decay) of the update of every iteration, which the warm-up grows by one iteration every 9 iterations until the configured window. Drawn by <code>documentation/presentation/figures/plot_moving_average_window.py</code>.</em></p>
+If one wishes to score a smoothed model, `Optimization.exponential_moving_average` keeps an average of the weights, scored next to the trained ones at every evaluation ([choosing the decay](documentation/reference/training_reference.md#moving-average-of-the-weights)).
 
 <p align="center">
   <img src="README/moving_average_of_the_weights.png" width="100%" />
 </p>
-<p align="center"><em>The reference pair of the object detection benchmark (run_21 and run_22), test mAP@[0.5:0.95] of their trained and averaged weights on 10,000 test images: the mean of the averaged weights leads at all 30 evaluations, by 8.01 points at iteration 15,000. Shaded: the window 1 / (1 − decay) of their decay, 0.9998, and the shorter one of their last update. Drawn by <code>documentation/presentation/figures/plot_detection_moving_average.py</code>.</em></p>
+<p align="center"><em>The reference pair of the object detection benchmark: the averaged weights lead the trained ones at every evaluation.</em></p>
 
 ## Tasks
 Say you bring your own data: every task reads a folder per split with its images in `data/` and a `labels.json` manifest, and `label_mapping.json` maps every category identifier of the manifests to the class index the model predicts (from 1 for DET, INS, KPT and SEG, whose class 0 is the background), merging categories or leaving out those it does not name ([Label Files](#label-files) shows both files for every task). Each task starts from the `configuration_example.yaml` of its folder.
