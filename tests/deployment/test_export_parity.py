@@ -480,13 +480,11 @@ def test_exported_outputs_become_the_predictions_of_every_task() -> None:
     assert predictions["valid_proposal_mask"].dtype == torch.bool
     assert "final_detection_masks" not in predictions
 
-    # Instance segmentation: the masks of the detected classes and their mask scores
+    # Instance segmentation: the masks of the detected classes
     predictions = convert_inference_outputs(
         trainer=StandInTrainer(task_name="instance_segmentation"),
-        outputs={**detection_outputs, "detection_masks": np.ones(shape=(2, 100, 7, 7), dtype=np.float32),
-                 "mask_scores": np.full(shape=(2, 100), fill_value=0.5, dtype=np.float32)})
+        outputs={**detection_outputs, "detection_masks": np.ones(shape=(2, 100, 7, 7), dtype=np.float32)})
     assert predictions["final_detection_masks"].shape == (2, 100, 7, 7)
-    assert predictions["final_detection_mask_scores"].shape == (2, 100)
 
     # Keypoint detection: the candidates grouped by the trainer of the run
     keypoint_trainer = StandInTrainer(task_name="keypoint_detection")

@@ -284,7 +284,7 @@ Should a new run need more classes than its source, or hold the same classes in 
 |---|---|
 | Class layer of the classification head | `ClassificationHead` with `class_layer` |
 | Classification and box regression layers of the detection heads | `Detector` with `class_layers` |
-| Mask prediction layer of the mask heads, and the IoU prediction layer of their mask IoU heads | `MaskHead` with `class_layers` |
+| Mask prediction layer of the mask heads | `MaskHead` with `class_layers` |
 | Final class layer and deep supervision layers of the decoder | `SegmentationDecoder` with `class_layers` |
 | Last heatmap and tag convolutions of the keypoint head (same keypoints required, never moved by name) | `KeypointHead` with `class_layers` |
 

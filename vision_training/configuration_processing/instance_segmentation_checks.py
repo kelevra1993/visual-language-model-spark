@@ -1,8 +1,8 @@
 """
 Checks of the configuration sections specific to the instance segmentation task: every check of the object detection
 task, whose two-stage detector the instance segmenter extends, its mask heads (the 'MaskHead' section, with the finer
-inputs of the heads, the head shared by the levels and the mask IoU heads scoring the masks, and the mask head of every
-detection level), the instance index maps of the loaders and the evaluation at the original resolution.
+inputs of the heads and the head shared by the levels, and the mask head of every detection level), the instance index
+maps of the loaders and the evaluation at the original resolution.
 Run by configuration_checker.py for the instance_segmentation task.
 """
 
@@ -15,7 +15,6 @@ from vision_training.configuration_processing.configuration_values import (VALID
                                                                            get_configuration_value)
 from vision_training.configuration_processing.common_checks import check_pretrained_configuration
 from vision_training.configuration_processing.detection_checks import (MASK_HEAD_LEVEL_COMPONENT,
-                                                                       MASK_IOU_LOSS_NAME,
                                                                        check_convolution_layers,
                                                                        check_detection_configuration,
                                                                        list_checked_detection_levels)
@@ -28,8 +27,7 @@ def check_mask_head_configuration(model_configuration: Dict[str, Any]) -> List[s
     most the mask resolution, the pooled features being only enlarged) and its [number_layers, output_channels]
     convolutions (a multiple of 8 channels with inception modules), the feature map normalization, the module flags,
     the mask threshold of the inference, the 'pretrained' settings initialising the mask heads with those of another
-    run, their finer inputs (check_mask_head_fine_inputs), the head shared by the levels (check_shared_mask_head) and
-    the mask IoU heads scoring the masks (check_mask_scoring).
+    run, their finer inputs (check_mask_head_fine_inputs) and the head shared by the levels (check_shared_mask_head).
     The presence of the mask head of every level is checked by check_detection_levels.
 
     Args:
@@ -90,75 +88,6 @@ def check_mask_head_configuration(model_configuration: Dict[str, Any]) -> List[s
 
     # One mask head read by every level instead of one head per level
     errors += check_shared_mask_head(model_configuration=model_configuration)
-
-    # Mask IoU heads scoring the masks
-    errors += check_mask_scoring(model_configuration=model_configuration)
-    return errors
-
-
-def is_positive_integer(value: Any) -> bool:
-    """
-    Tells whether a configuration value read by check_mask_scoring is a positive integer, booleans excluded, so that
-    the values in a wrong form, reported by their own checks, are left out of its divisibility check.
-
-    Args:
-        value (Any): The configuration value.
-
-    Returns:
-        bool: True for an integer >= 1 that is not a boolean.
-    """
-    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
-
-
-def check_mask_scoring(model_configuration: Dict[str, Any]) -> List[str]:
-    """
-    Verifies 'MaskHead.mask_scoring', the mask IoU head of Mask Scoring R-CNN (stage 8 of the instance segmentation
-    benchmark): its 'activated' flag, its [number_layers, output_channels] 3x3 'convolutions' and its non-empty list of
-    'fully_connected' sizes, checked even when it is off so that switching it on needs no other change. When it is on,
-    the mask resolution must be a multiple of the pool size of every level, the masks being max-pooled to the box
-    features of their head, and the mask IoU loss must have a positive weight, the head training on it alone. Mask
-    resolutions and pool sizes in a wrong form are reported by check_mask_head_configuration, the loss weights by
-    check_loss_weights_configuration, so they are left out here.
-
-    Args:
-        model_configuration (Dict[str, Any]): The model configuration containing the 'MaskHead', 'DetectionLevels' and
-            'Optimization' sections.
-
-    Returns:
-        List[str]: The description of every inconsistency found.
-    """
-    errors = check_boolean_flags(configuration=model_configuration, key_paths=["MaskHead.mask_scoring.activated"])
-    errors += check_convolution_layers(
-        convolutions=get_configuration_value(configuration=model_configuration,
-                                             key_path="MaskHead.mask_scoring.convolutions"),
-        key_path="MaskHead.mask_scoring.convolutions", inception=False)
-    fully_connected = get_configuration_value(configuration=model_configuration,
-                                              key_path="MaskHead.mask_scoring.fully_connected")
-    if not isinstance(fully_connected, list) or not fully_connected or \
-            not all(is_positive_integer(value=value) for value in fully_connected):
-        errors.append(f"'MaskHead.mask_scoring.fully_connected' must be a non-empty list of positive integers, got "
-                      f"{fully_connected!r}.")
-    activated = get_configuration_value(configuration=model_configuration, key_path="MaskHead.mask_scoring.activated")
-    if errors or activated is not True:
-        return errors
-
-    # Masks max-pooled from the mask resolution to the pool size of every level
-    mask_resolution = get_configuration_value(configuration=model_configuration, key_path="MaskHead.mask_resolution")
-    if is_positive_integer(value=mask_resolution):
-        for level_key in list_checked_detection_levels(model_configuration=model_configuration,
-                                                       component_names=[MASK_HEAD_LEVEL_COMPONENT]):
-            key_path = f"DetectionLevels.{level_key}.{MASK_HEAD_LEVEL_COMPONENT}.roi_align_pool_size"
-            pool_size = get_configuration_value(configuration=model_configuration, key_path=key_path)
-            if is_positive_integer(value=pool_size) and mask_resolution % pool_size != 0:
-                errors.append(f"'MaskHead.mask_scoring.activated' needs 'MaskHead.mask_resolution' "
-                              f"({mask_resolution}) to be a multiple of '{key_path}' ({pool_size}), the masks being "
-                              f"max-pooled to the box features of the mask IoU head.")
-
-    # The mask IoU head trains on its loss alone
-    loss_weights = get_configuration_value(configuration=model_configuration, key_path="Optimization.loss_weights")
-    if isinstance(loss_weights, dict) and MASK_IOU_LOSS_NAME in loss_weights and loss_weights[MASK_IOU_LOSS_NAME] == 0:
-        errors.append(f"'MaskHead.mask_scoring.activated' needs a positive "
-                      f"'Optimization.loss_weights.{MASK_IOU_LOSS_NAME}', the mask IoU head training on it alone.")
     return errors
 
 

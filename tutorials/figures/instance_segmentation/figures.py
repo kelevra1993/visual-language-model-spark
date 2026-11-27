@@ -70,9 +70,8 @@ DETECTOR_SETTINGS = {"neck_type": ("Neck", "type"), "proposal_selection": ("Regi
 # Neck the chapters describe for the run shown (a feature pyramid on the detection levels)
 NARRATED_NECK_TYPE = "feature_pyramid"
 
-# Mask head layout the chapters describe for the run shown: one head per level ('MaskHead.shared' off) and masks ranked
-# by their class scores ('MaskHead.mask_scoring' off)
-NARRATED_MASK_HEAD_SETTINGS = {"MaskHead.shared": False, "MaskHead.mask_scoring.activated": False}
+# Mask head layout the chapters describe for the run shown: one head per level ('MaskHead.shared' off)
+NARRATED_MASK_HEAD_SETTINGS = {"MaskHead.shared": False}
 
 # Largest distance of the first mask loss of the run from the logarithm of two, the loss of logits at zero the first
 # chapter names
@@ -85,9 +84,8 @@ def describe_run_settings(run_folder: Path) -> Dict[str, Any]:
     proposal selection and final suppression criterion, read from its saved configuration), its folder name and test
     image for the runs: path of the sample image it shows, its planned iterations and the span of its anchors, and the
     objects of its test split, checking that the run took the settings of the detection configuration of the
-    repository and a feature pyramid neck, one mask head per level without mask scoring
-    (NARRATED_MASK_HEAD_SETTINGS), and that it was stopped after the evaluation of CHECKPOINT_ITERATION, as the
-    chapters say.
+    repository and a feature pyramid neck, one mask head per level (NARRATED_MASK_HEAD_SETTINGS), and that it was
+    stopped after the evaluation of CHECKPOINT_ITERATION, as the chapters say.
 
     Args:
         run_folder (Path): The folder of the INS run of tutorial_sources.yaml.
@@ -97,7 +95,7 @@ def describe_run_settings(run_folder: Path) -> Dict[str, Any]:
 
     Raises:
         ValueError: If a setting of the run differs from the detection configuration, its neck is not a feature
-            pyramid, or its mask heads are shared or scored.
+            pyramid, or its mask heads are shared.
     """
     run_configuration = read_run_configuration(run_folder=run_folder)
     detection_configuration = load_configuration(configuration_path=find_repository_root() /
@@ -116,7 +114,7 @@ def describe_run_settings(run_folder: Path) -> Dict[str, Any]:
         raise ValueError(f"The neck of {run_folder.name} is {facts['run.neck_type']!r}, where the chapters describe a "
                          f"{NARRATED_NECK_TYPE} neck.")
 
-    # Mask heads of the run, one per level and without mask scoring, as the chapters describe them
+    # Mask heads of the run, one per level, as the chapters describe them
     for key_path, narrated_value in NARRATED_MASK_HEAD_SETTINGS.items():
         run_value = get_configuration_value(configuration=run_configuration, key_path=key_path)
         if run_value != narrated_value:
@@ -328,12 +326,10 @@ def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> 
     listings_folder = output_folder / "listings"
 
     # Console summaries of the first evaluation and of the last iteration, read from the log next to the run folder,
-    # their metric lines written again by the console tracker of the current instance segmentation trainer, which
-    # tracks the mask IoU loss only when the run scores its masks ('MaskHead.mask_scoring')
+    # their metric lines written again by the console tracker of the current instance segmentation trainer
     console_facts = {}
-    mask_scoring = read_run_configuration(run_folder=run_folder)["MaskHead"]["mask_scoring"]["activated"]
-    metric_tracker = build_console_metric_tracker(run_folder=run_folder, trainer_class=InstanceSegmentationTrainer,
-                                                  trainer_attributes={"mask_scoring": mask_scoring})
+    metric_tracker = build_console_metric_tracker(run_folder=run_folder,
+                                                  trainer_class=InstanceSegmentationTrainer, trainer_attributes={})
     for log_name, iteration in CONSOLE_SUMMARIES:
         summary_lines = write_console_summary_listing(log_path=run_folder.parent / log_name, iteration=iteration,
                                                       output_path=listings_folder / f"console_{iteration}.txt",

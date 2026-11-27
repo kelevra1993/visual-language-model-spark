@@ -4,10 +4,8 @@ instance segmentation dataset: training with the geometric augmentations moving 
 evaluates the box and mask average precisions with its sample images, their rates written as percentages in the
 report, and resumes. The weights of the losses in the
 total loss (Optimization.loss_weights) are checked on a training batch, the detections and objects of a test image
-at the original resolution of the image (evaluation.original_resolution), the instance index maps of the loaders
-(Data.instance_index_maps) expanded into the masks by prepare_batch, by augment_batch and by the input viewer, and the
-scored masks (MaskHead.mask_scoring) training their mask IoU heads and ranked by their mask scores in the mask average
-precision.
+at the original resolution of the image (evaluation.original_resolution), and the instance index maps of the loaders
+(Data.instance_index_maps) expanded into the masks by prepare_batch, by augment_batch and by the input viewer.
 """
 
 import csv
@@ -24,7 +22,6 @@ from unittest.mock import MagicMock, patch
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.detection.coco_masks import expand_instance_index_maps
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
-from vision_training.trainers import instance_segmentation_trainer
 from vision_training.trainers.instance_segmentation_trainer import InstanceSegmentationTrainer
 from tests.fixtures.evaluation_checks import (check_detection_error_analysis, check_sample_images,
                                               read_results_blocks)
@@ -289,66 +286,6 @@ def test_loss_weights_weight_the_total_loss(tmp_path: Path) -> None:
         assert torch.equal(input=logged_metrics[loss_name], other=model_outputs[loss_name])
 
 
-def test_scored_masks_train_and_rank_the_mask_average_precision(tmp_path: Path,
-                                                               capsys: pytest.CaptureFixture) -> None:
-    """
-    Verifies a training of the instance segmenter scoring its masks (Mask Scoring R-CNN): the run name holds the mask
-    IoU heads, the mask IoU loss is tracked and weighted in the total loss, and the evaluation of the checkpoint ranks
-    the masks of the mask average precision by their mask scores, within [0, 1] and at most the class scores, while
-    the box average precision keeps ranking the boxes by their class scores.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
-    """
-    dataset_folder = tmp_path / "synthetic_shapes"
-    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
-                             split_sizes={"train": 4, "validation": 2, "test": 2}, maximum_objects=4,
-                             minimum_frames=1, maximum_frames=1, number_workers=2, task="instance_segmentation")
-
-    # Configuration of the smoke test scoring its masks, the pool of 7 dividing the 14 x 14 masks, every detection of
-    # the barely trained detector kept so that the evaluated test images hold detections
-    configuration_path = write_smoke_configuration(temporary_directory=tmp_path, dataset_folder=dataset_folder,
-                                                   number_iterations=4, original_resolution=False)
-    configuration = yaml.safe_load(stream=configuration_path.read_text())
-    configuration["ExperimentConfiguration"]["evaluation"]["score_threshold"] = 0.0
-    configuration["Detector"]["inference"]["score_threshold"] = 0.0
-    configuration["MaskHead"]["mask_scoring"] = {"activated": True, "convolutions": [1, 8], "fully_connected": [16]}
-    configuration["Optimization"]["loss_weights"]["mask_iou_loss"] = 2.0
-    configuration_path.write_text(data=yaml.safe_dump(data=configuration))
-    trainer = build_trainer(configuration_path=configuration_path)
-    assert "-MIOU1x8.16_" in trainer.experiment_folder.name
-    assert trainer.get_tracked_metrics()["mask_iou_loss"] == "Mask IoU Loss"
-
-    # One training batch: the mask IoU loss weighted in the total loss
-    batch = next(iter(trainer.train_dataloader))
-    total_loss, model_outputs = trainer.run_model_iteration(batch=batch, writer=None, iteration=1,
-                                                            tracker_dictionary=None, apply_augmentation=False)
-    expected_total_loss = sum(trainer.loss_weights[loss_name] * model_outputs[loss_name]
-                              for loss_name in trainer.loss_weights)
-    assert torch.isfinite(input=model_outputs["mask_iou_loss"]) and torch.allclose(input=total_loss,
-                                                                                    other=expected_total_loss)
-
-    # Training with a test evaluation at iteration 4, the detections given to the average precisions recorded
-    with patch.object(target=instance_segmentation_trainer, attribute="summarise_average_precisions",
-                      wraps=instance_segmentation_trainer.summarise_average_precisions) as summary_mock:
-        trainer.run_training_loop()
-    summary_calls = {call.kwargs["overlap_type"]: call.kwargs["detections"] for call in summary_mock.call_args_list}
-    assert sorted(summary_calls) == ["boxes", "masks"]
-    detections = [detection for detection in summary_calls["boxes"] if detection["scores"].numel() > 0]
-    assert detections
-    for box_detection, mask_detection in zip(summary_calls["boxes"], summary_calls["masks"]):
-        assert torch.equal(input=mask_detection["scores"], other=box_detection["mask_scores"])
-        assert bool((box_detection["mask_scores"] >= 0.0).all())
-        assert bool((box_detection["mask_scores"] <= box_detection["scores"] + 1e-6).all())
-    assert any(not torch.equal(input=detection["scores"], other=detection["mask_scores"]) for detection in detections)
-
-    # The mask IoU loss printed with the other losses, and no failed iteration
-    console_output = capsys.readouterr().out
-    assert "Mask IoU Loss" in console_output
-    assert "Error encountered during iteration" not in console_output and "Critical Error" not in console_output
-
-
 def build_original_resolution_test_image() -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
     Builds one test image of 40 x 20 pixels seen by a 10 pixel network keeping the ratio (scale 0.25, two padding rows
@@ -404,7 +341,6 @@ def test_detections_and_objects_are_gathered_at_the_original_resolution() -> Non
     # Only the attributes read by the gathering of the detections and objects, without building the model
     trainer = InstanceSegmentationTrainer.__new__(InstanceSegmentationTrainer)
     trainer.original_resolution, trainer.mask_threshold, trainer.device = True, 0.5, torch.device("cpu")
-    trainer.mask_scoring = False
     trainer.model_configuration = {"Data": {"image_settings": {"size": 10, "keep_ratio": True}}}
 
     # Detections restored to the original image, the band found by the mask pasted into its whole box

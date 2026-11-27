@@ -1,10 +1,8 @@
 """
 Mask operations of the instance segmentation task: the mask targets of the positive proposals cropped from the ground
-truth masks, the targets of the mask IoU head and the mask scores of Mask Scoring R-CNN ('MaskHead.mask_scoring'), the
-pasting of the M x M predicted masks into the image inside their boxes, and the intersection over union of binary
-masks. Used by the InstanceSegmenter for its mask and mask IoU losses and the mask scores of its detections, by the
-InferenceInstanceSegmenter of the exports for the same mask scores, and by the instance segmentation trainer for the
-mask evaluation and the sample images; the clients paste the exported masks the same way.
+truth masks, the pasting of the M x M predicted masks into the image inside their boxes, and the intersection over
+union of binary masks. Used by the InstanceSegmenter for its mask loss, and by the instance segmentation trainer for
+the mask evaluation and the sample images; the clients paste the exported masks the same way.
 """
 
 import torch
@@ -51,70 +49,6 @@ def build_mask_targets(ground_truth_masks: List[torch.Tensor], proposal_boxes: t
                                   sampling_ratio=0, aligned=True)
         mask_targets[proposal_indices] = (cropped_masks[:, 0] >= 0.5).to(dtype=proposal_boxes.dtype)
     return mask_targets
-
-
-def build_mask_iou_targets(predicted_masks: torch.Tensor, mask_targets: torch.Tensor,
-                           ground_truth_masks: List[torch.Tensor], proposal_boxes: torch.Tensor,
-                           matched_ground_truth_indices: torch.Tensor) -> torch.Tensor:
-    """
-    Gives the target of the mask IoU head for every positive proposal, the intersection over union of its binary
-    predicted mask with its object, as in Mask Scoring R-CNN (maskiou targets of its official code): the intersection
-    is counted on the M x M grid of the proposal (the predicted mask against the target cropped by build_mask_targets),
-    while the union counts the whole object, its area in image pixels projected onto the grid of the proposal (M x M
-    cells for the area of the box), so that the part of the object outside the proposal, which its mask cannot cover,
-    lowers the IoU as it lowers the IoU of the pasted masks of the evaluation. The targets are detached.
-
-    Args:
-        predicted_masks (torch.Tensor): The [R, M, M] binary predicted masks of the ground truth class of every
-            proposal, thresholded at the mask threshold.
-        mask_targets (torch.Tensor): The [R, M, M] binary targets of every proposal (build_mask_targets).
-        ground_truth_masks (List[torch.Tensor]): The [N_i, H, W] binary masks of every image of the batch.
-        proposal_boxes (torch.Tensor): The [R, 5] positive proposals, the image index of every proposal followed by its
-            [x1, y1, x2, y2] corners in network input pixels.
-        matched_ground_truth_indices (torch.Tensor): The [R] index of the matched ground truth of every proposal
-            within its image.
-
-    Returns:
-        torch.Tensor: The [R] float32 targets within [0, 1], 0 when the predicted mask and the object are both empty.
-    """
-    mask_size = mask_targets.shape[-1]
-    predicted_masks, mask_targets = predicted_masks.detach().float(), mask_targets.detach().float()
-    intersections = (predicted_masks * mask_targets).flatten(start_dim=1).sum(dim=1)
-    predicted_areas = predicted_masks.flatten(start_dim=1).sum(dim=1)
-    object_areas = torch.zeros(size=(proposal_boxes.shape[0],), dtype=torch.float32, device=proposal_boxes.device)
-
-    # Pixels of the matched object of every proposal, one image at a time
-    for image_index, image_masks in enumerate(ground_truth_masks):
-        proposal_indices = torch.nonzero(input=proposal_boxes[:, 0] == image_index).flatten()
-        if proposal_indices.numel() == 0:
-            continue
-        image_object_areas = (image_masks > 0).flatten(start_dim=1).sum(dim=1).float()
-        object_areas[proposal_indices] = image_object_areas[matched_ground_truth_indices[proposal_indices]]
-
-    # Object area in cells of the grid of the proposal, at least its cropped target against the rounding of the grid
-    boxes = proposal_boxes[:, 1:].detach().float()
-    box_areas = ((boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])).clamp(min=1e-6)
-    object_cells = torch.maximum(object_areas * mask_size * mask_size / box_areas,
-                                 mask_targets.flatten(start_dim=1).sum(dim=1))
-    unions = predicted_areas + object_cells - intersections
-    return torch.where(unions > 0, intersections / unions.clamp(min=1e-6), torch.zeros_like(input=unions))
-
-
-def compute_mask_scores(detection_scores: torch.Tensor, predicted_mask_iou: torch.Tensor) -> torch.Tensor:
-    """
-    Gives the mask score of every detection, its class score times its predicted mask IoU as in Mask Scoring R-CNN,
-    which ranks the masks of the mask average precision and is exported with the masks, the box scores still ranking
-    the boxes. The predicted IoU is clipped to [0, 1], the head being unbounded, so that the mask scores stay within
-    [0, 1] like the class scores and their thresholds.
-
-    Args:
-        detection_scores (torch.Tensor): The [B, K] class scores of the detections.
-        predicted_mask_iou (torch.Tensor): The [B, K] predicted mask IoU of the detected class of every detection.
-
-    Returns:
-        torch.Tensor: The [B, K] mask scores, in the dtype of the class scores.
-    """
-    return detection_scores * predicted_mask_iou.clamp(min=0.0, max=1.0).to(dtype=detection_scores.dtype)
 
 
 def build_interpolation_weights(box_starts: torch.Tensor, box_ends: torch.Tensor, mask_size: int,

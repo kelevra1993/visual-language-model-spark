@@ -268,11 +268,9 @@ def convert_inference_outputs(trainer: BaseTrainer, outputs: Dict[str, np.ndarra
                    "proposal_levels": torch.zeros(size=(number_images, 0), dtype=torch.int64, device=device),
                    "valid_proposal_mask": torch.zeros(size=(number_images, 0), dtype=torch.bool, device=device)}
 
-    # Masks of the detected class of every detection, pasted by the trainer, and their scores when the masks are scored
+    # Masks of the detected class of every detection, pasted by the trainer
     if task == "instance_segmentation":
         predictions["final_detection_masks"] = tensors["detection_masks"]
-        if "mask_scores" in tensors:
-            predictions["final_detection_mask_scores"] = tensors["mask_scores"]
     return predictions
 
 

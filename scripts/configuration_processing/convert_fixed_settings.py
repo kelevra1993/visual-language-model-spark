@@ -4,14 +4,15 @@ the code (FIXED_SETTINGS, refused by check_removed_settings of
 vision_training/configuration_processing/common_checks.py: the settings of the first conversion, then the batch
 normalization momentums of the task heads, the strict fallback assignment, the localisation loss beta and the box loss
 of the region proposal network of the detection tasks, then the gradient clipping norm, then the anchor centres of the
-detection tasks), and adds the sections and the settings a task now requires with the values reproducing the runs
-written before them (ADDED_SECTIONS: the 'Neck' of the detection tasks, without neck; ADDED_SETTINGS: the 'box_loss' of
+detection tasks, then the 'mask_scoring' section of the mask heads of the instance segmentation, off), and adds the
+sections and the settings a task now requires with the values reproducing the runs written before them
+(ADDED_SECTIONS: the 'Neck' of the detection tasks, without neck; ADDED_SETTINGS: the 'box_loss' of
 their 'Detector' section, the smooth L1, the 'nms_criterion' and 'nms_distance_exponent' of their 'Detector' section,
 the greedy NMS, the 'proposal_selection' of their 'RegionProposal' section, over all the levels at once, the
 'instance_index_maps' of the 'Data' section of the instance segmentation, one mask per object, and the finer inputs and
 fusion convolutions of its 'MaskHead' section, none; the 'benchmark_speed' diagnosis mode of every task, off; the
-'shared' setting of the 'MaskHead' section of the instance segmentation, one mask head per level; its 'mask_scoring'
-section, off; the 'class_layer' flag of the 'pretrained' block of the 'ClassificationHead' section of the
+'shared' setting of the 'MaskHead' section of the instance segmentation, one mask head per level; the 'class_layer'
+flag of the 'pretrained' block of the 'ClassificationHead' section of the
 classification-like tasks and the 'class_layers' flag of the 'pretrained' block of the 'Detector' section of the
 detection tasks, of the 'MaskHead' section of the instance segmentation and of the 'KeypointHead' section of the
 keypoint detection, True for heads transferred from another run, which loaded their class layers, False otherwise),
@@ -26,9 +27,9 @@ tasks, the number of candidate frames of the frame selection). Every converted f
 conversion changing anything else than the removed, added and renamed settings and the added sections stops the
 script. A file holding another value than the fixed one is listed with the values its runs change
 to, except for the settings of RECORD_ONLY_SETTINGS, whose other values the code no longer trains (the CIoU box loss of
-the region proposal network, a gradient clipping norm, the anchors centred on the cell centres): such a file is
-reported and left as it is, its runs staying as records. A file whose backbone would change (inception modules starting
-at another block) is refused, the code no longer building its layers.
+the region proposal network, a gradient clipping norm, the anchors centred on the cell centres, scored masks): such a
+file is reported and left as it is, its runs staying as records. A file whose backbone would change (inception modules
+starting at another block) is refused, the code no longer building its layers.
 """
 
 import re
@@ -59,7 +60,7 @@ FIXED_SETTINGS = ["ExperimentConfiguration.evaluation.top_k", "ExperimentConfigu
                   "Data.data_augmentation.independent_frames", "Data.data_augmentation.shuffle_frames",
                   "RegionProposal.strict_fallback_assignment", "RegionProposal.localisation_loss_beta",
                   "Detector.localisation_loss_beta", "RegionProposal.box_loss", "Optimization.gradient_clipping_norm",
-                  "RegionProposal.anchor_centres"]
+                  "RegionProposal.anchor_centres", "MaskHead.mask_scoring"]
 
 # Value the code always uses for every fixed setting, by the path of the setting in a file: a file holding another
 # value changes the behaviour of its runs once converted. The localisation loss beta is compared as the files write it,
@@ -75,7 +76,8 @@ FIXED_VALUES = {"ExperimentConfiguration.evaluation.top_k": TOP_K_ACCURACY_CLASS
                 "Data.data_augmentation.shuffle_frames.activated": False,
                 "RegionProposal.strict_fallback_assignment": False, "RegionProposal.localisation_loss_beta": "1/9",
                 "Detector.localisation_loss_beta": "1/9", "RegionProposal.box_loss": "smooth_l1",
-                "Optimization.gradient_clipping_norm": None, "RegionProposal.anchor_centres": "cell_corners"}
+                "Optimization.gradient_clipping_norm": None, "RegionProposal.anchor_centres": "cell_corners",
+                "MaskHead.mask_scoring.activated": False}
 
 # Fixed settings whose other values trained otherwise than the code now can, with the reason: a file holding another
 # value than the one of FIXED_VALUES is not converted, its runs staying as records (their numbers kept in the results
@@ -85,7 +87,9 @@ RECORD_ONLY_SETTINGS = {"RegionProposal.box_loss": "the CIoU box loss of the reg
                         "Optimization.gradient_clipping_norm": "the gradient clipping was removed, the gradients "
                                                                "never being clipped",
                         "RegionProposal.anchor_centres": "the anchors centred on the cell centres were removed, the "
-                                                         "anchors always lying on the cell corners"}
+                                                         "anchors always lying on the cell corners",
+                        "MaskHead.mask_scoring.activated": "the mask scoring of Mask Scoring R-CNN was removed, the "
+                                                           "masks always being ranked by their class scores"}
 
 # Text of the 'Neck' section added to the detection runs written before the neck, whose heads read the blocks
 NECK_SECTION_TEXT = """# Neck between the level blocks and the heads, every level keeping the size of its block.
@@ -160,22 +164,6 @@ MASK_HEAD_SHARED_LINES = [
     '# on every level and equal level channels (a neck). False: one mask head per level.',
     'shared: False']
 
-# Lines of the mask scoring added to the 'MaskHead' section of the instance segmentation runs written before it, whose
-# masks are not scored: the comment lines, then the section
-MASK_HEAD_MASK_SCORING_LINES = [
-    ('# Mask Scoring R-CNN (arxiv.org/abs/1903.00241): a mask IoU head per mask head predicts the IoU of every mask, '
-     'its'),
-    '# mask score being the class score times it (mask AP ranking, mask_scores export output).',
-    'mask_scoring:',
-    '  # True to score the masks, with mask_iou_loss in Optimization.loss_weights (1.0 in the paper); needs M a',
-    '  # multiple of the pool sizes.',
-    '  activated: False',
-    '  # [layers, channels] of its 3x3 convolutions on the box features and the pooled mask, the last of stride 2;',
-    '  # [4, 256] in the paper.',
-    '  convolutions: [4, 64]',
-    '  # Sizes of its hidden fully connected layers, then one IoU per class; [1024, 1024] in the paper.',
-    '  fully_connected: [256, 256]']
-
 # Comment lines of the class layer flag added to the 'pretrained' block of the 'ClassificationHead' section of the runs
 # of the classification-like tasks written before it, then the setting: False for the heads trained from random
 # weights, True for the heads transferred from another run, which loaded their class layer
@@ -195,10 +183,8 @@ HEAD_CLASS_LAYERS_COMMENT_LINES = {
          'order or by'),
         '# name, others random; needs experiment_folder. False leaves them random for any classes (DRCL token).'],
     "MaskHead": [
-        ('# True also loads the class layers (mask predictor, mask IoU predictor): source classes (its data.json) '
-         'first in'),
-        ('# order or by name, others random; needs experiment_folder. False leaves them random for any classes '
-         '(MRCL token).')],
+        '# True also loads the class layer (mask predictor): source classes (its data.json) first in order or by name,',
+        '# others random; needs experiment_folder. False leaves it random for any classes (MRCL token).'],
     "KeypointHead": [
         ('# True also loads the heatmap and tag convolutions: same classes and keypoints in the same order (its '
          'data.json);'),
@@ -251,8 +237,6 @@ ADDED_SETTINGS = {"Detector.box_loss": {"tasks": ["object_detection", "instance_
                       "lines": DIAGNOSIS_BENCHMARK_SPEED_LINES},
                   "MaskHead.shared": {"tasks": ["instance_segmentation"], "after": "MaskHead.fusion_convolutions",
                                       "lines": MASK_HEAD_SHARED_LINES},
-                  "MaskHead.mask_scoring": {"tasks": ["instance_segmentation"], "after": "MaskHead.shared",
-                                            "lines": MASK_HEAD_MASK_SCORING_LINES},
                   "ClassificationHead.pretrained.class_layer": {
                       "tasks": list(CLASSIFICATION_LIKE_TASKS), "after": "ClassificationHead.pretrained.freeze",
                       "lines": CLASSIFICATION_HEAD_CLASS_LAYER_LINES,
@@ -668,17 +652,13 @@ def check_conversion(original_text: str, converted_text: str, task: str, configu
             expected_settings.update(flatten_settings(settings=yaml.safe_load(added_section["text"])))
 
     # Settings the task requires inside its sections and the original file lacked, with the values of ADDED_SETTINGS
-    # (every setting of an added section, such as 'MaskHead.mask_scoring') chosen for the original file, a file without
-    # the section of a setting (a partial draft) staying without it
+    # chosen for the original file, a file without the section of a setting (a partial draft) staying without it
     for key_path, added_setting in ADDED_SETTINGS.items():
-        holds_setting = any(path == key_path or path.startswith(f"{key_path}.") for path in original_settings)
-        if task in added_setting["tasks"] and not holds_setting and \
+        if task in added_setting["tasks"] and key_path not in original_settings and \
                 holds_parent_section(key_paths=list(expected_settings), key_path=key_path):
-            parent_path, setting_name = key_path.rsplit(".", 1)
             added_lines = select_added_lines(added_setting=added_setting, settings=yaml.safe_load(original_text))
             added_values = yaml.safe_load(stream="\n".join(added_lines))
-            expected_settings.update(flatten_settings(settings={setting_name: added_values[setting_name]},
-                                                      prefix=parent_path))
+            expected_settings[key_path] = added_values[key_path.split(".")[-1]]
     if converted_settings != expected_settings:
         # Settings lost or added by the conversion, and settings whose value changed
         changed_paths = sorted(set(expected_settings) ^ set(converted_settings) |
@@ -864,8 +844,9 @@ if __name__ == "__main__":
     # added on 2026-11-20, '_before_mask_scoring' for the 'MaskHead.mask_scoring' added on 2026-11-21,
     # '_before_class_layer' for the 'ClassificationHead.pretrained.class_layer' added on 2026-11-24, then
     # '_before_class_layers' for the 'pretrained.class_layers' of the detection, mask and keypoint heads added and the
-    # 'SegmentationDecoder.pretrained.load_class_layers' renamed on 2026-11-24
-    backup_suffix = "_before_class_layers"
+    # 'SegmentationDecoder.pretrained.load_class_layers' renamed on 2026-11-24, then '_before_mask_scoring_removal' for
+    # the removal of the 'MaskHead.mask_scoring' on 2026-11-27
+    backup_suffix = "_before_mask_scoring_removal"
 
     files_to_convert = convert_fixed_settings(run_roots=run_roots, configuration_folders=configuration_folders,
                                               write_files=write_files, backup_suffix=backup_suffix)

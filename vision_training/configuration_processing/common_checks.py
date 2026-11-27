@@ -103,6 +103,9 @@ REMOVED_SETTINGS = {
     "RegionProposal.anchor_centres": ("the anchors are centred on the cell corners (column x stride, as the "
                                       "AnchorGenerator of torchvision), the anchors centred on the cell centres having "
                                       "tied with them in stage 8 of the detection benchmark", []),
+    "MaskHead.mask_scoring": ("the masks are ranked by the class scores of their detections, the mask IoU heads of "
+                              "Mask Scoring R-CNN having been removed with stage 8 of the instance segmentation "
+                              "benchmark, dropped before its launch", []),
     "Data.data_augmentation.independent_frames": ("only the sequence tasks draw the photometric augmentation types "
                                                   "frame by frame, the other tasks having no frames", SEQUENCE_TASKS),
     "Data.data_augmentation.shuffle_frames": ("only the sequence tasks shuffle the frames of their samples, the other "

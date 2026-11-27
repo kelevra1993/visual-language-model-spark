@@ -799,7 +799,8 @@ def keep_the_fixed_head_settings(configuration: Dict[str, Any]) -> None:
     Keeps the settings of the task heads removed from the configuration files for their fixed value, the batch
     normalization momentum of every head the configuration holds, and for the detection tasks the strict fallback
     assignment, the localisation loss betas, the box loss of the region proposal network and the anchors centred on
-    the cell corners, next to an unknown optimizer.
+    the cell corners, and for the instance segmentation the mask scoring section turned off, next to an unknown
+    optimizer.
 
     Args:
         configuration (Dict[str, Any]): The raw configuration of a task with heads, modified in place.
@@ -819,6 +820,11 @@ def keep_the_fixed_head_settings(configuration: Dict[str, Any]) -> None:
         configuration["Detector"]["localisation_loss_beta"] = "1/9"
         configuration["RegionProposal"]["box_loss"] = "smooth_l1"
         configuration["RegionProposal"]["anchor_centres"] = "cell_corners"
+
+    # Mask scoring section of the instance segmentation, removed with stage 8 of its benchmark
+    if "MaskHead" in configuration:
+        configuration["MaskHead"]["mask_scoring"] = {"activated": False, "convolutions": [4, 64],
+                                                     "fully_connected": [256, 256]}
     configuration["Optimization"]["optimizer"] = "lion"
 
 
@@ -847,7 +853,8 @@ def keep_the_former_class_layers_name(configuration: Dict[str, Any]) -> None:
      ["RegionProposal.normalization.batch_normalization_momentum",
       "Detector.normalization.batch_normalization_momentum", "MaskHead.normalization.batch_normalization_momentum",
       "RegionProposal.strict_fallback_assignment", "RegionProposal.localisation_loss_beta",
-      "Detector.localisation_loss_beta", "RegionProposal.box_loss", "RegionProposal.anchor_centres"],
+      "Detector.localisation_loss_beta", "RegionProposal.box_loss", "RegionProposal.anchor_centres",
+      "MaskHead.mask_scoring"],
      "'Optimization.optimizer' must be one of"),
     ("semantic_segmentation", keep_the_fixed_head_settings, ["SegmentationDecoder.batch_normalization_momentum"],
      "'Optimization.optimizer' must be one of"),
@@ -2213,95 +2220,6 @@ def remove_shared_mask_head(configuration: Dict[str, Any]) -> None:
     del configuration["MaskHead"]["shared"]
 
 
-def score_the_masks(configuration: Dict[str, Any]) -> None:
-    """
-    Scores the masks with mask IoU heads (Mask Scoring R-CNN), the pool size 14 of every level dividing the mask
-    resolution 28, with the weight of their loss.
-
-    Args:
-        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
-    """
-    configuration["MaskHead"]["mask_scoring"]["activated"] = True
-    configuration["Optimization"]["loss_weights"]["mask_iou_loss"] = 1.0
-
-
-def test_mask_scoring_is_accepted(tmp_path: Path) -> None:
-    """
-    Verifies that the mask scoring passes the checks with the weight of its loss and pool sizes dividing the mask
-    resolution, and that the unscored configuration passes them without that weight.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="instance_segmentation",
-                                                  configuration_name="configuration_synthetic_shapes.yaml",
-                                                  modify_function=score_the_masks)
-    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
-    assert model_configuration["MaskHead"]["mask_scoring"]["activated"] is True
-    assert model_configuration["Optimization"]["loss_weights"]["mask_iou_loss"] == 1.0
-    (tmp_path / "unscored").mkdir()
-    unscored_path = write_task_configuration(temporary_directory=tmp_path / "unscored",
-                                             task_folder="instance_segmentation",
-                                             configuration_name="configuration_synthetic_shapes.yaml",
-                                             modify_function=None)
-    _, unscored_configuration = load_experiment_configuration(configuration_path=unscored_path)
-    assert "mask_iou_loss" not in unscored_configuration["Optimization"]["loss_weights"]
-
-
-def score_the_masks_without_their_loss_weight(configuration: Dict[str, Any]) -> None:
-    """
-    Scores the masks without giving the weight of the mask IoU loss.
-
-    Args:
-        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
-    """
-    configuration["MaskHead"]["mask_scoring"]["activated"] = True
-
-
-def weight_the_loss_of_unscored_masks(configuration: Dict[str, Any]) -> None:
-    """
-    Gives the weight of the mask IoU loss while the masks are not scored, a loss the model never computes.
-
-    Args:
-        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
-    """
-    configuration["Optimization"]["loss_weights"]["mask_iou_loss"] = 1.0
-
-
-def score_the_masks_of_an_undivided_pool_without_training(configuration: Dict[str, Any]) -> None:
-    """
-    Scores the masks with a pool size of 10 on level 7, which does not divide the mask resolution 28, and a zero weight
-    of the mask IoU loss.
-
-    Args:
-        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
-    """
-    configuration["MaskHead"]["mask_scoring"]["activated"] = True
-    configuration["Optimization"]["loss_weights"]["mask_iou_loss"] = 0.0
-    configuration["DetectionLevels"]["7"]["mask_head"]["roi_align_pool_size"] = 10
-
-
-def set_invalid_mask_scoring(configuration: Dict[str, Any]) -> None:
-    """
-    Sets the switch of the mask scoring to a string, its convolutions to one number and its fully connected layers to
-    an empty list.
-
-    Args:
-        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
-    """
-    configuration["MaskHead"]["mask_scoring"] = {"activated": "yes", "convolutions": [4], "fully_connected": []}
-
-
-def remove_mask_scoring(configuration: Dict[str, Any]) -> None:
-    """
-    Removes the mask scoring section, as in the files written before it.
-
-    Args:
-        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
-    """
-    del configuration["MaskHead"]["mask_scoring"]
-
-
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
     (remove_level_mask_head, ["'DetectionLevels.7' must hold exactly ['anchors', 'region_proposal', 'detector', "
                               "'mask_head'], got ['anchors', 'detector', 'region_proposal']."]),
@@ -2339,26 +2257,6 @@ def remove_mask_scoring(configuration: Dict[str, Any]) -> None:
         "channels."]),
     (set_invalid_shared_mask_head, ["'MaskHead.shared' must be True or False, got 'yes'."]),
     (remove_shared_mask_head, ["Missing configuration key 'MaskHead.shared'."]),
-    (score_the_masks_without_their_loss_weight, [
-        "'Optimization.loss_weights' must give the weight of exactly the losses ['region_proposal_classification_loss'"
-        ", 'region_proposal_localisation_loss', 'detection_classification_loss', 'detection_regression_loss', "
-        "'mask_loss', 'mask_iou_loss'], got"]),
-    (weight_the_loss_of_unscored_masks, [
-        "'Optimization.loss_weights' must give the weight of exactly the losses ['region_proposal_classification_loss'"
-        ", 'region_proposal_localisation_loss', 'detection_classification_loss', 'detection_regression_loss', "
-        "'mask_loss'], got"]),
-    (score_the_masks_of_an_undivided_pool_without_training, [
-        "'MaskHead.mask_scoring.activated' needs 'MaskHead.mask_resolution' (28) to be a multiple of "
-        "'DetectionLevels.7.mask_head.roi_align_pool_size' (10), the masks being max-pooled to the box features of the "
-        "mask IoU head.",
-        "'MaskHead.mask_scoring.activated' needs a positive 'Optimization.loss_weights.mask_iou_loss', the mask IoU "
-        "head training on it alone."]),
-    (set_invalid_mask_scoring, [
-        "'MaskHead.mask_scoring.activated' must be True or False, got 'yes'.",
-        "'MaskHead.mask_scoring.convolutions' must be [number_layers, output_channels] with positive integers, got "
-        "[4].",
-        "'MaskHead.mask_scoring.fully_connected' must be a non-empty list of positive integers, got []."]),
-    (remove_mask_scoring, ["Missing configuration key 'MaskHead.mask_scoring.activated'."]),
     (set_invalid_mask_head, ["'MaskHead.mask_resolution' must be an integer >= 1, got 0.",
                              "'MaskHead.upsampling' must be one of ['transposed', 'bilinear'], got 'nearest'.",
                              "'DetectionLevels.5.mask_head.roi_align_pool_size' must be an integer >= 1, got 0.",
@@ -2374,8 +2272,7 @@ def test_inconsistent_instance_segmentation_configuration_is_rejected(
         expected_messages: List[str]) -> None:
     """
     Verifies that every inconsistency of the mask head section and of the instance index maps stops the loading with
-    a short message naming the faulty key, the mask head of every detection level and the mask scoring with the weight
-    of its loss included.
+    a short message naming the faulty key, the mask head of every detection level included.
 
     Args:
         tmp_path (Path): The pytest temporary directory.

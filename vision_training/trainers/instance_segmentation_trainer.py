@@ -1,15 +1,14 @@
 """
 Trainer of the instance segmentation task: the detection trainer with the instance masks of the COCO loaders, the
-instance segmenter with its mask loss (and its mask IoU loss with 'MaskHead.mask_scoring'), the masks moved by the
-geometric augmentations with their boxes recomputed, and the evaluation of the checkpoints with the box and mask
-average precisions and mean average recalls (the mask ones sizing the objects by their mask areas and ranking the
-masks by their mask scores when they are scored), at the network resolution or, with
-'evaluation.original_resolution', at the original resolution of the test images (the detections restored to them,
-scored against the objects of the original annotations), the proposal recall, the class thresholds, confusion matrix
-and error images of the detection trainer matched by the masks, the sample and error images painting the masks under
-the boxes at the network resolution. With 'Data.instance_index_maps', the loaders give one instance index map per
-image, expanded into the masks on the device by prepare_batch (and on the CPU for the input viewer). Registered for
-the instance segmentation task in the task registry.
+instance segmenter with its mask loss, the masks moved by the geometric augmentations with their boxes recomputed, and
+the evaluation of the checkpoints with the box and mask average precisions and mean average recalls (the mask ones
+sizing the objects by their mask areas), at the network resolution or, with 'evaluation.original_resolution', at the
+original resolution of the test images (the detections restored to them, scored against the objects of the original
+annotations), the proposal recall, the class thresholds, confusion matrix and error images of the detection trainer
+matched by the masks, the sample and error images painting the masks under the boxes at the network resolution. With
+'Data.instance_index_maps', the loaders give one instance index map per image, expanded into the masks on the device
+by prepare_batch (and on the CPU for the input viewer). Registered for the instance segmentation task in the task
+registry.
 """
 
 import numpy as np
@@ -43,9 +42,8 @@ BOX_TABLE_LEGEND = "Box average precisions of the same detections, comparable wi
 class InstanceSegmentationTrainer(DetectionTrainer):
     """
     Trainer of the instance segmentation task: the instance segmenter trained on COCO-format datasets with
-    segmentations, its five losses (six with scored masks) tracked, its instance masks moved by the geometric
-    augmentations, and every evaluated checkpoint scored with the box and mask mean average precisions on the test
-    split.
+    segmentations, its five losses tracked, its instance masks moved by the geometric augmentations, and every
+    evaluated checkpoint scored with the box and mask mean average precisions on the test split.
     """
 
     TASK_NAME = "instance_segmentation"
@@ -67,11 +65,8 @@ class InstanceSegmentationTrainer(DetectionTrainer):
                 RegionProposal, Detector, MaskHead).
             configuration_path (str | Path): The file path to the original YAML configuration used for this run.
         """
-        # Probability from which a pixel of a pasted mask belongs to its object, for the mask overlaps and the images,
-        # and whether the masks are scored (Mask Scoring R-CNN), adding the mask IoU loss and ranking the masks of the
-        # mask average precision by their mask scores
+        # Probability from which a pixel of a pasted mask belongs to its object, for the mask overlaps and the images
         self.mask_threshold = model_configuration["MaskHead"]["inference"]["mask_threshold"]
-        self.mask_scoring = model_configuration["MaskHead"]["mask_scoring"]["activated"]
 
         # Boxes and masks scored at the original resolution of the test images, and the masks of every image loaded
         # as one instance index map, read before the loaders are built
@@ -91,14 +86,12 @@ class InstanceSegmentationTrainer(DetectionTrainer):
 
     def get_tracked_metrics(self) -> Dict[str, str]:
         """
-        Lists the losses of the detector and the mask loss, with the mask IoU loss when the masks are scored, tracked
-        on every training and validation batch.
+        Lists the losses of the detector and the mask loss, tracked on every training and validation batch.
 
         Returns:
             Dict[str, str]: The display name of every tracked loss.
         """
-        mask_iou_metric = {"mask_iou_loss": "Mask IoU Loss"} if self.mask_scoring else {}
-        return {**super().get_tracked_metrics(), "mask_loss": "Mask Loss", **mask_iou_metric}
+        return {**super().get_tracked_metrics(), "mask_loss": "Mask Loss"}
 
     def prepare_batch(self, batch: Dict[str, Any]) -> InstanceSegmentationBatch:
         """
@@ -159,14 +152,13 @@ class InstanceSegmentationTrainer(DetectionTrainer):
 
     def forward_pass(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Runs the instance segmenter with the ground truth boxes, labels and masks of the batch, giving its five losses,
-        six when the masks are scored.
+        Runs the instance segmenter with the ground truth boxes, labels and masks of the batch, giving its five losses.
 
         Args:
             batch (Dict[str, Any]): The prepared batch.
 
         Returns:
-            Dict[str, Any]: The outputs of the instance segmenter, with its losses.
+            Dict[str, Any]: The outputs of the instance segmenter, with its five losses.
         """
         return self.model(input_tensor=batch["images"], ground_truth_bounding_boxes=batch["bounding_boxes"],
                           ground_truth_labels=batch["labels"], ground_truth_masks=batch["instance_masks"])
@@ -181,8 +173,7 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         those of a whole test split would not fit in memory. With 'evaluation.original_resolution', the detection
         boxes are restored to the original image (clipped to it for the box average precision, whole for pasting the
         masks, which cover the box they were predicted in) and the masks are compared with the original ground truth
-        masks; otherwise everything stays at the network resolution. When the masks are scored, the mask score of every
-        detection is kept for the ranking of the mask average precision.
+        masks; otherwise everything stays at the network resolution.
 
         Args:
             batch (Dict[str, Any]): The prepared test batch.
@@ -191,8 +182,7 @@ class InstanceSegmentationTrainer(DetectionTrainer):
 
         Returns:
             Dict[str, torch.Tensor]: The detection 'boxes' [D, 4], 'scores' [D] and 'labels' [D] of the image, their
-                'mask_overlaps' [D, G] with its objects and their 'mask_areas' [D], with their 'mask_scores' [D] when
-                the masks are scored.
+                'mask_overlaps' [D, G] with its objects and their 'mask_areas' [D].
         """
         detection = super().gather_image_detections(batch=batch, predictions=predictions, image_index=image_index)
         number_detections = int(predictions["number_detections"][image_index])
@@ -214,10 +204,6 @@ class InstanceSegmentationTrainer(DetectionTrainer):
                                                                ground_truth_masks=ground_truth_masks,
                                                                image_index=image_index)
         detection["mask_overlaps"], detection["mask_areas"] = mask_overlaps.cpu(), mask_areas.cpu()
-
-        # Mask scores of the scored masks, which rank them in the mask average precision
-        if self.mask_scoring:
-            detection["mask_scores"] = predictions["final_detection_mask_scores"][image_index, :number_detections].cpu()
         return detection
 
     def gather_image_ground_truth(self, batch: Dict[str, Any], image_index: int) -> Dict[str, torch.Tensor]:
@@ -318,15 +304,14 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         Computes the mask and box mean average precisions of the test split with the three average precision methods
         and for every object size (by mask and by box area), the mask and box mean average recalls, the mask mAP@0.5 of
         the area method comparing the checkpoints, the score threshold of every class reaching the target precision
-        with the masks (a threshold of the mask scores when the masks are scored, the mask average precisions ranking
-        the masks by them) and the proposal recall, and organises them for the report: the mask tables then the box
-        tables (methods and object sizes always shown, then the mean average recalls and the proposal recall, classes
-        with the per-class report, the thresholds in the mask table), the box scalars under the names of the object
-        detection and the mask scalars under 'Mask' names. The box and mask average precisions and the thresholds of
-        every class are saved together to class_metrics.csv in '<run>/[Checkpoint_]Evaluation/Iteration_<n>/', with
-        the proposal recall (proposal_recall.csv), the class thresholds, the confusion matrix and the error images of
-        the detection trainer (save_error_analysis). The report writes the rates as percentages, the headline mask
-        mAP@0.5 included in the best checkpoint line of the evaluation of several checkpoints.
+        with the masks and the proposal recall, and organises them for the report: the mask tables then the box tables
+        (methods and object sizes always shown, then the mean average recalls and the proposal recall, classes with the
+        per-class report, the thresholds in the mask table), the box scalars under the names of the object detection
+        and the mask scalars under 'Mask' names. The box and mask average precisions and the thresholds of every class
+        are saved together to class_metrics.csv in '<run>/[Checkpoint_]Evaluation/Iteration_<n>/', with the proposal
+        recall (proposal_recall.csv), the class thresholds, the confusion matrix and the error images of the detection
+        trainer (save_error_analysis). The report writes the rates as percentages, the headline mask mAP@0.5 included
+        in the best checkpoint line of the evaluation of several checkpoints.
 
         Args:
             accumulator (Dict[str, Any]): The detections, with their mask overlaps and areas, and ground truths of the
@@ -336,14 +321,10 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         Returns:
             EvaluationResults: The results of the evaluation.
         """
-        # Mask average precisions with the class thresholds, then the box ones, at the resolution of the evaluation, the
-        # masks ranked by their mask scores when they are scored and the boxes by their class scores
+        # Mask average precisions with the class thresholds, then the box ones, at the resolution of the evaluation
         resolution_name = "original image" if self.original_resolution else "network input"
-        mask_detections = accumulator["detections"]
-        if self.mask_scoring:
-            mask_detections = [{**detection, "scores": detection["mask_scores"]} for detection in mask_detections]
         mask_summary = summarise_average_precisions(
-            detections=mask_detections, ground_truths=accumulator["ground_truths"],
+            detections=accumulator["detections"], ground_truths=accumulator["ground_truths"],
             number_classes=len(set(self.label_dictionary.values())), class_names=self.class_names, overlap_type="masks",
             title_prefix="Mask", name_prefix="Mask ", column_prefix="mask_", legend=MASK_TABLE_LEGEND,
             target_precision=self.target_precision, resolution_name=resolution_name)

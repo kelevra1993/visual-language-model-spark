@@ -430,17 +430,6 @@ MaskHead:
   # True: one mask head read by every level (Mask R-CNN), trained on all the positives; needs the same mask_head
   # on every level and equal level channels (a neck). False: one mask head per level.
   shared: False
-  # Mask Scoring R-CNN (arxiv.org/abs/1903.00241): a mask IoU head per mask head predicts the IoU of every mask, its
-  # mask score being the class score times it (mask AP ranking, mask_scores export output).
-  mask_scoring:
-    # True to score the masks, with mask_iou_loss in Optimization.loss_weights (1.0 in the paper); needs M a
-    # multiple of the pool sizes.
-    activated: False
-    # [layers, channels] of its 3x3 convolutions on the box features and the pooled mask, the last of stride 2;
-    # [4, 256] in the paper.
-    convolutions: [4, 64]
-    # Sizes of its hidden fully connected layers, then one IoU per class; [1024, 1024] in the paper.
-    fully_connected: [256, 256]
   normalization:
     # "batch", "layer" (over channels) or "none"
     feature_map_normalization: "batch"
@@ -464,8 +453,8 @@ MaskHead:
     iteration: null
     # Freezes the loaded heads (no gradient, frozen batch statistics). Requires experiment_folder.
     freeze: False
-    # True also loads the class layers (mask predictor, mask IoU predictor): source classes (its data.json) first in
-    # order or by name, others random; needs experiment_folder. False leaves them random for any classes (MRCL token).
+    # True also loads the class layer (mask predictor): source classes (its data.json) first in order or by name,
+    # others random; needs experiment_folder. False leaves it random for any classes (MRCL token).
     class_layers: False
     # Learning rate factor of the loaded heads, e.g. 0.1 to train them 10x slower.
     learning_rate_multiplier: 1.0

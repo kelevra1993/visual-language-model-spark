@@ -1,8 +1,8 @@
 """
 Tests of vision_training/models/instance_segmentation/mask_operations.py and the mask head: the mask geometry of the
 mask head (its doublings and the shapes of its outputs), the pooling of the mask head shared by the levels, the mask
-targets cropped from the ground truth masks, the mask IoU head of the scored masks with its targets and the mask
-scores, the pasting of the predicted masks into their boxes and the intersection over union of binary masks.
+targets cropped from the ground truth masks, the pasting of the predicted masks into their boxes and the intersection
+over union of binary masks.
 """
 
 import pytest
@@ -12,10 +12,10 @@ from torch import nn
 from torchvision.ops import roi_align
 
 from tests.fixtures.configuration_fixtures import get_detection_model_configuration
-from vision_training.models.instance_segmentation.mask_head import MaskHead, MaskIoUHead, count_mask_upsamplings
-from vision_training.models.instance_segmentation.mask_operations import (build_mask_iou_targets, build_mask_targets,
+from vision_training.models.instance_segmentation.mask_head import MaskHead, count_mask_upsamplings
+from vision_training.models.instance_segmentation.mask_operations import (build_mask_targets,
                                                                           compute_mask_intersection_over_union,
-                                                                          compute_mask_scores, paste_instance_masks)
+                                                                          paste_instance_masks)
 
 
 def build_mask_head(roi_align_pool_size: int, mask_resolution: int, upsampling: str) -> MaskHead:
@@ -37,8 +37,7 @@ def build_mask_head(roi_align_pool_size: int, mask_resolution: int, upsampling: 
                     mask_resolution=mask_resolution, upsampling=upsampling, number_classes=6, input_channels=8,
                     feature_map_normalization="batch", batch_normalization_momentum=0.1, input_image_size=128,
                     feature_map_sizes={"5": 16}, modules=configuration["MaskHead"]["modules"], skip_information={},
-                    fine_input_channels=0, fusion_convolutions=[0, 0],
-                    mask_scoring=configuration["MaskHead"]["mask_scoring"], dtype=dtype, device=device).eval()
+                    fine_input_channels=0, fusion_convolutions=[0, 0], dtype=dtype, device=device).eval()
 
 
 @pytest.mark.parametrize(argnames=["roi_align_pool_size", "mask_resolution", "upsampling", "number_upsamplings"],
@@ -92,8 +91,7 @@ def test_shared_mask_head_pools_every_level_at_its_own_scale() -> None:
                          upsampling="transposed", number_classes=6, input_channels=8, feature_map_normalization="batch",
                          batch_normalization_momentum=0.1, input_image_size=128, feature_map_sizes={"5": 32, "6": 16},
                          modules=configuration["MaskHead"]["modules"], skip_information={}, fine_input_channels=0,
-                         fusion_convolutions=[0, 0], mask_scoring=configuration["MaskHead"]["mask_scoring"],
-                         dtype=dtype, device=device).eval()
+                         fusion_convolutions=[0, 0], dtype=dtype, device=device).eval()
     feature_maps = {"5": torch.rand(size=(2, 8, 32, 32)), "6": torch.rand(size=(2, 8, 16, 16))}
     boxes = torch.tensor(data=[[0.0, 10.0, 10.0, 60.0, 80.0], [1.0, 0.0, 0.0, 128.0, 128.0]])
 
@@ -143,104 +141,6 @@ def test_mask_targets_crop_the_matched_ground_truth_masks() -> None:
     assert targets.shape == (3, 8, 8) and set(targets.unique().tolist()) <= {0.0, 1.0}
     assert bool(targets[0].eq(1.0).all()) and bool(targets[2].eq(1.0).all())
     assert bool(targets[1][:, :4].eq(1.0).all()) and bool(targets[1][:, 4:].eq(0.0).all())
-
-
-def test_mask_iou_targets_count_the_whole_object() -> None:
-    """
-    Verifies the targets of the mask IoU head on known masks: a predicted mask filling the box of its whole object has
-    an IoU of 1, the same mask on a proposal covering half of the object 0.5 (the half outside the proposal counting in
-    the union, as on the pasted masks), half of the mask on the whole box 0.5, an empty mask 0, and the matched index
-    reading the area of the right object of the right image.
-    """
-    # First image: an object of 8 x 4 pixels (32 pixels); second image: a full object and a square of 4 x 4 pixels
-    first_image_masks = torch.zeros(size=(1, 16, 16), dtype=torch.uint8)
-    first_image_masks[0, 0:4, 0:8] = 1
-    second_image_masks = torch.zeros(size=(2, 16, 16), dtype=torch.uint8)
-    second_image_masks[0] = 1
-    second_image_masks[1, 8:12, 8:12] = 1
-    ground_truth_masks = [first_image_masks, second_image_masks]
-
-    # Whole box, left half of the object, whole box twice, then the square of the second image (matched index 1)
-    proposals = torch.tensor(data=[[0.0, 0.0, 0.0, 8.0, 4.0], [0.0, 0.0, 0.0, 4.0, 4.0], [0.0, 0.0, 0.0, 8.0, 4.0],
-                                   [0.0, 0.0, 0.0, 8.0, 4.0], [1.0, 8.0, 8.0, 12.0, 12.0]])
-    matched_indices = torch.tensor(data=[0, 0, 0, 0, 1])
-    mask_targets = build_mask_targets(ground_truth_masks=ground_truth_masks, proposal_boxes=proposals,
-                                      matched_ground_truth_indices=matched_indices, mask_size=4)
-    assert bool(mask_targets.eq(1.0).all())
-
-    # Full predicted masks, but the left half of the third and an empty fourth
-    predicted_masks = torch.ones(size=(5, 4, 4), dtype=torch.bool)
-    predicted_masks[2, :, 2:] = False
-    predicted_masks[3] = False
-    targets = build_mask_iou_targets(predicted_masks=predicted_masks, mask_targets=mask_targets,
-                                     ground_truth_masks=ground_truth_masks, proposal_boxes=proposals,
-                                     matched_ground_truth_indices=matched_indices)
-    assert targets.dtype == torch.float32 and not targets.requires_grad
-    assert torch.allclose(input=targets, other=torch.tensor(data=[1.0, 0.5, 0.5, 0.0, 1.0]))
-
-
-def test_mask_scores_multiply_the_class_scores_by_the_clipped_iou() -> None:
-    """
-    Verifies the mask score of every detection: its class score times its predicted mask IoU, the IoU clipped to
-    [0, 1] so that the mask scores stay within [0, 1], in the dtype of the class scores.
-    """
-    detection_scores = torch.tensor(data=[[0.9, 0.8, 0.6, 0.0]])
-    predicted_mask_iou = torch.tensor(data=[[1.3, 0.5, -0.2, 0.7]], dtype=torch.bfloat16)
-    mask_scores = compute_mask_scores(detection_scores=detection_scores, predicted_mask_iou=predicted_mask_iou)
-    assert mask_scores.dtype == torch.float32
-    assert torch.allclose(input=mask_scores, other=torch.tensor(data=[[0.9, 0.4, 0.0, 0.0]]))
-
-
-def test_mask_iou_head_reads_the_box_features_and_the_pooled_mask() -> None:
-    """
-    Verifies the mask IoU head of the scored masks: one predicted IoU per class from the box features of the mask head
-    and the mask of the class of every box max-pooled to the pool size, its last convolution halving the resolution
-    (7 to 4), its predictor starting near 0; a mask resolution that the pool size does not divide is refused, and the
-    mask head gives the IoU of the asked class of every box, None without mask scoring.
-    """
-    torch.manual_seed(seed=0)
-    mask_iou_head = MaskIoUHead(input_channels=16, roi_align_pool_size=7, mask_resolution=14, convolutions=[2, 8],
-                                fully_connected=[32, 16], number_classes=6, dtype=torch.float32,
-                                device=torch.device("cpu"))
-    assert mask_iou_head.mask_pooling_size == 2
-    assert mask_iou_head.convolution_layers[0].in_channels == 17
-    assert mask_iou_head.fully_connected_block[0].in_features == 8 * 4 * 4
-    box_features, class_masks = torch.rand(size=(3, 16, 7, 7)), torch.rand(size=(3, 1, 14, 14))
-    predicted_mask_iou = mask_iou_head(box_features=box_features, class_masks=class_masks)
-    assert predicted_mask_iou.shape == (3, 6) and float(predicted_mask_iou.detach().abs().max()) < 0.5
-
-    # The pooled mask is the largest probability of every 2 x 2 cell: a mask moved within its cells changes nothing
-    moved_masks = class_masks.reshape(3, 1, 7, 2, 7, 2).flip(dims=(3,)).reshape(3, 1, 14, 14)
-    assert torch.allclose(input=mask_iou_head(box_features=box_features, class_masks=moved_masks),
-                          other=predicted_mask_iou)
-    with pytest.raises(expected_exception=ValueError, match="pool size 10, which must divide it"):
-        MaskIoUHead(input_channels=16, roi_align_pool_size=10, mask_resolution=28, convolutions=[2, 8],
-                    fully_connected=[32], number_classes=6, dtype=torch.float32, device=torch.device("cpu"))
-
-    # A scored mask head gives the IoU of the asked class of every box, an unscored one none
-    configuration, device, dtype = get_detection_model_configuration(mask_head=True)
-    scored_head = MaskHead(head_configuration={"roi_align_pool_size": 7, "convolutions": [2, 16]}, mask_resolution=14,
-                           upsampling="transposed", number_classes=6, input_channels=8,
-                           feature_map_normalization="batch", batch_normalization_momentum=0.1, input_image_size=128,
-                           feature_map_sizes={"5": 16}, modules=configuration["MaskHead"]["modules"],
-                           skip_information={}, fine_input_channels=0, fusion_convolutions=[0, 0],
-                           mask_scoring={"activated": True, "convolutions": [2, 8], "fully_connected": [32]},
-                           dtype=dtype, device=device).eval()
-    pooled_features, class_indices = torch.rand(size=(3, 8, 7, 7)), torch.tensor(data=[1, 5, 2])
-    with torch.no_grad():
-        mask_logits, class_mask_iou = scored_head.predict_masks_and_mask_iou(
-            pooled_features=pooled_features, fine_features=None, class_indices=class_indices)
-        box_features = scored_head.convolutional_block(input_tensor=pooled_features)
-        every_class_mask_iou = scored_head.mask_iou_head(
-            box_features=box_features, class_masks=torch.sigmoid(input=mask_logits[torch.arange(3), class_indices])[
-                :, None])
-    assert torch.equal(input=mask_logits, other=scored_head.predict_from_pooled_features(
-        pooled_features=pooled_features, fine_features=None))
-    assert torch.allclose(input=class_mask_iou, other=every_class_mask_iou[torch.arange(3), class_indices])
-    unscored_head = build_mask_head(roi_align_pool_size=7, mask_resolution=14, upsampling="transposed")
-    assert unscored_head.mask_iou_head is None
-    assert unscored_head.predict_masks_and_mask_iou(pooled_features=pooled_features, fine_features=None,
-                                                    class_indices=class_indices)[1] is None
 
 
 def test_pasted_masks_fill_their_boxes() -> None:

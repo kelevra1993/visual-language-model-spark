@@ -60,11 +60,10 @@ FLOAT32_BYTES = 4
 BYTES_PER_MEGABYTE = 1e6
 
 # Values the stand-in inference models give get_export_specification for the tasks the tutorials only quote the
-# tolerances of: the tolerances do not depend on them, they only fill the shapes of the outputs (mask_scoring adds the
-# 'mask_scores' output of the instance segmenter, compared within the score tolerance)
+# tolerances of: the tolerances do not depend on them, they only fill the shapes of the outputs
 STAND_IN_ATTRIBUTES = {"input_image_size": 64, "number_classes": 2, "maximum_detections": 10, "mask_size": 28,
-                       "mask_scoring": False, "maximum_sequence_length": 8, "number_channels": 3,
-                       "number_candidates": 5, "representation_size": 16}
+                       "maximum_sequence_length": 8, "number_channels": 3, "number_candidates": 5,
+                       "representation_size": 16}
 
 # Bottom border of the Export Sizes panel, whose subtitle gives the seconds the estimates took, different at every
 # build: the listing writes PANEL_SECONDS_SUBTITLE in their place, so that it only changes with the sizes

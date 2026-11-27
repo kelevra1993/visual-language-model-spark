@@ -126,21 +126,20 @@ DETECTION_LEVEL_COMPONENTS = {"RegionProposal": "region_proposal", "Detector": "
 # apart, the anchor scales and ratios themselves not being weights. The mask resolution and the upsampling of the
 # mask heads give their upsampling layers, their backbone skips at the pool size the input of their convolution block,
 # their fine inputs (image branch, backbone skips at the mask resolution) and fusion convolutions the layers before
-# their predictor, their sharing by the levels the number of heads, so that heads trained per level are refused by a
-# run sharing one head and the reverse, and their mask scoring the mask IoU head inside every head (its layers compared
-# only when it is activated, get_mask_scoring_weights)
+# their predictor, and their sharing by the levels the number of heads, so that heads trained per level are refused
+# by a run sharing one head and the reverse
 DETECTION_HEAD_WEIGHT_KEYS = {"RegionProposal": ["normalization"], "Detector": ["normalization", "modules"],
                               "MaskHead": ["shared", "mask_resolution", "upsampling", "normalization", "modules",
                                            "skip_blocks_at_pool_size", "image_branch_convolutions",
-                                           "skip_blocks_at_mask_resolution", "fusion_convolutions", "mask_scoring"]}
+                                           "skip_blocks_at_mask_resolution", "fusion_convolutions"]}
 
 # Settings of the heads added after the first runs, with the value of the runs written before them: the mask heads of
-# a source run written before their finer inputs read the map of their level alone, those written before their
-# sharing are one head per level, and those written before the mask scoring have no mask IoU head
+# a source run written before their finer inputs read the map of their level alone, and those written before their
+# sharing are one head per level
 DETECTION_HEAD_DEFAULTS = {"RegionProposal": {}, "Detector": {},
                            "MaskHead": {"shared": False, "skip_blocks_at_pool_size": [],
                                         "image_branch_convolutions": [0, 0], "skip_blocks_at_mask_resolution": [],
-                                        "fusion_convolutions": [0, 0], "mask_scoring": {"activated": False}}}
+                                        "fusion_convolutions": [0, 0]}}
 
 # Normalization layers whose scale and shift can be kept fixed, and batch normalization layers whose statistics a
 # frozen component keeps
@@ -154,7 +153,7 @@ BATCH_NORMALIZATION_LAYER_TYPES = (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3
 # in the new run and those of the new classes keep the random initialisation the layer of the new run was built with
 CLASS_LAYERS = {"ClassificationHead": [[r"classifier", 1]],
                 "Detector": [[r"\w+\.classifier", 1], [r"\w+\.bounding_box_regressor", 4]],
-                "MaskHead": [[r"\w+\.mask_predictor", 1], [r"\w+\.mask_iou_head\.iou_predictor", 1]],
+                "MaskHead": [[r"\w+\.mask_predictor", 1]],
                 "SegmentationDecoder": [[r"segmentation_head\.\d+", 1], [r"deep_supervision_heads\.\w+", 1]]}
 
 # Layers of the keypoint head whose output channels follow the keypoints of the classes, left out with its class
@@ -467,26 +466,6 @@ def compare_segmentation_decoders(source_configuration: Dict[str, Any],
     return differences
 
 
-def get_mask_scoring_weights(mask_scoring_configuration: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """
-    Gives the 'MaskHead.mask_scoring' settings of a run as far as the weights of its mask heads are concerned, for
-    compare_detection_heads: the layers of its mask IoU heads when they are built, None without them, so that two runs
-    without mask scoring match whatever the sizes written for a head they never built.
-
-    Args:
-        mask_scoring_configuration (Dict[str, Any]): The 'MaskHead.mask_scoring' section, {'activated': False} for a
-            run written before it (DETECTION_HEAD_DEFAULTS).
-
-    Returns:
-        Optional[Dict[str, Any]]: The 'convolutions' and 'fully_connected' of the mask IoU heads, None when the masks
-            are not scored.
-    """
-    if not mask_scoring_configuration["activated"]:
-        return None
-    return {"convolutions": mask_scoring_configuration["convolutions"],
-            "fully_connected": mask_scoring_configuration["fully_connected"]}
-
-
 def compare_detection_heads(section_name: str, source_configuration: Dict[str, Any],
                             target_configuration: Dict[str, Any]) -> List[str]:
     """
@@ -495,11 +474,10 @@ def compare_detection_heads(section_name: str, source_configuration: Dict[str, A
     detection levels (the keys of 'DetectionLevels'), the neck whose outputs they read (both runs without neck, a
     source run written before the neck counting as none), the head of every level (DETECTION_LEVEL_COMPONENTS), the
     settings of DETECTION_HEAD_WEIGHT_KEYS (the normalization without its batch normalization momentum, which
-    changes no tensor, the mask scoring by the layers of its mask IoU heads only when they are built, and a source run
-    written before a setting holding the value of DETECTION_HEAD_DEFAULTS) and, for the region proposal heads, the
-    number of anchors per position of every level.
+    changes no tensor, and a source run written before a setting holding the value of DETECTION_HEAD_DEFAULTS) and,
+    for the region proposal heads, the number of anchors per position of every level.
     The channels of the backbone blocks they read are compared on the weights themselves, and the classes of the
-    detection and mask heads (classifier, per-class box regressor, per-class mask predictor and mask IoU predictor) by
+    detection and mask heads (classifier, per-class box regressor, per-class mask predictor) by
     load_pretrained_component, the run receiving the heads being allowed to add classes after those of the source run
     or to hold them at other indices under the same names, or to have unrelated classes when the heads are loaded
     without their class layers ('pretrained.class_layers' False).
@@ -548,9 +526,6 @@ def compare_detection_heads(section_name: str, source_configuration: Dict[str, A
         if key_name == "normalization":
             compared_source_value = get_weight_normalization(normalization_configuration=compared_source_value)
             compared_target_value = get_weight_normalization(normalization_configuration=compared_target_value)
-        if key_name == "mask_scoring":
-            compared_source_value = get_mask_scoring_weights(mask_scoring_configuration=compared_source_value)
-            compared_target_value = get_mask_scoring_weights(mask_scoring_configuration=compared_target_value)
         if compared_source_value != compared_target_value:
             differences.append(f"'{section_name}.{key_name}' is {source_section_configuration[key_name]!r} in the "
                                f"source run and {target_section_configuration[key_name]!r} in this run.")

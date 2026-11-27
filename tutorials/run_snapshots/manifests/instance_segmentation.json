@@ -206,13 +206,13 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 27436,
+      "snapshot_bytes": 26724,
       "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/training_configuration.yaml",
-      "snapshot_sha256": "e7fb78b3afa7240a8f7c50ca4ad2dfe60c5a13768ff40384ac9f9b149616434a",
-      "source_bytes": 27436,
+      "snapshot_sha256": "44102e50d5636e8d7a53a723c8aca144b5397fb7385299174bd550b1026c8e34",
+      "source_bytes": 26724,
       "source_kind": "run",
       "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/training_configuration.yaml",
-      "source_sha256": "e7fb78b3afa7240a8f7c50ca4ad2dfe60c5a13768ff40384ac9f9b149616434a"
+      "source_sha256": "44102e50d5636e8d7a53a723c8aca144b5397fb7385299174bd550b1026c8e34"
     },
     {
       "options": {},

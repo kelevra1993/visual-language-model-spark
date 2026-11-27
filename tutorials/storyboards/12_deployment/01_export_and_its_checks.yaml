@@ -124,7 +124,7 @@ scenes:
       end: "\"comparison_tolerances\": \\{\"box_tolerance\": 1e-2, \"score_tolerance\": 1e-4, \"mask_tolerance\": 1e-3\\}\\}"
     highlights:
       - {match: "compare_detections,|\"comparison_tolerances\": \\{\"box_tolerance\": 1e-2, \"score_tolerance\": 1e-4\\}\\}", sentences: [0, 1]}
-      - {match: "\"detection_masks\"|\"mask_scores\"|\"mask_tolerance\"", sentences: [2]}
+      - {match: "\"detection_masks\"|\"mask_tolerance\"", sentences: [2]}
     # The tolerances are read with all their decimals, as the specification writes them
     exact_facts: [deployment.tolerances.object_detection.box_tolerance, deployment.tolerances.object_detection.score_tolerance,
                   deployment.tolerances.classification.tolerance, deployment.tolerances.instance_segmentation.mask_tolerance,
@@ -132,7 +132,7 @@ scenes:
     narration:
       - "Each task compares its outputs its own way: a detector must keep every detection, within {{deployment.tolerances.object_detection.box_tolerance}} pixels on the boxes and {{deployment.tolerances.object_detection.score_tolerance}} on the scores."
       - "Detections whose scores are tied can swap places after a rounding, so match detections pairs them by label, score and nearest box before comparing, rather than by rank."
-      - "An instance segmenter adds its masks, within {{deployment.tolerances.instance_segmentation.mask_tolerance}}, and, when mask scoring is on, its mask scores, an output of their own compared within the tolerance of the scores."
+      - "An instance segmenter adds its masks, compared within {{deployment.tolerances.instance_segmentation.mask_tolerance}}."
       - "Classifiers and sequence models compare probabilities within {{deployment.tolerances.classification.tolerance}}, and a segmenter must agree on a share of {{deployment.tolerances.semantic_segmentation.minimum_equal_share}} of its pixels, a keypoint detector on {{deployment.tolerances.keypoint_detection.minimum_equal_share}} of its candidates."
       - "Here is the pitfall: the ONNX check runs the graph on the CPU, never the TensorRT engine that Triton builds from it, so an FP16 engine is served without any check."
       - "That is how a detector lost points of mAP in FP16 without the export noticing, the story of the third chapter."

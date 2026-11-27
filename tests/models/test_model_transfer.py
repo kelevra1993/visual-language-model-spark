@@ -7,10 +7,10 @@ heads and of the semantic segmentation grown to the new classes, which keep the 
 the source runs without class names, and the runs holding the source classes at other indices, whose rows land at the
 index of their name, a run lacking a source class being refused. The keypoint head loaded with its keypoint channel
 layers only moves between runs predicting the same keypoints on the same channels, read from the record of the data of
-the source run, and the mask heads between runs sharing them by the levels or not alike, and scoring their masks with
-the same mask IoU heads or not at all. The classification, detection, mask and keypoint heads loaded without their
-class layers initialise runs of unrelated classes or keypoints, only their other layers being transferred, frozen and
-fine-tuned, and the class layer flags are turned off with the transfers.
+the source run, and the mask heads between runs sharing them by the levels or not alike. The classification,
+detection, mask and keypoint heads loaded without their class layers initialise runs of unrelated classes or keypoints,
+only their other layers being transferred, frozen and fine-tuned, and the class layer flags are turned off with the
+transfers.
 """
 
 import copy
@@ -33,8 +33,7 @@ from vision_training.models.model_transfer import (NORMALIZATION_LAYER_TYPES, TR
                                                    compare_class_names, compare_component_configurations,
                                                    count_loaded_backbone_blocks,
                                                    count_shared_backbone_blocks, disable_pretrained_settings,
-                                                   find_backbone_block_index, find_class_layer,
-                                                   freeze_batch_normalization_statistics,
+                                                   find_backbone_block_index, freeze_batch_normalization_statistics,
                                                    freeze_component, freeze_normalization_parameters,
                                                    load_pretrained_component, load_segmentation_class_layers,
                                                    select_transferred_part)
@@ -1290,68 +1289,6 @@ def test_mask_heads_move_only_between_runs_of_the_same_sharing(tmp_path: Path) -
                                             target_configuration=level_configuration) == []
 
 
-def test_mask_heads_move_only_between_runs_of_the_same_mask_scoring(tmp_path: Path) -> None:
-    """
-    Verifies that the mask heads of a run scoring its masks ('MaskHead.mask_scoring') move with their mask IoU heads to
-    a run scoring its masks with the same layers, every tensor being copied and the IoU predictor growing with the
-    classes like the mask predictor, that heads with and without mask IoU heads, or with other ones, are refused by each
-    other, a source run written before the mask scoring scoring none, and that two runs without mask scoring match
-    whatever the sizes written for the heads they never build.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    scored_configuration, _, _ = get_detection_model_configuration(mask_head=True)
-    scored_configuration = copy.deepcopy(scored_configuration)
-    scored_configuration["MaskHead"]["mask_scoring"]["activated"] = True
-    source_segmenter = build_task_model(task="instance_segmentation", configuration=scored_configuration, seed=0)
-    write_source_run(run_folder=tmp_path / "scored_run", configuration=scored_configuration, model=source_segmenter)
-    target_segmenter = build_task_model(task="instance_segmentation", configuration=scored_configuration, seed=1)
-    load_pretrained_component(component=target_segmenter.mask_heads_dictionary, section_name="MaskHead",
-                              model_configuration=point_to_source_run(configuration=scored_configuration,
-                                                                      section_name="MaskHead",
-                                                                      source_folder=tmp_path / "scored_run"),
-                              device=torch.device("cpu"))
-
-    # Every tensor of the mask heads copied, those of their mask IoU heads included
-    source_state = source_segmenter.mask_heads_dictionary.state_dict()
-    target_state = target_segmenter.mask_heads_dictionary.state_dict()
-    assert any(".mask_iou_head.iou_predictor." in tensor_name for tensor_name in source_state)
-    assert source_state.keys() == target_state.keys()
-    for tensor_name, tensor_value in source_state.items():
-        assert torch.equal(input=target_state[tensor_name], other=tensor_value), tensor_name
-    assert find_class_layer(section_name="MaskHead", module_name="5.mask_iou_head.iou_predictor") == 1
-    assert find_class_layer(section_name="MaskHead", module_name="5.mask_iou_head.fully_connected_block.0") is None
-
-    # Heads with and without mask IoU heads refused by each other, a source run written before the mask scoring
-    # scoring none
-    unscored_configuration, _, _ = get_detection_model_configuration(mask_head=True)
-    former_configuration = copy.deepcopy(unscored_configuration)
-    former_configuration["MaskHead"].pop("mask_scoring")
-    scored_section = scored_configuration["MaskHead"]["mask_scoring"]
-    unscored_section = unscored_configuration["MaskHead"]["mask_scoring"]
-    for source_configuration, source_section in [(unscored_configuration, unscored_section),
-                                                 (former_configuration, {"activated": False})]:
-        assert compare_component_configurations(section_name="MaskHead", source_configuration=source_configuration,
-                                                target_configuration=scored_configuration) == [
-            f"'MaskHead.mask_scoring' is {source_section!r} in the source run and {scored_section!r} in this run."]
-    assert compare_component_configurations(section_name="MaskHead", source_configuration=scored_configuration,
-                                            target_configuration=unscored_configuration) == [
-        f"'MaskHead.mask_scoring' is {scored_section!r} in the source run and {unscored_section!r} in this run."]
-
-    # Other mask IoU heads refused, while runs without mask scoring match whatever their sizes
-    wider_configuration = copy.deepcopy(scored_configuration)
-    wider_configuration["MaskHead"]["mask_scoring"]["fully_connected"] = [64]
-    assert len(compare_component_configurations(section_name="MaskHead", source_configuration=scored_configuration,
-                                                target_configuration=wider_configuration)) == 1
-    resized_unscored_configuration = copy.deepcopy(unscored_configuration)
-    resized_unscored_configuration["MaskHead"]["mask_scoring"].update({"convolutions": [4, 64],
-                                                                      "fully_connected": [256, 256]})
-    for source_configuration in [former_configuration, resized_unscored_configuration]:
-        assert compare_component_configurations(section_name="MaskHead", source_configuration=source_configuration,
-                                                target_configuration=unscored_configuration) == []
-
-
 def test_segmentation_class_layers_follow_the_decoder(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
     Verifies the loading of the class layers of a semantic segmenter with its decoder
@@ -1462,11 +1399,11 @@ def test_keypoint_head_moves_between_runs_of_the_same_keypoint_channels(
 
 
 # Layers of the heads left out of a transfer without their class layers, by section, as fragments of their tensor
-# names: the classifier and per-class box regressor of the detection heads, the mask predictor and mask IoU predictor
-# of the mask heads, and the last convolutions of the keypoint head (hidden width 16, so index 1), whose transposed
-# convolution of the higher resolution branch is partly random
+# names: the classifier and per-class box regressor of the detection heads, the mask predictor of the mask heads, and
+# the last convolutions of the keypoint head (hidden width 16, so index 1), whose transposed convolution of the higher
+# resolution branch is partly random
 LEFT_OUT_LAYER_FRAGMENTS = {"Detector": [".classifier.", ".bounding_box_regressor."],
-                            "MaskHead": [".mask_predictor.", ".iou_predictor."],
+                            "MaskHead": [".mask_predictor."],
                             "KeypointHead": ["prediction_convolution.1.", "higher_resolution_branch.heatmap_head.1.",
                                              "higher_resolution_branch.transposed_convolution."]}
 
@@ -1489,18 +1426,17 @@ def is_left_out_tensor(section_name: str, tensor_name: str) -> bool:
 def test_detection_and_mask_heads_without_class_layers_initialise_a_run_of_other_classes(
         tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
-    Verifies that the detection heads and the mask heads, mask IoU heads included, of an instance segmentation run of 5
-    foreground classes, loaded without their class layers ('Detector.pretrained.class_layers' and
-    'MaskHead.pretrained.class_layers' False), initialise the heads of a run of 2 unrelated classes, which the transfer
-    with the class layers refuses: every other tensor is copied exactly, the classifier, box regressor, mask predictor
-    and mask IoU predictor keep the random weights the new run was built with, and the console says so.
+    Verifies that the detection heads and the mask heads of an instance segmentation run of 5 foreground classes,
+    loaded without their class layers ('Detector.pretrained.class_layers' and 'MaskHead.pretrained.class_layers'
+    False), initialise the heads of a run of 2 unrelated classes, which the transfer with the class layers refuses:
+    every other tensor is copied exactly, the classifier, box regressor and mask predictor keep the random weights the
+    new run was built with, and the console says so.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
         capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the transfers.
     """
     source_configuration, _, _ = get_detection_model_configuration(mask_head=True)
-    source_configuration["MaskHead"]["mask_scoring"]["activated"] = True
     source_segmenter = build_task_model(task="instance_segmentation", configuration=source_configuration, seed=0)
     write_source_run(run_folder=tmp_path / "instance_run", configuration=source_configuration, model=source_segmenter,
                      class_names=list_detection_class_names(configuration=source_configuration))
@@ -1629,7 +1565,6 @@ def test_heads_loaded_without_their_class_layers_transfer_their_other_layers_onl
         model = build_task_model(task="keypoint_detection", configuration=configuration, seed=0)
     else:
         configuration, _, _ = get_detection_model_configuration(mask_head=True)
-        configuration["MaskHead"]["mask_scoring"]["activated"] = True
         model = build_task_model(task="instance_segmentation", configuration=configuration, seed=0)
     component = getattr(model, TRANSFERABLE_COMPONENTS[section_name])
     assert select_transferred_part(component=component, section_name=section_name, number_loaded_blocks=None,

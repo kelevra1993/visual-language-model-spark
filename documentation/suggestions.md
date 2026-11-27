@@ -332,10 +332,6 @@ an image holds but also which ones.
     `random_erasing` and `random_plasma_shadow` off on the same probes.
 
 ## Suggested Order
-1. **The instance segmentation stages of `instance_segmentation_experiment_plan.md`:** the pair of mask scoring
-   (stage 8), whose code (`MaskHead.mask_scoring`) was merged on 2026-11-21, the shared mask head of stage 5 having
-   been kept the same day, before any tuning of the anchors or of the proposal counts. The mask level chosen by the box size (item 2) and a finer map for the masks were dropped on 2026-11-19,
-   the image branch of design A (stage 3b) cropping every box from the image. The detection stages are all done.
-2. **The rest when the need appears:** item 12 when debugging, item 11 when deploying a class with its own threshold,
+1. **When the need appears:** item 12 when debugging, item 11 when deploying a class with its own threshold,
    item 40 before serving a model in FP16, items 8, 9 and 10 depending on the datasets, items 2 and 39 for the
    detection, and item 1 when a neck has to be transferred.

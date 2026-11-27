@@ -124,7 +124,7 @@ scenes:
     code_reference: "vision_training/models/instance_segmentation/mask_head.py · count_mask_upsamplings"
     source:
       file: vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml
-      keys: [DetectionLevels.5.mask_head, MaskHead.mask_resolution, MaskHead.upsampling, MaskHead.skip_blocks_at_pool_size, MaskHead.image_branch_convolutions, MaskHead.skip_blocks_at_mask_resolution, MaskHead.fusion_convolutions, MaskHead.shared, MaskHead.mask_scoring.activated, MaskHead.normalization, MaskHead.modules, MaskHead.inference]
+      keys: [DetectionLevels.5.mask_head, MaskHead.mask_resolution, MaskHead.upsampling, MaskHead.skip_blocks_at_pool_size, MaskHead.image_branch_convolutions, MaskHead.skip_blocks_at_mask_resolution, MaskHead.fusion_convolutions, MaskHead.shared, MaskHead.normalization, MaskHead.modules, MaskHead.inference]
       comments: false
     highlights:
       - {match: "mask_head:", sentences: [0]}
@@ -135,7 +135,6 @@ scenes:
       - {key: MaskHead.skip_blocks_at_pool_size, sentences: [5]}
       - {key: MaskHead.skip_blocks_at_mask_resolution, sentences: [5]}
       - {key: MaskHead.shared, sentences: [6]}
-      - {key: MaskHead.mask_scoring.activated, sentences: [7]}
     # The pool size, doubled size and mask resolution of the scenario, not of the configuration
     literal_numbers: ["10", "20", "28"]
     narration:
@@ -146,7 +145,6 @@ scenes:
       - "The skip, image branch and fusion settings, off here, would feed the head finer inputs: backbone blocks before their pooling, convolutions on the crop of the input image, and convolutions mixing them before the predictor."
       - "The configuration check holds the skips to the layout of a U-Net: all finer than the finest level, the finest ones at the mask resolution, and no block read at both sizes."
       - "The shared setting, off here, builds one mask head read by every level, as in Mask R-CNN, trained on the positives of all the levels; it needs the same mask head and channels on every level, which a neck gives."
-      - "Mask scoring, off too, gives every mask head a small head predicting the IoU of each mask with its object, for the mask scores of the next chapter."
 
   - kind: html
     page: diagram

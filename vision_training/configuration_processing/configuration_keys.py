@@ -133,8 +133,7 @@ KNOWN_KEY_PATHS: Dict[str, Tuple[str, ...]] = {
     **{f"MaskHead.{key_name}": ("instance_segmentation",) for key_name in [
         "shared", "mask_resolution", "upsampling", "fusion_convolutions", "image_branch_convolutions",
         "skip_blocks_at_pool_size", "skip_blocks_at_mask_resolution", "normalization.feature_map_normalization",
-        "modules.squeeze_and_excite", "modules.residual_nets", "modules.inception", "inference.mask_threshold",
-        "mask_scoring.activated", "mask_scoring.convolutions", "mask_scoring.fully_connected"]},
+        "modules.squeeze_and_excite", "modules.residual_nets", "modules.inception", "inference.mask_threshold"]},
 
     # Decoder and losses of the semantic segmentation, the decoder levels and deep supervision keyed by block numbers
     **{f"SegmentationDecoder.{key_name}": ("semantic_segmentation",) for key_name in [

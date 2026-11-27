@@ -167,11 +167,10 @@ def compare_instance_segmentations(reference: Sequence[np.ndarray], candidate: S
     """
     Compares the outputs of an exported instance segmenter with the eager inference instance segmenter: the
     detections as for the detector, then the mask of every detection with the mask of its paired detection, within
-    the mask tolerance, and its mask score, when the masks are scored, within the score tolerance.
+    the mask tolerance.
 
     Args:
-        reference (Sequence[np.ndarray]): The eager boxes, scores, labels, numbers of detections and masks, followed by
-            the mask scores when the masks are scored.
+        reference (Sequence[np.ndarray]): The eager boxes, scores, labels, numbers of detections and masks.
         candidate (Sequence[np.ndarray]): The exported model outputs, in the same order.
         box_tolerance (float): The largest accepted box coordinate difference in pixels.
         score_tolerance (float): The largest accepted score difference.
@@ -186,10 +185,7 @@ def compare_instance_segmentations(reference: Sequence[np.ndarray], candidate: S
         return mismatches + ([] if reference[4].shape == candidate[4].shape else
                              [f"mask shapes differ: {reference[4].shape} vs {candidate[4].shape}"])
 
-    if len(reference) != len(candidate):
-        return [f"{len(reference)} eager outputs against {len(candidate)} exported outputs"]
-
-    # Mask of every detection against the mask of its paired detection, then its mask score when exported
+    # Mask of every detection against the mask of its paired detection
     for image_index in range(reference[0].shape[0]):
         paired_indices = match_detections(
             reference_detections=[reference[0][image_index], reference[1][image_index], reference[2][image_index]],
@@ -198,10 +194,6 @@ def compare_instance_segmentations(reference: Sequence[np.ndarray], candidate: S
         mask_difference = np.abs(reference[4][image_index] - candidate[4][image_index][paired_indices]).max()
         if mask_difference > mask_tolerance:
             mismatches.append(f"image {image_index}: mask difference {mask_difference:.2e}")
-        if len(reference) > 5:
-            mask_score_difference = np.abs(reference[5][image_index] - candidate[5][image_index][paired_indices]).max()
-            if mask_score_difference > score_tolerance:
-                mismatches.append(f"image {image_index}: mask score difference {mask_score_difference:.2e}")
     return mismatches
 
 
@@ -466,14 +458,11 @@ def get_export_specification(task: str, inference_model: nn.Module) -> Dict[str,
                     "comparison_tolerances": {"box_tolerance": 1e-2, "score_tolerance": 1e-4}}
 
         # Instance segmentation: the M x M mask probabilities of the detected class of every detection, pasted into
-        # the image inside its box by the client, then the mask score of every detection when the masks are scored
+        # the image inside its box by the client
         mask_size = inference_model.mask_size
-        mask_outputs = [{"name": "detection_masks", "dimensions": [maximum_detections, mask_size, mask_size],
-                         "data_type": "TYPE_FP32", "reshape_to_scalar": False}]
-        if inference_model.mask_scoring:
-            mask_outputs.append({"name": "mask_scores", "dimensions": [maximum_detections], "data_type": "TYPE_FP32",
-                                 "reshape_to_scalar": False})
-        return {"model_name": TASK_MODEL_NAMES[task], "inputs": inputs, "outputs": detection_outputs + mask_outputs,
+        mask_output = {"name": "detection_masks", "dimensions": [maximum_detections, mask_size, mask_size],
+                       "data_type": "TYPE_FP32", "reshape_to_scalar": False}
+        return {"model_name": TASK_MODEL_NAMES[task], "inputs": inputs, "outputs": detection_outputs + [mask_output],
                 "compare_outputs": compare_instance_segmentations,
                 "comparison_tolerances": {"box_tolerance": 1e-2, "score_tolerance": 1e-4, "mask_tolerance": 1e-3}}
 

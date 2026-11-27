@@ -311,22 +311,6 @@ MASK_HEAD_SHARED_TEXT = (
     '  # on every level and equal level channels (a neck). False: one mask head per level.\n'
     '  shared: False\n')
 
-# Lines the conversion writes after the sharing of the mask heads in the files written before the mask scoring, whose
-# masks are not scored: the comment lines, then the section and its settings
-MASK_HEAD_MASK_SCORING_TEXT = (
-    '  # Mask Scoring R-CNN (arxiv.org/abs/1903.00241): a mask IoU head per mask head predicts the IoU of every mask, '
-    'its\n'
-    '  # mask score being the class score times it (mask AP ranking, mask_scores export output).\n'
-    '  mask_scoring:\n'
-    '    # True to score the masks, with mask_iou_loss in Optimization.loss_weights (1.0 in the paper); needs M a\n'
-    '    # multiple of the pool sizes.\n'
-    '    activated: False\n'
-    '    # [layers, channels] of its 3x3 convolutions on the box features and the pooled mask, the last of stride 2;\n'
-    '    # [4, 256] in the paper.\n'
-    '    convolutions: [4, 64]\n'
-    '    # Sizes of its hidden fully connected layers, then one IoU per class; [1024, 1024] in the paper.\n'
-    '    fully_connected: [256, 256]\n')
-
 
 def write_original_task_text(configuration_text: str, task: str) -> str:
     """
@@ -350,8 +334,8 @@ def write_task_text(configuration_text: str, task: str) -> str:
     """
     Writes a detection text for a task: its task name, and for the instance segmentation the instance index maps after
     the image settings and its mask heads section with their finer inputs after the upsampling, then their sharing
-    after the fusion convolutions and their mask scoring after the sharing, as the conversion writes them, for the
-    instance segmentation texts converted after 2026-11-21.
+    after the fusion convolutions, as the conversion writes them, for the instance segmentation texts converted after
+    2026-11-20.
 
     Args:
         configuration_text (str): The detection text, holding the data section of the texts above.
@@ -364,8 +348,7 @@ def write_task_text(configuration_text: str, task: str) -> str:
     if task == "instance_segmentation":
         task_text = task_text.replace(DATA_START_TEXT, f"{DATA_START_TEXT}{INSTANCE_INDEX_MAPS_TEXT}")
         task_text += MASK_HEAD_TEXT.replace(
-            MASK_HEAD_UPSAMPLING_TEXT, f"{MASK_HEAD_UPSAMPLING_TEXT}{MASK_HEAD_FINE_INPUTS_TEXT}{MASK_HEAD_SHARED_TEXT}"
-                                       f"{MASK_HEAD_MASK_SCORING_TEXT}")
+            MASK_HEAD_UPSAMPLING_TEXT, f"{MASK_HEAD_UPSAMPLING_TEXT}{MASK_HEAD_FINE_INPUTS_TEXT}{MASK_HEAD_SHARED_TEXT}")
     return task_text
 
 
@@ -861,55 +844,64 @@ def test_conversion_adds_the_mask_head_sharing_to_the_instance_segmentation_file
         encoding="utf-8") == original_text
 
 
-def test_conversion_adds_the_mask_scoring_to_the_instance_segmentation_files(tmp_path: Path) -> None:
+# Lines the conversion of 2026-11-21 wrote after the sharing of the mask heads, removed with the mask scoring on
+# 2026-11-27: the comment lines, then the section, off, and its settings
+MASK_HEAD_MASK_SCORING_TEXT = (
+    '  # Mask Scoring R-CNN (arxiv.org/abs/1903.00241): a mask IoU head per mask head predicts the IoU of every mask, '
+    'its\n'
+    '  # mask score being the class score times it (mask AP ranking, mask_scores export output).\n'
+    '  mask_scoring:\n'
+    '    # True to score the masks, with mask_iou_loss in Optimization.loss_weights (1.0 in the paper); needs M a\n'
+    '    # multiple of the pool sizes.\n'
+    '    activated: False\n'
+    '    # [layers, channels] of its 3x3 convolutions on the box features and the pooled mask, the last of stride 2;\n'
+    '    # [4, 256] in the paper.\n'
+    '    convolutions: [4, 64]\n'
+    '    # Sizes of its hidden fully connected layers, then one IoU per class; [1024, 1024] in the paper.\n'
+    '    fully_connected: [256, 256]\n')
+
+
+def test_conversion_removes_the_mask_scoring(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
-    Verifies that the conversion writes the unscored masks of the runs written before the mask scoring, the
-    'mask_scoring' section turned off with its settings and comment lines, right after the sharing of the mask heads in
-    the instance segmentation files, and only there: an object detection file and an instance segmentation file scoring
-    its masks are left as they are, the check refuses a converted file lacking the section or scoring the masks, and
-    convert_fixed_settings converts a launch file with its backup.
+    Verifies that the conversion removes the mask scoring section, off, with its settings and comment lines, from the
+    mask heads section of the instance segmentation files written between its addition and its removal, and that
+    convert_fixed_settings converts such a launch file with its backup while it reports and leaves untouched a file
+    scoring its masks, its runs staying as records, without stopping on it.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
     """
     configuration_path = tmp_path / "configuration.yaml"
     expected_text = write_task_text(configuration_text=CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS,
                                     task="instance_segmentation")
-    original_text = expected_text.replace(MASK_HEAD_MASK_SCORING_TEXT, "")
-    converted_text = add_required_settings(configuration_text=original_text, task="instance_segmentation",
-                                           configuration_path=configuration_path)
-    assert converted_text == expected_text and MASK_HEAD_SHARED_TEXT + MASK_HEAD_MASK_SCORING_TEXT in converted_text
+    original_text = expected_text.replace(MASK_HEAD_SHARED_TEXT,
+                                          f"{MASK_HEAD_SHARED_TEXT}{MASK_HEAD_MASK_SCORING_TEXT}")
+    assert original_text != expected_text and original_text.count("    activated: False\n") == 1
+    converted_text = remove_fixed_settings(configuration_text=original_text, task="instance_segmentation")
+    assert converted_text == expected_text
     assert check_conversion(original_text=original_text, converted_text=converted_text, task="instance_segmentation",
                             configuration_path=configuration_path) == []
 
-    # An object detection file, and an instance segmentation file scoring its masks, are left as they are
-    assert add_required_settings(configuration_text=CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS,
-                                 task="object_detection", configuration_path=configuration_path) == \
-        CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS
-    scored_text = expected_text.replace("    activated: False\n", "    activated: True\n")
-    assert scored_text != expected_text
-    assert add_required_settings(configuration_text=scored_text, task="instance_segmentation",
-                                 configuration_path=configuration_path) == scored_text
-
-    # Conversions without the section or scoring the masks are refused
-    for refused_text, changed_paths in [(original_text, r"MaskHead\.mask_scoring\.activated, "
-                                                        r"MaskHead\.mask_scoring\.convolutions, "
-                                                        r"MaskHead\.mask_scoring\.fully_connected"),
-                                        (scored_text, r"MaskHead\.mask_scoring\.activated")]:
-        with pytest.raises(expected_exception=ValueError, match=f"than the fixed ones: {changed_paths}\\.$"):
-            check_conversion(original_text=original_text, converted_text=refused_text, task="instance_segmentation",
-                             configuration_path=configuration_path)
-
-    # A launch file converted with its backup, the original kept in it
+    # A launch folder holding a file scoring its masks, listed first, and a file of unscored masks
     configuration_folder = tmp_path / "launch_files"
     configuration_folder.mkdir()
-    (configuration_folder / "run-1.yaml").write_text(data=original_text, encoding="utf-8")
+    scored_text = original_text.replace("    activated: False\n", "    activated: True\n")
+    (configuration_folder / "run-1.yaml").write_text(data=scored_text, encoding="utf-8")
+    (configuration_folder / "run-2.yaml").write_text(data=original_text, encoding="utf-8")
     converted_paths = convert_fixed_settings(run_roots=[], configuration_folders=[configuration_folder],
-                                             write_files=True, backup_suffix="_before_mask_scoring")
-    assert converted_paths == [configuration_folder / "run-1.yaml"]
-    assert (configuration_folder / "run-1.yaml").read_text(encoding="utf-8") == expected_text
-    assert (configuration_folder / "previous_configurations" / "run-1_before_mask_scoring.yaml").read_text(
-        encoding="utf-8") == original_text
+                                             write_files=True, backup_suffix="_before_mask_scoring_removal")
+
+    # The unscored file converted with its backup, the scored file reported and left as it was
+    backup_folder = configuration_folder / "previous_configurations"
+    assert converted_paths == [configuration_folder / "run-2.yaml"]
+    assert (configuration_folder / "run-2.yaml").read_text(encoding="utf-8") == expected_text
+    assert (backup_folder / "run-2_before_mask_scoring_removal.yaml").read_text(encoding="utf-8") == original_text
+    assert (configuration_folder / "run-1.yaml").read_text(encoding="utf-8") == scored_text
+    assert not (backup_folder / "run-1_before_mask_scoring_removal.yaml").exists()
+    printed_output = capsys.readouterr().out
+    assert "Not converted, its runs staying as records" in printed_output
+    assert "MaskHead.mask_scoring.activated True" in printed_output
 
 
 # Classification run written before the speed benchmark, its diagnosis modes indented deeper than their section as in
@@ -1095,8 +1087,6 @@ MaskHead:
   skip_blocks_at_mask_resolution: []
   fusion_convolutions: [0, 0]
   shared: False
-  mask_scoring:
-    activated: False
   pretrained:
     experiment_folder: "/runs/source"
     iteration: null
@@ -1114,9 +1104,10 @@ DETECTOR_CLASS_LAYERS_TEXT = (
     " or by\n    # name, others random; needs experiment_folder. False leaves them random for any classes (DRCL"
     " token).\n    class_layers: {class_layers}\n")
 MASK_HEAD_CLASS_LAYERS_TEXT = (
-    "    # True also loads the class layers (mask predictor, mask IoU predictor): source classes (its data.json) first"
-    " in\n    # order or by name, others random; needs experiment_folder. False leaves them random for any classes"
-    " (MRCL token).\n    class_layers: True\n")
+    "    # True also loads the class layer (mask predictor): source classes (its data.json) first in order or by "
+    "name,\n"
+    "    # others random; needs experiment_folder. False leaves it random for any classes (MRCL token).\n"
+    "    class_layers: True\n")
 KEYPOINT_HEAD_CLASS_LAYERS_TEXT = (
     "    # True also loads the heatmap and tag convolutions: same classes and keypoints in the same order (its"
     " data.json);\n    # needs experiment_folder. False leaves them random for any keypoints, as their HH branch inputs"
