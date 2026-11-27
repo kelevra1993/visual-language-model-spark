@@ -44,6 +44,9 @@ MAXIMUM_KEYPOINTS = 4
 # Sigma of the keypoints without their own value, the default of the configuration
 DEFAULT_SIGMA = 0.05
 
+# Area of the evaluated network input images, 256 x 256 pixels, which sizes their objects for the average precision
+IMAGE_AREA = 256.0 * 256.0
+
 
 def make_objects(labels: List[int], bounding_boxes: List[List[float]], keypoints: List[List[List[float]]],
                  visibilities: List[List[int]], keypoint_errors: List[List[List[float]]],
@@ -126,8 +129,8 @@ def make_image(labels: List[int], bounding_boxes: List[List[float]], keypoints: 
 
     Returns:
         Dict[str, torch.Tensor]: The ground truth 'labels', 'bounding_boxes', 'keypoints' and 'visibilities', the
-            'ignored_bounding_boxes', 'ignored_labels' and 'ignored_crowds', and the 'predicted_labels',
-            'predicted_keypoints' and 'predicted_scores'.
+            'ignored_bounding_boxes', 'ignored_labels' and 'ignored_crowds', the 'predicted_labels',
+            'predicted_keypoints' and 'predicted_scores', and the 'image_area' (IMAGE_AREA).
     """
     # No object without labelled keypoint unless given
     ignored_bounding_boxes = [] if ignored_bounding_boxes is None else ignored_bounding_boxes
@@ -142,7 +145,7 @@ def make_image(labels: List[int], bounding_boxes: List[List[float]], keypoints: 
             "predicted_labels": torch.tensor(data=predicted_labels, dtype=torch.int64),
             "predicted_keypoints": torch.tensor(data=predicted_keypoints, dtype=torch.float32).reshape(
                 -1, MAXIMUM_KEYPOINTS, 2),
-            "predicted_scores": torch.tensor(data=predicted_scores, dtype=torch.float32)}
+            "predicted_scores": torch.tensor(data=predicted_scores, dtype=torch.float32), "image_area": IMAGE_AREA}
 
 
 def compute_expected_similarity(squared_distances: List[float], labelled: List[bool], area: float,
@@ -294,6 +297,7 @@ def test_evaluate_image_keypoints_compares_the_predicted_and_ground_truth_object
     assert detections[0]["scores"].tolist() == pytest.approx([0.7, 0.6, 0.9, 0.3])
     assert detections[0]["labels"].tolist() == [1, 2, 1, 1] and ground_truths[0]["labels"].tolist() == [1, 1, 2]
     assert ground_truths[0]["boxes"].dtype == torch.float64
+    assert [ground_truth["image_area"] for ground_truth in ground_truths] == [IMAGE_AREA] * 3
     assert detections[1]["boxes"].shape == (0, 4) and detections[1]["keypoint_overlaps"].shape == (0, 1)
     assert detections[2]["keypoint_overlaps"].shape == (1, 0) and ground_truths[2]["boxes"].shape == (0, 4)
 

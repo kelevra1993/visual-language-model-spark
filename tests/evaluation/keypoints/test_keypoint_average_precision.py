@@ -31,6 +31,9 @@ PARTIAL_SHIFT_PIXELS = 10.0
 # Box of the square without labelled keypoint of add_ignored_square, next to the labelled squares at the left
 IGNORED_SQUARE_BOX = [300.0, 0.0, 400.0, 100.0]
 
+# Area of the evaluated network input images, 512 x 512 pixels, which sizes their squares for the average precision
+IMAGE_AREA = 512.0 * 512.0
+
 
 def make_square_images(object_definitions: List[Tuple[int, int, float, float, float, float]]) -> List[
         Dict[str, torch.Tensor]]:
@@ -45,8 +48,8 @@ def make_square_images(object_definitions: List[Tuple[int, int, float, float, fl
 
     Returns:
         List[Dict[str, torch.Tensor]]: The ground truth 'labels', 'bounding_boxes', 'keypoints' and 'visibilities' of
-            every image, its 'ignored_bounding_boxes', 'ignored_labels' and 'ignored_crowds' (none), and its
-            'predicted_labels', 'predicted_keypoints' and 'predicted_scores'.
+            every image, its 'ignored_bounding_boxes', 'ignored_labels' and 'ignored_crowds' (none), its
+            'predicted_labels', 'predicted_keypoints' and 'predicted_scores', and its 'image_area' (IMAGE_AREA).
     """
     number_images = max(definition[0] for definition in object_definitions) + 1
     images = [{"labels": [], "bounding_boxes": [], "keypoints": [], "predicted_labels": [], "predicted_keypoints": [],
@@ -73,8 +76,8 @@ def make_square_images(object_definitions: List[Tuple[int, int, float, float, fl
              "predicted_labels": torch.tensor(data=image["predicted_labels"], dtype=torch.int64),
              "predicted_keypoints": torch.tensor(data=image["predicted_keypoints"], dtype=torch.float32).reshape(
                  -1, 4, 2),
-             "predicted_scores": torch.tensor(data=image["predicted_scores"], dtype=torch.float32)}
-            for image in images]
+             "predicted_scores": torch.tensor(data=image["predicted_scores"], dtype=torch.float32),
+             "image_area": IMAGE_AREA} for image in images]
 
 
 def add_ignored_square(image: Dict[str, torch.Tensor], ignored_crowds: List[bool],
@@ -159,11 +162,11 @@ def test_objects_found_on_objects_without_labelled_keypoint_are_ignored() -> Non
     """
     Verifies that a predicted object found on an object without labelled keypoint (a COCO person without keypoints or
     a crowd) is neither a true nor a false positive, as in pycocotools: ranked before the true positive, it leaves the
-    AP at 1, of all the objects and of the large ones, and lets the class reach a precision of 0.99 at the score of the
-    true positive, where the same prediction with that object removed from the ground truth is a false positive that
-    halves the AP and leaves no threshold; a crowd takes every object found on it, any other ignored object only the
-    most confident one, the second one being a false positive unless a second ignored object it reaches is still free,
-    even when both tie at a similarity of 1.
+    AP at 1, of all the objects and of their size (100 pixel squares, a side from 1/8 to 1/4 of the 512 pixel image),
+    and lets the class reach a precision of 0.99 at the score of the true positive, where the same prediction with that
+    object removed from the ground truth is a false positive that halves the AP and leaves no threshold; a crowd takes
+    every object found on it, any other ignored object only the most confident one, the second one being a false
+    positive unless a second ignored object it reaches is still free, even when both tie at a similarity of 1.
     """
     labelled_image = make_square_images(object_definitions=[(0, 1, 0.0, 100.0, 0.0, 0.5)])[0]
 
@@ -172,7 +175,7 @@ def test_objects_found_on_objects_without_labelled_keypoint_are_ignored() -> Non
         image=labelled_image, ignored_crowds=[False], prediction_scores=[0.9])], target_precision=0.99)
     assert ignored_results["area"]["mAP@0.5"] == pytest.approx(1.0)
     assert ignored_results["area"]["mAP@[0.5:0.95]"] == pytest.approx(1.0)
-    assert ignored_results["area"]["sizes"]["large"]["mAP@0.5"] == pytest.approx(1.0)
+    assert ignored_results["area"]["sizes"]["1_8_to_1_4"]["mAP@0.5"] == pytest.approx(1.0)
     assert ignored_results["class_score_thresholds"][1] == pytest.approx((0.5, 1.0))
 
     # The same object found with the person removed from the ground truth is a false positive ranked first

@@ -35,7 +35,8 @@ To find your way in a run, the tree shows what each file holds.
 ├── data.json                          # Class counts per split, data folders, SHA-256 of labels.json and images
 ├── data_until_iteration_<n>.json      # Data up to iteration n, kept by a resume whose data changed
 ├── label_dictionary.json              # Class index of every category, the classes of the run
-├── anchor_recall.csv                  # Anchor recall of the training objects (DET, INS)
+├── anchor_recall.csv                  # Anchor recall of the training and test objects, first launch (DET, INS)
+├── anchor_recall.png                  # The same tables drawn, recalls shaded from red to green (DET, INS)
 ├── Input_Samples/                     # First 10 samples of every split as fed to the network
 │   ├── Training/, Validation/, Test/
 │   └── samples.json                   # Source, labels, augmentations and input size of every sample
@@ -210,14 +211,16 @@ The figure shows the viewer; the animation shows boxes following the flips, rota
 Suppose a detector misses objects of one size: `ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage: { activated: True, iou_threshold: 0.5 }` (DET, INS) prints, per split, level and object size, the share of objects whose best anchor overlaps them by at least `iou_threshold`, then exits.
 - Splits are read from their annotations, no image loaded.
 - The best anchor is the grid anchor nearest the object centre for every shape, computed exactly on the CPU.
-- It writes no file. Training launches measure the training split alone into `anchor_recall.csv`.
+- Sizes are the side of an object as a share of the input side, in bins that double from under 1/16 to 1/2 and above ([object sizes](metrics_reference.md#ap-and-map-by-object-size)). `Pixels` and `Area` give each bin at this input.
+- Recalls are coloured from red (0 %) to green (100 %).
+- It writes no file. The first launch of a run measures the training and test splits at `RegionProposal.foreground_iou_threshold.min` into `anchor_recall.csv` and `anchor_recall.png` ([Anchor Recall](metrics_reference.md#anchor-recall)).
 
 The figure shows the console on the synthetic shapes.
 
 <p align="center">
   <img src="../../README/anchor_coverage.png" width="100%" />
 </p>
-<p align="center"><em>On <code>object_detection/configuration_synthetic_shapes.yaml</code>, the anchors of blocks 5, 6 and 7 cover 64.04 % of the training objects, but 8.11 % of the small ones.</em></p>
+<p align="center"><em>On <code>object_detection/configuration_synthetic_shapes.yaml</code>, the anchors of blocks 5, 6 and 7 cover 64.04 % of the training objects, but 8.11 % of those under 1/16 of the side.</em></p>
 
 Read the `All Levels` column size by size. An object under `RegionProposal.foreground_iou_threshold.min` in every level gets only its single best anchor as foreground. Small objects ask for smaller scales on a finer level, large ones for a larger scale, elongated ones for other `aspect_ratios`. The three splits should give close shares.
 

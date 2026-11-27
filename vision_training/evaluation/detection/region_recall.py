@@ -1,16 +1,17 @@
 """
 Recall of the anchors and of the proposals of the two-stage detector of the object detection and instance segmentation
-tasks, the share of the objects the detection heads can find at all, split by object size (object_sizes.py). The
-anchor recall is measured once per launch on the objects of the training split, and on the training, validation and
-test splits by the 'compute_anchor_coverage' diagnosis mode, read from the annotations without loading any image: an
-object whose best anchor overlaps it by less than the foreground threshold of the region proposal network only gets
-that single best anchor as foreground. The proposal recall is measured at every evaluated checkpoint on the test split,
+tasks, the share of the objects the detection heads can find at all, split by the five object sizes relative to the
+network input (object_sizes.py). The anchor recall is measured at the first launch of a run on the objects of the
+training and test splits, and on the training, validation and test splits by the 'compute_anchor_coverage' diagnosis
+mode, read from the annotations without loading any image: an object whose best anchor overlaps it by less than the
+foreground threshold of the region proposal network only gets that single best anchor as foreground. The proposal recall is measured at every evaluated checkpoint on the test split,
 from the proposals the region proposal network gives the detection heads with its inference settings: an object no
 proposal overlaps cannot be detected whatever the detection heads learn. Used by the detection trainer
 (analyse_training_data, diagnose_data_splits and the evaluation of the checkpoints), whose tables, scalars and files
-(anchor_recall.csv in the run folder, proposal_recall.csv in the evaluation folder) are built here. The tables write the
-recalls as percentages ("94.03 %"), the counts of objects and proposals keeping their values, and the files and scalars
-keep the recalls between 0 and 1.
+(anchor_recall.csv and its figure anchor_recall.png in the run folder, proposal_recall.csv in the evaluation folder)
+are built here. The tables write the recalls as percentages ("94.03 %"), the anchor recalls coloured from red (no
+object covered) to green (every object covered), the counts of objects and proposals keeping their values, and the
+files and scalars keep the recalls between 0 and 1.
 """
 
 import numpy as np
@@ -22,7 +23,10 @@ from typing import Any, Dict, List, Optional
 from vision_training.core.contracts import EvaluationTable
 from vision_training.data.detection.coco_dataset import CocoDetectionDataset, select_image_objects
 from vision_training.data.preprocessing import preprocess_boxes
-from vision_training.evaluation.detection.object_sizes import OBJECT_SIZE_NAMES, compute_box_areas, is_in_object_size
+from vision_training.evaluation.detection.object_sizes import (OBJECT_SIZE_NAMES, compute_box_areas,
+                                                              compute_side_shares, describe_object_size_area_shares,
+                                                              describe_object_size_pixels, describe_object_size_side,
+                                                              is_in_object_size)
 from vision_training.models.detection.anchors import Anchors
 from vision_training.models.detection.box_operations import get_intersection_over_union
 
@@ -90,7 +94,7 @@ def compute_best_anchor_overlaps(object_boxes: torch.Tensor,
             for level, anchor_generator in level_anchor_generators.items()}
 
 
-def compute_group_recalls(best_overlaps: torch.Tensor, object_areas: torch.Tensor,
+def compute_group_recalls(best_overlaps: torch.Tensor, side_shares: torch.Tensor,
                           intersection_over_union_threshold: float) -> Dict[str, Dict[str, Any]]:
     """
     Computes the share of the objects whose best anchor or proposal overlaps them by at least a threshold, for all the
@@ -98,7 +102,8 @@ def compute_group_recalls(best_overlaps: torch.Tensor, object_areas: torch.Tenso
 
     Args:
         best_overlaps (torch.Tensor): The [N] best overlap of every object.
-        object_areas (torch.Tensor): The [N] box area of every object, in squared network input pixels.
+        side_shares (torch.Tensor): The [N] side of every object as a share of the side of the network input
+            (compute_side_shares).
         intersection_over_union_threshold (float): The minimum overlap for an object to be covered.
 
     Returns:
@@ -107,7 +112,7 @@ def compute_group_recalls(best_overlaps: torch.Tensor, object_areas: torch.Tenso
     """
     covered = best_overlaps >= intersection_over_union_threshold
     group_masks = {ALL_OBJECTS_GROUP: torch.ones_like(input=covered)}
-    group_masks.update({object_size: is_in_object_size(areas=object_areas, object_size=object_size)
+    group_masks.update({object_size: is_in_object_size(side_shares=side_shares, object_size=object_size)
                         for object_size in OBJECT_SIZE_NAMES})
     return {group: {"objects": int(group_mask.sum()),
                     "recall": float(covered[group_mask].float().mean()) if bool(group_mask.any()) else None}
@@ -115,19 +120,21 @@ def compute_group_recalls(best_overlaps: torch.Tensor, object_areas: torch.Tenso
 
 
 def summarise_anchor_recall(best_anchor_overlaps: Dict[int, torch.Tensor], object_areas: torch.Tensor,
-                            intersection_over_union_threshold: float, split_name: str,
+                            image_side: float, intersection_over_union_threshold: float, split_name: str,
                             threshold_setting: str) -> Dict[str, Any]:
     """
-    Organises the anchor recall of a split, the training split at the launch of a detection run or every split in the
-    'compute_anchor_coverage' diagnosis mode: the share of the objects with an anchor overlapping them by at least the
-    threshold in every level and in all the levels together (the region proposal network assigns the objects to the
-    anchors of all the levels at once), for all the objects and every object size, as the rows of anchor_recall.csv and
-    as the table printed in the console, its recalls written as percentages.
+    Organises the anchor recall of a split, the training and test splits at the first launch of a detection run or
+    every split in the 'compute_anchor_coverage' diagnosis mode: the share of the objects with an anchor overlapping
+    them by at least the threshold in every level and in all the levels together (the region proposal network assigns
+    the objects to the anchors of all the levels at once), for all the objects and every object size (its side as a
+    share of the input side, in pixels and as a share of the input area), as the rows of anchor_recall.csv and as the
+    table of the console and of anchor_recall.png, its recalls written as percentages coloured from red to green.
 
     Args:
         best_anchor_overlaps (Dict[int, torch.Tensor]): The [N] best anchor overlap of every object in every level
             (compute_best_anchor_overlaps).
         object_areas (torch.Tensor): The [N] box area of every object, in squared network input pixels.
+        image_side (float): The side of the square network input in pixels (Data.image_settings.size).
         intersection_over_union_threshold (float): The minimum overlap for an object to be covered.
         split_name (str): The name of the split in the title of the table, e.g. 'Training'.
         threshold_setting (str): The configuration setting giving the threshold, named in the legend, e.g.
@@ -139,50 +146,59 @@ def summarise_anchor_recall(best_anchor_overlaps: Dict[int, torch.Tensor], objec
     """
     levels = sorted(best_anchor_overlaps)
     all_level_overlaps = torch.stack(tensors=[best_anchor_overlaps[level] for level in levels]).max(dim=0).values
+    side_shares = compute_side_shares(areas=object_areas, image_areas=float(image_side) ** 2)
 
     # Recall of every group of objects in every level and in all of them
     level_recalls = {f"block_{level}": compute_group_recalls(
-        best_overlaps=best_anchor_overlaps[level], object_areas=object_areas,
+        best_overlaps=best_anchor_overlaps[level], side_shares=side_shares,
         intersection_over_union_threshold=intersection_over_union_threshold) for level in levels}
     level_recalls["all_levels"] = compute_group_recalls(
-        best_overlaps=all_level_overlaps, object_areas=object_areas,
+        best_overlaps=all_level_overlaps, side_shares=side_shares,
         intersection_over_union_threshold=intersection_over_union_threshold)
 
-    # One row per group of objects, in the file and in the table
+    # One row per group of objects, in the file and in the table, every size with its sides in pixels and its share
+    # of the input area
     rows, table_rows = [], []
     for group, group_name in [(ALL_OBJECTS_GROUP, ALL_OBJECTS_NAME)] + list(OBJECT_SIZE_NAMES.items()):
         rows.append({"objects": group, "count": level_recalls["all_levels"][group]["objects"]})
         rows[-1].update({f"recall_{level_key}": recalls[group]["recall"]
                          for level_key, recalls in level_recalls.items()})
-        table_rows.append([group_name, rows[-1]["count"]] + [recalls[group]["recall"]
-                                                            for recalls in level_recalls.values()])
+        size_cells = (["", ""] if group == ALL_OBJECTS_GROUP else [
+            describe_object_size_pixels(object_size=group, image_side=image_side),
+            describe_object_size_area_shares(object_size=group)])
+        table_rows.append([group_name] + size_cells + [rows[-1]["count"]] + [
+            recalls[group]["recall"] for recalls in level_recalls.values()])
 
-    # The recall of every level and of all of them written as percentages, the objects of every group as a count
-    columns = ["Objects", "Count"] + [f"Block {level}" for level in levels] + ["All Levels"]
+    # The recall of every level and of all of them written as percentages coloured from red to green, the objects
+    # of every group as a count
+    columns = ["Object Side", "Pixels", "Area", "Count"] + [f"Block {level}" for level in levels] + ["All Levels"]
+    size_description = describe_object_size_side(area_name="box", resolution_name="network input",
+                                                 image_side=image_side)
     table: EvaluationTable = {
         "title": f"Anchor Recall Of The {split_name} Objects", "columns": columns, "rows": table_rows,
-        "sort_column": None, "per_class": False, "percent_columns": columns[2:],
+        "sort_column": None, "per_class": False, "percent_columns": columns[4:], "graded_columns": columns[4:],
         "legend": f"Share of the objects whose best anchor overlaps them by at least "
-                  f"{intersection_over_union_threshold:g} ({threshold_setting}), sizes by box area in network input "
-                  f"pixels. An object under RegionProposal.foreground_iou_threshold.min in every level only gets its "
-                  f"single best anchor as foreground. — : no object of the size."}
+                  f"{intersection_over_union_threshold:g} ({threshold_setting}). {size_description} "
+                  f"Area: the share of the input area. An object under RegionProposal.foreground_iou_threshold.min "
+                  f"in every level only gets its single best anchor as foreground. — : no object of the size."}
     return {"rows": rows, "table": table}
 
 
-def create_proposal_recall_accumulator(levels: List[int]) -> Dict[str, Any]:
+def create_proposal_recall_accumulator(levels: List[int], image_side: float) -> Dict[str, Any]:
     """
     Creates the accumulator of the proposal recall of an evaluated checkpoint, filled image by image during the
     evaluation of the test split.
 
     Args:
         levels (List[int]): The block numbers of the detection levels.
+        image_side (float): The side of the square network input in pixels, which sizes the objects.
 
     Returns:
         Dict[str, Any]: The empty 'best_overlaps' (per image, [G, 1 + L]: all the proposals, then those of every
-            level) and 'object_areas' lists, the 'levels', the zero 'level_proposals' count of every level and the
-            zero count of 'images'.
+            level) and 'object_areas' lists, the 'levels', the 'image_side', the zero 'level_proposals' count of
+            every level and the zero count of 'images'.
     """
-    return {"best_overlaps": [], "object_areas": [], "levels": sorted(levels),
+    return {"best_overlaps": [], "object_areas": [], "levels": sorted(levels), "image_side": image_side,
             "level_proposals": {level: 0 for level in sorted(levels)}, "images": 0}
 
 
@@ -238,13 +254,15 @@ def summarise_proposal_recall(proposal_accumulator: Dict[str, Any]) -> Dict[str,
     levels = proposal_accumulator["levels"]
     best_overlaps = torch.cat(tensors=proposal_accumulator["best_overlaps"] + [torch.zeros(size=(0, 1 + len(levels)))])
     object_areas = torch.cat(tensors=proposal_accumulator["object_areas"] + [torch.zeros(size=(0,))])
+    image_side = proposal_accumulator["image_side"]
+    side_shares = compute_side_shares(areas=object_areas, image_areas=float(image_side) ** 2)
     number_images = max(proposal_accumulator["images"], 1)
     level_proposals_per_image = {level: proposal_accumulator["level_proposals"][level] / number_images
                                  for level in levels}
 
     # Recall of all the objects and of every size with all the proposals, at every threshold
     all_proposal_recalls = {threshold: compute_group_recalls(
-        best_overlaps=best_overlaps[:, 0], object_areas=object_areas, intersection_over_union_threshold=threshold)
+        best_overlaps=best_overlaps[:, 0], side_shares=side_shares, intersection_over_union_threshold=threshold)
         for threshold in PROPOSAL_RECALL_THRESHOLDS}
     group_names = [(ALL_OBJECTS_GROUP, ALL_OBJECTS_NAME)] + list(OBJECT_SIZE_NAMES.items())
     rows = [{"group": group, "objects": all_proposal_recalls[0.5][group]["objects"],
@@ -253,16 +271,22 @@ def summarise_proposal_recall(proposal_accumulator: Dict[str, Any]) -> Dict[str,
              "proposals_per_image": sum(level_proposals_per_image.values()) if group == ALL_OBJECTS_GROUP else None}
             for group, _ in group_names]
     row_names = [group_name for _, group_name in group_names]
+    size_description = describe_object_size_side(area_name="box", resolution_name="network input",
+                                                 image_side=image_side)
+    row_pixels = ["" if group == ALL_OBJECTS_GROUP else describe_object_size_pixels(object_size=group,
+                                                                                    image_side=image_side)
+                  for group, _ in group_names]
 
     # Recall of all the objects with the proposals of every level alone
     for level_index, level in enumerate(levels):
         level_recalls = {threshold: compute_group_recalls(
-            best_overlaps=best_overlaps[:, 1 + level_index], object_areas=object_areas,
+            best_overlaps=best_overlaps[:, 1 + level_index], side_shares=side_shares,
             intersection_over_union_threshold=threshold)[ALL_OBJECTS_GROUP] for threshold in PROPOSAL_RECALL_THRESHOLDS}
         rows.append({"group": f"block_{level}", "objects": level_recalls[0.5]["objects"],
                      "recall_50": level_recalls[0.5]["recall"], "recall_70": level_recalls[0.7]["recall"],
                      "proposals_per_image": level_proposals_per_image[level]})
         row_names.append(f"Block {level} Proposals")
+        row_pixels.append("")
 
     # Scalars of every row, the proposals per image only where they are counted
     scalars = {}
@@ -274,11 +298,12 @@ def summarise_proposal_recall(proposal_accumulator: Dict[str, Any]) -> Dict[str,
 
     # The recalls written as percentages, the objects and the proposals per image as counts
     table: EvaluationTable = {
-        "title": "Proposal Recall", "columns": ["Objects", "Count", "Recall@0.5", "Recall@0.7", "Proposals\nPer Image"],
-        "rows": [[row_name, row["objects"], row["recall_50"], row["recall_70"], row["proposals_per_image"]]
-                 for row_name, row in zip(row_names, rows, strict=True)],
+        "title": "Proposal Recall",
+        "columns": ["Objects", "Pixels", "Count", "Recall@0.5", "Recall@0.7", "Proposals\nPer Image"],
+        "rows": [[row_name, pixels, row["objects"], row["recall_50"], row["recall_70"], row["proposals_per_image"]]
+                 for row_name, pixels, row in zip(row_names, row_pixels, rows, strict=True)],
         "sort_column": None, "per_class": False, "percent_columns": ["Recall@0.5", "Recall@0.7"],
-        "legend": "Share of the test objects overlapped by a proposal of the region proposal network by at least the "
-                  "IoU, sizes by box area in network input pixels. A block row keeps the proposals of that block "
-                  "only. — : no object of the size."}
+        "legend": f"Share of the test objects overlapped by a proposal of the region proposal network by at least "
+                  f"the IoU. {size_description} A block row keeps the proposals of that block only. — : no "
+                  f"object of the size."}
     return {"rows": rows, "table": table, "scalars": scalars}

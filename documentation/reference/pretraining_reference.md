@@ -88,7 +88,7 @@ Should you launch the Open Images pretraining of a size, use the `configuration_
 - Test on `validation_test_20000/` every 5,000 iterations, MLflow on, runs in `open_images_experiments/<size>/`.
 - Blocks 1 to 6 come from the last averaged checkpoint of the ImageNet run of the same size, in `imagenet_experiments/<size>/`. Until the Large run exists, `check_configuration.py --check_paths` refuses the Large file.
 
-Before choosing the anchors, the `compute_anchor_coverage` diagnosis measured the share of objects with an anchor at IoU 0.5 or more. The kept anchors cover 90.7 % of the objects and 71.9 % of the small ones, against 79.8 % and 40.7 % for the detection benchmark anchors. Level 3 brings most of the small-object gain, for +20 % GPU memory (S) and about 14 % fewer images per second.
+Before choosing the anchors, the `compute_anchor_coverage` diagnosis measured the share of objects with an anchor at IoU 0.5 or more. The kept anchors cover 90.7 % of the objects and 71.9 % of those under 32 pixels a side, against 79.8 % and 40.7 % for the detection benchmark anchors. Level 3 brings most of the small-object gain, for +20 % GPU memory (S) and about 14 % fewer images per second.
 
 ### Instance Segmentation
 So that the backbone, pyramid and proposal network are not trained twice, each model starts from the COCO detector of its size. Only the mask head starts random.

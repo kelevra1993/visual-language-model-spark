@@ -61,6 +61,10 @@ FIRST_COLUMN_MINIMUM_WIDTH = 12
 # Width of the console measuring the natural width of a table, wide enough for any report table
 MEASUREMENT_CONSOLE_WIDTH = 1000
 
+# Colours of the rates of the graded columns at 0, 0.5 and 1 (red, amber, green), mid-tone so that the coloured text
+# reads on dark and light terminals alike, the rates between them blended linearly
+GRADE_COLOURS = [(0.0, (215, 58, 50)), (0.5, (205, 150, 20)), (1.0, (45, 160, 70))]
+
 # Console styles of the parts of the report, left out of Results.txt
 HEADER_STYLE = "bold cyan"
 METRIC_NAME_STYLE = "bold"
@@ -324,6 +328,32 @@ def build_metrics_grid(metrics: Dict[str, float], percent_metrics: List[str], he
     return grid
 
 
+def grade_rate_style(rate: Any) -> str:
+    """
+    Gives the console colour of a rate of a graded column, red for 0, amber for 0.5 and green for 1 (GRADE_COLOURS),
+    so that the weak cells of a table such as the anchor recall stand out at a glance; a missing value keeps the
+    default colour.
+
+    Args:
+        rate (Any): The raw cell, a rate between 0 and 1 or None.
+
+    Returns:
+        str: The rich style, e.g. "rgb(215,58,50)", or "" for a missing value.
+    """
+    if not isinstance(rate, numbers.Real) or isinstance(rate, bool) or math.isnan(rate):
+        return ""
+
+    # Linear blend between the two colours around the clamped rate
+    clamped_rate = min(max(float(rate), 0.0), 1.0)
+    for (lower_rate, lower_colour), (upper_rate, upper_colour) in zip(GRADE_COLOURS, GRADE_COLOURS[1:]):
+        if clamped_rate <= upper_rate:
+            weight = (clamped_rate - lower_rate) / (upper_rate - lower_rate)
+            red, green, blue = [round(lower + weight * (upper - lower))
+                                for lower, upper in zip(lower_colour, upper_colour)]
+            return f"rgb({red},{green},{blue})"
+    raise ValueError(f"Expected the grade colours to end at a rate of 1, got {GRADE_COLOURS}.")
+
+
 def build_table_renderable(table: EvaluationTable) -> Table:
     """
     Draws a report table: its header (bold in the console) and its rows in display order (order_table_rows), the first
@@ -341,13 +371,20 @@ def build_table_renderable(table: EvaluationTable) -> Table:
         Table: The rich table.
 
     Raises:
-        ValueError: If a percent column is not one of the columns of the table.
+        ValueError: If a percent column is not one of the columns of the table, or a graded column not one of its
+            percent columns.
     """
     unknown_columns = [column for column in table["percent_columns"] if column not in table["columns"]]
     if unknown_columns:
         raise ValueError(f"Expected the percent columns of the table '{table['title']}' to be among its columns "
                          f"{table['columns']}, got {unknown_columns}.")
+    graded_columns = table["graded_columns"] if "graded_columns" in table else []
+    ungraded_columns = [column for column in graded_columns if column not in table["percent_columns"]]
+    if ungraded_columns:
+        raise ValueError(f"Expected the graded columns of the table '{table['title']}' to be among its percent columns "
+                         f"{table['percent_columns']}, got {ungraded_columns}.")
     percent_column_flags = [column in table["percent_columns"] for column in table["columns"]]
+    graded_column_flags = [column in graded_columns for column in table["columns"]]
     renderable = Table(box=box.SIMPLE_HEAD, show_edge=False, header_style=TABLE_HEADER_STYLE)
     for column_index, column_name in enumerate(table["columns"]):
         if column_index == 0:
@@ -355,11 +392,13 @@ def build_table_renderable(table: EvaluationTable) -> Table:
                                   max_width=FIRST_COLUMN_MAXIMUM_WIDTH)
         else:
             renderable.add_column(header=Text(text=column_name), justify="right", no_wrap=True)
-    # Rows in display order, the cells of the percent columns written as percentages
+    # Rows in display order, the cells of the percent columns written as percentages, those of the graded columns
+    # coloured by their rate
     ordered_rows = order_table_rows(table=table)
     for row in ordered_rows:
-        renderable.add_row(*[Text(text=format_report_value(value=cell, in_percent=in_percent))
-                             for cell, in_percent in zip(row, percent_column_flags)])
+        renderable.add_row(*[Text(text=format_report_value(value=cell, in_percent=in_percent),
+                                  style=grade_rate_style(rate=cell) if graded else "")
+                             for cell, in_percent, graded in zip(row, percent_column_flags, graded_column_flags)])
 
     # A table with percent columns wider than the room of the report gives the excess back from its first column, whose
     # long names are then cut with an ellipsis, instead of rich cutting every column evenly ("Precisi…", "30.76…"); the

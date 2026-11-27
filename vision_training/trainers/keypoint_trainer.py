@@ -294,8 +294,9 @@ class KeypointTrainer(CocoSplitTrainer):
         for image_index in sample_indices:
             ground_truth_keypoints = batch["keypoints"][image_index].detach().cpu()
             grouped_objects = predictions["grouped_objects"][image_index]
+            image_height, image_width = batch["images"][image_index].shape[-2:]
             accumulator["images"].append({
-                "labels": batch["labels"][image_index].detach().cpu(),
+                "labels": batch["labels"][image_index].detach().cpu(), "image_area": float(image_height * image_width),
                 "bounding_boxes": batch["bounding_boxes"][image_index].detach().cpu(),
                 "keypoints": ground_truth_keypoints[..., :2], "visibilities": ground_truth_keypoints[..., 2].long(),
                 **{key: batch[key][image_index] for key in IGNORED_OBJECT_KEYS},
@@ -333,7 +334,7 @@ class KeypointTrainer(CocoSplitTrainer):
         average_precision_summary = summarise_average_precisions(
             detections=image_evaluation["detections"], ground_truths=image_evaluation["ground_truths"],
             number_classes=len(self.class_names), class_names=self.class_names, overlap_type="keypoints",
-            title_prefix="OKS", name_prefix="OKS ", column_prefix="oks_")
+            title_prefix="OKS", name_prefix="OKS ", column_prefix="oks_", image_side=self.input_image_size)
         accuracy_summary = summarise_keypoint_accuracy(
             objects=image_evaluation["objects"], sigma_table=self.sigma_table,
             keypoint_categories=self.keypoint_categories, class_names=self.class_names)

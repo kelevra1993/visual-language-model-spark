@@ -1,7 +1,8 @@
 """
 Trainer of the object detection task: the COCO-format loaders, the two-stage detector with its four losses, the
-geometric augmentations moving the bounding boxes, the anchor recall of the training objects printed at every launch
-(and of every split by the 'compute_anchor_coverage' diagnosis mode, which then exits), and the evaluation of the
+geometric augmentations moving the bounding boxes, the anchor recall of the training and test objects measured at the
+first launch of a run into anchor_recall.csv and anchor_recall.png (and of every split by the
+'compute_anchor_coverage' diagnosis mode, its tables coloured, which then exits), and the evaluation of the
 checkpoints on the test split with the mean average precision and the mean average recall (all the objects and every
 object size) and the average precision of every class, the proposal recall, the score threshold of every class reaching
 the target precision, the confusion matrix and the error images of the detections the deployed detector returns, and the
@@ -9,7 +10,9 @@ sample images of fixed test images with their true and detected boxes. Registere
 task registry, and extended by the instance segmentation trainer.
 """
 
+import csv
 import json
+import math
 import cv2
 import numpy as np
 import torch
@@ -24,28 +27,85 @@ from vision_training.data.detection.coco_dataset import CocoDetectionDataset
 from vision_training.data.loaders import get_detection_dataloaders
 from vision_training.evaluation.classification.confusion_matrix import (save_confusion_matrix_image,
                                                                         save_confusion_matrix_table)
+from vision_training.evaluation.detection.anchor_recall_figure import draw_anchor_recall_figure
 from vision_training.evaluation.detection.average_precision_report import summarise_average_precisions
 from vision_training.evaluation.detection.detection_confusion import (BACKGROUND_CLASS_INDEX,
                                                                       MATCHING_INTERSECTION_OVER_UNION_THRESHOLD,
                                                                       add_to_confusion_matrix, compute_overlap_matrix,
                                                                       group_image_errors, match_image_detections,
                                                                       summarise_confusion_matrix)
-from vision_training.evaluation.detection.object_sizes import compute_box_areas
+from vision_training.evaluation.detection.object_sizes import OBJECT_SIZE_NAMES, compute_box_areas
 from vision_training.evaluation.detection.region_recall import (
     accumulate_proposal_recall, compute_best_anchor_overlaps, create_proposal_recall_accumulator, gather_object_boxes,
     summarise_anchor_recall, summarise_proposal_recall)
 from vision_training.evaluation.evaluation_report import write_class_metrics_file
-from vision_training.evaluation.report_formatting import build_table_renderables, print_report
+from vision_training.evaluation.report_formatting import build_table_renderables, format_report_value, print_report
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
 from vision_training.trainers.coco_split_trainer import CocoSplitTrainer
-from vision_training.utilities.os_utilities import print_color
+from vision_training.trainers.metric_tracking import MetricTracker
+from vision_training.utilities.os_utilities import format_path_link, print_color
 from vision_training.utilities.visualization import (PanelTable, ViewerWindow, build_detection_sample_grid,
                                                      convert_image_to_array)
 
-# Files of the recalls of the anchors, in the run folder, and of the proposals, in the evaluation folder of every
-# checkpoint
+# Files of the recalls of the anchors and their figure, in the run folder, and of the proposals, in the evaluation
+# folder of every checkpoint
 ANCHOR_RECALL_FILE_NAME = "anchor_recall.csv"
+ANCHOR_RECALL_FIGURE_NAME = "anchor_recall.png"
 PROPOSAL_RECALL_FILE_NAME = "proposal_recall.csv"
+
+# Splits whose anchor recall the first launch of a run measures and saves, with the setting giving their folder: the
+# objects the anchors are trained on, and those the evaluation scores
+ANCHOR_RECALL_SPLITS = {"Training": "train_data_folder", "Test": "test_data_folder"}
+
+
+def read_anchor_recall_settings(file_path: Path) -> Optional[Tuple[Dict[str, str], float]]:
+    """
+    Reads what the anchor_recall.csv of an earlier launch of the run measured, so that a resumed launch keeps the file
+    and its figure instead of measuring the same splits again, and measures them again when the split folders or the
+    threshold changed.
+
+    Args:
+        file_path (Path): The anchor_recall.csv of the run folder.
+
+    Returns:
+        Optional[Tuple[Dict[str, str], float]]: The folder of every measured split keyed by split name, and the
+            intersection over union threshold, or None without file or for a file written before the splits were
+            recorded (no 'split' column).
+    """
+    if not file_path.exists():
+        return None
+    with open(file=file_path, newline="", encoding="utf-8") as anchor_recall_file:
+        rows = list(csv.DictReader(anchor_recall_file))
+    if not rows or "split" not in rows[0]:
+        return None
+    return ({row["split"]: row["split_folder"] for row in rows}, float(rows[0]["iou_threshold"]))
+
+
+def describe_anchor_recall(rows: List[Dict[str, Any]], split_name: str) -> str:
+    """
+    Writes the console line of the anchor recall of one split at the first launch of a run, its table being drawn in
+    anchor_recall.png instead: the objects, their recall in all the levels, and that of the smallest size holding
+    objects, the objects the anchors miss first.
+
+    Args:
+        rows (List[Dict[str, Any]]): The rows of summarise_anchor_recall, all the objects first, then every size.
+        split_name (str): The name of the split, e.g. "Training".
+
+    Returns:
+        str: The line, e.g. "Anchor Recall Of The 703 879 Training Objects: 64.04 % In All Levels, 8.11 % For The
+            Smallest Objects (Under 1/16)", without the smallest objects for a split without objects.
+    """
+    all_objects_row = rows[0]
+    line = (f"Anchor Recall Of The {MetricTracker.format_grouped_number(value=all_objects_row['count'])} {split_name} "
+            f"Objects: {format_report_value(value=all_objects_row['recall_all_levels'], in_percent=True)} In All "
+            f"Levels")
+
+    # Recall of the smallest size holding objects, the sizes being in increasing order after all the objects
+    sized_rows = [row for row in rows[1:] if row["count"] > 0]
+    if not sized_rows:
+        return line
+    return (f"{line}, {format_report_value(value=sized_rows[0]['recall_all_levels'], in_percent=True)} For The "
+            f"Smallest Objects ({OBJECT_SIZE_NAMES[sized_rows[0]['objects']]})")
 
 
 class DetectionTrainer(CocoSplitTrainer):
@@ -122,23 +182,54 @@ class DetectionTrainer(CocoSplitTrainer):
 
     def analyse_training_data(self) -> Dict[str, Path]:
         """
-        Measures at every launch how well the anchors of the detector fit the objects of the training split, before
-        training on them: the share of the objects with an anchor overlapping them by at least the foreground threshold
-        of the region proposal network, in every level and in all of them, for all the objects and every object size.
-        Printed in the console and saved to anchor_recall.csv in the run folder, the objects being read from the
-        annotations without loading any image.
+        Measures at the first launch of a run how well the anchors of the detector fit the objects of the training and
+        test splits, before training on them: the share of the objects with an anchor overlapping them by at least the
+        foreground threshold of the region proposal network, in every level and in all of them, for all the objects
+        and every object size. Saved to anchor_recall.csv and drawn in anchor_recall.png in the run folder, the console
+        giving one line per split; a later launch keeps both files when they measured the same split folders at the
+        same threshold, and measures again otherwise. The objects are read from the annotations without loading any
+        image.
 
         Returns:
-            Dict[str, Path]: The 'Anchor Recall' file.
+            Dict[str, Path]: The 'Anchor Recall' file and the 'Anchor Recall Figure' written by this launch, sent to
+                MLflow, or none when the files of an earlier launch are kept.
         """
-        # Recall at the foreground threshold of the region proposal network, its rows saved in the run folder
-        anchor_recall = self.measure_anchor_recall(
-            dataset=self.train_dataloader.dataset, split_name="Training",
-            intersection_over_union_threshold=self.model_configuration["RegionProposal"]["foreground_iou_threshold"][
-                "min"], threshold_setting="RegionProposal.foreground_iou_threshold.min", show_progress=False)
-        return {"Anchor Recall": write_class_metrics_file(class_rows=anchor_recall["rows"],
-                                                          evaluation_folder=self.experiment_folder,
-                                                          file_name=ANCHOR_RECALL_FILE_NAME)}
+        intersection_over_union_threshold = self.model_configuration["RegionProposal"]["foreground_iou_threshold"][
+            "min"]
+        split_folders = {split_name: str(self.experiment_configuration[folder_setting])
+                         for split_name, folder_setting in ANCHOR_RECALL_SPLITS.items()}
+        file_path = self.experiment_folder / ANCHOR_RECALL_FILE_NAME
+        figure_path = self.experiment_folder / ANCHOR_RECALL_FIGURE_NAME
+
+        # Files of an earlier launch kept when they measured the same split folders at the same threshold, the
+        # threshold read back from the 6 decimals of the file
+        recorded_settings = read_anchor_recall_settings(file_path=file_path)
+        if figure_path.exists() and recorded_settings is not None and recorded_settings[0] == split_folders and (
+                math.isclose(recorded_settings[1], intersection_over_union_threshold, abs_tol=1e-6)):
+            print_color(color="blue", output=f"Anchor recall measured at the first launch of the run: "
+                                             f"{format_path_link(path=figure_path)}")
+            return {}
+
+        # Recall of every split at the foreground threshold of the region proposal network, one console line each
+        rows, tables = [], []
+        for split_name, folder_setting in ANCHOR_RECALL_SPLITS.items():
+            data_loader = self.train_dataloader if folder_setting == "train_data_folder" else self.test_dataloader
+            anchor_recall = self.measure_anchor_recall(
+                dataset=data_loader.dataset, split_name=split_name,
+                intersection_over_union_threshold=intersection_over_union_threshold,
+                threshold_setting="RegionProposal.foreground_iou_threshold.min", show_progress=False,
+                print_table=False)
+            rows += [{"split": split_name, "split_folder": split_folders[split_name],
+                      "iou_threshold": intersection_over_union_threshold, **row} for row in anchor_recall["rows"]]
+            tables.append(anchor_recall["table"])
+            print_color(color="blue", output=describe_anchor_recall(rows=anchor_recall["rows"], split_name=split_name))
+
+        # Rows of every split in the file, and their tables drawn one under the other
+        write_class_metrics_file(class_rows=rows, evaluation_folder=self.experiment_folder,
+                                 file_name=ANCHOR_RECALL_FILE_NAME)
+        draw_anchor_recall_figure(tables=tables, output_path=figure_path)
+        print_color(color="blue", output=f"Anchor recall of every object size: {format_path_link(path=figure_path)}")
+        return {"Anchor Recall": file_path, "Anchor Recall Figure": figure_path}
 
     def uses_exiting_diagnosis_mode(self) -> bool:
         """
@@ -156,8 +247,8 @@ class DetectionTrainer(CocoSplitTrainer):
         Prints the anchor coverage of the training, validation and test splits when
         'diagnosis_modes.compute_anchor_coverage' is activated: for every split, the share of its objects with an anchor
         overlapping them by at least the 'iou_threshold' of the mode, in every level and in all of them, for all the
-        objects and every object size, so that the anchor setting can be checked against every split before a launch.
-        Nothing is written; the trainer exits afterwards.
+        objects and every object size, its recalls coloured from red to green, so that the anchor setting can be
+        checked against every split before a launch. Nothing is written; the trainer exits afterwards.
         """
         anchor_coverage_configuration = self.diagnosis_modes["compute_anchor_coverage"]
         if not anchor_coverage_configuration["activated"]:
@@ -170,17 +261,18 @@ class DetectionTrainer(CocoSplitTrainer):
                 dataset=data_loader.dataset, split_name=split_name,
                 intersection_over_union_threshold=anchor_coverage_configuration["iou_threshold"],
                 threshold_setting="ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage.iou_threshold",
-                show_progress=True)
+                show_progress=True, print_table=True)
         return None
 
     def measure_anchor_recall(self, dataset: CocoDetectionDataset, split_name: str,
                               intersection_over_union_threshold: float, threshold_setting: str,
-                              show_progress: bool) -> Dict[str, Any]:
+                              show_progress: bool, print_table: bool) -> Dict[str, Any]:
         """
-        Measures and prints the anchor recall of one split, shared by the check of the training split at every launch
-        (analyse_training_data) and the anchor coverage diagnosis mode (diagnose_data_splits): the boxes of the objects
-        read from the annotations without loading any image, the best anchor of every object in every level found from
-        the anchor grid of the level, then the recall of every level and of all of them at the threshold.
+        Measures the anchor recall of one split, shared by the check of the training and test splits at the first
+        launch of a run (analyse_training_data) and the anchor coverage diagnosis mode (diagnose_data_splits), which
+        prints its table: the boxes of the objects read from the annotations without loading any image, the best
+        anchor of every object in every level found from the anchor grid of the level, then the recall of every level
+        and of all of them at the threshold, for every object size relative to the network input.
 
         Args:
             dataset (CocoDetectionDataset): The dataset of the split.
@@ -188,6 +280,7 @@ class DetectionTrainer(CocoSplitTrainer):
             intersection_over_union_threshold (float): The minimum overlap for an object to be covered.
             threshold_setting (str): The configuration setting giving the threshold, named in the legend of the table.
             show_progress (bool): Whether a progress bar follows the images of the split.
+            print_table (bool): Whether the table is printed in the console, with the layout of the report.
 
         Returns:
             Dict[str, Any]: The 'rows' and 'table' of the anchor recall (summarise_anchor_recall).
@@ -199,13 +292,14 @@ class DetectionTrainer(CocoSplitTrainer):
             object_boxes=object_boxes, level_anchor_generators=self.model.get_level_anchor_generators())
         anchor_recall = summarise_anchor_recall(
             best_anchor_overlaps=best_anchor_overlaps, object_areas=compute_box_areas(boxes=object_boxes),
-            intersection_over_union_threshold=intersection_over_union_threshold, split_name=split_name,
-            threshold_setting=threshold_setting)
+            image_side=dataset.image_size, intersection_over_union_threshold=intersection_over_union_threshold,
+            split_name=split_name, threshold_setting=threshold_setting)
 
-        # Table printed with the layout of the report
-        print_color(color="blue", output=f"Anchor Recall Of The {object_boxes.shape[0]} {split_name} Objects...",
-                    add_separators=True)
-        print_report(renderables=build_table_renderables(table=anchor_recall["table"]))
+        # Table printed with the layout of the report, its recalls coloured
+        if print_table:
+            print_color(color="blue", output=f"Anchor Recall Of The {object_boxes.shape[0]} {split_name} Objects...",
+                        add_separators=True)
+            print_report(renderables=build_table_renderables(table=anchor_recall["table"]))
         return anchor_recall
 
     def build_model(self) -> TwoStageDetector:
@@ -336,7 +430,8 @@ class DetectionTrainer(CocoSplitTrainer):
         return {"detections": [], "ground_truths": [],
                 "confusion_matrix": torch.zeros(size=(number_classes, number_classes), dtype=torch.int64),
                 "errors_folder": self.get_evaluation_folder(iteration=iteration) / "Errors", "error_counts": {},
-                "proposal_recall": create_proposal_recall_accumulator(levels=list(self.model.get_level_anchors()))}
+                "proposal_recall": create_proposal_recall_accumulator(levels=list(self.model.get_level_anchors()),
+                                                                       image_side=self.input_image_size)}
 
     def accumulate_evaluation_batch(self, accumulator: Dict[str, Any], batch: Dict[str, Any],
                                     predictions: Dict[str, Any], sample_indices: List[int]) -> None:
@@ -412,17 +507,20 @@ class DetectionTrainer(CocoSplitTrainer):
     def gather_image_ground_truth(self, batch: Dict[str, Any], image_index: int) -> Dict[str, torch.Tensor]:
         """
         Gives the objects of one test image on the CPU, for the mean average precision (by box area for the object
-        sizes) and the matching of the confusion matrix. The instance segmentation trainer adds the areas of their
-        masks, which size the objects of the mask average precision.
+        sizes, relative to the area of the network input) and the matching of the confusion matrix. The instance
+        segmentation trainer adds the areas of their masks, which size the objects of the mask average precision.
 
         Args:
             batch (Dict[str, Any]): The prepared test batch.
             image_index (int): The index of the image in the batch.
 
         Returns:
-            Dict[str, torch.Tensor]: The ground truth 'boxes' [G, 4] and 'labels' [G] of the image.
+            Dict[str, torch.Tensor]: The ground truth 'boxes' [G, 4] and 'labels' [G] of the image, and the
+                'image_area' of the network input.
         """
-        return {"boxes": batch["bounding_boxes"][image_index].cpu(), "labels": batch["labels"][image_index].cpu()}
+        image_height, image_width = batch["images"][image_index].shape[-2:]
+        return {"boxes": batch["bounding_boxes"][image_index].cpu(), "labels": batch["labels"][image_index].cpu(),
+                "image_area": float(image_height * image_width)}
 
     def dump_errors(self, accumulator: Dict[str, Any], batch: Dict[str, Any], predictions: Dict[str, Any],
                     image_index: int, matched_ground_truth_indices: torch.Tensor, detection_scores: torch.Tensor,
@@ -496,7 +594,8 @@ class DetectionTrainer(CocoSplitTrainer):
             detections=accumulator["detections"], ground_truths=accumulator["ground_truths"],
             number_classes=len(set(self.label_dictionary.values())), class_names=self.class_names,
             target_precision=self.target_precision,
-            resolution_name="original image" if self.original_resolution else "network input")
+            resolution_name="original image" if self.original_resolution else "network input",
+            image_side=None if self.original_resolution else self.input_image_size)
         proposal_recall = self.save_proposal_recall(accumulator=accumulator, iteration=iteration)
 
         # Average precisions and thresholds of every class, saved whatever the per-class report, and the proposal

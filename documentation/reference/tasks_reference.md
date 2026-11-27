@@ -189,9 +189,9 @@ DetectionLevels:
 
 **Evaluation**
 - **mAP** at IoU 0.5, 0.75, 0.95 and 0.5:0.95, with the area, 11-point and 101-point methods, and the AP@0.5 of every class. Detections below `evaluation.score_threshold` are ignored.
-- **By object size**: small (below 32²), medium (32² to 96²) and large, in network input pixels as in COCO.
+- **By object size**: five sizes on the object side as a share of the image side, doubling from under 1/16 to 1/2 and above, with their pixels at the network input.
 - **Mean average recall** per IoU and size, and **per-class recall** at IoU 0.5 and 0.75 with its 95 % interval.
-- **Anchor recall** at every launch (`anchor_recall.csv`), and **proposal recall** at every evaluation (`proposal_recall.csv`).
+- **Anchor recall** of the training and test objects at the first launch (`anchor_recall.csv`, `anchor_recall.png`), and **proposal recall** at every evaluation (`proposal_recall.csv`).
 - **Class thresholds**: `class_thresholds.json`, the threshold of every class reaching `target_precision`.
 - **Confusion matrix** of the deployed detections (score from `Detector.inference.score_threshold`) at IoU 0.5, with a `background` row and column.
 - **Error images**: `Errors/FALSE-POSITIVE/<class>/`, `Errors/MISSED/<class>/` and `Errors/<TRUE>-TO-<PREDICTED>/`.

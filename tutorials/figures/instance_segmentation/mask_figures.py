@@ -29,9 +29,9 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 from typing import Any, Dict, List, Tuple
 
-from tutorials.figures.figure_utilities import (SERIES_COLOURS, compute_file_fingerprint, read_reused_facts,
-                                                read_run_configuration, restore_committed_figures, round_fact,
-                                                write_reused_facts)
+from tutorials.figures.figure_utilities import (SERIES_COLOURS, SNAPSHOT_OBJECT_SIZE_RANGES, compute_file_fingerprint,
+                                                read_reused_facts, read_run_configuration,
+                                                restore_committed_figures, round_fact, write_reused_facts)
 from tutorials.figures.object_detection.detection_sources import (CHECKPOINT_ITERATION, SAMPLE_IMAGE_NAME,
                                                                   SAMPLE_ITERATIONS, describe_class_name,
                                                                   find_test_folder, hexadecimal_to_rgb, load_run_model,
@@ -42,7 +42,6 @@ from tutorial_builder.layout import (CARD_COLOUR, DIM_TEXT_COLOUR, MONOSPACE_FON
                                      TEXT_COLOUR)
 from vision_training.data.detection.coco_masks import (build_instance_mask, compute_mask_bounding_boxes,
                                                        decode_compressed_counts)
-from vision_training.evaluation.detection.object_sizes import OBJECT_SIZE_RANGES
 from vision_training.losses.detection_losses import LOCALISATION_LOSS_BETA
 from vision_training.models.detection.box_operations import get_intersection_over_union
 from vision_training.models.instance_segmentation.mask_operations import (build_mask_targets,
@@ -622,8 +621,8 @@ def describe_mask_geometry(run_folder: Path) -> Dict[str, Any]:
             "geometry.upsampling_stride": upsampling_layer.stride[0],
             "geometry.predictor_kernel": first_head.mask_predictor.kernel_size[0],
             "geometry.mask_pixels": first_head.mask_size ** 2, "geometry.overlap_chunk_size": overlap_chunk_size,
-            "geometry.small_object_limit": f"{int(math.sqrt(OBJECT_SIZE_RANGES['small'][1]))}²",
-            "geometry.large_object_limit": f"{int(math.sqrt(OBJECT_SIZE_RANGES['large'][0]))}²",
+            "geometry.small_object_limit": f"{int(math.sqrt(SNAPSHOT_OBJECT_SIZE_RANGES['small'][1]))}²",
+            "geometry.large_object_limit": f"{int(math.sqrt(SNAPSHOT_OBJECT_SIZE_RANGES['large'][0]))}²",
             "geometry.box_loss_beta": str(Fraction(LOCALISATION_LOSS_BETA).limit_denominator(max_denominator=100))}
 
 

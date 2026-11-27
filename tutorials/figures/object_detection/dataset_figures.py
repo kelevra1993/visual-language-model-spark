@@ -18,10 +18,9 @@ import math
 from pathlib import Path
 from typing import Any, Dict, List
 
-from tutorials.figures.figure_utilities import read_run_configuration, round_fact
+from tutorials.figures.figure_utilities import SNAPSHOT_OBJECT_SIZE_RANGES, read_run_configuration, round_fact
 from tutorials.figures.object_detection.detection_sources import find_test_folder, read_test_manifest, write_listing
 from vision_training.data.detection.coco_masks import decode_compressed_counts
-from vision_training.evaluation.detection.object_sizes import OBJECT_SIZE_RANGES
 from vision_training.evaluation.report_formatting import round_percentage
 
 # Characters of the compressed run length encoding of the first annotation kept in the listing (or values of an
@@ -167,7 +166,7 @@ def read_anchor_recall(run_folder: Path) -> Dict[str, Any]:
     of the objects of every size whose best anchor of a level reaches the foreground threshold, and of all the levels
     together, as the rows of the grid of the scene, with the number of objects of every size, the block of every level
     column, and the box side from which an object is large (the square root of the smallest large area of
-    OBJECT_SIZE_RANGES).
+    SNAPSHOT_OBJECT_SIZE_RANGES, the COCO sizes the snapshot run was evaluated with).
 
     Args:
         run_folder (Path): The folder of the DET run.
@@ -190,7 +189,7 @@ def read_anchor_recall(run_folder: Path) -> Dict[str, Any]:
                                              for column in level_columns] + ["all levels"],
              "anchor_recall.row_labels": [f"{label} · {int(rows[row_key]['count']):,}" for row_key, label in
                                           ANCHOR_RECALL_ROWS],
-             "anchor_recall.large_minimum_side": round(math.sqrt(OBJECT_SIZE_RANGES["large"][0]))}
+             "anchor_recall.large_minimum_side": round(math.sqrt(SNAPSHOT_OBJECT_SIZE_RANGES["large"][0]))}
     for row_key, _ in ANCHOR_RECALL_ROWS:
         facts[f"anchor_recall.{row_key}.count"] = int(rows[row_key]["count"])
         for column in columns:

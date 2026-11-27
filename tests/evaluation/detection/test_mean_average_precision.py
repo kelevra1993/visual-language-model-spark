@@ -2,14 +2,15 @@
 Tests of vision_training/evaluation/detection/mean_average_precision.py on a worked example and edge cases: the
 average precision of the worked example, the per-class average precisions and ground truths, wrong-class detections,
 the mean over the COCO overlap thresholds, the score threshold of every class, the mask average precision of the
-instance segmentation, the average precision of the small, medium and large objects, the mean average recall of all
-the objects and of every size, and the vectorised 101-point average precision against its level by level definition.
+instance segmentation, the average precision of the five object sizes relative to the image (their bounds included
+below, an object changing size with the image), the mean average recall of all the objects and of every size, and the
+vectorised 101-point average precision against its level by level definition.
 """
 
 import pytest
 import torch
 
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from vision_training.evaluation.detection.mean_average_precision import (compute_average_precision,
                                                                          compute_precision_recall, evaluate_detections,
@@ -17,6 +18,9 @@ from vision_training.evaluation.detection.mean_average_precision import (compute
 from vision_training.evaluation.detection.object_sizes import compute_box_areas
 from vision_training.models.detection.box_operations import get_intersection_over_union
 from vision_training.models.instance_segmentation.mask_operations import compute_mask_intersection_over_union
+
+# Side of the evaluated images in pixels, the 10 x 10 boxes of the examples having a side under 1/16 of it
+IMAGE_SIDE = 800.0
 
 
 def make_detections(boxes: List[List[float]], scores: List[float], labels: List[int]) -> Dict[str, torch.Tensor]:
@@ -35,18 +39,20 @@ def make_detections(boxes: List[List[float]], scores: List[float], labels: List[
             "scores": torch.tensor(data=scores, dtype=torch.float32), "labels": torch.tensor(data=labels)}
 
 
-def make_ground_truth(boxes: List[List[float]], labels: List[int]) -> Dict[str, torch.Tensor]:
+def make_ground_truth(boxes: List[List[float]], labels: List[int], image_side: float = IMAGE_SIDE) -> Dict[str, Any]:
     """
     Builds the ground truth of one image in the format collected by the Trainer test evaluation.
 
     Args:
         boxes (List[List[float]]): The [x1, y1, x2, y2] ground truth boxes.
         labels (List[int]): The ground truth class indices.
+        image_side (float): The side of the square image, which sizes its objects. Defaults to IMAGE_SIDE.
 
     Returns:
-        Dict[str, torch.Tensor]: The 'boxes' [M, 4] and 'labels' [M] of the image.
+        Dict[str, Any]: The 'boxes' [M, 4], 'labels' [M] and 'image_area' of the image.
     """
-    return {"boxes": torch.tensor(data=boxes, dtype=torch.float32).reshape(-1, 4), "labels": torch.tensor(data=labels)}
+    return {"boxes": torch.tensor(data=boxes, dtype=torch.float32).reshape(-1, 4), "labels": torch.tensor(data=labels),
+            "image_area": image_side * image_side}
 
 
 def get_worked_example() -> tuple:
@@ -197,28 +203,37 @@ def test_point_average_precision_matches_its_definition(method: str, number_poin
 
 def test_average_precision_by_object_size() -> None:
     """
-    Verifies the breakdown by object size on one class with a small (10 x 10), a medium (50 x 50) and a large
-    (100 x 100) object: the small object is found after an unmatched small detection (AP 0.5 with the area method), the
-    medium one is never found (AP 0) and the large one is found before an unmatched large detection (AP 1). Every size
-    counts its own ground truths, and a size without any object gets no mAP.
+    Verifies the breakdown by object size on one class in an 800 x 800 image with objects of sides 10, 50, 100 and 400
+    pixels (1/80, exactly 1/16, 1/8 and 1/2 of the image side): the 10 x 10 object is found after an unmatched
+    detection of its size (AP 0.5 with the area method), the 50 x 50 one falls in the size starting at 1/16 and is
+    never found (AP 0), the 100 x 100 and 400 x 400 ones are found before an unmatched detection of their size or alone
+    (AP 1), and the size from 1/4 to 1/2 without object gets no mAP. The same objects in a 1600 x 1600 image halve
+    their side shares and move down one size, the 10 x 10 and 50 x 50 objects sharing the size under 1/16.
     """
-    ground_truths = [make_ground_truth(boxes=[[0, 0, 10, 10], [100, 100, 150, 150], [200, 200, 300, 300]],
-                                       labels=[1, 1, 1])]
+    ground_truth_boxes = [[0, 0, 10, 10], [100, 100, 150, 150], [200, 200, 300, 300], [0, 400, 400, 800]]
+    ground_truths = [make_ground_truth(boxes=ground_truth_boxes, labels=[1, 1, 1, 1])]
     detections = [make_detections(boxes=[[400, 400, 410, 410], [0, 0, 10, 10], [200, 200, 300, 300],
-                                         [500, 500, 700, 700]], scores=[0.95, 0.9, 0.8, 0.7], labels=[1, 1, 1, 1])]
+                                         [500, 500, 600, 600], [0, 400, 400, 800]],
+                                  scores=[0.95, 0.9, 0.8, 0.7, 0.6], labels=[1, 1, 1, 1, 1])]
 
     sizes = evaluate_detections(detections=detections, ground_truths=ground_truths, number_classes=2)["area"]["sizes"]
-    assert sizes["small"]["mAP@0.5"] == pytest.approx(expected=0.5)
-    assert sizes["medium"]["mAP@0.5"] == pytest.approx(expected=0.0)
-    assert sizes["large"]["mAP@[0.5:0.95]"] == pytest.approx(expected=1.0)
-    assert all(size_results["class_ground_truths"] == {1: 1} for size_results in sizes.values())
+    assert list(sizes) == ["under_1_16", "1_16_to_1_8", "1_8_to_1_4", "1_4_to_1_2", "1_2_and_above"]
+    assert sizes["under_1_16"]["mAP@0.5"] == pytest.approx(expected=0.5)
+    assert sizes["1_16_to_1_8"]["mAP@0.5"] == pytest.approx(expected=0.0)
+    assert sizes["1_8_to_1_4"]["mAP@[0.5:0.95]"] == pytest.approx(expected=1.0)
+    assert sizes["1_2_and_above"]["mAP@[0.5:0.95]"] == pytest.approx(expected=1.0)
+    assert [size_results["class_ground_truths"] for size_results in sizes.values()] == [{1: 1}, {1: 1}, {1: 1},
+                                                                                         {1: 0}, {1: 1}]
 
-    # Without the small and medium objects, those sizes give no mAP and no class average precision
-    large_only_sizes = evaluate_detections(detections=detections, ground_truths=[make_ground_truth(
-        boxes=[[200, 200, 300, 300]], labels=[1])], number_classes=2)["area"]["sizes"]
-    assert large_only_sizes["small"]["mAP@0.5"] is None and large_only_sizes["medium"]["mAP@0.75"] is None
-    assert large_only_sizes["small"]["class_AP@0.5"] == {}
-    assert large_only_sizes["small"]["class_ground_truths"] == {1: 0}
+    # A size without any object gives no mAP and no class average precision
+    assert sizes["1_4_to_1_2"]["mAP@0.5"] is None and sizes["1_4_to_1_2"]["mAP@0.75"] is None
+    assert sizes["1_4_to_1_2"]["class_AP@0.5"] == {}
+
+    # The same objects in an image twice as large move down one size
+    larger_image_sizes = evaluate_detections(detections=detections, ground_truths=[make_ground_truth(
+        boxes=ground_truth_boxes, labels=[1, 1, 1, 1], image_side=2.0 * IMAGE_SIDE)], number_classes=2)["area"]["sizes"]
+    assert [size_results["class_ground_truths"] for size_results in larger_image_sizes.values()] == [
+        {1: 2}, {1: 1}, {1: 0}, {1: 1}, {1: 0}]
 
 
 def test_mean_average_recall_of_all_the_objects_and_of_every_size() -> None:
@@ -226,7 +241,8 @@ def test_mean_average_recall_of_all_the_objects_and_of_every_size() -> None:
     Verifies the mean average recall on two classes: class 1 is the worked example (4 of its 5 objects found exactly,
     whatever the score and the false positive, recall 0.8 at every threshold) and the only class 2 object is found
     with an overlap of 0.68 (recall 1 at the thresholds 0.5 to 0.65, 0 above). The recall is the same for every method,
-    class 3 without ground truth is left out, and the 10 x 10 objects are all small, the other sizes having no recall.
+    class 3 without ground truth is left out, and the 10 x 10 objects all have a side under 1/16 of the image side,
+    the other sizes having no recall.
     """
     detections, ground_truths = get_worked_example()
     ground_truths[0] = make_ground_truth(boxes=[[0, 0, 10, 10], [20, 20, 30, 30], [40, 40, 50, 50], [60, 60, 70, 70]],
@@ -244,11 +260,11 @@ def test_mean_average_recall_of_all_the_objects_and_of_every_size() -> None:
     assert results["area"]["class_AR@0.5"] == pytest.approx(expected={1: 0.8, 2: 1.0})
     assert results["area"]["class_AR@[0.5:0.95]"] == pytest.approx(expected={1: 0.8, 2: 0.4})
 
-    # Every object is small, the medium and large objects have no recall
+    # Every object is under 1/16 of the image side, the larger sizes have no recall
     sizes = results["area"]["sizes"]
-    assert sizes["small"]["mAR@[0.5:0.95]"] == pytest.approx(expected=0.6)
-    assert sizes["medium"]["mAR@0.5"] is None and sizes["large"]["mAR@[0.5:0.95]"] is None
-    assert sizes["large"]["class_AR@0.5"] == {}
+    assert sizes["under_1_16"]["mAR@[0.5:0.95]"] == pytest.approx(expected=0.6)
+    assert sizes["1_16_to_1_8"]["mAR@0.5"] is None and sizes["1_2_and_above"]["mAR@[0.5:0.95]"] is None
+    assert sizes["1_2_and_above"]["class_AR@0.5"] == {}
 
 
 def fill_box_masks(boxes: torch.Tensor, image_size: int) -> torch.Tensor:
@@ -284,8 +300,8 @@ def test_mask_average_precision_equals_box_average_precision_for_box_masks() -> 
         ground_truth_boxes = torch.cat(tensors=[ground_truth_corners, ground_truth_corners + ground_truth_sizes], dim=1)
         detection_boxes = (ground_truth_boxes.repeat(2, 1) + torch.randint(low=-1, high=2, size=(10, 4),
                                                                            generator=generator)).clamp(min=0, max=64)
-        ground_truth = {"boxes": ground_truth_boxes.float(), "labels": torch.randint(low=1, high=3, size=(5,),
-                                                                                       generator=generator)}
+        ground_truth = {"boxes": ground_truth_boxes.float(), "image_area": 64.0 * 64.0,
+                        "labels": torch.randint(low=1, high=3, size=(5,), generator=generator)}
         detection = {"boxes": detection_boxes.float(), "scores": torch.rand(size=(10,), generator=generator),
                      "labels": torch.randint(low=1, high=3, size=(10,), generator=generator)}
         mask_overlaps = compute_mask_intersection_over_union(

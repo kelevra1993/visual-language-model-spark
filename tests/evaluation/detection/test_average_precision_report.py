@@ -17,6 +17,7 @@ from vision_training.evaluation.detection.average_precision_report import (build
                                                                            build_mean_average_precision_table,
                                                                            summarise_average_precisions)
 from vision_training.evaluation.detection.mean_average_precision import evaluate_detections
+from vision_training.evaluation.detection.object_sizes import OBJECT_SIZE_NAMES
 from vision_training.evaluation.report_formatting import REPORT_WIDTH, build_report_renderables, render_report_text
 
 # Class names of the evaluated image, the background first
@@ -25,14 +26,14 @@ CLASS_NAMES = {0: "background", 1: "square", 2: "circle", 3: "star"}
 
 def build_two_class_image() -> Tuple[List[Dict[str, torch.Tensor]], List[Dict[str, torch.Tensor]]]:
     """
-    Builds one evaluated image whose class 1 box is found exactly, with a score of 0.9, and whose class 2 box is
-    missed, class 3 having no ground truth.
+    Builds one evaluated 200 x 200 image whose class 1 box is found exactly, with a score of 0.9, and whose class 2
+    box is missed, class 3 having no ground truth, both 10 x 10 boxes having a side of 1/20 of the image side.
 
     Returns:
         Tuple[List[Dict[str, torch.Tensor]], List[Dict[str, torch.Tensor]]]: The detections and the ground truths.
     """
     ground_truths = [{"boxes": torch.tensor(data=[[0.0, 0.0, 10.0, 10.0], [20.0, 20.0, 30.0, 30.0]]),
-                      "labels": torch.tensor(data=[1, 2])}]
+                      "labels": torch.tensor(data=[1, 2]), "image_area": 200.0 * 200.0}]
     detections = [{"boxes": torch.tensor(data=[[0.0, 0.0, 10.0, 10.0]]), "scores": torch.tensor(data=[0.9]),
                    "labels": torch.tensor(data=[1])}]
     return detections, ground_truths
@@ -58,10 +59,11 @@ def test_class_average_precision_rows_and_table() -> None:
     class_names = {0: "background", 1: "square", 2: "circle", 3: "star"}
     class_rows = build_class_average_precision_rows(results=get_two_class_results(), class_names=class_names)
 
-    # The 10 x 10 boxes are small objects, the medium and large ones have no average precision. The single ground
-    # truth found gives the exact interval [0.025, 1] of a recall of 1 of 1, the one missed [0, 0.975]
-    empty_size_columns = {"average_precision_50_medium": None, "average_precision_50_95_medium": None,
-                          "average_precision_50_large": None, "average_precision_50_95_large": None}
+    # The 10 x 10 boxes have a side under 1/16 of the image side, the other sizes have no average precision. The
+    # single ground truth found gives the exact interval [0.025, 1] of a recall of 1 of 1, the one missed [0, 0.975]
+    empty_size_columns = {f"average_precision_{threshold}_{object_size}": None
+                          for object_size in ["1_16_to_1_8", "1_8_to_1_4", "1_4_to_1_2", "1_2_and_above"]
+                          for threshold in ["50", "50_95"]}
     found_recalls = {f"recall_{threshold}{bound}": value for threshold in ["50", "75"]
                      for bound, value in [("", 1.0), ("_lower", pytest.approx(expected=0.025)), ("_upper", 1.0)]}
     missed_recalls = {f"recall_{threshold}{bound}": value for threshold in ["50", "75"]
@@ -73,16 +75,16 @@ def test_class_average_precision_rows_and_table() -> None:
     expected_rows: List[Dict[str, Any]] = [
         {"class_index": 1, "class": "square", "ground_truths": 1, "average_precision_50": 1.0,
          "average_precision_75": 1.0, "average_precision_95": 1.0, "average_precision_50_95": 1.0,
-         "average_precision_50_small": 1.0,
-         "average_precision_50_95_small": 1.0, **empty_size_columns, **found_recalls},
+         "average_precision_50_under_1_16": 1.0, "average_precision_50_95_under_1_16": 1.0, **empty_size_columns,
+         **found_recalls},
         {"class_index": 2, "class": "circle", "ground_truths": 1, "average_precision_50": 0.0,
          "average_precision_75": 0.0, "average_precision_95": 0.0, "average_precision_50_95": 0.0,
-         "average_precision_50_small": 0.0,
-         "average_precision_50_95_small": 0.0, **empty_size_columns, **missed_recalls},
+         "average_precision_50_under_1_16": 0.0, "average_precision_50_95_under_1_16": 0.0, **empty_size_columns,
+         **missed_recalls},
         {"class_index": 3, "class": "star", "ground_truths": 0, "average_precision_50": None,
          "average_precision_75": None, "average_precision_95": None, "average_precision_50_95": None,
-         "average_precision_50_small": None,
-         "average_precision_50_95_small": None, **empty_size_columns, **absent_recalls}]
+         "average_precision_50_under_1_16": None, "average_precision_50_95_under_1_16": None, **empty_size_columns,
+         **absent_recalls}]
     assert class_rows == expected_rows
 
     # The table sorted by AP@0.5 puts the star, without average precision, last
@@ -112,7 +114,7 @@ def test_box_and_mask_tables_are_told_apart_by_their_prefixes() -> None:
     merged_rows = [{**box_row, **mask_row} for box_row, mask_row in zip(box_rows, mask_rows)]
     average_precision_columns = ["average_precision_50", "average_precision_75", "average_precision_95",
                                  "average_precision_50_95"] + [
-        f"average_precision_{threshold}_{object_size}" for object_size in ["small", "medium", "large"]
+        f"average_precision_{threshold}_{object_size}" for object_size in OBJECT_SIZE_NAMES
         for threshold in ["50", "50_95"]] + [
         f"recall_{threshold}{bound}" for threshold in ["50", "75"] for bound in ["", "_lower", "_upper"]]
     assert list(merged_rows[0]) == ["class_index", "class", "ground_truths"] + average_precision_columns + [
@@ -165,3 +167,30 @@ def test_tables_write_the_rates_as_percentages() -> None:
     assert summary["class_rows"][0]["average_precision_50"] == 1.0
     assert summary["class_rows"][0]["recall_at_target_precision"] == 1.0
     assert summary["scalars"]["mAP@0.5/area"] == 0.5
+
+
+def test_size_tables_give_the_pixels_of_every_size_at_a_network_input() -> None:
+    """
+    Verifies that the object size and mean average recall tables add the sides of every size in pixels when the images
+    are network inputs of one side, the row of all the objects leaving it empty, the legend naming that side, and that
+    the evaluation at the original resolution keeps the side shares only; the scalars name every size by its key.
+    """
+    detections, ground_truths = build_two_class_image()
+    summary = summarise_average_precisions(detections=detections, ground_truths=ground_truths, number_classes=4,
+                                           class_names=CLASS_NAMES, image_side=200.0)
+    sizes_table, recalls_table = summary["tables"]["sizes"], summary["tables"]["recalls"]
+    assert sizes_table["columns"] == ["Object Side", "Pixels", "Objects", "mAP@0.5", "mAP@0.75", "mAP@0.95",
+                                      "mAP@[0.5:0.95]"]
+    assert [row[:3] for row in sizes_table["rows"]] == [
+        ["Under 1/16", "< 12.5", 2], ["1/16 to 1/8", "12.5 to 25", 0], ["1/8 to 1/4", "25 to 50", 0],
+        ["1/4 to 1/2", "50 to 100", 0], ["1/2 and above", ">= 100", 0]]
+    assert recalls_table["rows"][0][:3] == ["All", "", 2] and "(200 pixels)" in sizes_table["legend"]
+    assert summary["scalars"]["mAP@0.5 By Size/under_1_16"] == 0.5
+    assert "mAP@0.5 By Size/1_16_to_1_8" not in summary["scalars"]
+
+    # At the original resolution every image has its own side, so the tables keep the side shares only
+    original_summary = summarise_average_precisions(detections=detections, ground_truths=ground_truths,
+                                                    number_classes=4, class_names=CLASS_NAMES,
+                                                    resolution_name="original image")
+    assert "Pixels" not in original_summary["tables"]["sizes"]["columns"]
+    assert "original image (the square root of its area)" in original_summary["tables"]["recalls"]["legend"]

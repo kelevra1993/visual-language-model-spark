@@ -1,10 +1,11 @@
 """
-Tests of vision_training/evaluation/detection/region_recall.py, the anchor recall measured at the launch of the
+Tests of vision_training/evaluation/detection/region_recall.py, the anchor recall measured at the first launch of the
 object detection and instance segmentation runs (and on every split by the anchor coverage diagnosis mode) and the
 proposal recall of every evaluated checkpoint: the boxes of an instance segmentation split read from the segmentation,
-the best anchor overlaps of every level, the rows and table of anchor_recall.csv, and the proposal recall of the valid
-proposals only, with its rows, scalars and table, the tables writing the recalls as percentages and the counts as they
-are.
+the best anchor overlaps of every level, the rows and table of anchor_recall.csv on the five object sizes relative to
+the network input (with their sides in pixels and their share of the input area, the recalls graded from red to
+green), and the proposal recall of the valid proposals only, with its rows, scalars and table, the tables writing the
+recalls as percentages and the counts as they are.
 """
 
 import json
@@ -49,31 +50,43 @@ def test_best_anchor_overlaps_of_every_level() -> None:
 
 def test_anchor_recall_rows_and_table() -> None:
     """
-    Verifies the rows of anchor_recall.csv and the console table: the recall of every level alone, and of all the
-    levels together where an object is covered by its best anchor of any level, for all the objects and every size,
-    the console table writing the recalls as percentages and the counts as integers.
+    Verifies the rows of anchor_recall.csv and the console table on a 400 pixel network input: the recall of every
+    level alone, and of all the levels together where an object is covered by its best anchor of any level, for all
+    the objects and every size, a 10 x 10 object (side 1/40 of the input) falling under 1/16 and a 100 x 100 one
+    (side exactly 1/4) in the size starting at 1/4, the table giving the sides of every size in pixels and its share
+    of the input area, its recalls written as percentages graded from red to green and the counts as integers.
     """
     anchor_recall = summarise_anchor_recall(
         best_anchor_overlaps={4: torch.tensor(data=[0.1, 0.75]), 3: torch.tensor(data=[0.8, 0.2])},
-        object_areas=torch.tensor(data=[100.0, 10000.0]), intersection_over_union_threshold=0.7,
+        object_areas=torch.tensor(data=[100.0, 10000.0]), image_side=400, intersection_over_union_threshold=0.7,
         split_name="Validation", threshold_setting="ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage")
+    empty_recalls = {"count": 0, "recall_block_3": None, "recall_block_4": None, "recall_all_levels": None}
     assert anchor_recall["rows"] == [
         {"objects": "all", "count": 2, "recall_block_3": 0.5, "recall_block_4": 0.5, "recall_all_levels": 1.0},
-        {"objects": "small", "count": 1, "recall_block_3": 1.0, "recall_block_4": 0.0, "recall_all_levels": 1.0},
-        {"objects": "medium", "count": 0, "recall_block_3": None, "recall_block_4": None, "recall_all_levels": None},
-        {"objects": "large", "count": 1, "recall_block_3": 0.0, "recall_block_4": 1.0, "recall_all_levels": 1.0}]
+        {"objects": "under_1_16", "count": 1, "recall_block_3": 1.0, "recall_block_4": 0.0,
+         "recall_all_levels": 1.0},
+        {"objects": "1_16_to_1_8", **empty_recalls}, {"objects": "1_8_to_1_4", **empty_recalls},
+        {"objects": "1_4_to_1_2", "count": 1, "recall_block_3": 0.0, "recall_block_4": 1.0,
+         "recall_all_levels": 1.0},
+        {"objects": "1_2_and_above", **empty_recalls}]
 
-    # The table shows the same values under the displayed names, the levels in block order
+    # The table shows the same values under the displayed names, the levels in block order, every size with its
+    # sides in pixels of the 400 pixel input and its share of the input area
     table = anchor_recall["table"]
     assert table["title"] == "Anchor Recall Of The Validation Objects"
-    assert table["columns"] == ["Objects", "Count", "Block 3", "Block 4", "All Levels"]
-    assert table["rows"][0] == ["All Objects", 2, 0.5, 0.5, 1.0]
-    assert [row[0] for row in table["rows"][1:]] == ["Small (< 32²)", "Medium (32² to 96²)", "Large (>= 96²)"]
+    assert table["columns"] == ["Object Side", "Pixels", "Area", "Count", "Block 3", "Block 4", "All Levels"]
+    assert table["rows"][0] == ["All Objects", "", "", 2, 0.5, 0.5, 1.0]
+    assert [row[:3] for row in table["rows"][1:]] == [
+        ["Under 1/16", "< 25", "< 0.39 %"], ["1/16 to 1/8", "25 to 50", "0.39 to 1.56 %"],
+        ["1/8 to 1/4", "50 to 100", "1.56 to 6.25 %"], ["1/4 to 1/2", "100 to 200", "6.25 to 25 %"],
+        ["1/2 and above", ">= 200", ">= 25 %"]]
     assert "0.7 (ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage)" in table["legend"]
+    assert "(400 pixels)" in table["legend"]
     assert not table["per_class"]
 
-    # The recalls of the console table written as percentages, the count of objects as an integer
+    # The recalls of the console table written as percentages graded by colour, the count of objects as an integer
     assert table["percent_columns"] == ["Block 3", "Block 4", "All Levels"]
+    assert table["graded_columns"] == table["percent_columns"]
     table_lines = render_report_text(renderables=build_table_renderables(table=table)).splitlines()
     assert next(line for line in table_lines if line.startswith(" All Objects")).split()[2:] == [
         "2", "50.00", "%", "50.00", "%", "100.00", "%"]
@@ -87,10 +100,10 @@ def test_proposal_recall_of_the_valid_proposals() -> None:
     level, the mean valid proposals per image, the scalars of the defined values and the table of the report, whose
     recalls are written as percentages, the counts of objects and proposals keeping their values.
     """
-    proposal_accumulator = create_proposal_recall_accumulator(levels=[4, 3])
+    proposal_accumulator = create_proposal_recall_accumulator(levels=[4, 3], image_side=400)
 
-    # A small object found exactly by a block 3 proposal, whose padding copy is labelled block 4, and a small object
-    # overlapped by 0.625 by a block 4 proposal
+    # An object under 1/16 of the 400 pixel input found exactly by a block 3 proposal, whose padding copy is labelled
+    # block 4, and another one overlapped by 0.625 by a block 4 proposal
     accumulate_proposal_recall(
         proposal_accumulator=proposal_accumulator,
         proposal_boxes=torch.tensor(data=[[0.0, 0.0, 10.0, 10.0], [0.0, 0.0, 10.0, 10.0], [50.0, 50.0, 60.0, 60.0]]),
@@ -99,7 +112,8 @@ def test_proposal_recall_of_the_valid_proposals() -> None:
     assert torch.allclose(proposal_accumulator["best_overlaps"][0],
                           torch.tensor(data=[[1.0, 1.0, 0.0], [0.625, 0.0, 0.625]]))
 
-    # A large object without any valid proposal, then an image without objects and one valid proposal
+    # An object of side 1/4 of the input without any valid proposal, then an image without objects and one valid
+    # proposal
     accumulate_proposal_recall(
         proposal_accumulator=proposal_accumulator, proposal_boxes=torch.tensor(data=[[0.0, 0.0, 10.0, 10.0]]),
         proposal_levels=torch.tensor(data=[3]), valid_proposal_mask=torch.tensor(data=[False]),
@@ -115,9 +129,12 @@ def test_proposal_recall_of_the_valid_proposals() -> None:
     assert proposal_recall["rows"] == [
         {"group": "all", "objects": 3, "recall_50": pytest.approx(expected=2 / 3),
          "recall_70": pytest.approx(expected=1 / 3), "proposals_per_image": pytest.approx(expected=1.0)},
-        {"group": "small", "objects": 2, "recall_50": 1.0, "recall_70": 0.5, "proposals_per_image": None},
-        {"group": "medium", "objects": 0, "recall_50": None, "recall_70": None, "proposals_per_image": None},
-        {"group": "large", "objects": 1, "recall_50": 0.0, "recall_70": 0.0, "proposals_per_image": None},
+        {"group": "under_1_16", "objects": 2, "recall_50": 1.0, "recall_70": 0.5, "proposals_per_image": None},
+        *[{"group": group, "objects": 0, "recall_50": None, "recall_70": None, "proposals_per_image": None}
+          for group in ["1_16_to_1_8", "1_8_to_1_4"]],
+        {"group": "1_4_to_1_2", "objects": 1, "recall_50": 0.0, "recall_70": 0.0, "proposals_per_image": None},
+        {"group": "1_2_and_above", "objects": 0, "recall_50": None, "recall_70": None,
+         "proposals_per_image": None},
         {"group": "block_3", "objects": 3, "recall_50": pytest.approx(expected=1 / 3),
          "recall_70": pytest.approx(expected=1 / 3), "proposals_per_image": pytest.approx(expected=2 / 3)},
         {"group": "block_4", "objects": 3, "recall_50": pytest.approx(expected=1 / 3), "recall_70": 0.0,
@@ -127,11 +144,13 @@ def test_proposal_recall_of_the_valid_proposals() -> None:
     scalars = proposal_recall["scalars"]
     assert scalars["Proposal Recall@0.5/all"] == pytest.approx(expected=2 / 3)
     assert scalars["Proposals Per Image/block_4"] == pytest.approx(expected=1 / 3)
-    assert "Proposal Recall@0.5/medium" not in scalars and "Proposals Per Image/small" not in scalars
+    assert "Proposal Recall@0.5/1_16_to_1_8" not in scalars and "Proposals Per Image/under_1_16" not in scalars
     table = proposal_recall["table"]
     assert table["title"] == "Proposal Recall" and not table["per_class"]
-    assert [row[0] for row in table["rows"]] == ["All Objects", "Small (< 32²)", "Medium (32² to 96²)",
-                                                 "Large (>= 96²)", "Block 3 Proposals", "Block 4 Proposals"]
+    assert [row[:2] for row in table["rows"]] == [
+        ["All Objects", ""], ["Under 1/16", "< 25"], ["1/16 to 1/8", "25 to 50"], ["1/8 to 1/4", "50 to 100"],
+        ["1/4 to 1/2", "100 to 200"], ["1/2 and above", ">= 200"], ["Block 3 Proposals", ""],
+        ["Block 4 Proposals", ""]]
 
     # The recalls of the report written as percentages, the objects and the proposals per image as counts
     assert table["percent_columns"] == ["Recall@0.5", "Recall@0.7"]
