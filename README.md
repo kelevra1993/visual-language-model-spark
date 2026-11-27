@@ -338,41 +338,6 @@ If words such as eager, ONNX or TensorRT stop you, this part follows one run to 
 </p>
 <p align="center"><em>The four ways to run the checkpoint of the README classifier, with the sizes of model.pt, model.onnx and the TensorRT engines built from model.onnx in the Triton image (TensorRT 10.14.1, GB10).</em></p>
 
-#### ONNX Runtime And Its Execution Providers
-For an ONNX file to run, the export check and Triton use ONNX Runtime, which hands each node to an execution provider (the plug-in picking hardware and kernels):
-
-| Execution provider | How it runs the graph | In this repository |
-|---|---|---|
-| `CPUExecutionProvider` | every node on the CPU | the export check of `model.onnx` |
-| `CUDAExecutionProvider` | nodes one after the other on the GPU, with the NVIDIA kernel libraries cuDNN and cuBLAS (as PyTorch) | Triton with `tensorrt_precision = None` |
-| `TensorrtExecutionProvider` | the parts TensorRT supports to TensorRT, the rest to CUDA | Triton with `"FP32"` (default) or `"FP16"` |
-
-Before you plan a GPU run of `model.onnx` in your own process, check which providers you have (the `onnxruntime` package of `pyproject.toml` is the CPU build):
-
-```python
-import onnxruntime
-
-print(onnxruntime.get_available_providers())
-```
-
-It prints `['AzureExecutionProvider', 'CPUExecutionProvider']` in the repository environment. The CUDA and TensorRT providers come with `onnxruntime-gpu` and with the Triton image.
-
-#### TensorRT
-In case speed on one GPU matters more than a portable file, TensorRT compiles the whole graph into an engine for that GPU (ONNX Runtime CUDA runs nodes one by one). It does three things:
-- **Fusion**: several nodes in one kernel, intermediate tensors never written to memory (a Conv and the Relu after it become one layer); 125 nodes become 79 layers.
-- **Kernel auto-tuning**: for each layer, the builder times candidate kernels (tactics) on the GPU and keeps the fastest; for the first convolution it timed 60, from 0.0859 milliseconds (TF32 on the Tensor Cores) to 0.2888.
-- **Reduced precision**: with `"FP16"`, it uses FP16 kernels where faster; for the same convolution, 0.0217 milliseconds.
-
-<p align="center">
-  <img src="README/tensorrt_fusion_and_tuning.gif" width="100%" />
-</p>
-<p align="center"><em>The input normalization and block 1 of the README classifier: 13 nodes in model.onnx become 9 TensorRT layers (<code>trtexec --exportLayerInfo</code>), then the 60 kernels timed for the fused convolution on the GB10 and the one kept.</em></p>
-
-The engine (or plan) is valid for one GPU model, one TensorRT version and its input shapes; slow to build, fast to run. ONNX Runtime builds it inside Triton at the first requests and caches it in `/tmp/tensorrt_engine_cache` of the container; building it at export (`model.plan`) is not implemented. See [TensorRT Or TorchScript And ONNX Runtime CUDA](#tensorrt-or-torchscript-and-onnx-runtime-cuda) for the costs.
-
-#### Precision Of The Numbers
-So that you can weigh a reduced precision before serving with it: exports store FP32, except the FP16 TorchScript file (`torchscript_precision = "FP16"`). Fewer bits (TF32, BF16, FP16, FP8, INT8, FP4) compute faster but round more or hold a narrower range: the detector lost 7.88 points of mAP@0.5 in TensorRT FP16 when box values went above 65,504, the FP16 maximum, until its NMS was fixed ([Serving Benchmark Results](#serving-benchmark-results)). See [Number Formats](#number-formats).
-
 #### Triton Inference Server
 When other programs must query the model over the network, Triton holds it, a Docker container started from `vision_training/deployment/triton/docker-compose.yml` ([Triton Server](#triton-server)). It loads `served_models/` (one folder per model with its `config.pbtxt`), takes HTTP (port 8000) or gRPC (port 8001) requests, batches those arriving within 1 millisecond, and runs each file with its backend (libtorch or ONNX Runtime). "In the process" is the opposite: the model inside your own program, no network.
 
@@ -780,7 +745,7 @@ One request at a time, Triton adds latency: a 512-pixel CLS image takes 4.5 mill
 
 #### TensorRT Or TorchScript And ONNX Runtime CUDA
 Whenever latency matters more than a portable file, TensorRT compiles the ONNX graph into an engine for this GPU instead of running it operator by operator:
-- **Layer fusion.** Convolution, batch normalization and ReLU of `convolution_block.py` become one kernel ([TensorRT](#tensorrt)); ONNX Runtime fuses them on the CPU only ([graph optimizations](https://onnxruntime.ai/docs/performance/model-optimizations/graph-optimizations.html)), libtorch not at all.
+- **Layer fusion.** Convolution, batch normalization and ReLU of `convolution_block.py` become one kernel; ONNX Runtime fuses them on the CPU only ([graph optimizations](https://onnxruntime.ai/docs/performance/model-optimizations/graph-optimizations.html)), libtorch not at all.
 - **Kernel auto-tuning.** The fastest kernel of each layer is timed on this GPU.
 - **Reduced precision.** FP16 Tensor Core kernels where faster, allowed but not forced ([precision control, TensorRT 10](https://docs.nvidia.com/deeplearning/tensorrt/10.x.x/inference-library/precision-control.html)).
 
