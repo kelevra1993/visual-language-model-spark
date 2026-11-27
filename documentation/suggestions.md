@@ -197,8 +197,9 @@ average recall by object size and the recall of the anchors and of the proposals
 
 Default hyperparameters of Mask R-CNN (`config.py`) against `instance_segmentation/configuration_example.yaml` (the
 synthetic shapes configuration uses the same values at 512 pixels, except two anchor scales per level, with a smaller
-backbone and heads and a batch of 64; the object detection configurations differ since the detection benchmark: feature
-pyramid, background IoU minimum 0.1, proposal selection per level, DIoU-NMS 0.6 and learning rate 1e-3):
+backbone and heads and a batch of 64, and without the winners of the detection and instance segmentation benchmarks,
+which the example holds since 2026-11-27: feature pyramid, background IoU minimum 0.1, proposal selection per level,
+DIoU-NMS 0.6, learning rate 1e-3 and the mask heads below):
 
 | Setting | Mask R-CNN | INS example | Note |
 |---|---|---|---|
@@ -208,19 +209,19 @@ pyramid, background IoU minimum 0.1, proposal selection per level, DIoU-NMS 0.6 
 | Region proposal positive IoU | ≥ 0.7 | ≥ 0.5 | |
 | Region proposal negative IoU | < 0.3 | < 0.3 | Same |
 | Anchors sampled | 256, ≤ 50 % positive | 256, ≤ 128 positive | Same |
-| Proposals before NMS | 6000 | 1000 / 500 | |
+| Proposals before NMS | 6000 | 1000 / 500 per level | |
 | Region proposal NMS | 0.7 | 0.7 | Same |
 | Proposals after NMS | 2000 / 1000 | 500 / 250 | |
 | RoIs sampled per image | 200, 33 % positive, without the ground truth boxes | 128, ≤ 64 positive, with the ground truth boxes | The paper: 512, 25 % |
 | Box head | Shared, 2 × FC 1024 with BN | Per level, 2 conv × 64, FC 256 and 128 | |
-| Mask head | Shared, 4 conv × 256 with BN | Per level, 4 conv × 64, residual, BN | Item 7 |
+| Mask head | Shared, 4 conv × 256 with BN | Shared, 4 conv × 64, residual, BN, bilinear doubling, image branch of 5 conv × 32 and 1 fusion conv × 64 | Stages 3b, 4 and 5 of the instance segmentation benchmark |
 | Box target scaling | ÷ [0.1, 0.1, 0.2, 0.2] | × (1, 1, 1, 1), fixed | Different |
 | Smooth L1 β | 1 (on scaled targets) | 1/9 (on unscaled targets) | torchvision: 1/9 |
 | Detection score threshold | 0.7 | 0.5 (0.05 in evaluation) | |
-| Detection NMS | 0.3 | 0.5 | |
+| Detection NMS | 0.3 | 0.5, DIoU-NMS with a distance exponent of 0.6 | |
 | Maximum detections | 100 | 100 | Same |
 | Mask threshold | 0.5 | 0.5 | Same |
-| Optimiser | SGD momentum 0.9, learning rate 0.001 | Adam, learning rate 2e-4 | The paper: 0.02. Mask R-CNN lowered it, reporting exploding weights. |
+| Optimiser | SGD momentum 0.9, learning rate 0.001 | Adam, learning rate 1e-3 | The paper: 0.02. Mask R-CNN lowered it, reporting exploding weights. |
 | Weight decay | 1e-4, BN parameters excluded | 0 | Audit M10 |
 | Gradient clipping | Norm 5 per gradient tensor | None | Mask R-CNN always clips, and its README suspects that clipping is what keeps the higher learning rate of the paper stable. Not tried: `Optimization.gradient_clipping_norm` was removed on 2026-11-11, no run having used it. |
 | Batch | 2 images per GPU, BN frozen | 40, BN trained | |

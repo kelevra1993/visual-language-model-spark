@@ -61,8 +61,8 @@ ExperimentConfiguration:
     tracking_uri: null
     # MLflow experiment, null for the task name ("instance_segmentation").
     experiment_name: null
-  # Base learning rate.
-  learning_rate: 2.0e-4
+  # Base learning rate, 1e-3 kept by stage 1 of the detection benchmark.
+  learning_rate: 1.0e-3
   # Lets a resumed run train on a changed labels.json (the previous data.json kept as data_until_iteration_<n>.json);
   # False refuses it, a new run (run_name_suffix) being needed. A moved data folder with the same labels resumes.
   allow_data_change_on_resume: false
@@ -291,9 +291,9 @@ DetectionLevels:
 
 # Neck between the level blocks and the heads, every level keeping the size of its block.
 Neck:
-  # "none" (heads read the blocks), "feature_pyramid" (top-down path from the coarse levels) or "path_aggregation"
-  # (the feature pyramid, then a bottom-up path from the fine levels).
-  type: "none"
+  # "none" (heads read the blocks), "feature_pyramid" (top-down path from the coarse levels, kept by the detection
+  # benchmark) or "path_aggregation" (the feature pyramid, then a bottom-up path from the fine levels).
+  type: "feature_pyramid"
   # Channels of every level after the neck, read by the heads (unused with "none").
   output_channels: 64
   normalization:
@@ -306,7 +306,7 @@ RegionProposal:
     feature_map_normalization: "batch"
   # "joint" (one top-k and NMS over all the levels) or "per_level" (top-k and NMS of every level, then the best
   # over all the levels, as torchvision, empty proposals dropped), which makes pre_nms_proposals a count per level.
-  proposal_selection: "joint"
+  proposal_selection: "per_level"
   training:
     # Top raw proposals kept per image (per level with "per_level") before non-maximum suppression in training.
     pre_nms_proposals: 1000
@@ -324,9 +324,9 @@ RegionProposal:
     # [min, 1.0]: keep 1.0.
     max: 1.0
   background_iou_threshold:
-    # Minimum IoU of a strict background anchor. At 0.0 any anchor overlapping no object can be background; above it,
-    # those are ignored and only hard negatives (anchors touching an object) are sampled.
-    min: 0.0
+    # Minimum IoU of a strict background anchor: above 0.0 the anchors overlapping no object are ignored, only the
+    # hard negatives touching an object being sampled (0.1 kept by the detection benchmark).
+    min: 0.1
     # Maximum IoU of a strict background anchor.
     max: 0.3
   # IoU threshold of the non-maximum suppression of overlapping proposals.
@@ -374,9 +374,10 @@ Detector:
   nms_iou_threshold: 0.5
   # Criterion of the final NMS: "iou", or "distance_iou" (the IoU minus the normalized distance of the centres,
   # https://arxiv.org/abs/1911.08287), compared with nms_iou_threshold.
-  nms_criterion: "iou"
-  # Exponent of the distance term of "distance_iou": 1.0 as in the paper, 0.6 in YOLOv4 (more boxes kept).
-  nms_distance_exponent: 1.0
+  nms_criterion: "distance_iou"
+  # Exponent of the distance term of "distance_iou": 1.0 as in the paper, 0.6 in YOLOv4 (more boxes kept), kept
+  # by stage 5b of the detection benchmark (+0.0034 mAP@[0.5:0.95] on its occlusion split).
+  nms_distance_exponent: 0.6
   # Most positive proposals sampled per image; the ground truth boxes fill its last proposal slots first, so every
   # object has a positive to sample.
   number_training_positives: 64
@@ -406,23 +407,23 @@ MaskHead:
   # as often as fits in M, then resized bilinearly to M (pool 14 doubles once, 7 twice).
   mask_resolution: 28
   # Pooled feature doubling: "transposed" (learned 2x2 transposed convolution) or "bilinear" (bilinear upsampling then a
-  # 3x3 convolution), each followed by a ReLU.
-  upsampling: "transposed"
+  # 3x3 convolution, kept by stage 4 of the instance segmentation benchmark), each followed by a ReLU.
+  upsampling: "bilinear"
   # Backbone blocks (before their pooling, 0 the input image) finer than the finest level, pooled at the pool size and
   # concatenated to the pooled features of every level (U-Net skips), e.g. [4] (stride 8); [] for none.
   skip_blocks_at_pool_size: []
   # Image branch: [layers, channels] of plain 3x3 convolutions on the box crop of the normalized input image at M,
-  # shared by the levels and concatenated after the doublings, e.g. [5, 32]; [0, 0] for none.
-  image_branch_convolutions: [0, 0]
+  # shared by the levels and concatenated after the doublings; [5, 32] kept by stage 3b of the benchmark, [0, 0] none.
+  image_branch_convolutions: [5, 32]
   # Backbone blocks (before their pooling) finer than those at the pool size, pooled at M and concatenated after the
   # doublings, e.g. [3] (stride 4); [] for none.
   skip_blocks_at_mask_resolution: []
-  # [layers, channels] of plain 3x3 convolutions at M before the predictor, mixing the concatenated features, e.g.
-  # [1, 64]; [0, 0] for none, the predictor following the doublings as in Mask R-CNN.
-  fusion_convolutions: [0, 0]
-  # True: one mask head read by every level (Mask R-CNN), trained on all the positives; needs the same mask_head
-  # on every level and equal level channels (a neck). False: one mask head per level.
-  shared: False
+  # [layers, channels] of plain 3x3 convolutions at M before the predictor, mixing the concatenated features ([1, 64]
+  # with the image branch of stage 3b); [0, 0] for none, the predictor following the doublings as in Mask R-CNN.
+  fusion_convolutions: [1, 64]
+  # True (kept by stage 5 of the benchmark): one mask head read by every level (Mask R-CNN), trained on all the
+  # positives; needs the same mask_head on every level and equal level channels (a neck). False: one per level.
+  shared: True
   normalization:
     # "batch", "layer" (over channels) or "none"
     feature_map_normalization: "batch"
