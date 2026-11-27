@@ -116,14 +116,14 @@ scenes:
 
   - kind: code
     title: "Comparing runs"
-    code_reference: "scripts/evaluation/compare_best_evaluations.py · compare_best_evaluations"
+    code_reference: "scripts/evaluation/compare_best_evaluations.py · parse_comparison_arguments"
     source:
       file: scripts/evaluation/compare_best_evaluations.py
-      start: "^if __name__ == \"__main__\":"
-      end: "^    evaluated_weights = "
+      start: "^    # The runs compared, and the evaluation kept for every run"
+      end: 'join\(TEST_FOLDERS\)'
     highlights:
-      - {match: "^    experiment_folders = ", sentences: [0]}
-      - {match: "^    best_metric = |^    higher_is_better = |^    evaluated_weights = ", sentences: [1]}
+      - {match: 'add_argument\("--experiment_folders"', sentences: [0]}
+      - {match: 'add_argument\("--best_metric"|add_argument\("--lower_is_better"|add_argument\("--evaluated_weights"', sentences: [1]}
     narration:
       - "To compare finished runs, the compare best evaluations script reads every run folder of some experiment folders."
       - "It picks the best evaluation of every run by one test curve, over the trained weights, the averaged weights or both, and prints markdown tables with any setting of the configurations and the image counts of every split as columns."

@@ -12,13 +12,16 @@ the trained and averaged weights at every evaluated checkpoint, the kept one rin
 Tensorboard/Test_EMA), drawn like the evaluation curves of every run (vision_training/evaluation/evaluation_curves.py).
 The figures, and report_values.json with the numbers they show (the thresholds rounded down to
 the fewest decimals, four at least, selecting the same samples, their recalls, the balanced accuracy of every group),
-are written to '<evaluation folder>/Report_Figures/'.
+are written to '<evaluation folder>/Report_Figures/'. Run as a script with the run folder, the kept checkpoint and the
+settings of the figures given as arguments (parse_report_arguments), its help printed when none is given.
 """
 
+import argparse
 import csv
 import json
 import math
 import matplotlib
+import sys
 import torch
 import yaml
 
@@ -31,6 +34,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from scripts.evaluation.collect_experiment_results import TEST_FOLDERS
+from scripts.evaluation.compare_best_evaluations import read_key_value_argument
 from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
 from vision_training.evaluation.classification.classification_metrics import (compute_confusion_matrix,
                                                                               compute_metrics_from_confusion_matrix)
@@ -47,7 +51,7 @@ from vision_training.evaluation.evaluation_curves import (GRID_COLOR, TEXT_PRIMA
                                                           read_test_curves, save_evaluation_curves_figure)
 from vision_training.evaluation.report_formatting import (format_percentage, format_percentage_label,
                                                           format_percentage_tick)
-from vision_training.trainers.base_trainer import AVERAGED_WEIGHTS_FOLDER_NAME
+from vision_training.trainers.base_trainer import AVERAGED_WEIGHTS_FOLDER_NAME, EVALUATION_FOLDER_NAME
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Folder of the figures inside the evaluation folder of the kept checkpoint, the files they are drawn from and the
@@ -107,6 +111,14 @@ GROUPS_DOTS_PER_INCH = 230
 # Font of the figures of the reports, used when installed in this folder, matplotlib's default font otherwise
 REPORT_FONT_FAMILY = "Inter"
 REPORT_FONT_FOLDER = Path("/usr/share/fonts/opentype/inter")
+
+# Settings of the figures taken when the command line of the script (parse_report_arguments) does not give them, also
+# read by the tutorial figures of the report: the trained weights evaluated by
+# scripts/evaluation/evaluate_checkpoint.py, whose temperature explorer page saves the temperature of the export,
+# written as test images, the recall axis from 0, and the keys of a manifest giving the camera of every image
+DEFAULT_REPORT_SETTINGS = {"weights": "trained", "evaluation_folder_name": CHECKPOINT_EVALUATION_FOLDER_NAME,
+                           "sample_kind": "images", "split_name": "test", "minimum_recall": 0.0,
+                           "file_name_key": "file_name", "group_key": "camera", "group_plural": "cameras"}
 
 
 def find_evaluation_folder(experiment_folder: Path, evaluation_folder_name: str, iteration: int, weights: str) -> Path:
@@ -573,9 +585,9 @@ def read_predictions(predictions_path: Path) -> List[Dict[str, str]]:
     """
     if not predictions_path.is_file():
         raise FileNotFoundError(f"No predictions file at {format_path_link(path=predictions_path)}: evaluate the "
-                                f"checkpoint with save_predictions = True in "
+                                f"checkpoint with --save_predictions True of "
                                 f"scripts/evaluation/evaluate_checkpoint.py, or give the predictions file of the same "
-                                f"evaluation.")
+                                f"evaluation with --predictions_path.")
     with predictions_path.open(newline="") as predictions_file:
         reader = csv.DictReader(predictions_file)
         missing_columns = [column for column in PREDICTION_COLUMNS if column not in (reader.fieldnames or [])]
@@ -603,7 +615,7 @@ def find_training_labels_path(experiment_folder: Path) -> Path:
     labels_path = Path(configuration["ExperimentConfiguration"]["train_data_folder"]) / LABELS_FILE_NAME
     if not labels_path.is_file():
         raise FileNotFoundError(f"No training labels file at {format_path_link(path=labels_path)}, the "
-                                f"train_data_folder of the run: give training_labels_path, the labels.json of its "
+                                f"train_data_folder of the run: give --training_labels_path, the labels.json of its "
                                 f"training split.")
     return labels_path
 
@@ -884,41 +896,111 @@ def draw_report_figures(experiment_folder: Path, iteration: int, weights: str, e
     return output_folder
 
 
+def parse_report_arguments(arguments: List[str]) -> argparse.Namespace:
+    """
+    Reads the kept checkpoint and the settings of the figures of a research report from the command line of the
+    script, so that a report is refreshed without editing the file: the run folder and the iteration are required, the
+    other settings default to DEFAULT_REPORT_SETTINGS, the names shown for the classes to the class names and the
+    paths of the groups chart to none (no chart). Launched without any argument, the script prints the help of every
+    argument and stops. A '~' left by the shell at the start of a path ('--experiment_folder=~/Data/...') is expanded to
+    the home folder.
+
+    Args:
+        arguments (List[str]): The command line arguments, without the script name.
+
+    Returns:
+        argparse.Namespace: The arguments of draw_report_figures but the font, which register_report_font gives.
+
+    Raises:
+        SystemExit: After printing the help when no argument is given, or the usage and the error when the run folder
+            or the iteration is missing, a value is not one the figures accept or a class is given two names.
+    """
+    # The description and the example keep their line breaks, argparse wrapping the help of every argument
+    parser = argparse.ArgumentParser(
+        prog="uv run python -m scripts.evaluation.draw_report_figures",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Draws the figures of the research report of a kept classifier, and the numbers they show, from\n"
+                    "the evaluation of its checkpoint and the test curves of its training.",
+        epilog="Example, iteration 2000 of a run evaluated by scripts/evaluation/evaluate_checkpoint.py:\n"
+               "  uv run python -m scripts.evaluation.draw_report_figures --experiment_folder ~/Data/<run> \\\n"
+               "      --iteration 2000")
+    # The kept checkpoint and the evaluation the figures are drawn from
+    parser.add_argument("--experiment_folder", type=Path, required=True,
+                        help="Run folder of the kept classifier (required).")
+    parser.add_argument("--iteration", type=int, required=True, help="Iteration of the kept checkpoint (required).")
+    parser.add_argument("--weights", choices=list(TEST_FOLDERS), default=DEFAULT_REPORT_SETTINGS["weights"],
+                        help="Kept weights, trained or ema, the moving average of the weights (default: "
+                             "%(default)s).")
+    parser.add_argument("--evaluation_folder_name", choices=[CHECKPOINT_EVALUATION_FOLDER_NAME, EVALUATION_FOLDER_NAME],
+                        default=DEFAULT_REPORT_SETTINGS["evaluation_folder_name"],
+                        help="Folder of the evaluation in the run folder: Checkpoint_Evaluation of "
+                             "scripts/evaluation/evaluate_checkpoint.py, whose temperature explorer page saves the "
+                             "temperature of the export, or Evaluation of the training (default: %(default)s).")
+    # What the figures write
+    parser.add_argument("--class_display_names", type=read_key_value_argument, nargs="+", default=None,
+                        metavar="CLASS=NAME",
+                        help="Name shown for every class, in the order of the curves (two classes: the first in red) "
+                             "or of the panels (default: the class names in class index order).")
+    parser.add_argument("--sample_kind", default=DEFAULT_REPORT_SETTINGS["sample_kind"],
+                        help="What the samples are, in the plural, written in the titles (default: %(default)s).")
+    parser.add_argument("--split_name", default=DEFAULT_REPORT_SETTINGS["split_name"],
+                        help="Evaluated split, written in the titles and on the axes (default: %(default)s).")
+    parser.add_argument("--minimum_recall", type=float, default=DEFAULT_REPORT_SETTINGS["minimum_recall"],
+                        help="Left end of the recall axis of the precision-recall figure, close to 1 when every "
+                             "threshold keeps nearly every sample, e.g. 0.98 (default: %(default)s).")
+    # The chart of the groups seen and never seen in training
+    parser.add_argument("--group_manifest_path", type=Path, default=None,
+                        help="JSON Lines manifest giving the group of every training and evaluated sample, e.g. its "
+                             "camera, for the chart of the groups seen and never seen in training, which also reads "
+                             "the predictions of the evaluation and the labels.json of the training split (default: "
+                             "no chart).")
+    parser.add_argument("--file_name_key", default=DEFAULT_REPORT_SETTINGS["file_name_key"],
+                        help="Key of the file name of a sample in the manifest (default: %(default)s).")
+    parser.add_argument("--group_key", default=DEFAULT_REPORT_SETTINGS["group_key"],
+                        help="Key of the group of a sample in the manifest (default: %(default)s).")
+    parser.add_argument("--group_plural", default=DEFAULT_REPORT_SETTINGS["group_plural"],
+                        help="What the groups are, in the plural, written on the chart (default: %(default)s).")
+    parser.add_argument("--training_labels_path", type=Path, default=None,
+                        help="labels.json of the training split (default: the one of the train_data_folder of the "
+                             "run).")
+    parser.add_argument("--predictions_path", type=Path, default=None,
+                        help="Predictions of the evaluation (default: its predictions.csv, written with "
+                             "--save_predictions True of scripts/evaluation/evaluate_checkpoint.py).")
+
+    # Without any argument, the script describes its arguments instead of failing on the missing run folder
+    if not arguments:
+        parser.print_help()
+        parser.exit(status=0)
+    parsed_arguments = parser.parse_args(args=arguments)
+
+    # A '~' the shell leaves after '=' points to the home folder, as in the other scripts of the repository
+    for path_name in ["experiment_folder", "group_manifest_path", "training_labels_path", "predictions_path"]:
+        if getattr(parsed_arguments, path_name) is not None:
+            setattr(parsed_arguments, path_name, getattr(parsed_arguments, path_name).expanduser())
+
+    # Names shown for the classes in the order given, a class given two names being refused
+    if parsed_arguments.class_display_names is not None:
+        class_display_names = dict(parsed_arguments.class_display_names)
+        if len(class_display_names) != len(parsed_arguments.class_display_names):
+            parser.error(message="argument --class_display_names: a class is given two names")
+        parsed_arguments.class_display_names = class_display_names
+    return parsed_arguments
+
+
 if __name__ == "__main__":
-    # Run folder of the kept classifier, in the experiments root folder of its configuration ('experiment_folder'),
-    # and its kept checkpoint: the iteration and the weights, "trained" or "ema" (the moving average of the weights),
-    # here the 35-class synthetic shapes classifier of the README screenshots, trained without moving average
-    run_name = "CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35"
-    experiment_folder = Path.home() / "Data" / "tutorial_runs" / "readme_screenshots" / run_name
-    iteration = 2000
-    weights = "trained"
-    # Folder of the evaluation of the checkpoint in the run folder: 'Checkpoint_Evaluation' of
-    # scripts/evaluation/evaluate_checkpoint.py, whose temperature explorer page saves the temperature of the export,
-    # or 'Evaluation' of the training
-    evaluation_folder_name = CHECKPOINT_EVALUATION_FOLDER_NAME
-    # Name shown for every class, in the order of the curves (two classes: the first in red) or of the panels, None for
-    # the class names in class index order, e.g. {"square": "Square", "circle": "Circle", ...} naming every class
-    class_display_names = None
-    # What the samples are and the evaluated split, written in the titles and labels ("on the 50,000 test images")
-    sample_kind = "images"
-    split_name = "test"
-    # Left end of the recall axis of the precision-recall figure, 0, or close to 1 when every threshold keeps nearly
-    # every sample (e.g. 0.98)
-    minimum_recall = 0.0
-    # JSON Lines manifest giving the group of every training and evaluated sample, e.g. a manifest of a dataset built
-    # from the images of several cameras ('file_name', 'camera'), None to skip the seen and never seen chart, the
-    # synthetic shapes having no group. The chart also reads the predictions.csv of the evaluation (save_predictions =
-    # True in evaluate_checkpoint.py, or predictions_path) and the labels.json of the training split
-    # (training_labels_path, None for the one of the train_data_folder of the run)
-    group_manifest_path = None
-    file_name_key, group_key, group_plural = "file_name", "camera", "cameras"
-    training_labels_path = None
-    predictions_path = None
+    # Run folder, kept checkpoint and settings of the figures read from the command line, the help printed when none is
+    # given
+    report_arguments = parse_report_arguments(arguments=sys.argv[1:])
 
     # Figures drawn in the font of the reports when it is installed
-    draw_report_figures(experiment_folder=experiment_folder, iteration=iteration, weights=weights,
-                        evaluation_folder_name=evaluation_folder_name, class_display_names=class_display_names,
-                        sample_kind=sample_kind, split_name=split_name, minimum_recall=minimum_recall,
-                        group_manifest_path=group_manifest_path, file_name_key=file_name_key, group_key=group_key,
-                        group_plural=group_plural, training_labels_path=training_labels_path,
-                        predictions_path=predictions_path, font_family=register_report_font())
+    draw_report_figures(experiment_folder=report_arguments.experiment_folder, iteration=report_arguments.iteration,
+                        weights=report_arguments.weights,
+                        evaluation_folder_name=report_arguments.evaluation_folder_name,
+                        class_display_names=report_arguments.class_display_names,
+                        sample_kind=report_arguments.sample_kind, split_name=report_arguments.split_name,
+                        minimum_recall=report_arguments.minimum_recall,
+                        group_manifest_path=report_arguments.group_manifest_path,
+                        file_name_key=report_arguments.file_name_key, group_key=report_arguments.group_key,
+                        group_plural=report_arguments.group_plural,
+                        training_labels_path=report_arguments.training_labels_path,
+                        predictions_path=report_arguments.predictions_path, font_family=register_report_font())

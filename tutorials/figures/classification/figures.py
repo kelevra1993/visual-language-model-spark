@@ -4,7 +4,7 @@ tutorials.figures.make_figures --series classification) at every build, from the
 tutorials/tutorial_sources.yaml and the code of the repository: what is specific to the classification head, the
 sample and error images of the evaluations of the classification run, its evaluation tables (confusion matrices,
 per-class metrics and thresholds, headline metrics), the confidence of its predictions, the figures of the research
-report of its kept checkpoint (scripts/evaluation/draw_report_figures.py), the learning rate variants of the run trained
+report of its last checkpoint (scripts/evaluation/draw_report_figures.py), the learning rate variants of the run trained
 on a 9-class version of the shapes (classification_nine_classes), the listings of its data files, the measured effects
 of the head settings in the architecture benchmark, and the outputs of its trained classifier (the logits and
 probabilities of a test star, the correlation of the hidden features of the head, the balanced class weights and the
