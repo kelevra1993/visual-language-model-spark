@@ -71,7 +71,8 @@ class EvaluationTable(TypedDict):
     stored order), or in stored order without one. A per-class table is only shown with the per-class report, and its
     legend is written below it. The percent columns hold rates between 0 and 1 written as percentages ("94.03 %"),
     their cells staying raw so that the sort is unchanged; the columns of counts, ranks, thresholds or errors are left
-    out of them and keep their values.
+    out of them and keep their values. The graded columns, among the percent columns, colour their rates in the console
+    from red (0) to green (1), for the tables read at a glance such as the anchor recall.
     """
     title: str
     columns: List[str]
@@ -80,6 +81,7 @@ class EvaluationTable(TypedDict):
     per_class: bool
     legend: str
     percent_columns: List[str]
+    graded_columns: NotRequired[List[str]]
 
 
 class EvaluationResults(TypedDict):

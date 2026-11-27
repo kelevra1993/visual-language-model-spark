@@ -22,6 +22,7 @@ from unittest.mock import MagicMock, patch
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.detection.coco_masks import expand_instance_index_maps
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
+from vision_training.evaluation.detection.object_sizes import OBJECT_SIZE_NAMES
 from vision_training.trainers.instance_segmentation_trainer import InstanceSegmentationTrainer
 from tests.fixtures.evaluation_checks import (check_detection_error_analysis, check_sample_images,
                                               read_results_blocks)
@@ -188,7 +189,7 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
         class_rows = list(csv.DictReader(f=class_metrics_file))
     precision_recall_columns = ["average_precision_50", "average_precision_75", "average_precision_95",
                                 "average_precision_50_95"] + [
-        f"average_precision_{threshold}_{object_size}" for object_size in ["small", "medium", "large"]
+        f"average_precision_{threshold}_{object_size}" for object_size in OBJECT_SIZE_NAMES
         for threshold in ["50", "50_95"]] + [f"recall_{threshold}{bound}" for threshold in ["50", "75"]
                                              for bound in ["", "_lower", "_upper"]]
     assert list(class_rows[0]) == ["class_index", "class", "ground_truths"] + precision_recall_columns + [
@@ -197,12 +198,15 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     assert sum(int(class_row["ground_truths"]) for class_row in class_rows) == number_objects
     assert [class_row["class"] for class_row in class_rows] == list(SHAPE_CATEGORIES)
 
-    # Every object has one size, by mask area for the mask table and by box area for the box table
+    # Every object has one size, by mask area for the mask table and by box area for the box table, each size with
+    # its sides in pixels of the network input
     for size_table in [results["tables"][1], results["tables"][3]]:
-        assert sum(row[1] for row in size_table["rows"]) == number_objects
+        assert size_table["columns"][:3] == ["Object Side", "Pixels", "Objects"]
+        assert sum(row[2] for row in size_table["rows"]) == number_objects
 
-    # Anchor recall of the training objects written at launch, like the object detection
+    # Anchor recall of the training and test objects written at the first launch, like the object detection
     assert (trainer.experiment_folder / "anchor_recall.csv").is_file()
+    assert (trainer.experiment_folder / "anchor_recall.png").is_file()
 
     # Confusion matrix, class thresholds and error images of the detections matched by their masks
     assert trainer.MATCHING_OVERLAP_TYPE == "masks"
@@ -307,7 +311,8 @@ def build_original_resolution_test_image() -> Tuple[Dict[str, Any], Dict[str, An
     network_masks = torch.zeros(size=(3, 10, 10), dtype=torch.uint8)
     network_masks[0, 3:5, 1:3] = 1
     network_masks[1, 2, 0:2] = 1
-    batch = {"bounding_boxes": [torch.tensor(data=[[1.0, 3.0, 3.0, 5.0], [0.0, 2.0, 2.0, 3.0],
+    batch = {"images": torch.zeros(size=(1, 3, 10, 10)),
+             "bounding_boxes": [torch.tensor(data=[[1.0, 3.0, 3.0, 5.0], [0.0, 2.0, 2.0, 3.0],
                                                    [5.25, 4.25, 5.5, 4.5]])],
              "labels": [torch.tensor(data=[1, 2, 2])], "instance_masks": [network_masks],
              "original_instance_masks": [original_masks],
@@ -333,8 +338,9 @@ def test_detections_and_objects_are_gathered_at_the_original_resolution() -> Non
     and clipped to it, the masks are pasted into the whole restored boxes (the band, whose box starts on the padding,
     then covers exactly its object, where a clipped box would only cover half of it), the overlaps and areas are
     those of the original masks, and the objects keep the boxes and mask areas of the original annotations, the one
-    pixel object vanishing at the network resolution included. At the network resolution, the same image keeps its
-    network boxes and areas.
+    pixel object vanishing at the network resolution included, and the image area sizing the objects is that of the
+    original image. At the network resolution, the same image keeps its network boxes and areas, and the area of the
+    network input.
     """
     batch, predictions = build_original_resolution_test_image()
 
@@ -355,6 +361,7 @@ def test_detections_and_objects_are_gathered_at_the_original_resolution() -> Non
     ground_truth = trainer.gather_image_ground_truth(batch=batch, image_index=0)
     assert torch.equal(input=ground_truth["boxes"], other=batch["original_bounding_boxes"][0])
     assert ground_truth["mask_areas"].tolist() == [64, 32, 1] and ground_truth["labels"].tolist() == [1, 2, 2]
+    assert ground_truth["image_area"] == 40.0 * 20.0
 
     # The same image at the network resolution keeps the network boxes and areas
     trainer.original_resolution = False
@@ -363,7 +370,7 @@ def test_detections_and_objects_are_gathered_at_the_original_resolution() -> Non
     assert detection["mask_areas"].tolist() == [4, 2]
     ground_truth = trainer.gather_image_ground_truth(batch=batch, image_index=0)
     assert torch.equal(input=ground_truth["boxes"], other=batch["bounding_boxes"][0])
-    assert ground_truth["mask_areas"].tolist() == [4, 2, 0]
+    assert ground_truth["mask_areas"].tolist() == [4, 2, 0] and ground_truth["image_area"] == 10.0 * 10.0
 
 
 def pass_batch_through(images: torch.Tensor, bounding_boxes: List[torch.Tensor], labels: List[torch.Tensor],

@@ -9,11 +9,11 @@ The examples come from three sources, listed in this table.
 | Stages 1 and 2 | `vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml` as it was then (1024 pixel images, batch size 40, detection on blocks 5, 6 and 7), run on CPU on a small generated dataset (`create_synthetic_dataset(task="object_detection")`: 100 / 20 / 20 images of 512 pixels, 1 to 6 shapes, 9 classes), the run folder redirected to a temporary folder |
 | Stages 3 to 5, outputs of the run (checkpoints, summaries, reports, images, scalars, standalone evaluation; Step 5.4 excepted) | the 5000-iteration run of [`run_configurations/object_detection_workflow_run.yaml`](run_configurations/object_detection_workflow_run.yaml), trained on the GPU on 2026-10-24 on the dataset of that day (128,000 / 20,000 / 20,000 images, 20 classes): the synthetic configuration of that day with 5000 iterations instead of 2000, an evaluation every 500 (an intermediate checkpoint every 250), MLflow on, experiment folder `experiments/workflow_runs` |
 | Stages 3 and 4, tensors of one batch (Steps 3.6 to 3.18, 3.20, 3.21, 4.2 to 4.4, 4.8, 4.9) | the CPU run: the Stage 1 configuration at 512 pixels, batch size 2, 12 iterations, a checkpoint every 6, a summary every 4, a validation batch every 10, MLflow on. It finds no shape: its values only show the shapes and order of the steps |
-| Step 2.21 (anchor recall) | a later run with the settings of the 12-iteration run, on a dataset of the same sizes with 20 shape classes (the generator now draws 35) |
+| Step 2.21 (anchor recall) | the first launch of the synthetic configuration of 2026-11-27 (512 pixels, blocks 5, 6 and 7, batch size 8) on the dataset of that day (128,000 / 20,000 / 20,000 images, 35 classes), the run folder redirected to a temporary folder |
 
 The CPU runs used the PyTorch loader; the DALI loader of that time has since been removed (`19b89a0`), every split being read by `CocoDetectionDataset` on the CPU loader workers.
 
-This table lists what changed since the examples were recorded. The 5000-iteration run shows the first four changes; its configuration keeps the old values of the last three.
+This table lists what changed since the examples were recorded. The 5000-iteration run shows the first four changes; its configuration keeps the old values of the DIoU-NMS, proposal selection and learning rate rows, and its reports use the COCO sizes of the last row.
 
 | Change | What the CPU runs show |
 |---|---|
@@ -27,6 +27,7 @@ This table lists what changed since the examples were recorded. The 5000-iterati
 | `Detector.nms_criterion: "distance_iou"` with exponent 0.6 (DIoU-NMS, https://arxiv.org/abs/1911.08287, `check_nms_criterion_configuration()`) | `"iou"` |
 | `RegionProposal.proposal_selection: "per_level"` in the object detection configurations (`"joint"` in instance segmentation) | `"joint"` |
 | Learning rate 1e-3, `background_iou_threshold.min: 0.1`, `Neck.type: "feature_pyramid"`, chosen by the detection benchmark (`documentation/architecture_benchmarking/object_detection_experiment_plan.md`) | 2e-4, 0.1, `"none"` (the 5000-iteration run: minimum 0.0) |
+| Five object sizes relative to the image side (Step 4.14) instead of the COCO small, medium and large: `Object Side` and `Pixels` columns, `By Size/under_1_16` scalars, `average_precision_50_under_1_16` columns. Anchor recall of the training and test splits at the first launch only, in `anchor_recall.csv` and `anchor_recall.png` (Step 2.21) | `Small (< 32²)`, `Medium (32² to 96²)`, `Large (>= 96²)`, also in the 5000-iteration run (Steps 4.7, 4.11, 4.13 to 4.15) |
 
 The current synthetic configuration trains at 512 pixels on the instance segmentation dataset (blocks of 16 and 32 filters, two anchor scales per level, batch size 64, 2000 iterations, augmentation probabilities 0.25, 0.5 for flips). `Read This First` describes it. The configuration of Stages 1 and 2 matches `vision_training/configurations/object_detection/configuration_example.yaml` (same backbone, levels and heads, at 1024 pixels).
 
@@ -121,7 +122,7 @@ So that a run folder can be read without opening the code, this table lists the 
 
 | File or folder | When | Content |
 |---|---|---|
-| `anchor_recall.csv` | every launch | share of the training objects with a foreground anchor, per level and size (Step 2.21) |
+| `anchor_recall.csv`, `anchor_recall.png` | first launch, again when the split folders or the threshold change | share of the training and test objects with a foreground anchor, per level and size, and its tables drawn (Step 2.21) |
 | `Input_Samples/` with `samples.json` | before the first iteration | the first 10 images of every loader as the network receives them (`training_reference.md`, Run Folder) |
 | `Evaluation/evaluation_summary.csv`, `evaluation_curves.png` | after every evaluation | one row per checkpoint (averaged weights in `ema_` columns), and its curves |
 | `Evaluation/Iteration_<n>/` | every `weight_saving_iterations` checkpoint | `class_metrics.csv` (Step 4.11), `class_thresholds.json`, `confusion_matrix.csv` and `.png` (Step 4.12), `proposal_recall.csv` (Step 4.15), `Samples/<image>.png` (Step 4.6), `Errors/` with `error_dumps`, the same files in `EMA/` |
@@ -139,7 +140,7 @@ This table gives the iteration 5000 results of the two runs this document quotes
 Suppose a detection run behaves unexpectedly: these behaviours are the first to check.
 
 - The synthetic configuration stops at 2000 iterations, where few detections reach 0.5. In the DET tutorials run, `mAP@0.5/area` is 12.47 % at iteration 1000 (no detection reaching 0.5) and 37.81 % at 2000 (`suggestions.md`, item 30).
-- Small objects get few anchors: the finest level has a stride of 32 and anchors of 32 and 64 pixels. Block 5 gives a foreground anchor to 8.11 % of the 150,120 small training objects of the current dataset. The tutorials run adds block 4 (stride 16, anchors of 16 and 32 pixels): 43.99 %, and its 5,778 small test objects reach `mAP@0.5` 71.25 % at iteration 5000 (80.09 % medium, 73.17 % large).
+- Small objects get few anchors: the finest level has a stride of 32 and anchors of 32 and 64 pixels. Block 5 gives a foreground anchor to 8.11 % of the 150,120 training objects under 1/16 of the side (under 32 pixels at 512) of the current dataset. The tutorials run adds block 4 (stride 16, anchors of 16 and 32 pixels): 43.99 %, and its 5,778 test objects under 32 pixels reach `mAP@0.5` 71.25 % at iteration 5000 (80.09 % from 32 to 96 pixels, 73.17 % above, the COCO sizes of that evaluation).
 - With `"joint"` (the run of Stages 3 to 5, audit M3), 166.9 of the 250 proposals per image come from block 5 (Step 4.15). `"per_level"` still ranks all levels together in its last top-k, so it reserves no slots: in the tutorials run, 238.7 of 250 come from block 4, its finest level.
 - The mAP matches detections with the PASCAL VOC rule at every IoU, so `mAP@[0.5:0.95]` and the 101-point values are not those of pycocotools (`match_detections_to_ground_truth()`, audit L6).
 - A head or block whose first convolution changes the channel count adds no residual shortcut with 2 layers (`ConvolutionBlock.count_residual_additions()`): the heads of blocks 6 and 7 of Stage 1 (128 to 64 channels, no neck). The feature pyramid of `configuration_example.yaml` gives them 64 channels, so they add it.
@@ -180,7 +181,7 @@ main()                                    entry point of every task, --configura
 │       ├── initialise_pretrained_components() / build_optimizer() / ExponentialMovingAverage() / MetricTracker()
 │       ├── print_experiment_information() / print_summary() / export sizes
 │       ├── diagnose_data_splits() / view_input_batches() / benchmark_speed()   diagnosis modes, then exit
-│       ├── analyse_training_data() -> measure_anchor_recall()   anchor_recall.csv
+│       ├── analyse_training_data() -> measure_anchor_recall()   anchor_recall.csv and .png, first launch
 │       └── restore_last_model()
 └── trainer.run_training_loop()  [STAGE 3]
     └── run_training_iterations()
@@ -463,26 +464,34 @@ Model Size:                    Total Model 5,588,349 parameters, 22.38 MB
 With `view_input_images`, `show_input_samples()` shows an augmented training image next to a validation image, boxes captioned with their class, with a panel giving the object count, a `Class` / `Count` table and the augmentations and removed objects (`Removed objects : 1 (dog)`). A new run starts from scratch (`start_iteration = 1`).
 
 ### Step 2.21 — `analyse_training_data()` → anchor recall
-Called by `BaseTrainer.__init__()` between `view_input_batches()` and `restore_last_model()` at every launch, never in a diagnosis mode that exits. It measures how many training objects the anchors can learn, through `measure_anchor_recall()`:
-- `gather_object_boxes()` reads the training boxes from the annotations (`select_image_objects()`), placed in network input pixels by `preprocess_boxes()`, without images or augmentations;
+Called by `BaseTrainer.__init__()` between `view_input_batches()` and `restore_last_model()`, never in a diagnosis mode that exits. At the first launch of a run, it measures how many training and test objects the anchors can learn, through `measure_anchor_recall()` on each split:
+- `gather_object_boxes()` reads the boxes of the split from the annotations (`select_image_objects()`), placed in network input pixels by `preprocess_boxes()`, without images or augmentations;
 - `compute_best_anchor_overlaps()` gives the best anchor overlap of every object in every level (`TwoStageDetector.get_level_anchor_generators()`). `Anchors.compute_best_overlaps()` takes the grid anchor nearest the object centre for every anchor shape: the exact best, in float64 on the CPU;
-- `summarise_anchor_recall()` counts the objects whose best anchor reaches `RegionProposal.foreground_iou_threshold.min`, per level and over all levels.
+- `summarise_anchor_recall()` counts the objects whose best anchor reaches `RegionProposal.foreground_iou_threshold.min`, per level and over all levels, for all the objects and the five sizes relative to the network input (Step 4.14).
 
-An object under the threshold everywhere only gets its single best anchor as foreground. `anchor_recall.csv` keeps the recalls between 0 and 1 and goes to MLflow (Step 3.3), as `anchor_recall_resume_<n>.csv` for a resume.
+An object under the threshold everywhere only gets its single best anchor as foreground. The console prints one line per split (`describe_anchor_recall()`): the recall over all levels, and that of the smallest size holding objects. `anchor_recall.csv` holds the rows of both splits, with their `split_folder` and `iou_threshold`, the recalls between 0 and 1. `draw_anchor_recall_figure()` draws both tables into `anchor_recall.png`, the recalls shaded from red to green.
 
-With `diagnosis_modes.compute_anchor_coverage: { activated: True, iou_threshold: <threshold> }`, `diagnose_data_splits()` runs it on all three splits at `iou_threshold`, prints the three tables and exits without a run folder.
+A later launch reads the `split_folder` and `iou_threshold` columns (`read_anchor_recall_settings()`). With the same folders and threshold, it keeps both files and prints their link. Otherwise it measures both splits again. Only written files go to MLflow (Step 3.3), as `anchor_recall_resume_<n>.csv` when a resume measured them again.
 
-**Example output: the later run** (351 training objects)
+With `diagnosis_modes.compute_anchor_coverage: { activated: True, iou_threshold: <threshold> }`, `diagnose_data_splits()` runs it on all three splits at `iou_threshold`, prints the three tables with their recalls coloured from red to green, and exits without a run folder.
+
+**Example output: the first launch** (the console, then the training table of `anchor_recall.png`)
 ```text
+Anchor Recall Of The 703 879 Training Objects: 64.04 % In All Levels, 8.11 % For The Smallest Objects (Under 1/16)
+Anchor Recall Of The 109 928 Test Objects: 64.24 % In All Levels, 8.52 % For The Smallest Objects (Under 1/16)
+Anchor recall of every object size: <run>/anchor_recall.png
+
 Anchor Recall Of The Training Objects
- Objects               Count    Block 5   Block 6   Block 7   All Levels
-─────────────────────────────────────────────────────────────────────────
- All Objects             351    89.74 %   54.42 %   41.60 %      89.74 %
- Small (< 32²)             0          —         —         —            —
- Medium (32² to 96²)     178    79.78 %   29.78 %    4.49 %      79.78 %
- Large (>= 96²)          173   100.00 %   79.77 %   79.77 %     100.00 %
+ Object Side         Pixels             Area    Count   Block 5   Block 6   Block 7   All Levels
+─────────────────────────────────────────────────────────────────────────────────────────────────
+ All Objects                                   703879   22.89 %   25.76 %   41.15 %      64.04 %
+ Under 1/16            < 32         < 0.39 %   150120    8.11 %    0.00 %    0.00 %       8.11 %
+ 1/16 to 1/8       32 to 64   0.39 to 1.56 %   143890   51.12 %    9.57 %    0.00 %      51.12 %
+ 1/8 to 1/4       64 to 128   1.56 to 6.25 %   174260   43.28 %   50.38 %   38.84 %      82.12 %
+ 1/4 to 1/2      128 to 256     6.25 to 25 %   178644    0.00 %   44.64 %   94.14 %      94.14 %
+ 1/2 and above       >= 256          >= 25 %    56965    0.00 %    0.00 %   94.41 %      94.41 %
 ```
-Block 5 (scales 32 to 128) covers every large object. 36 of the 178 medium objects reach 0.5 with no anchor and are only learnt through their best anchor.
+Block 5 (anchors of 32 and 64 pixels) covers half of the objects from 1/16 to 1/8, but 8.11 % of those under 1/16. Blocks 6 and 7 cover 94 % of the objects from 1/4 up. The test split gives close shares. A second launch prints `Anchor recall measured at the first launch of the run: <run>/anchor_recall.png` instead.
 
 ---
 
@@ -510,7 +519,7 @@ The run writes `Tensorboard/Train/` (the five losses and the learning rate), `Te
 ```text
 MLflow Run Created In The Experiment 'object_detection' : 8e53387f20e24434973626e4c0394a2c (Browse : mlflow ui --backend-store-uri sqlite:///.../experiments/workflow_runs/mlflow.db)
 ```
-A background thread creates the MLflow run, then sends the configuration, `anchor_recall.csv` (folder `analysis`), `data.json` and `Input_Samples/`.
+A background thread creates the MLflow run, then sends the configuration, `anchor_recall.csv` (folder `analysis`), `data.json` and `Input_Samples/`. The current code also sends `anchor_recall.png`, and only when this launch wrote the anchor recall.
 
 ### Step 3.4 — `save_model()` → `save_checkpoint()`
 Saved after the training step of every multiple of 250, so the checkpoint of iteration N holds N steps (`classification_workflow.md`, Step 3.6). It holds the label dictionary, the source run of every transferable component (`pretrained_backbone`, `pretrained_region_proposer_dictionary`, `pretrained_detector_heads_dictionary`, None without transfer) and, with a moving average, `exponential_moving_average_state`.
@@ -924,11 +933,11 @@ MLflow: 154 metrics, among them test/best_mAP_at_0.5/area (0.7151 at step 5000);
 `sanitise_metric_name()` writes `@` as `_at_`, drops brackets and writes `:` as `-` (`mAP@[0.5:0.95]/area` becomes `mAP_at_0.5-0.95/area`); `metric_names.json` keeps the originals. `best_` follows the headline metric only. `update_evaluation_curves()` then prints `Evaluation Curves : <run>/evaluation_curves.png` and sends `evaluation_summary.csv` and `evaluation_curves.png` to the MLflow run.
 
 ### Step 4.14 — `select_object_size_detections()` + `build_object_size_table()`
-`evaluate_detections()` computes the same mAPs again for the COCO sizes, reusing Steps 4.8 and 4.9. The size is the box area in network input pixels (`OBJECT_SIZE_RANGES` in `object_sizes.py`): small below 32², medium from 32² to 96², large from 96². `select_object_size_detections()` applies the COCO rule: ground truths of other sizes are ignored, as are the detections matched to them and the unmatched detections whose own box is of another size. A size without objects shows `—` and gives no scalar. The scalars are `mAP@0.5 By Size/<size>` and `mAP@[0.5:0.95] By Size/<size>`.
+`evaluate_detections()` computes the same mAPs again for five object sizes, reusing Steps 4.8 and 4.9. The size is the side of the box (the square root of its area) as a share of the side of the network input (`OBJECT_SIZE_SIDE_SHARES` in `object_sizes.py`, `compute_side_shares()` with the `image_area` of every ground truth). The bins double: under 1/16, 1/16 to 1/8, 1/8 to 1/4, 1/4 to 1/2, 1/2 and above. So an object keeps its size whatever `Data.image_settings.size`. `select_object_size_detections()` applies the COCO rule: ground truths of other sizes are ignored, as are the detections matched to them and the unmatched detections whose own box is of another size. The table adds each size in pixels of the network input (`Pixels`: at 512, under 32, 32 to 64, 64 to 128, 128 to 256, 256 and above). A size without objects shows `—` and gives no scalar. The scalars are `mAP@0.5 By Size/<size>` and `mAP@[0.5:0.95] By Size/<size>`, the sizes being `under_1_16`, `1_16_to_1_8`, `1_8_to_1_4`, `1_4_to_1_2` and `1_2_and_above`.
 
 `build_average_recall_table()` then gives the `Mean Average Recall` table: the share of objects found by any kept detection, at IoU 0.5, 0.75, 0.95 and over 0.5:0.95, averaged over the classes. A low mAP with a high recall means objects are found but scored below false positives; a low recall means they are not found. Its scalars are `mAR@<threshold>/<group>`, the group being `all` or a size.
 
-**Example output: iteration 5000** (the generator of that run drew no shape under 64 pixels, so the 184 small objects are mostly hidden shapes)
+**Example output: iteration 5000**, printed with the COCO sizes of that day (the generator of that run drew no shape under 64 pixels, so the 184 small objects are mostly hidden shapes). The current tables start with `Object Side` (or `Objects Of`) and `Pixels`, then one row per relative size.
 ```text
   Mean Average Precision By Object Size (Area)
    Object Size           Objects   mAP@0.5   mAP@0.75   mAP@0.95   mAP@[0.5:0.95]
@@ -945,12 +954,12 @@ MLflow: 154 metrics, among them test/best_mAP_at_0.5/area (0.7151 at step 5000);
    Medium (32² to 96²)     33579   97.33 %    86.13 %     1.79 %          70.73 %
    Large (>= 96²)          35919   98.97 %    91.92 %     4.34 %          76.64 %
 ```
-Small objects reach 1.55 %: only 10.3 % of the 1,254 small training objects get a foreground anchor (Step 2.21). A `mAR@0.5` of 98.01 % against a `mAP@0.5` of 71.51 % shows that almost every object is found above 0.05, but weak classes rank below false positives.
+Objects under 32 pixels reach 1.55 %: only 10.3 % of the 1,254 such training objects got a foreground anchor in that run. A `mAR@0.5` of 98.01 % against a `mAP@0.5` of 71.51 % shows that almost every object is found above 0.05, but weak classes rank below false positives.
 
 ### Step 4.15 — `accumulate_proposal_recall()` + `save_proposal_recall()`
 The anchor recall (Step 2.21) measures what the anchors allow; the proposal recall measures what the trained region proposal network gives the heads. `accumulate_proposal_recall()` keeps, for every test object, its best IoU with the valid proposals of Step 4.3 (`valid_proposal_mask`), overall and per level. `summarise_proposal_recall()` gives the share of objects reaching 0.5 and 0.7 (`PROPOSAL_RECALL_THRESHOLDS`) for all objects, every size and every block alone, with the mean proposals per image. The rows go to `proposal_recall.csv` and the scalars (`Proposal Recall@0.5/<group>`, ...) to TensorBoard and MLflow.
 
-**Example output: the table of iteration 5000**
+**Example output: the table of iteration 5000**, with the COCO sizes of that day (the current table adds a `Pixels` column and one row per relative size)
 ```text
   Proposal Recall
                                                            Proposals
@@ -964,7 +973,7 @@ The anchor recall (Step 2.21) measures what the anchors allow; the proposal reca
    Block 6 Proposals     69682      77.34 %      26.26 %     49.9440
    Block 7 Proposals     69682      67.36 %      42.71 %     33.1486
 ```
-`proposal_recall.csv` holds the same rows (`group,objects,recall_50,recall_70,proposals_per_image`) with values between 0 and 1. The region proposal network is not the limit: its recall at 0.5 was already 98.80 % at iteration 500, when the `mAP@0.5` was 4.96 %. The errors of Step 4.12 come from the classification and scores of the detection heads. Small objects stay the exception, 73 of 184 reached at 0.5.
+`proposal_recall.csv` holds the same rows (`group,objects,recall_50,recall_70,proposals_per_image`) with values between 0 and 1. The region proposal network is not the limit: its recall at 0.5 was already 98.80 % at iteration 500, when the `mAP@0.5` was 4.96 %. The errors of Step 4.12 come from the classification and scores of the detection heads. Objects under 32 pixels stay the exception, 73 of 184 reached at 0.5.
 
 ---
 

@@ -12,13 +12,14 @@ The outputs come from three sources, listed in the table below.
 
 The run configuration is the synthetic configuration with 5000 iterations instead of 2000, an evaluation every 500 instead of 250, MLflow on and the folder `experiments/workflow_runs`. It keeps the augmentation probabilities of that time (0.3, now 0.25; `random_haze` the only type on) and loaded one mask per object (`Data.instance_index_maps` did not exist). The dataset was generated again on 2026-11-18 with 35 classes, textured backgrounds, low contrast, smaller, cut and occluded shapes.
 
-> The CPU examples predate the changes below; the 5000-iteration run shows the first four, and the last two leave the outputs unchanged.
+> The CPU examples predate the changes below; the 5000-iteration run shows the first four, the Neck and instance index map changes leave the outputs unchanged, and the last one changes the size tables.
 > - Region proposal NMS 0.7 and detector NMS 0.5 (were 0.5 and 0.8); `RegionProposal.background_iou_threshold.min: 0.0`.
 > - Mask and box `Mean Average Recall` tables, `evaluation.original_resolution`, and IoU 0.95 columns (`351a4d1`); column and scalar counts below are those of that time.
 > - Mask overlaps paste 64 masks at a time at 512 pixels (`MASK_OVERLAP_REFERENCE_PIXELS`), where Step 4.5 pastes 16.
 > - A moving average of the weights (`EMA/` folders, `EMA Weights` blocks) and `Optimization.loss_weights` (1 each).
 > - A `Neck` section (`type: "none"`, no layer).
 > - One instance index map per image (`Data.instance_index_maps: True`, Step 2.9), expanded into the same masks (Step 3.7).
+> - Five object sizes relative to the image side instead of the COCO small, medium and large (`object_detection_workflow.md`, Step 4.14), and the anchor recall of the training and test splits at the first launch only, with `anchor_recall.png` (Step 2.18). The size tables and columns of Stage 4 keep the COCO sizes of that time.
 >
 > The synthetic configuration uses blocks of 16 and 32 filters, two anchor scales per level, mask heads `[3, 32]`, batch 64 and 2000 iterations; its detector settings are in the Configuration Keys table. The finished INS benchmark (`documentation/architecture_benchmarking/instance_segmentation_experiment_plan.md`) kept settings that are not shipped.
 
@@ -112,7 +113,7 @@ Whenever a run is launched or a checkpoint evaluated, the table below lists what
 
 | When | What |
 |---|---|
-| every launch | `anchor_recall.csv`: share of training objects with a foreground anchor, per level and size, boxes from the segmentations (Step 2.18) |
+| first launch, again when the split folders or the threshold change | `anchor_recall.csv` and `anchor_recall.png`: share of training and test objects with a foreground anchor, per level and size, boxes from the segmentations (Step 2.18) |
 | before the first iteration | `Input_Samples/` with `samples.json`: first 10 images of every loader with their masks, training ones augmented (`training_reference.md`, Run Folder) |
 | every evaluation | `Evaluation/evaluation_summary.csv` (one row per checkpoint, `ema_` columns) and `evaluation_curves.png` |
 | every `weight_saving_iterations` checkpoint | `Evaluation/Iteration_<n>/`: `class_metrics.csv` (box and `mask_` columns, Step 4.8), `class_thresholds.json`, `confusion_matrix.csv` and `.png` (matched by mask IoU 0.5), `proposal_recall.csv`, `Samples/`, `Errors/` with `error_dumps`, the same in `EMA/` |
@@ -131,7 +132,7 @@ The tutorial run is the synthetic configuration plus the benchmark detection set
 ### Pitfalls
 - **2000 iterations is too short.** In the tutorial run, `Mask mAP@0.5/area` is 15.01 % at 1000 (147 of 27,448 test objects found at the deployment threshold) and 40.96 % at 2000; samples show masks at 6000 (`suggestions.md`, item 30).
 - **Thin parts are lost at strict IoU.** Masks are 28 x 28 in their box, pooled from strides 32 and 64 (16 to 64 in the tutorial run). There the star has mask AP@0.5 96.68 % but AP@0.75 61.89 %, against box AP@0.75 90.30 %; mask `mAP@0.95` is 1.69 %. The image branch of design A gained 7.19 points of mask mAP@[0.5:0.95] (stage 3b).
-- **Mask and box size tables hold different objects.** Sizes are mask areas in mask tables and box areas in box tables: 8,080 small test objects by mask area against 5,778 by box area, 9,227 large against 12,034 (tutorial run, iteration 6000).
+- **Mask and box size tables hold different objects.** Sizes are mask areas in mask tables and box areas in box tables: 8,080 test objects under 32 pixels by mask area against 5,778 by box area, 9,227 from 96 pixels against 12,034 (tutorial run, iteration 6000, COCO sizes).
 - **The export returns box-frame probabilities.** `detection_masks` are 28 x 28 inside each box. The client pastes them with `paste_instance_masks()` and applies `MaskHead.inference.mask_threshold` itself. Restore boxes unclipped (`restore_boxes_to_original_image(..., clip=False)`), since a clipped box squeezes its mask (Export section of `documentation/reference/tools_reference.md`). Letterbox by the input contract (`preprocessing.json`): BGR, `keep_ratio` to 512, bilinear, padding 0 centred, NCHW, values 0 to 255.
 - **Each level trains its own head.** A head learns only from its level's positives; the export runs every head on all detections. `MaskHead.shared: True` gives one head (same `mask_head` and level channels, `suggestions.md`, item 7). In the tutorial run, 238.4 of 250 proposals per image come from block 4 (`proposal_recall.csv`).
 - **Vanished masks drop their object.** An object whose mask vanishes at the network resolution leaves the targets and the evaluation, but stays with `evaluation.original_resolution: True`.
@@ -168,7 +169,7 @@ main()                                                     give an instance_segm
 │   ├── build_model() -> InstanceSegmenter: TwoStageDetector + MaskFineInputs + MaskHead per level
 │   ├── initialise_pretrained_components() / build_optimizer() / get_tracked_metrics()   5 losses + Total Loss
 │   ├── print_summary() / estimate_export_sizes() / diagnosis modes (exit)
-│   ├── analyse_training_data()                            anchor recall on the boxes of the segmentations
+│   ├── analyse_training_data()                            anchor recall on the boxes of the segmentations, first launch
 │   └── restore_last_model()
 └── run_training_loop() -> run_training_iterations()       [STAGE 3]
     ├── get_next_batch()                                   add_instance_index_map() or add_instance_masks()
@@ -500,14 +501,20 @@ In case you turn on `diagnosis_modes.view_input_images`, the input viewer of DET
 ### Step 2.18 — `analyse_training_data()` → anchor recall
 The anchor recall of DET (`object_detection_workflow.md`, Step 2.21), on the boxes of the segmentations: `gather_object_boxes()` reads them with `select_image_objects(boxes_from_segmentation=True)`. It reads the manifest only, without decoding a mask.
 
-**Example output**
+**Example output: the first launch of the synthetic configuration on the dataset of 2026-11-27** (training table of `anchor_recall.png`)
 ```text
- Objects               Count    Block 5   Block 6   Block 7   All Levels
- All Objects             358    88.55 %   53.07 %   44.41 %      88.55 %
- Medium (32² to 96²)     164    76.22 %   25.61 %    6.71 %      76.22 %
- Large (>= 96²)          192   100.00 %   77.08 %   77.08 %     100.00 %
+Anchor Recall Of The 703 879 Training Objects: 64.04 % In All Levels, 8.11 % For The Smallest Objects (Under 1/16)
+Anchor Recall Of The 109 928 Test Objects: 64.24 % In All Levels, 8.52 % For The Smallest Objects (Under 1/16)
+
+ Object Side         Pixels             Area    Count   Block 5   Block 6   Block 7   All Levels
+ All Objects                                   703879   22.89 %   25.76 %   41.15 %      64.04 %
+ Under 1/16            < 32         < 0.39 %   150120    8.11 %    0.00 %    0.00 %       8.11 %
+ 1/16 to 1/8       32 to 64   0.39 to 1.56 %   143890   51.12 %    9.57 %    0.00 %      51.12 %
+ 1/8 to 1/4       64 to 128   1.56 to 6.25 %   174260   43.28 %   50.38 %   38.84 %      82.12 %
+ 1/4 to 1/2      128 to 256     6.25 to 25 %   178644    0.00 %   44.64 %   94.14 %      94.14 %
+ 1/2 and above       >= 256          >= 25 %    56965    0.00 %    0.00 %   94.41 %      94.41 %
 ```
-It is saved in `anchor_recall.csv` (263 bytes, recalls between 0 and 1) and sent to MLflow.
+Both splits are saved in `anchor_recall.csv` (recalls between 0 and 1) and drawn in `anchor_recall.png`, then sent to MLflow. Here the boxes of the segmentations equal the annotation boxes, so the recalls are those of DET. Later launches keep both files.
 
 ### Step 2.19 — `restore_last_model()`
 A new run folder prints `No Initiation Model Weights Will Be Used...` and trains from scratch.
@@ -832,7 +839,7 @@ Iteration 5000 · 20000 Test Images · 2026-10-24 17:48 ────────
   ...
 ```
 The list below gives what the report shows.
-- By mask area, 911 / 50,627 / 18,144 objects are small / medium / large; by box area, 184 / 33,579 / 35,919. A shape fills only part of its box.
+- By mask area, 911 / 50,627 / 18,144 objects are small / medium / large (COCO sizes of that time); by box area, 184 / 33,579 / 35,919. A shape fills only part of its box.
 - Mask `mAR@0.5` is 96.75 % and box `mAR@0.5` 97.36 %.
 - Mask and box mAP@0.5 are close (63.72 % and 64.04 %). Masks fall behind at 0.75 (54.67 % against 58.18 %), most for thin shapes: the star has mask AP@0.75 30.22 % against box 89.34 %.
 - Mask mAP@0.95 (1.57 %) beats box (0.16 %), carried mostly by the circle (23.19 % against 1.12 %).

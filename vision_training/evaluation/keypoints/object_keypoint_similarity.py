@@ -226,15 +226,15 @@ def evaluate_image_keypoints(images: List[Dict[str, torch.Tensor]], sigma_table:
             [G, 4], 'keypoints' [G, K, 2] and 'visibilities' [G, K], its objects without labelled keypoint
             'ignored_bounding_boxes' [U, 4], 'ignored_labels' [U] and 'ignored_crowds' [U], and its 'predicted_labels'
             [D], 'predicted_keypoints' [D, K, 2] (NaN for the keypoints not found) and 'predicted_scores' [D], in
-            network input pixels.
+            network input pixels, with the 'image_area' of the network input, which sizes the objects.
         sigma_table (torch.Tensor): The [C, K] sigmas of every class (build_keypoint_sigma_table).
 
     Returns:
         Dict[str, Any]: The 'detections' of every image ('boxes' of their keypoints, 'scores', 'labels', the [D, G]
             'keypoint_overlaps' and the [D, U] 'ignored_overlaps'), its 'ground_truths' ('boxes', 'labels',
-            'ignored_labels' and 'ignored_crowds'), and the ground truth 'objects' of all the images ('labels',
-            'bounding_boxes', 'keypoints', 'visibilities', the 'predicted_keypoints' of their matched object, NaN when
-            missed, and the 'matched' booleans).
+            'image_area', 'ignored_labels' and 'ignored_crowds'), and the ground truth 'objects' of all the images
+            ('labels', 'bounding_boxes', 'keypoints', 'visibilities', the 'predicted_keypoints' of their matched
+            object, NaN when missed, and the 'matched' booleans).
     """
     detections, ground_truths, objects = [], [], {object_key: [] for object_key in EVALUATED_OBJECT_KEYS}
     for image in images:
@@ -262,8 +262,8 @@ def evaluate_image_keypoints(images: List[Dict[str, torch.Tensor]], sigma_table:
         detections.append({"boxes": compute_keypoint_boxes(keypoints=image["predicted_keypoints"]),
                            "scores": image["predicted_scores"].to(dtype=torch.float64), "labels": predicted_labels,
                            "keypoint_overlaps": keypoint_overlaps, "ignored_overlaps": ignored_overlaps})
-        ground_truths.append({"boxes": boxes, "labels": labels, "ignored_labels": ignored_labels,
-                              "ignored_crowds": image["ignored_crowds"]})
+        ground_truths.append({"boxes": boxes, "labels": labels, "image_area": image["image_area"],
+                              "ignored_labels": ignored_labels, "ignored_crowds": image["ignored_crowds"]})
 
         # Keypoints of the predicted object matched to every ground truth object, NaN for the missed ones
         matched_predictions = match_ground_truth_objects(keypoint_overlaps=keypoint_overlaps)

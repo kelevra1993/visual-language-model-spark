@@ -245,7 +245,7 @@ The figure shows the eight toy detections judged at each threshold.
 mAP@0.5 measures finding and classifying; the gap to mAP@0.75 measures localisation. With VOC matching, mAP@[0.5:0.95] is not the COCO number.
 
 ### AP And mAP By Object Size
-In case you suspect the detector of missing only small objects, read the mAP per size. Sizes are those of COCO (`OBJECT_SIZE_RANGES`): small under 1,024 square pixels, medium up to 9,216, large above, on the box area in network input pixels (mask area for the mask mAP). A weak size points at its levels and anchors; read the `Objects` column first.
+In case you suspect the detector of missing only small objects, read the mAP per size. The five sizes are relative to the image (`OBJECT_SIZE_SIDE_SHARES` in `object_sizes.py`). The object side is the square root of its box area (mask area for the mask mAP), taken as a share of the image side. The bins double: under 1/16, 1/16 to 1/8, 1/8 to 1/4, 1/4 to 1/2, 1/2 and above. So an object keeps its size whatever `Data.image_settings.size`. The `Pixels` column gives each bin at the network input: at 512 pixels, under 32, 32 to 64, 64 to 128, 128 to 256, 256 and above. A weak size points at its levels and anchors; read the `Objects` column first.
 
 ### Mean Average Recall
 Should you need to know whether objects are found at all, whatever the score, read the mAR: the recall of each class averaged, at each threshold, overall and per size. A high mAR with a low mAP means objects found but ranked below false positives. A low mAR is to be compared with the [proposal recall](#proposal-recall).
@@ -269,7 +269,7 @@ Right + wrong class + missed equals the test objects. Many missed objects with a
 After a change to the anchors or proposal settings, check that proposals still cover the test objects: Recall@0.5 and Recall@0.7 overall, per size and per block, in `proposal_recall.csv` (`vision_training/evaluation/detection/region_recall.py`). A proposal recall far above the [mean average recall](#mean-average-recall) points at the heads; a low one at anchors, proposal counts or selection.
 
 ### Anchor Recall
-For the region proposal network to learn an object, an anchor must overlap it by `RegionProposal.foreground_iou_threshold.min`. Printed at every launch as `Anchor Recall Of The Training Objects` and saved in `anchor_recall.csv`, it gives the share of training objects that have one. `diagnosis_modes.compute_anchor_coverage` measures it on every split ([Augmentation And Diagnosis Modes](../../README.md#augmentation-and-diagnosis-modes)).
+For the region proposal network to learn an object, an anchor must overlap it by `RegionProposal.foreground_iou_threshold.min`. The first launch of a run measures the share of training and test objects that have one, per level and [object size](#ap-and-map-by-object-size). The console prints one line per split. `anchor_recall.csv` in the run folder holds the rows, and `anchor_recall.png` draws the tables with the recalls shaded from red to green. Later launches keep both files, unless the split folders or the threshold changed. `diagnosis_modes.compute_anchor_coverage` prints the table of every split, coloured the same way, then exits ([Augmentation And Diagnosis Modes](../../README.md#augmentation-and-diagnosis-modes)).
 
 The figure shows five toy objects and the best anchor of each over two levels.
 
@@ -279,6 +279,13 @@ The figure shows five toy objects and the best anchor of each over two levels.
 <p align="center"><em>Green above 0.5, red under: the 10-pixel square is too small for 16-pixel anchors, the 112-pixel square too large for 64-pixel ones.</em></p>
 
 Read `All Levels` size by size: smaller scales help small objects, larger ones large objects, other aspect ratios elongated ones.
+
+The next figure is the `anchor_recall.png` of the synthetic shapes detection configuration at 512 pixels.
+
+<p align="center">
+  <img src="../../README/metrics_detection_anchor_recall_figure.png" width="80%" />
+</p>
+<p align="center"><em>Block 5, the finest level, gives an anchor to 8.11 % of the 150 120 training objects under 1/16 of the side; blocks 6 and 7 to none of them.</em></p>
 
 ### Mask IoU And Mask mAP
 Whenever an instance segmentation run is evaluated, its detections are scored by masks and by boxes. The mask IoU is the pixels in both masks over the pixels in either, after pasting the 28 x 28 masks into their boxes. The mask mAP uses the same matching and thresholds. `Mask mAP@0.5/area` picks the best checkpoint.
@@ -293,7 +300,7 @@ The figure compares mask IoU and box IoU on two toy shapes.
 A box mAP close to the mask mAP, with a low mask IoU on hollow or thin classes, points at the mask head.
 
 ### Evaluation At The Original Resolution
-So that an instance segmentation run is measured on images as they arrive in deployment, turn on `ExperimentConfiguration.evaluation.original_resolution`. Objects are rebuilt at the original size and boxes restored (`restore_detection_boxes`). Object sizes move between rows, so compare runs at the same resolution only.
+So that an instance segmentation run is measured on images as they arrive in deployment, turn on `ExperimentConfiguration.evaluation.original_resolution`. Objects are rebuilt at the original size and boxes restored (`restore_detection_boxes`). Object sizes are then relative to the original image side (the square root of its area), and the size tables have no `Pixels` column. A non-square image moves objects between rows, so compare runs at the same resolution only.
 
 ## Keypoint Detection (KPT)
 To find your way in a keypoint report, start from the object keypoint similarity (OKS). The OKS mAP uses it where detection uses the box IoU, and the keypoint accuracy uses it to pair objects. Everything is computed on the test split by `compute_evaluation_results` of `vision_training/trainers/keypoint_trainer.py`, in network input pixels, every grouped object kept.

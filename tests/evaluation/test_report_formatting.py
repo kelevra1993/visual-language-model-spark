@@ -3,7 +3,8 @@ Tests of vision_training/evaluation/report_formatting.py: the formatting of the 
 percentages of the texts read by a person ("94.03 %", "99 %", "+0.52 points"), and the block of the report rendered as
 plain text for Results.txt (header, metrics, notes, the per-class table worst first with its legend, width, class
 names kept as text, the rates listed by the task written as percentages and the other values with 4 decimals, the
-headline metric outside the grid allowed among the percent metrics).
+headline metric outside the grid allowed among the percent metrics), and the rates of the graded columns coloured
+from red to green in the console only.
 """
 
 import math
@@ -12,10 +13,12 @@ import pytest
 from typing import List
 
 from vision_training.core.contracts import EvaluationResults, EvaluationTable
-from vision_training.evaluation.report_formatting import (REPORT_WIDTH, build_report_renderables, format_file_value,
-                                                          format_percentage, format_percentage_label,
-                                                          format_percentage_tick, format_points, format_points_tick,
-                                                          format_report_value, render_report_text)
+from vision_training.evaluation.report_formatting import (REPORT_WIDTH, build_report_renderables,
+                                                          build_table_renderable, build_table_renderables,
+                                                          format_file_value, format_percentage,
+                                                          format_percentage_label, format_percentage_tick,
+                                                          format_points, format_points_tick, format_report_value,
+                                                          grade_rate_style, render_report_text)
 
 
 def build_class_table(rows: list, percent_columns: List[str]) -> EvaluationTable:
@@ -194,3 +197,33 @@ def test_unknown_percent_names_are_refused(percent_metrics: List[str], percent_c
     table = build_class_table(rows=[["circle", 3, 1.0]], percent_columns=percent_columns)
     with pytest.raises(ValueError, match="percent"):
         render_block(results=build_results(tables=[table], percent_metrics=percent_metrics))
+
+
+def test_graded_columns_colour_their_rates_from_red_to_green() -> None:
+    """
+    Verifies that the rates of the graded columns (the anchor recall) are coloured red at 0, amber at 0.5 and green at
+    1, blended in between and clamped outside, a missing value and the other columns keeping the default colour, that
+    the plain text of Results.txt carries no colour code, and that a graded column outside the percent columns is
+    refused.
+    """
+    assert grade_rate_style(rate=0.0) == "rgb(215,58,50)" and grade_rate_style(rate=1.0) == "rgb(45,160,70)"
+    assert grade_rate_style(rate=0.5) == "rgb(205,150,20)" and grade_rate_style(rate=0.25) == "rgb(210,104,35)"
+    assert grade_rate_style(rate=1.4) == grade_rate_style(rate=1.0) and grade_rate_style(rate=-0.1) == "rgb(215,58,50)"
+    assert grade_rate_style(rate=None) == "" and grade_rate_style(rate=float("nan")) == ""
+
+    # Cells of the graded column coloured by their rate, those of the other columns left plain
+    table: EvaluationTable = {"title": "Anchor Recall", "columns": ["Objects", "Count", "All Levels"],
+                              "rows": [["All Objects", 4, 0.0], ["Small", 2, 1.0], ["Large", 0, None]],
+                              "sort_column": None, "per_class": False, "legend": "", "percent_columns": ["All Levels"],
+                              "graded_columns": ["All Levels"]}
+    columns = build_table_renderable(table=table).columns
+    assert [str(cell.style) for cell in columns[2].cells] == ["rgb(215,58,50)", "rgb(45,160,70)", ""]
+    assert all(str(cell.style) == "" for column in columns[:2] for cell in column.cells)
+
+    # The plain text of Results.txt without colour codes, the rates still in percent
+    text = render_report_text(renderables=build_table_renderables(table=table))
+    assert "\x1b[" not in text and "100.00 %" in text
+
+    # A graded column must be a percent column, whose cells hold rates
+    with pytest.raises(ValueError, match="graded columns"):
+        build_table_renderable(table={**table, "graded_columns": ["Count"]})

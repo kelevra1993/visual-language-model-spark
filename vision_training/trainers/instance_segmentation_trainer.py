@@ -211,14 +211,16 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         Gives the objects of one test image like the detection trainer, with the number of pixels of every ground truth
         mask, which sizes the objects of the mask average precision. With 'evaluation.original_resolution', the boxes
         and the mask areas are those of the original annotations, in the order of the objects at the network
-        resolution kept for the proposal recall and the error images.
+        resolution kept for the proposal recall and the error images, and the image area is that of the original
+        image, which the object sizes are then relative to.
 
         Args:
             batch (Dict[str, Any]): The prepared test batch.
             image_index (int): The index of the image in the batch.
 
         Returns:
-            Dict[str, torch.Tensor]: The ground truth 'boxes' [G, 4], 'labels' [G] and 'mask_areas' [G] of the image.
+            Dict[str, torch.Tensor]: The ground truth 'boxes' [G, 4], 'labels' [G] and 'mask_areas' [G] of the image,
+                and its 'image_area'.
         """
         ground_truth = super().gather_image_ground_truth(batch=batch, image_index=image_index)
 
@@ -226,6 +228,7 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         if self.original_resolution:
             ground_truth["boxes"] = batch["original_bounding_boxes"][image_index].cpu()
             ground_truth_masks = batch["original_instance_masks"][image_index]
+            ground_truth["image_area"] = float(ground_truth_masks.shape[-2] * ground_truth_masks.shape[-1])
         else:
             ground_truth_masks = batch["instance_masks"][image_index]
         ground_truth["mask_areas"] = (ground_truth_masks > 0).flatten(start_dim=1).sum(dim=1).cpu()
@@ -323,15 +326,16 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         """
         # Mask average precisions with the class thresholds, then the box ones, at the resolution of the evaluation
         resolution_name = "original image" if self.original_resolution else "network input"
+        image_side = None if self.original_resolution else self.input_image_size
         mask_summary = summarise_average_precisions(
             detections=accumulator["detections"], ground_truths=accumulator["ground_truths"],
             number_classes=len(set(self.label_dictionary.values())), class_names=self.class_names, overlap_type="masks",
             title_prefix="Mask", name_prefix="Mask ", column_prefix="mask_", legend=MASK_TABLE_LEGEND,
-            target_precision=self.target_precision, resolution_name=resolution_name)
+            target_precision=self.target_precision, resolution_name=resolution_name, image_side=image_side)
         box_summary = summarise_average_precisions(
             detections=accumulator["detections"], ground_truths=accumulator["ground_truths"],
             number_classes=len(set(self.label_dictionary.values())), class_names=self.class_names, overlap_type="boxes",
-            title_prefix="Box", legend=BOX_TABLE_LEGEND, resolution_name=resolution_name)
+            title_prefix="Box", legend=BOX_TABLE_LEGEND, resolution_name=resolution_name, image_side=image_side)
         proposal_recall = self.save_proposal_recall(accumulator=accumulator, iteration=iteration)
 
         # Box and mask average precisions of every class in one row per class, saved whatever the per-class report,

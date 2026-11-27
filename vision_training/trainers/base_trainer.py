@@ -423,9 +423,8 @@ class BaseTrainer(ABC):
                 self.benchmark_speed()
             sys.exit()
 
-        # Analysis of the training data against the model printed before the training (the anchor recall of the
-        # detection tasks), its files written to the run folder at every launch and sent to MLflow with the
-        # configuration
+        # Analysis of the training data against the model before the training (the anchor recall of the detection
+        # tasks), its files written to the run folder at the first launch and sent to MLflow with the configuration
         self.training_data_analysis_files = self.analyse_training_data()
 
         # Restoration of the last checkpoint of the run folder before starting any training or inference, the first
@@ -722,13 +721,14 @@ class BaseTrainer(ABC):
 
     def analyse_training_data(self) -> Dict[str, Path]:
         """
-        Analyses the training split against the built model at every launch of a training, before the first
-        iteration, and writes its findings to the run folder: the detection tasks measure how many training objects
-        their anchors can cover (anchor_recall.csv), so that a badly sized anchor setting is seen before training on
-        it. Nothing for the other tasks.
+        Analyses the data against the built model before the first iteration of a training, and writes its findings
+        to the run folder: the detection tasks measure at the first launch of a run how many training and test
+        objects their anchors can cover (anchor_recall.csv and anchor_recall.png), so that a badly sized anchor
+        setting is seen before training on it, the later launches keeping these files. Nothing for the other tasks.
 
         Returns:
-            Dict[str, Path]: The written files keyed by display name, sent to MLflow by start_experiment_tracking.
+            Dict[str, Path]: The files written by this launch keyed by display name, sent to MLflow by
+                start_experiment_tracking, none when the files of an earlier launch are kept.
         """
         return {}
 
@@ -2588,8 +2588,8 @@ class BaseTrainer(ABC):
         Opens the MLflow run of the training when 'tracking.activated' is True, at the start of the training loop: a
         resumed training continues the MLflow run recorded in its run folder ('mlflow_run.json'). The configuration of
         the run is sent as an artifact, under its own name at every resumption since its settings may have changed, and
-        so are the files of the analysis of the training data (analyse_training_data), under 'analysis'. The record of
-        the data and the input samples (save_input_samples) are sent when this start wrote them.
+        so are the files written by the analysis of the training data (analyse_training_data), under 'analysis'. The
+        record of the data and the input samples (save_input_samples) are sent when this start wrote them.
         """
         # MLflow tracker of the run, a DisabledTracker when the tracking is off or unavailable
         self.experiment_tracker = create_experiment_tracker(
@@ -2606,7 +2606,7 @@ class BaseTrainer(ABC):
         self.experiment_tracker.log_artifact(file_path=self.configuration_path, artifact_folder="configuration",
                                              artifact_name=artifact_name)
 
-        # Files of the analysis of the training data, rewritten at every launch, under their own name at a resumption
+        # Files written by the analysis of the training data at this launch, under their own name at a resumption
         for analysis_file_path in self.training_data_analysis_files.values():
             analysis_artifact_name = None if resumed_iteration is None else \
                 f"{analysis_file_path.stem}_resume_{resumed_iteration}{analysis_file_path.suffix}"

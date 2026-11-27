@@ -2,13 +2,13 @@
 Mean average precision of the object detection, instance segmentation and keypoint detection tasks: matching of the
 detections to the ground truths by their boxes, their masks or their object keypoint similarity, precision-recall
 curves and average precision (area, 11 or 101 points) over the overlap thresholds, for all the objects and for the
-small, medium and large ones (object_sizes.py), the recall of all the detections at the same thresholds (mean average
-recall), and the score threshold of every class reaching a target precision at an overlap of 0.5. The thresholds 0.5 to
-0.95 are those of COCO, but the matching is the PASCAL VOC rule (match_detections_to_ground_truth), kept on purpose, so
-the mAP@[0.5:0.95] and the 101-point values are not those of pycocotools. As in pycocotools, the detections found on
-the objects the evaluation ignores (the keypoint objects without labelled keypoint) are neither true nor false
-positives. Used by the detection, instance segmentation and keypoint trainers to evaluate a checkpoint on the test
-split, whose report is built by average_precision_report.py.
+five object sizes relative to the image (object_sizes.py), the recall of all the detections at the same thresholds
+(mean average recall), and the score threshold of every class reaching a target precision at an overlap of 0.5. The
+thresholds 0.5 to 0.95 are those of COCO, but the matching is the PASCAL VOC rule (match_detections_to_ground_truth),
+kept on purpose, so the mAP@[0.5:0.95] and the 101-point values are not those of pycocotools. As in pycocotools, the
+detections found on the objects the evaluation ignores (the keypoint objects without labelled keypoint) are neither
+true nor false positives. Used by the detection, instance segmentation and keypoint trainers to evaluate a checkpoint
+on the test split, whose report is built by average_precision_report.py.
 """
 
 import torch
@@ -16,7 +16,8 @@ import torch
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from vision_training.evaluation.classification.threshold_finder import find_score_threshold
-from vision_training.evaluation.detection.object_sizes import OBJECT_SIZE_RANGES, compute_box_areas, is_in_object_size
+from vision_training.evaluation.detection.object_sizes import (OBJECT_SIZE_SIDE_SHARES, compute_box_areas,
+                                                              compute_side_shares, is_in_object_size)
 from vision_training.models.detection.box_operations import get_intersection_over_union
 
 # Methods computing the average precision from a precision-recall curve
@@ -247,8 +248,9 @@ def gather_class_detections(detections: List[Dict[str, torch.Tensor]], ground_tr
     independently of the intersection over union threshold. The detections and ground truths are compared by their
     boxes (object detection, and the box AP of the instance segmentation), by their masks (mask AP of the instance
     segmentation) or by the object keypoint similarity of their keypoints (keypoint detection), the last two overlaps
-    being computed beforehand by the trainer. The areas of the detections, of their best ground truth and of every
-    ground truth (mask areas for the masks, box areas otherwise) are kept for the average precision by object size.
+    being computed beforehand by the trainer. The sizes of the detections, of their best ground truth and of every
+    ground truth (mask areas for the masks, box areas otherwise, as side shares of their image, compute_side_shares)
+    are kept for the average precision by object size.
     The ground truths may also list objects the evaluation ignores (the keypoint objects without labelled keypoint),
     with which the detections have their own overlaps: the ignored objects every detection overlaps are kept by
     decreasing overlap, for match_detections_to_ground_truth, and these objects are not counted.
@@ -260,18 +262,19 @@ def gather_class_detections(detections: List[Dict[str, torch.Tensor]], ground_tr
             keypoints the 'keypoint_overlaps' [N, M], the object keypoint similarity of every detection with every
             ground truth of the image, and with ignored objects the 'ignored_overlaps' [N, U] with every one of them.
         ground_truths (List[Dict[str, torch.Tensor]]): For every image, its ground truth 'boxes' [M, 4] and
-            'labels' [M], for the masks the 'mask_areas' [M] of the ground truth masks, and the 'ignored_labels' [U]
-            and 'ignored_crowds' [U] of its ignored objects when the task has them (keypoint detection).
+            'labels' [M], the 'image_area' of the image the boxes are in (network input or original image), for the
+            masks the 'mask_areas' [M] of the ground truth masks, and the 'ignored_labels' [U] and 'ignored_crowds'
+            [U] of its ignored objects when the task has them (keypoint detection).
         class_label (int): The class index.
         overlap_type (str): "boxes", "masks" or "keypoints". Defaults to "boxes".
 
     Returns:
         Dict[str, Any]: The sorted 'scores', 'image_indices', 'best_intersection_over_union',
-            'best_ground_truth_indices', 'detection_areas' and 'best_ground_truth_areas' (-1 without ground truth in the
-            image) of the detections, the 'ignored_candidates' (for the position in the score order of every detection
-            overlapping an ignored object, the overlap and index of these objects by decreasing overlap), the
-            'ignored_crowds' of the ignored objects of the class in every image, the 'ground_truth_areas' and the
-            'number_ground_truth' of the class.
+            'best_ground_truth_indices', 'detection_side_shares' and 'best_ground_truth_side_shares' (-1 without ground
+            truth in the image) of the detections, the 'ignored_candidates' (for the position in the score order of
+            every detection overlapping an ignored object, the overlap and index of these objects by decreasing
+            overlap), the 'ignored_crowds' of the ignored objects of the class in every image, the
+            'ground_truth_side_shares' and the 'number_ground_truth' of the class.
 
     Raises:
         ValueError: If the overlap type is not one of OVERLAP_TYPES.
@@ -283,6 +286,7 @@ def gather_class_detections(detections: List[Dict[str, torch.Tensor]], ground_tr
     # areas
     image_indices, scores, overlap_matrices = [], [], []
     detection_areas, ground_truth_areas, ignored_matrices, ignored_crowds = [], [], [], []
+    detection_side_shares, ground_truth_side_shares = [], []
     for image_index, (detection, ground_truth) in enumerate(zip(detections, ground_truths, strict=True)):
         class_mask = detection["labels"] == class_label
         ground_truth_mask = ground_truth["labels"] == class_label
@@ -314,6 +318,12 @@ def gather_class_detections(detections: List[Dict[str, torch.Tensor]], ground_tr
             ground_truth_areas.append(compute_box_areas(
                 boxes=ground_truth["boxes"][ground_truth_mask].to(dtype=torch.float64)))
         scores.append(detection["scores"][class_mask].to(dtype=torch.float64))
+
+        # Sizes of the detections and ground truths of the image, their side as a share of the side of the image
+        detection_side_shares.append(compute_side_shares(areas=detection_areas[-1],
+                                                         image_areas=float(ground_truth["image_area"])))
+        ground_truth_side_shares.append(compute_side_shares(areas=ground_truth_areas[-1],
+                                                            image_areas=float(ground_truth["image_area"])))
         image_indices.append(torch.full(size=(int(class_mask.sum()),), fill_value=image_index, dtype=torch.int64))
 
     # Best ground truth of every detection, then the detections sorted by decreasing score, the order in which they
@@ -322,13 +332,14 @@ def gather_class_detections(detections: List[Dict[str, torch.Tensor]], ground_tr
     scores, image_indices = torch.cat(tensors=scores), torch.cat(tensors=image_indices)
     sorted_indices = torch.argsort(input=scores, descending=True, stable=True)
 
-    # Area of the best ground truth of every detection, found among the ground truths of the class of its image, -1
+    # Size of the best ground truth of every detection, found among the ground truths of the class of its image, -1
     # for a detection in an image without ground truth of the class
-    ground_truth_offsets = torch.tensor(data=[0] + [len(areas) for areas in ground_truth_areas],
+    ground_truth_offsets = torch.tensor(data=[0] + [len(side_shares) for side_shares in ground_truth_side_shares],
                                         dtype=torch.int64).cumsum(dim=0)[:-1]
-    all_ground_truth_areas = torch.cat(tensors=ground_truth_areas + [torch.zeros(size=(1,), dtype=torch.float64)])
+    all_ground_truth_side_shares = torch.cat(tensors=ground_truth_side_shares + [
+        torch.zeros(size=(1,), dtype=torch.float64)])
     best_ground_truth_positions = (ground_truth_offsets[image_indices] + best_ground_truth_indices).clamp(min=0)
-    best_ground_truth_areas = torch.where(best_ground_truth_indices >= 0, all_ground_truth_areas[
+    best_ground_truth_side_shares = torch.where(best_ground_truth_indices >= 0, all_ground_truth_side_shares[
         best_ground_truth_positions], torch.full_like(input=best_intersection_over_union, fill_value=-1.0))
 
     # Ignored objects overlapped by every detection, by decreasing overlap, under the position of the detection in the
@@ -347,10 +358,11 @@ def gather_class_detections(detections: List[Dict[str, torch.Tensor]], ground_tr
     return {"scores": scores[sorted_indices], "image_indices": image_indices[sorted_indices],
             "best_intersection_over_union": best_intersection_over_union[sorted_indices],
             "best_ground_truth_indices": best_ground_truth_indices[sorted_indices],
-            "detection_areas": torch.cat(tensors=detection_areas)[sorted_indices],
-            "best_ground_truth_areas": best_ground_truth_areas[sorted_indices],
+            "detection_side_shares": torch.cat(tensors=detection_side_shares)[sorted_indices],
+            "best_ground_truth_side_shares": best_ground_truth_side_shares[sorted_indices],
             "ignored_candidates": ignored_candidates, "ignored_crowds": ignored_crowds,
-            "ground_truth_areas": all_ground_truth_areas[:-1], "number_ground_truth": len(all_ground_truth_areas) - 1}
+            "ground_truth_side_shares": all_ground_truth_side_shares[:-1],
+            "number_ground_truth": len(all_ground_truth_side_shares) - 1}
 
 
 def match_class_detections(class_detections: Dict[int, Dict[str, Any]],
@@ -385,10 +397,10 @@ def select_object_size_detections(gathered: Dict[str, Any], true_positive_flags:
                                   ignored_flags: torch.Tensor, intersection_over_union_threshold: float,
                                   object_size: str) -> Tuple[torch.Tensor, int]:
     """
-    Keeps the detections of a class that count for the average precision of one object size, with the area rule of
+    Keeps the detections of a class that count for the average precision of one object size, with the size rule of
     COCO on the PASCAL VOC matching: the ground truths of the other sizes are ignored, and so are the detections
     matched to them (their best ground truth overlapping them by at least the threshold) and the unmatched detections
-    whose own area is of another size. A detection whose best ground truth of the size was already taken stays a false
+    whose own size is another one. A detection whose best ground truth of the size was already taken stays a false
     positive, as without sizes. The detections ignored on an ignored object count in no size.
 
     Args:
@@ -396,20 +408,22 @@ def select_object_size_detections(gathered: Dict[str, Any], true_positive_flags:
         true_positive_flags (torch.Tensor): The [D] true positive flags of the detections at the threshold.
         ignored_flags (torch.Tensor): The [D] ignored flags of the detections at the threshold.
         intersection_over_union_threshold (float): The minimum overlap for a detection to find its object.
-        object_size (str): "small", "medium" or "large".
+        object_size (str): One of OBJECT_SIZE_SIDE_SHARES, e.g. "1_16_to_1_8".
 
     Returns:
         Tuple[torch.Tensor, int]: The true positive flags of the kept detections, in decreasing score order, and the
             number of ground truths of the class of that size.
     """
     # A detection reaching the threshold with its best ground truth counts when that ground truth is of the size, any
-    # other one when its own area is of the size, an ignored one never
+    # other one when its own size is that size, an ignored one never
     matched = gathered["best_intersection_over_union"] >= intersection_over_union_threshold
-    kept_detections = torch.where(matched, is_in_object_size(areas=gathered["best_ground_truth_areas"],
+    kept_detections = torch.where(matched, is_in_object_size(side_shares=gathered["best_ground_truth_side_shares"],
                                                              object_size=object_size),
-                                  is_in_object_size(areas=gathered["detection_areas"], object_size=object_size))
+                                  is_in_object_size(side_shares=gathered["detection_side_shares"],
+                                                    object_size=object_size))
     kept_detections = kept_detections & ~ignored_flags
-    number_ground_truth = int(is_in_object_size(areas=gathered["ground_truth_areas"], object_size=object_size).sum())
+    number_ground_truth = int(is_in_object_size(side_shares=gathered["ground_truth_side_shares"],
+                                                object_size=object_size).sum())
     return true_positive_flags[kept_detections], number_ground_truth
 
 
@@ -431,7 +445,7 @@ def compute_mean_average_precision(class_detections: Dict[int, Dict[str, Any]],
             every class at the threshold, from match_class_detections.
         intersection_over_union_threshold (float): The minimum overlap for a detection to find its object.
         method (str): 'area', '11_point' or '101_point'.
-        object_size (Optional[str]): "small", "medium" or "large" for the objects of one size, None for all of them.
+        object_size (Optional[str]): One of OBJECT_SIZE_SIDE_SHARES for the objects of one size, None for all of them.
             Defaults to None.
 
     Returns:
@@ -547,9 +561,9 @@ def evaluate_detections(detections: List[Dict[str, torch.Tensor]], ground_truths
     every average precision method, the mAP at an intersection over union of 0.5 (PASCAL VOC), at 0.75, at 0.95, and
     averaged over the thresholds 0.5 to 0.95 (those of COCO, every threshold matched with the PASCAL VOC rule of
     match_detections_to_ground_truth), plus the average precision of every class at the same thresholds and the
-    number of ground truth boxes of every class, for the per-class report, and the same values for the small, medium
-    and large objects (COCO sizes, see select_object_size_detections), each with the recall of all the
-    detections at the same thresholds, the mean average recall (the same for every method). The detections are
+    number of ground truth boxes of every class, for the per-class report, and the same values for the objects of
+    every size relative to the image (object_sizes.py, see select_object_size_detections), each with the recall of
+    all the detections at the same thresholds, the mean average recall (the same for every method). The detections are
     compared with the ground truths by their boxes, by their masks for the mask AP of the instance segmentation, or by
     the object keypoint similarity of their keypoints for the keypoint detection, in place of the intersection over
     union. With a precision, the score threshold of every class reaching it is added (find_class_score_thresholds),
@@ -562,8 +576,9 @@ def evaluate_detections(detections: List[Dict[str, torch.Tensor]], ground_truths
             'mask_areas' [N], and for the keypoints the 'keypoint_overlaps' [N, M] with the ground truths and the
             'ignored_overlaps' [N, U] with the ignored objects.
         ground_truths (List[Dict[str, torch.Tensor]]): For every image, its ground truth 'boxes' [M, 4] and
-            'labels' [M], in the same coordinates as the detections, for the masks the 'mask_areas' [M], and for the
-            keypoints the 'ignored_labels' [U] and 'ignored_crowds' [U] of the ignored objects.
+            'labels' [M], in the same coordinates as the detections, the 'image_area' of the image in these
+            coordinates, which measures the object sizes, for the masks the 'mask_areas' [M], and for the keypoints
+            the 'ignored_labels' [U] and 'ignored_crowds' [U] of the ignored objects.
         number_classes (int): The number of classes, background (index 0) included.
         overlap_type (str): "boxes", "masks" or "keypoints". Defaults to "boxes".
         target_precision (Optional[float]): The precision of the score threshold of every class, None to skip the
@@ -595,7 +610,7 @@ def evaluate_detections(detections: List[Dict[str, torch.Tensor]], ground_truths
             intersection_over_union_threshold=threshold, method=method)
             for threshold in INTERSECTION_OVER_UNION_THRESHOLDS})
         results[method]["sizes"] = {}
-        for object_size in OBJECT_SIZE_RANGES:
+        for object_size in OBJECT_SIZE_SIDE_SHARES:
             size_results = summarise_thresholds(threshold_results={threshold: compute_mean_average_precision(
                 class_detections=class_detections, class_matches=threshold_matches[threshold],
                 intersection_over_union_threshold=threshold, method=method, object_size=object_size)
