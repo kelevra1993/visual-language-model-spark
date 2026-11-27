@@ -485,9 +485,10 @@ The models go to `vision_training/deployment/triton/served_models/<model name>_<
 
 S is `Data.image_settings.size`, K the number of classes, T the number of frames, D the largest number of detections, M `MaskHead.mask_resolution`, C the heatmap channels, N the candidates per channel and F the size of the representation. Inputs are float32 BGR images in [0, 255]; the normalization is inside the model. Client-side post-processing, the SEL decoder and ensembles: [tools reference](documentation/reference/tools_reference.md#export).
 
-Two options matter before production:
-- `--torchscript_precision FP16`: `model_fp16.pt`, half the size, with FP16 convolution, linear and attention weights and the rest in FP32, checked against the eager FP16 model.
-- `--test_split_parity`: every format served by a temporary Triton container and scored on the whole test split against the eager model, a report in `<run>/Export_Parity/` that never blocks the install ([details](documentation/reference/tools_reference.md#test-split-parity)).
+> [!WARNING]
+> Before production, consider these two options:
+> - `--torchscript_precision FP16`: `model_fp16.pt`, half the size.
+> - `--test_split_parity`: every format scored on the whole test split against the eager model ([details](documentation/reference/tools_reference.md#test-split-parity)).
 
 Suppose a classifier reaches its target precision only above a threshold such as 0.999: export it with a logit temperature.
 
@@ -503,6 +504,24 @@ The **Export At T = …** button of the explorer writes to its own repository in
 
 ### Input Contract
 If a server has to turn a photo into a model input, it reads the input contract written with the model: `preprocessing.json` next to it and the metadata of `model.onnx` (keys in `vision_training/deployment/input_contract.py`). The contract gives the decoding (BGR, as `cv2.imread`), the resize (`stretch`, `keep_ratio` or `tiles`, with its interpolation), the padding and the layout. A run it cannot describe is not exported.
+
+For example, the README classifier is exported with this `preprocessing.json`:
+
+```json
+{
+  "input_contract_version": "2",
+  "input_color_order": "BGR",
+  "input_resize": "keep_ratio",
+  "input_size": "512",
+  "input_interpolation": "linear",
+  "input_padding_value": "0",
+  "input_padding_placement": "centred",
+  "input_tile_scale": "none",
+  "input_tile_overlap": "none",
+  "input_layout": "NCHW",
+  "input_value_range": "0-255"
+}
+```
 
 The figure below shows the three resizes on one photo:
 
