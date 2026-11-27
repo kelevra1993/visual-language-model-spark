@@ -3696,16 +3696,6 @@ if __name__ == "__main__":
                       "semantic_segmentation": 1, "sequence_classification": 12, "sequence_labelling": 12,
                       "sequence_comparison": 12, "frame_selection": 12, "self_supervised": 1,
                       "multi_label_classification": 1}
-    # True to create the instance segmentation dataset of the instance segmentation benchmark, with the settings of
-    # instance_segmentation_benchmark_settings instead of the entries above, which give the dataset read by the
-    # synthetic object detection and instance segmentation configurations
-    instance_segmentation_benchmark_dataset = False
-    # Folder, image size, splits and most shapes per image of the instance segmentation benchmark dataset, those of the
-    # object detection dataset with a test split of 10,000 images, the visible part of every shape being labelled by a
-    # compressed run length encoding
-    instance_segmentation_benchmark_settings = {
-        "output_folder": "/home/robert_kelevra/Data/instance_segmentation_data/synthetic_hard_shapes",
-        "image_size": 1024, "split_sizes": {"train": 512000, "validation": 50000, "test": 10000}, "maximum_objects": 12}
     # Largest IoU between two objects of an image drawn by generate_image: 0.3 for every dataset, 0.6 for the occlusion
     # test split of stage 5b of the detection benchmark, in a folder of its own
     maximum_object_intersection_over_union = 0.3
@@ -3715,14 +3705,6 @@ if __name__ == "__main__":
     same_class_neighbour_probability = 0.0
     # Number of worker processes generating the images
     number_workers = 8
-
-    # The instance segmentation benchmark dataset replaces the settings of the dataset of the synthetic configurations,
-    # its own folder included, which then replaces the --output_folder argument
-    if task == "instance_segmentation" and instance_segmentation_benchmark_dataset:
-        output_folder = instance_segmentation_benchmark_settings["output_folder"]
-        image_sizes[task] = instance_segmentation_benchmark_settings["image_size"]
-        split_sizes[task] = instance_segmentation_benchmark_settings["split_sizes"]
-        maximum_objects[task] = instance_segmentation_benchmark_settings["maximum_objects"]
 
     create_synthetic_dataset(output_folder=output_folder, image_size=image_sizes[task],
                              split_sizes=split_sizes[task], maximum_objects=maximum_objects[task],
