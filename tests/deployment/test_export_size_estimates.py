@@ -357,8 +357,8 @@ def test_half_precision_torchscript_estimate_follows_the_fp16_export(tmp_path: P
     Verifies on the GPU that the FP16 TorchScript row of a small classifier follows the file of the FP16 export
     (convert_to_half_precision traced by export_torchscript into 'model_fp16.pt'): within 6 % for this model of 0.2
     MB, whose code and records, which the estimate takes from the FP32 trace without the casts of autocast, outweigh
-    its weights (the files of the tutorial runs, from 0.6 to 53 MB, lie within TORCHSCRIPT_HALF_PRECISION_MARGIN in
-    scripts/deployment/check_export_size_estimates.py), against about 23 % for the FP32 trace itself.
+    its weights (the files of the tutorial runs, from 0.6 to 53 MB, lie within TORCHSCRIPT_HALF_PRECISION_MARGIN of
+    vision_training/deployment/export_size_estimates.py), against about 23 % for the FP32 trace itself.
 
     Args:
         tmp_path (Path): The pytest temporary directory.

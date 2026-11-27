@@ -34,7 +34,6 @@ references:
   - "vision_training/models/classification/inference_classifier.py · InferenceClassifier.set_logit_temperature"
   - "vision_training/deployment/export_size_estimates.py · probe_inference_graph"
   - "vision_training/deployment/export_size_estimates.py · print_export_size_summary"
-  - "scripts/deployment/check_export_size_estimates.py · fit_calibration"
   - "README.md"
 scenes:
   - kind: title_card
@@ -266,13 +265,11 @@ scenes:
       - {type: box, box: [860, 50, 1740, 210], text: "one forward pass of one sample under ExportGraphProbe:\noperators counted, every constant read counted once,\nbatch normalization folded as the exports fold it", font: diagram_small, outline: violet, appear: 1, highlight: [1]}
       - {type: box, box: [860, 240, 1740, 400], text: "formulas: state dictionaries, optimizer state,\naveraged weights and metadata of the checkpoint\nTorchScript FP32: traced to a temporary model.pt\nFP16: that size less half of its converted weights", font: diagram_small, outline: blue, appear: 2, highlight: [2]}
       - {type: box, box: [860, 430, 1740, 590], text: "TensorRT: the weights in the engine precision\nplus an overhead per operator,\ntimes {{constant:vision_training/deployment/export_size_estimates.py#TENSORRT_OVERHEAD_RANGE[0]}} to {{constant:vision_training/deployment/export_size_estimates.py#TENSORRT_OVERHEAD_RANGE[1]}}", font: diagram_small, outline: yellow, appear: 3, highlight: [3]}
-      - {type: box, box: [20, 620, 1740, 730], text: "scripts/deployment/check_export_size_estimates.py: real exports of the tutorial runs,\nevery estimate against its file, the constants fitted again;\n--build_tensorrt_engines adds the engines Triton builds, on an idle GPU", font: diagram_small, outline: aqua, appear: 4, highlight: [4]}
     narration:
       - "Say you train a model for a small device: the launch of every training already prints the size of every file the model becomes, from its weights to its TensorRT engines, in the Export Sizes panel."
       - "Nothing is exported there: one forward pass of one sample, recorded operator by operator, gives the number of operators of the graph and the weights and constants the ONNX file keeps."
       - "The PyTorch weights and the training checkpoint, with its optimizer state and averaged weights, come from formulas; only the full precision TorchScript file is traced into a temporary folder and measured, the half precision one being that size less what its converted weights save."
       - "The TensorRT engines are a range: their weights in the precision of the engine, plus an overhead per operator fitted on real engines, which only the TensorRT builder decides."
-      - "After a change to the exports or to their libraries, check export size estimates exports the tutorial runs, compares every estimate with its real file, and fits the constants again."
 
   - kind: summary
     title: "Recap"

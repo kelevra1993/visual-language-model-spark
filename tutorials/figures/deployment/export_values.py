@@ -25,7 +25,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List, Tuple
 
-from scripts.deployment.check_export_size_estimates import build_run_optimizer
 from tutorial_builder.figure_context import find_repository_root
 from tutorials.figures.classification.data_listings import write_listing
 from tutorials.figures.figure_utilities import find_repository_file, find_run_folder, read_run_configuration
@@ -40,6 +39,10 @@ from vision_training.deployment.triton_configuration import (format_dimensions, 
                                                              write_triton_configuration)
 from vision_training.models.classification.image_classifier import ImageClassifier
 from vision_training.models.model_transfer import TRANSFERABLE_COMPONENTS
+
+# Optimizer of every 'Optimization.optimizer' of the configurations, as BaseTrainer.create_optimizer builds it, of
+# which the checkpoint estimate only reads the class and the momentum
+OPTIMIZER_CLASSES = {"adam": torch.optim.Adam, "adamw": torch.optim.AdamW, "sgd": torch.optim.SGD}
 
 # Export script, whose main block sets the formats, the version, the largest batch size and the TensorRT precision
 EXPORT_SCRIPT = Path("vision_training") / "deployment" / "export_model.py"
@@ -346,14 +349,31 @@ def describe_input_contract(output_folder: Path, classification_run_folder: Path
             "contract.input_resize": input_contract["input_resize"]}
 
 
+def build_run_optimizer(model: torch.nn.Module, optimizer_name: str) -> torch.optim.Optimizer:
+    """
+    Builds the optimizer of a run over its parameters, of the class the trainer builds for its configuration, so that
+    the checkpoint estimate of the Export Sizes panel shown in the export chapter reads the class and momentum of the
+    optimizer of the run.
+
+    Args:
+        model (torch.nn.Module): The model of the run.
+        optimizer_name (str): 'Optimization.optimizer' of the run, 'adam', 'adamw' or 'sgd'.
+
+    Returns:
+        torch.optim.Optimizer: The optimizer.
+    """
+    if optimizer_name == "sgd":
+        return torch.optim.SGD(params=model.parameters(), lr=1e-3, momentum=0.9, nesterov=True)
+    return OPTIMIZER_CLASSES[optimizer_name](params=model.parameters(), lr=1e-3)
+
+
 def describe_export_sizes(output_folder: Path, classification_run_folder: Path) -> Dict[str, Any]:
     """
     Writes the Export Sizes panel the launch of the README classifier prints after its Model Size panel
     (estimate_export_sizes and print_export_size_summary of vision_training/deployment/export_size_estimates.py), so
     that the export chapter shows that the size of every exported file is known before the training. The model is
     built on the CPU from the saved configuration of the run, its random weights giving the same sizes as the trained
-    ones, with the optimizer and moving average of that configuration (build_run_optimizer of
-    scripts/deployment/check_export_size_estimates.py, as the calibration of the panel builds them); the seconds of the
+    ones, with the optimizer and moving average of that configuration (build_run_optimizer); the seconds of the
     subtitle, different at every build, are written '<seconds>'.
 
     Args:

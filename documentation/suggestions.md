@@ -138,7 +138,7 @@
       Runtime without TensorRT answered at batch 1 and 16. Until the cause is found, a keypoint export is written with
       `tensorrt_precision = None` (keypoint workflow, deployment chapter 2). To find it: serve the graph cut after the
       heatmaps, then after the candidate extraction (`TopK` and the gathers of the candidates), and try a newer image.
-    - **The four sequence models** (M2O, M2M, SEL and CMP of `DEFAULT_EXPERIMENT_FOLDERS`): their batch-1 engine is
+    - **The four sequence models** (M2O, M2M, SEL and CMP of the tutorial runs): their batch-1 engine is
       built and answers, but the engine of the largest batch sent (6, 16, 16 and 3, the largest below 1 GB) is not:
       the request fails with "onnx runtime error 11", the log giving `IBuilder::buildSerializedNetwork: Error Code 10:
       Could not find any implementation for node {ForeignNode[node_Reshape_...node_softmax]}` with the 4 GB TensorRT
@@ -148,8 +148,6 @@
       `restore_dynamic_output_frames`, the stripped metadata) or the larger batch request are the first suspects:
       export the run with the code of 2026-11-17, compare the graphs, then try a larger `max_workspace_size_bytes`. A
       served sequence model fails as soon as the dynamic batcher forms a batch above the one its engine was built for.
-    `scripts/deployment/check_export_size_estimates.py --build_tensorrt_engines` reproduces both (the models are
-    reported in red and the other engines still measured).
 
 ## F. Reference: Mask R-CNN compared stage by stage
 **The mask branch is the same design.** Both use RoIAlign 14 × 14, a stack of 3 × 3 convolutions, a 2 × 2 transposed
