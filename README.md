@@ -264,11 +264,13 @@ Backbone:
 </p>
 
 ## Tasks
-Say you bring your own data: start from the `configuration_example.yaml` of the task.
+Say you bring your own data: every split is a folder holding its images in `data/` and their labels in `labels.json`, and one `label_mapping.json` turns the categories of the labels into the classes the model predicts, merging or leaving out categories. Then start from the `configuration_example.yaml` of the task.
 
 <p align="center">
   <img src="README/tasks_dataset_layout.png" width="100%" />
 </p>
+
+The table gives what `labels.json` holds for every task. Its reference shows an annotated label file, the configuration sections and the metrics of the task; its workflow follows one run function by function.
 
 | Task | Labels | Details |
 |---|---|---|
