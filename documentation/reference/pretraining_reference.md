@@ -1,6 +1,6 @@
 # Pretraining Reference
 
-If one wishes to start a backbone from pre-trained weights instead of random ones, this reference describes the download of the dataset the classification configurations train on, completing the [Data Requirements](../../README.md#data-requirements) section of the README. A classification, object detection or segmentation run then loads the trained backbone through `Backbone.pretrained` ([Transfer Between Runs](../../README.md#transfer-between-runs)), and the [Pretraining Strategy](#pretraining-strategy) sets the order in which the backbone sizes are pre-trained, with the Open Images V7 splits and the configurations of the detection stage.
+If one wishes to start a backbone from pre-trained weights, this reference covers the ImageNet-22k download and the pretraining plan. It completes the [Tasks](../../README.md#tasks) section of the README. A run loads the backbone through `Backbone.pretrained` ([Transfer Between Runs](../../README.md#transfer-between-runs)).
 
 ## Table Of Content
 To find your way in this reference, the sections are:
@@ -18,32 +18,35 @@ To find your way in this reference, the sections are:
   - [Open Questions](#open-questions)
 
 ## ImageNet-22k
-Should you need the pre-trained backbones of the classification configurations (`configuration_example.yaml` and the `*_model.yaml` files of `vision_training/configurations/classification/`) or of the self-supervised example, download ImageNet-22k with `vision_training/data/classification/imagenet_download.py`. It reads `timm/imagenet-22k-wds` from Hugging Face at a pinned revision (fall11 release, 21,841 classes, 4,608 shards of about 0.29 GB), and writes the `labels.json` manifests and the `label_mapping.json` these configurations read.
+Should you need the pre-trained backbones of the classification or self-supervised configurations, download ImageNet-22k with `vision_training/data/classification/imagenet_download.py`. It reads `timm/imagenet-22k-wds` from Hugging Face (fall11 release, 21,841 classes, 4,608 shards) and writes the `labels.json` manifests and `label_mapping.json`.
 
 ### Downloading ImageNet-22k
-Before the first shard is fetched, the script checks that this machine is logged in with an account that accepted the terms of the dataset, and it stops when the disk runs low:
-1. Accept the terms of [timm/imagenet-22k-wds](https://huggingface.co/datasets/timm/imagenet-22k-wds) (non-commercial research and education only), then log in with `uv run hf auth login`.
-2. Keep about 1.3 TB free on the disk of `dataset_folder` (main block of the script, `~/Data/classifier_data/imagenet-22k` by default); the download stops below 100 GB free.
-3. Run it. It resumes shard by shard after an interruption, at about 1,500 shards an hour with 16 workers on a DGX Spark.
+Before the first shard is fetched, accept the terms of [timm/imagenet-22k-wds](https://huggingface.co/datasets/timm/imagenet-22k-wds) (non-commercial research and education only). Keep about 1.3 TB free on the disk of `dataset_folder` (`~/Data/classifier_data/imagenet-22k` by default); the download stops below 100 GB free. It resumes after an interruption and fetches about 1,500 shards an hour on a DGX Spark.
 
 ```bash
+# Log in with the account that accepted the terms
+uv run hf auth login
+
+# Download the shards and write the manifests
 uv run python -m vision_training.data.classification.imagenet_download
 ```
+
+The figure shows the download in progress.
 
 <p align="center">
   <img src="../../README/imagenet_22k_download.png" width="100%" />
 </p>
 
-So that a configuration trains on the download, point its `train_data_folder`, `validation_data_folder`, `test_data_folder` and `Data.label_mapping.mapping_file_path` to `manifests/train`, `manifests/validation`, `manifests/test` and `manifests/label_mapping.json` of `dataset_folder`, and its `experiment_folder` to the folder of your runs.
+So that a configuration trains on the download, point `train_data_folder`, `validation_data_folder`, `test_data_folder` and `Data.label_mapping.mapping_file_path` to `manifests/train`, `manifests/validation`, `manifests/test` and `manifests/label_mapping.json` of `dataset_folder`.
 
 ### Validation And Test Splits
-In case you compare its scores with other results, the held-out images (18,846) are both the validation and the test split, so a setting chosen on the validation curves is chosen on the test images, and the scores cannot be compared with published ImageNet-1k accuracies (shorter side of the images at most 600 pixels in the source, person classes kept). The split sizes and the retries of the download are in the [tasks reference](tasks_reference.md#classification-cls).
+In case you compare scores with other results, note that the 18,846 held-out images are both the validation and the test split. The scores do not compare with published ImageNet-1k accuracies. Split sizes are in the [tasks reference](tasks_reference.md#classification-cls).
 
 ## Pretraining Strategy
-Before training the production models, this plan sets the order in which three backbone sizes are pretrained on classification, then fine-tuned for object detection and instance segmentation, so that every size ends with the same three models and one comparison table.
+Before training the production models, this plan sets the order of the stages: three backbone sizes pretrained on classification, then fine-tuned for detection and instance segmentation.
 
 ### Model Sizes
-If one wishes to pick the size of a production model, the three candidates below all have 6 backbone blocks, written as convolutions x filters per block, each with its classification configuration in `vision_training/configurations/classification/`. Each size doubles the filters of the size before it, which multiplies the convolution cost by about 4 (1.3, 4.9 and 19.4 billion multiply-accumulates per 256 pixel image for the backbones).
+If one wishes to pick the size of a production model, the table lists the three candidates, with blocks written as convolutions x filters. Each size doubles the filters, about 4 times the cost (1.3, 4.9 and 19.4 billion multiply-accumulates per 256 pixel image).
 
 | Size | Backbone | Head | Parameters (backbone + head, 21,841 classes) | Configuration |
 |---|---|---|---|---|
@@ -51,65 +54,44 @@ If one wishes to pick the size of a production model, the three candidates below
 | M | 1x64 · 2x64 · 2x64 · 16x128 · 20x128 · 20x128 | [512, 256] | 9.3 M + 9.9 M | `configuration_medium_model.yaml` |
 | L | 1x128 · 2x128 · 2x128 · 16x256 · 20x256 · 20x256 | [512, 256] | 37.1 M + 14.1 M | `configuration_large_model.yaml` |
 
-### Classification Pretraining On ImageNet-22k
-For the three sizes to compare, each first learns general features on ImageNet-22k (21,841 classes, 256 pixels) with the same recipe (learning rate 2e-4, the best of stage 1 of the [classification benchmark](../architecture_benchmarking/experiment_plan.md#stage-1-learning-rate-10-launches)), the three files differing only in their backbone blocks and head layers, the dataset being downloaded by `vision_training/data/classification/imagenet_download.py` ([Downloading ImageNet-22k](#downloading-imagenet-22k)).
+The files are in `vision_training/configurations/classification/`.
 
-1. Start each size from random weights, or from the backbone of an earlier classification run of the same backbone when one exists (`Backbone.pretrained`), the head of the 21,841 classes starting random.
-2. Train with the moving average of the weights, and keep the averaged weights.
-3. Choose the checkpoint on the accuracy of the test evaluations, with the same rule for every size. The 18,846 test images are also the validation split, so the choice is made on the test images and the accuracy does not compare with published ImageNet-1k results; a k-NN check would need new code, the k-NN evaluation belonging to the self-supervised trainer only.
-4. Record accuracy, model size and speed (`diagnosis_modes.benchmark_speed`) of each size in the final table.
+### Classification Pretraining On ImageNet-22k
+For the three sizes to compare, each trains on ImageNet-22k at 256 pixels with the same recipe: learning rate 2e-4, the best of stage 1 of the [classification benchmark](../architecture_benchmarking/experiment_plan.md#stage-1-learning-rate-10-launches).
+
+1. Start from random weights, or from an earlier backbone of the same design (`Backbone.pretrained`).
+2. Keep the moving average of the weights.
+3. Choose the checkpoint on test accuracy, with the same rule for every size.
+4. Record accuracy, size and speed (`diagnosis_modes.benchmark_speed`).
 
 ### Object Detection
-Whenever a size has its pretrained backbone, the detector loads it into its 7-block backbone, the 7th block starting random (a deeper backbone loaded from a shorter one), with the settings kept by the detection benchmark (feature pyramid, learning rate 1e-3, DIoU-NMS, per-level proposal selection).
+Whenever a size has its pretrained backbone, the detector loads it into its 7-block backbone, the 7th block starting random. It keeps the settings of the detection benchmark.
 
-1. Convert Open Images V7 (1.74 million training images, 601 classes, boxes in `detections.csv`) into the COCO `labels.json` the loader reads ([Open Images V7 Splits](#open-images-v7-splits)).
+1. Convert Open Images V7 (1.74 million training images, 601 classes, boxes in `detections.csv`) into COCO `labels.json` ([Open Images V7 Splits](#open-images-v7-splits)).
 2. Pretrain the detector of each size on Open Images ([Detection Configurations](#detection-configurations)).
-3. Fine-tune it on COCO 2017 (118,287 training images, 80 classes, every object labelled), the score compared with published results being the COCO validation box mAP.
-4. Keep the Open Images detector as well, as the start of detection projects whose classes are not in COCO.
+3. Fine-tune it on COCO 2017 (80 classes) and compare its validation box mAP with published results.
+4. Keep the Open Images detector as the start of projects whose classes are not in COCO.
 
 #### Open Images V7 Splits
-In case you rebuild the detection data, the splits were converted once, on 2026-11-26, from the FiftyOne download of `vision_training/data/data_retriever.py` by a script not kept in the repository, into `~/Data/object_detection_data/open-images-v7/coco_format/`, the images being hard links to the downloaded files:
-
-| Folder | Images | Boxes | Content |
-|---|---|---|---|
-| `train/` | 1,872,515 | 15,734,499 | every train image with a box, and every validation and test image with a box outside `validation_test_20000/` |
-| `validation_test_20000/` | 20,000 | 116,880 | the validation and the test split of the detection configurations |
-
-- Boxes: the normalised boxes of `detections.csv` turned into pixels `[x, y, width, height]` with their `area`, clipped to the stored image; no `iscrowd`, the code reading no crowd flag.
-- Classes: the 601 boxable classes, numbered from 1 in alphabetical order (their Open Images code in `open_images_code`), mapped to themselves by `label_mapping.json`, the parent classes (Vehicle above Car) kept as they are.
-- Dropped: the images without box (1 train, 4,314 validation and 13,242 test images) and 27 images with an EXIF orientation, which OpenCV would turn away from their boxes.
-- Group-of boxes, one box around 5 or more touching objects of a class (6 % of the train boxes): ordinary objects in `train/`, and no image holding one in `validation_test_20000/`.
-- Rotated images, with a `Rotation` of 90, 180 or 270 degrees in the metadata (about 1 %): stored sideways with their boxes on the stored pixels, kept in `train/`, none in `validation_test_20000/`.
-- `validation_test_20000/`: drawn from the 97,400 validation and test images without group-of box nor rotation, the rarest classes first until each has 20 images (or all it has), then at random (seed 0); 585 classes have test images, 86 of them fewer than 20, and 16 classes none.
-- One object, several classes: 29 % of the validation boxes cover the same object as a box of another class (IoU 0.7 or more: Man, Person, Woman, Mammal and Human body, Tire and Wheel), kept as they are, so a detection of one of them leaves the others missed in the test score.
+In case you rebuild the detection data, note that the splits were converted once from the FiftyOne download of `vision_training/data/data_retriever.py`, by a script not kept. They are in `~/Data/object_detection_data/open-images-v7/coco_format/`:
+- `train/`: 1,872,515 images, 15,734,499 boxes, including group-of boxes (6 %) and rotated images (about 1 %).
+- `validation_test_20000/`: 20,000 images, 116,880 boxes, drawn rarest classes first (585 classes present), without group-of box or rotation.
+- Boxes are in pixels `[x, y, width, height]`; the 601 classes are numbered from 1 alphabetically, parents (Vehicle above Car) kept.
+- Images without box and 27 images with an EXIF orientation are dropped.
+- 29 % of validation boxes share their object with another class (Man, Person; Tire, Wheel), so detecting one leaves the others missed.
 
 #### Detection Configurations
-Should you launch the Open Images pretraining of a size, `configuration_small_model.yaml`, `configuration_medium_model.yaml` and `configuration_large_model.yaml` of `vision_training/configurations/object_detection/` hold it, sharing one recipe and differing only in their backbone, neck and heads:
+Should you launch the Open Images pretraining of a size, use the `configuration_<size>_model.yaml` files of `vision_training/configurations/object_detection/`. Each takes the classification backbone of its size with a block 7 equal to block 6, and neck channels of 32, 64 or 128. They have 4.5 M, 16.8 M and 65.2 M parameters. They share these settings:
+- 1024 pixel images, aspect ratio kept, batch size 16, GPU memory about 12, 22 and 42 GB for S, M and L.
+- Levels 3 to 7 (strides 8, 16, 32, 64, 64), 3 anchor scales and 5 ratios (0.25 to 4) per level.
+- Adam at 1e-3, constant until stopped (`number_iterations: 1e10`), moving average 0.9998.
+- Test on `validation_test_20000/` every 5,000 iterations, MLflow on, runs in `open_images_experiments/<size>/`.
+- Blocks 1 to 6 come from the last averaged checkpoint of the ImageNet run of the same size, in `imagenet_experiments/<size>/`. Until the Large run exists, `check_configuration.py --check_paths` refuses the Large file.
 
-| Size | Backbone, block 7 equal to block 6 | Neck and heads of every level | Parameters | Backbone source in `imagenet_experiments/` |
-|---|---|---|---|---|
-| S | 1x32 · 2x32 · 2x32 · 16x64 · 20x64 · 20x64 · 20x64 | 32 channels, region proposal [2, 32], detection [2, 32] then [64, 32] | 4.5 M | `small/`, training |
-| M | 1x64 · 2x64 · 2x64 · 16x128 · 20x128 · 20x128 · 20x128 | 64 channels, region proposal [2, 64], detection [2, 64] then [128, 64] | 16.8 M | `medium/`, training |
-| L | 1x128 · 2x128 · 2x128 · 16x256 · 20x256 · 20x256 · 20x256 | 128 channels, region proposal [2, 128], detection [2, 128] then [256, 128] | 65.2 M | `large/`, not trained yet |
-
-- Shared: 1024 pixel images with their aspect ratio kept, batch size 16, levels 3 to 7 (strides 8, 16, 32, 64 and 64) with 3 anchor scales and 5 aspect ratios (0.25 to 4) per level (scales 8, 11, 16; 16, 23, 32; 48, 68, 96; 128, 181, 256; 384, 543, 768 pixels), Adam at 1e-3 under a constant learning rate until the run is stopped (`number_iterations: 1e10`), moving average of the weights at 0.9998, test on `validation_test_20000/` every 5,000 iterations without validation, MLflow on, runs in `open_images_experiments/<size>/`.
-- Backbone: blocks 1 to 6 come from the last checkpoint (its moving average) of the ImageNet run of the same size at launch, trained by the launch copies of `vision_training/configurations/classification/imagenet_merged/`; until the Large ImageNet run exists, `check_configuration.py --check_paths` refuses the Large file.
-- Memory: a training step at 1024 pixels takes about 0.76, 1.35 and 2.55 GB of GPU memory per image for S, M and L (about 12, 22 and 42 GB at batch size 16), and the main process of a Small launch peaked at 16.8 GB while it read the training `labels.json`.
-
-Before choosing the anchors, the `compute_anchor_coverage` diagnosis measured the share of the objects with an anchor overlapping them by 0.5 or more, on the 1,582,949 boxes of a random 10 % of the training images (small objects under 32 x 32 pixels of the network input, large from 96 x 96). The objects under 32 pixels are limited by the stride of the finest level: more scales and ratios at stride 16 raise them by 7 points, level 3 at stride 8 by 31.
-
-| Anchors | Anchors per image | All | Small | Medium | Large | GPU memory |
-|---|---|---|---|---|---|---|
-| Levels 4 to 7, scales of the detection benchmark (16 and 32 to 384 and 768), ratios 0.5, 1 and 2 | 33,792 | 79.8 % | 40.7 % | 74.1 % | 92.1 % | reference |
-| The same with ratios 0.25, 0.5, 1, 2 and 4 | 56,320 | 82.8 % | 42.0 % | 77.0 % | 95.8 % | |
-| 3 scales per level (16, 23, 32 to 384, 543, 768), ratios 0.5, 1 and 2 | 50,688 | 85.2 % | 46.5 % | 82.0 % | 96.1 % | |
-| 3 scales and 5 ratios per level | 84,480 | 87.4 % | 47.5 % | 84.2 % | 98.7 % | +3 % (S) |
-| Kept: level 3 added (8, 11, 16), 3 scales and 5 ratios per level | 330,240 | 90.7 % | 71.9 % | 84.2 % | 98.7 % | +20 % (S), +6 % (L) |
-
-The kept anchors cost time as well: two launches of the Small file trained one after the other on the same images, with the GPU shared with two other trainings, ran at 5.6 images per second with them against 6.5 with the anchors of the detection benchmark over their last 60 iterations, about 14 % slower.
+Before choosing the anchors, the `compute_anchor_coverage` diagnosis measured the share of objects with an anchor at IoU 0.5 or more. The kept anchors cover 90.7 % of the objects and 71.9 % of the small ones, against 79.8 % and 40.7 % for the detection benchmark anchors. Level 3 brings most of the small-object gain, for +20 % GPU memory (S) and about 14 % fewer images per second.
 
 ### Instance Segmentation
-So that the backbone, pyramid and proposal network are not trained twice, each instance segmentation model starts from the COCO detector of its size, only the mask head starting random.
+So that the backbone, pyramid and proposal network are not trained twice, each model starts from the COCO detector of its size. Only the mask head starts random.
 
 1. Fine-tune on the COCO masks, with the mask head kept by the instance segmentation benchmark.
 2. Record the mask and box mAP on the COCO validation set.
@@ -118,9 +100,8 @@ So that the backbone, pyramid and proposal network are not trained twice, each i
 To find problems on cheap runs first, S goes through every stage before M and L start.
 
 1. S: classification, Open Images detection, COCO detection, instance segmentation, then a check of the whole chain.
-2. M and L: the same chain, at most 2 trainings at a time on a DGX Spark, with 25 GB of its memory left free.
-3. Final table per size: classification accuracy, Open Images and COCO box mAP, COCO mask mAP, speed per export format, memory and parameters.
+2. M and L: the same chain, at most 2 trainings at a time on a DGX Spark, 25 GB of memory left free.
+3. Final table per size: accuracy, box and mask mAP, speed per export format, memory and parameters.
 
 ### Open Questions
-In case you pick up the plan, this choice is still open:
-- Number of iterations of each stage and size, the classification and Open Images detection files training with a constant learning rate until they are stopped (`number_iterations: 1e10`).
+In case you pick up the plan, one choice is still open: the number of iterations of each stage and size. The classification and Open Images detection files train with a constant learning rate until stopped (`number_iterations: 1e10`).

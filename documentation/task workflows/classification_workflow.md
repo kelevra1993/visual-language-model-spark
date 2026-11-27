@@ -1,22 +1,29 @@
 # Classification Workflow
 
-This document follows one classification run from `main()` to the evaluation of a checkpoint, to show which function runs when, what it receives, what it returns and who uses the result next. The **Call Tree Overview** gives the whole run on one page. Each stage then has one section, with one step per function: a short explanation followed by a **real** output.
+This document follows one classification run from `main()` to the evaluation of a checkpoint. It shows which function runs when, what it receives, what it returns and who uses the result next. The **Call Tree Overview** gives the whole run on one page. Each stage then has one section, with one step per function: a short explanation and a **real** output.
 
-The examples come from two real runs, both on CPU so that the GPU stayed free for another training (some steps add the outputs of a third one, the README run trained on the GPU, described below):
-- **Stages 1 and 2**: `configurations/classification/configuration_example.yaml` (ImageNet-1k, 1000 classes, 256 pixel images, batch size 256, flattened head), with the run folder redirected to a temporary folder. The file read ImageNet-1k when these outputs were recorded and reads ImageNet-22k (21,841 classes, `MC21841`) since 2026-11-11; the ImageNet-1k examples below are kept as records.
-- **Stages 3, 4 and 5**: `configurations/classification/configuration_synthetic_shapes.yaml` on the 9-class synthetic dataset of 2026-10-09 (the dataset generated on 2026-11-18 has 35 classes), shortened to 64 pixel images, batch size 8, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers, with the error images and the MLflow tracking turned on. After 12 iterations the network is still close to chance (9 classes: 1/9 = 11.11 % accuracy, a loss near ln 9 = 2.197), so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps. This run was recorded on 2026-10-09, with the configuration file and the synthetic dataset of that day: an `average` pooling, plain hidden layers and no class weighting (its run name ends with `HAVG.128_MC9`), a test split of 5,000 images, and an evaluation without the ROC and precision-recall curves. The steps say where the current code prints more; the README run of `experiments/readme_screenshots/` (`CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35`, the synthetic configuration trained on 2026-11-19 for 2,000 iterations with a batch of 64 from the shape pre-trained backbone, on the 35-class dataset of 500,000, 50,000 and 50,000 images generated on 2026-11-18: 81.76 % test accuracy, 99.12 % top-5 accuracy at 2000) gives the current outputs (Step 4.18), and the steps quoting the curves, the class metrics and MLflow at iteration 1500 show the 9-class README run of 2026-10-23 (`..._HFLAT.128-HLN-CWB_MC9`, 1,500 iterations from scratch). The CPU run and the 9-class README run were recorded when the k of the top-k accuracy was a setting (`top_k: 2`), so their reports show `Top-2 Accuracy` where the current code, whose k is fixed at 5, writes `Top-5 Accuracy`. The rates of the recorded console summaries, reports, best checkpoint lines and images are shown as the current code writes them, as percentages with two decimals (`10.96 %`, a change of the console summary in percentage points such as `-3.12 %`), the thresholds and losses keeping their decimals; the files, the result dictionaries, TensorBoard and MLflow keep their recorded values between 0 and 1.
+To read the examples, know which run each comes from; this table lists them.
 
-In the console, every file or folder path is a terminal hyperlink (`format_path_link()` of `vision_training/utilities/os_utilities.py`): it shows the name of the file or folder, underlined, and opens its `file://` URI. The examples of Stages 1 and 2 show these names; those of Stages 3 to 5 write the URI the link opens, as the README does.
+| Stages | Run |
+|---|---|
+| 1 and 2 | `configuration_example.yaml` on CPU when it read ImageNet-1k (1000 classes, 256 pixels, batch 256, flattened head); it reads ImageNet-22k (`MC21841`) since 2026-11-11 |
+| 3, 4 and 5 | `configuration_synthetic_shapes.yaml` on CPU, 2026-10-09, 9-class dataset, shortened to 64 pixels, batch 8, 12 iterations (settings in the Stage 3 note); near chance on purpose (1/9 = 11.11 %, loss near ln 9 = 2.197) |
+| current outputs (Step 4.18) | README run `CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35` of `experiments/readme_screenshots/`: 2,000 iterations, batch 64, shape pre-trained backbone, 35-class dataset (500,000 / 50,000 / 50,000), 81.76 % accuracy, 99.12 % top-5 |
+| curves, class metrics, MLflow at iteration 1500 | 9-class README run of 2026-10-23 (`..._HFLAT.128-HLN-CWB_MC9`, 1,500 iterations from scratch) |
 
-The other tasks have their own document, written the same way: `object_detection_workflow.md`, `instance_segmentation_workflow.md`, `semantic_segmentation_workflow.md`, `self_supervised_workflow.md`, `sequence_classification_workflow.md`, `sequence_labelling_workflow.md`, `sequence_comparison_workflow.md`, `frame_selection_workflow.md` and `keypoint_detection_workflow.md`. The steps shared by every task (the training loop, the checkpoints, the MLflow tracking, the standalone evaluation) are explained in most detail here.
+The CPU run and the 9-class README run show `Top-2 Accuracy` (k was a setting); the current code writes `Top-5 Accuracy`. Console rates are percentages with two decimals (`10.96 %`, changes in points); files, TensorBoard and MLflow keep 0 to 1. Console paths are terminal hyperlinks (`format_path_link()`): Stages 1 and 2 show the names, Stages 3 to 5 the `file://` URI.
+
+Every other task has a workflow document in this folder. The steps shared by every task (training loop, checkpoints, MLflow tracking, standalone evaluation) are explained in most detail here.
 
 ## Read This First
 
-The classification task (`task: "classification"`, run name code `CLS`) learns the class of a whole image: a BGR image resized to `Data.image_settings.size` (padded to a square with `keep_ratio`) goes through the shared backbone, a global pooling or a flattening of its last feature map, and a fully connected head giving K logits, read with a softmax (`ClassificationHead.output_mode: "multi_class"`, one class per image) or with one sigmoid per class (`"multi_label"`, every class present). Choose it when the label belongs to the whole image; choose DET or INS when the objects must be located, SEG for a class per pixel, KPT for points, the sequence tasks (M2O, M2M, CMP, SEL) when the decision needs several frames, and SSL to pre-train the backbone without labels. The sequence trainers extend `ClassificationTrainer` and reuse its head, its loss and its evaluation, and a backbone trained here initialises any other task (`Backbone.pretrained`).
+The classification task (`task: "classification"`, run name code `CLS`) learns the class of a whole image. A BGR image resized to `Data.image_settings.size` (padded to a square with `keep_ratio`) goes through the shared backbone, a global pooling or flattening, and a fully connected head giving K logits. The logits are read with a softmax (`ClassificationHead.output_mode: "multi_class"`, one class per image) or one sigmoid per class (`"multi_label"`).
+
+Choose it when the label belongs to the whole image. Choose DET or INS to locate objects, SEG for a class per pixel, KPT for points, the sequence tasks (M2O, M2M, CMP, SEL) when the decision needs several frames, and SSL to pre-train the backbone without labels. The sequence trainers extend `ClassificationTrainer` and reuse its head, loss and evaluation. A backbone trained here initialises any other task (`Backbone.pretrained`).
 
 ### The Task At A Glance
 
-To find your way in the stages below, the whole task fits in one diagram, from the manifest of a split to the exported classifier.
+To find your way in the stages below, this diagram shows the whole task, from the manifest of a split to the exported classifier.
 
 ```text
 <split>/labels.json  {"id": 1, "file_name": "train_000000.png", "category_id": 26}   label_mapping.json {"1": 0, ..}
@@ -45,7 +52,7 @@ export: InferenceClassifier, input images [B, 3, 512, 512] float32 BGR ─► cl
 
 ### Files To Know
 
-If you are looking for the code of a step, these are the files of the task and their main functions.
+If you are looking for the code of a step, this table lists the files of the task and their main functions.
 
 | Role | File | Main functions or classes |
 |---|---|---|
@@ -61,7 +68,7 @@ If you are looking for the code of a step, these are the files of the task and t
 | Configuration checks | `vision_training/configuration_processing/classification_checks.py` | `check_classification_configuration` |
 | Run name | `vision_training/configuration_processing/run_name.py` | `build_run_name`, `build_classification_sections` |
 | Synthetic data generator | `vision_training/data/synthetic/create_synthetic_dataset.py` | `create_synthetic_dataset`, `build_classification_labels` (one shape per image, or with `multi_label` the distinct classes of the counted shapes images of `configuration_synthetic_counted_shapes.yaml`) |
-| ImageNet-22k download | `vision_training/data/classification/imagenet_download.py` | ImageNet-22k with one held-out image per class as both validation and test (`download_imagenet_22k`), its class folders written as manifests (`write_class_folder_manifests`) |
+| ImageNet-22k download | `vision_training/data/classification/imagenet_download.py` | `download_imagenet_22k` (one held-out image per class as both validation and test), `write_class_folder_manifests` |
 | Export | `vision_training/models/classification/inference_classifier.py`, `vision_training/deployment/export_model.py`, `vision_training/deployment/input_contract.py` | `InferenceClassifier` (model name `image_classifier`), `export_experiment`, `build_input_contract`, `write_preprocessing_file` |
 | Export sizes at launch | `vision_training/deployment/export_size_estimates.py` | `estimate_export_sizes`, `probe_inference_graph`, `print_export_size_summary` |
 | Standalone evaluation | `scripts/evaluation/evaluate_checkpoint.py`, `vision_training/evaluation/checkpoint_evaluation.py` | `evaluate_checkpoints`, `summarise_checkpoint_evaluations` |
@@ -70,68 +77,66 @@ If you are looking for the code of a step, these are the files of the task and t
 
 ### Run It
 
-In order to train and evaluate the synthetic shapes classifier from scratch, run these commands from the root of the repository, after setting the values of their main blocks.
+In order to train and evaluate the synthetic shapes classifier from scratch, set the main blocks of the scripts, then run these commands from the repository root.
 
 ```bash
-# 1. Synthetic dataset: the classification task (500,000 / 50,000 / 50,000 images of 512 pixels, sizes set in the
-#    main block), its task and dataset folder being required
+# Synthetic dataset (500,000 / 50,000 / 50,000 images of 512 pixels, sizes set in the main block)
 uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=classification --output_folder="$HOME/Data/classifier_data/synthetic_shapes"
 
-# 2. Training: set experiment_folder, the three data folders and Data.label_mapping.mapping_file_path first
+# Training: set experiment_folder, the three data folders and Data.label_mapping.mapping_file_path first
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/classification/configuration_synthetic_shapes.yaml"
 
-# 3. Evaluation of checkpoints: set run_name, experiment_folder, iteration (None, an integer or "all"),
-#    test_data_folder, batch_size, track_evaluation, save_predictions, maximum_error_images_per_class_pair and
-#    target_precisions in the main block of scripts/evaluation/evaluate_checkpoint.py, which writes in
-#    <run>/Checkpoint_Evaluation/
+# Evaluation of checkpoints into <run>/Checkpoint_Evaluation/ (settings in the main block, Step 5.1)
 uv run python -m scripts.evaluation.evaluate_checkpoint
 
-# 4. Temperature and export: serve the temperature explorers of the experiments folders, open http://127.0.0.1:8091/,
-#    save the thresholds of a temperature on the page of a checkpoint, then export it from that page
+# Temperature and export: open http://127.0.0.1:8091/, save the thresholds of a temperature, export from that page
 uv run python -m scripts.evaluation.serve_temperature_explorer
 
-# 5. Figures of a research report: set the run, the iteration and the weights of the kept checkpoint in the main
-#    block of scripts/evaluation/draw_report_figures.py, which writes in
-#    <run>/Checkpoint_Evaluation/Iteration_<n>[/EMA]/Report_Figures/
+# Report figures into <run>/Checkpoint_Evaluation/Iteration_<n>[/EMA]/Report_Figures/ (run, iteration, weights in the main block)
 uv run python -m scripts.evaluation.draw_report_figures
 ```
 
 ### Configuration Keys To Know First
 
-Before changing the synthetic configuration, these are the keys that change the model, the loss or the evaluation the most.
+Before changing the synthetic configuration, this table shows the keys that change the model, the loss or the evaluation the most.
 
-| Key | Value in the synthetic configuration | Effect |
+| Key | Synthetic value | Effect |
 |---|---|---|
-| `ClassificationHead.output_mode` | `"multi_class"` | softmax and cross entropy, headline metric `Accuracy`; `"multi_label"`: sigmoids, binary cross entropy, `Subset Accuracy`, `Micro F1`, `Macro F1`, no confusion matrix nor error images |
-| `ClassificationHead.global_pooling` | `"flatten"` | the [128, 16, 16] map becomes 32,768 features, so the head depends on the image size (`HFLAT` token); `"average"` or `"max"` give 128 |
-| `ClassificationHead.fully_connected` | `[128]` | hidden layers; the first one holds 4,194,432 of the 4,637,571 parameters of the 35-class model |
+| `ClassificationHead.output_mode` | `"multi_class"` | softmax, cross entropy, headline `Accuracy`; `"multi_label"`: sigmoids, binary cross entropy, `Subset Accuracy`, `Micro F1`, `Macro F1`, no confusion matrix nor error images |
+| `ClassificationHead.global_pooling` | `"flatten"` | the [128, 16, 16] map becomes 32,768 features, so the head depends on the image size (`HFLAT`); `"average"` or `"max"` give 128 |
+| `ClassificationHead.fully_connected` | `[128]` | hidden layers; the first holds 4,194,432 of the 4,637,571 parameters of the 35-class model |
 | `ClassificationHead.fully_connected_normalization` | `"layer"` | LayerNorm in every hidden layer (`HLN`); `"batch"` (`HBN`) also makes the training loader drop its last incomplete batch |
 | `ClassificationHead.class_weighting` | `"balanced"` | class weights N / (K x N_k) in the cross entropy (`CWB`) |
-| `ClassificationHead.label_smoothing` | `0.0` | above 0 gives `LS<rate>`; combined with balanced weights it favours the rare classes (pitfall below) |
+| `ClassificationHead.label_smoothing` | `0.0` | above 0 gives `LS<rate>`; with balanced weights it favours the rare classes (pitfall below) |
 | `ClassificationHead.decorrelation` | `activated: False` | adds the squared off-diagonal correlations of one hidden layer to the loss, no run name token |
-| `ExperimentConfiguration.evaluation.target_precision` | `0.99` | the threshold of every class in `class_thresholds.json` and the `@ P99 %` columns; a list such as `[0.99, 0.95, 0.90]` adds the thresholds of the other precisions (Step 4.13) |
-| `ExperimentConfiguration.evaluation.per_class_report` | `True` | per-class table, per-class recall table, per-class scalars, confusion matrix image, ROC and precision-recall curves, temperature explorer with its logits |
+| `ExperimentConfiguration.evaluation.target_precision` | `0.99` | threshold of every class in `class_thresholds.json` and the `@ P99 %` columns; a list such as `[0.99, 0.95, 0.90]` adds the other precisions (Step 4.13) |
+| `ExperimentConfiguration.evaluation.per_class_report` | `True` | per-class tables and scalars, confusion matrix image, ROC and precision-recall curves, temperature explorer with its logits |
 
 ### What A Run Writes
 
-Each time a checkpoint is evaluated, the run folder, TensorBoard and MLflow receive the following.
+Each time a checkpoint is evaluated, the run folder, TensorBoard and MLflow receive the outputs of this table.
 
-- `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Images · <date>`, with `Accuracy`, `Balanced Accuracy`, `Macro F1`, `Top-5 Accuracy` and, with `per_class_report`, `Macro ROC AUC`, `Macro Average Precision`, the per-class table sorted by F1, worst first, and the `Per Class Recall` table (the recall of every class with its 95 % confidence interval) sorted by recall, worst first. Every rate of the block is written as a percentage with two decimals (`81.76 %`), the thresholds staying between 0 and 1; the files, TensorBoard and MLflow keep every rate between 0 and 1.
-- `Evaluation/Iteration_<n>/`: `confusion_matrix.csv` (above 1,000 classes `confusion_cells.csv`, its non-zero cells only, Step 4.12), `class_metrics.csv` and `class_thresholds.json` at every evaluation; `confusion_matrix.png` (up to 1,000 classes), `roc_curves.png`, `precision_recall_curves.png`, `precision_recall_thresholds.png` and `temperature_explorer.html` with `per_class_report`, with `class_logits.npz` (the logits the page is built from) up to 100 classes; `saved_temperature_thresholds.json` once the thresholds of a temperature are saved from the served page; `predictions.csv` with `save_predictions`; `Errors/<TRUE>-TO-<PREDICTED>/<sample>_<score>.png` with `error_dumps.activated`; `Samples/<sample>.png` (the image under a caption `true -> predicted probability`, green or red) with `number_sample_images` above 0; `EMA/` with the moving average of the weights.
-- `Evaluation/evaluation_summary.csv`: one row per evaluated iteration, in increasing order, with every scalar of the evaluation (the averaged weights in `ema_` columns); `evaluation_curves.png`, next to `Results.txt`, draws the headline metric of every row again after each evaluation (`update_evaluation_curves()`, Step 4.18).
-- `Tensorboard/Train` and `Tensorboard/Validation`: `Total Loss`, `Classification Loss`, `Accuracy` (and `Learning Rate` in Train); `Tensorboard/Test`: the headline metrics, `Precision/<class>`, `Recall/<class>`, `F1/<class>`, `ROC AUC/<class>`, `Average Precision/<class>`, the images `Samples/<sample>`, `Confusion Matrix`, `ROC Curves`, `Precision Recall Curves` and `Precision Recall Thresholds`.
-- `Exports/Iteration_<n>[_EMA]_T<temperature>/`: one Triton model repository per checkpoint, weights and temperature exported from the served temperature explorer, with `export_record.json` and `export_log.txt` (Step 4.13).
-- With the MLflow tracking: `test/<metric>`, `test_class/<metric>/<class>`, `test/best_Accuracy` and the tag `best_iteration`, and the files of `evaluation/iteration_<n>/`.
+| Place | Content |
+|---|---|
+| `Results.txt` | one block per checkpoint, `Iteration <n> · <N> Test Images · <date>`: `Accuracy`, `Balanced Accuracy`, `Macro F1`, `Top-5 Accuracy`; with `per_class_report` also `Macro ROC AUC`, `Macro Average Precision`, the per-class table (by F1, worst first) and the `Per Class Recall` table (recall with its 95 % interval, worst first). Rates as percentages (`81.76 %`), thresholds between 0 and 1. |
+| `Evaluation/Iteration_<n>/` | always `confusion_matrix.csv` (or `confusion_cells.csv`), `class_metrics.csv`, `class_thresholds.json`; with `per_class_report` the confusion matrix and curve images, `temperature_explorer.html`, `class_logits.npz`; `saved_temperature_thresholds.json` once saved; `predictions.csv`, `Errors/`, `Samples/` and `EMA/` when switched on (Steps 4.6 to 4.16) |
+| `Evaluation/evaluation_summary.csv` | one row per evaluated iteration with every scalar (`ema_` columns for averaged weights); `evaluation_curves.png` next to `Results.txt` redrawn after each evaluation (Step 4.18) |
+| `Tensorboard/Train`, `Tensorboard/Validation` | `Total Loss`, `Classification Loss`, `Accuracy` (`Learning Rate` in Train) |
+| `Tensorboard/Test` | headline metrics, per-class scalars, sample, confusion matrix and curve images |
+| `Exports/Iteration_<n>[_EMA]_T<temperature>/` | one Triton model repository per export from the temperature explorer, with `export_record.json` and `export_log.txt` (Step 4.13) |
+| MLflow | `test/<metric>`, `test_class/<metric>/<class>`, `test/best_Accuracy`, tag `best_iteration`, files of `evaluation/iteration_<n>/` |
+
+Files, TensorBoard and MLflow keep every rate between 0 and 1.
 
 ### Pitfalls
 
 Should a result of the task look wrong, check these behaviours first.
 
-- Blocks 2, 4 and 6 of the synthetic configuration (16 to 32, 32 to 64 and 64 to 128 channels, 2 layers each) add no residual shortcut: a block whose first layer changes the channel count starts its pairs at its second layer, so only blocks 3 and 5 add one, and the backbone summary lists `Residual Shortcuts` for them only (`ConvolutionBlock.residual_parity` and `count_residual_additions()` of `convolution_block.py`).
-- `label_smoothing` above 0 with `class_weighting: "balanced"` trains towards the rare classes: PyTorch also weights the smoothing term, so with the weights [1, 20, 1000] and a smoothing of 0.1 the loss of a class-0 image is lowest at the probabilities [0.027, 0.019, 0.954] (`compute_classification_loss()` of `classification_losses.py`; latent, every shipped configuration having a smoothing of 0).
-- The `flatten` pooling ties the head to `Data.image_settings.size` and `Backbone.last_max_pooling`: another image size changes the input of the first hidden layer and the run name, and a classification head can only be transferred to a run of the same image size (`compute_pooled_features()` of `classification_head.py`; README, Transfer Between Runs).
-- The synthetic dataset holds the 35 classes of `SHAPE_CATEGORIES`, so the run ends with `MC35`, and is drawn without a seed, so a dataset generated again holds other images; the CPU run of Stages 3 to 5 and the 9-class README run of 2026-10-23 used the 9-class dataset generated before the other classes were added (`create_synthetic_dataset.py`; README, Quick Start With Synthetic Data).
-- `Iterations Per Epoch` and the sample counts sent to MLflow count the samples of the manifests before the label mapping, so they are too high when the mapping leaves categories out (`count_split_samples()` of `split_description.py`).
+- Blocks 2, 4 and 6 of the synthetic configuration change the channel count (16 to 32, 32 to 64, 64 to 128, 2 layers each), so they add no residual shortcut. Only blocks 3 and 5 list `Residual Shortcuts` (`ConvolutionBlock.residual_parity`, `count_residual_additions()` of `convolution_block.py`).
+- `label_smoothing` above 0 with `class_weighting: "balanced"` trains towards the rare classes: PyTorch also weights the smoothing term. With weights [1, 20, 1000] and smoothing 0.1, the loss of a class-0 image is lowest at [0.027, 0.019, 0.954] (`compute_classification_loss()`; latent, every shipped configuration has smoothing 0).
+- The `flatten` pooling ties the head to `Data.image_settings.size` and `Backbone.last_max_pooling`. Another image size changes the first hidden layer input and the run name; a head transfers only to a run of the same image size (`compute_pooled_features()`; README, Transfer Between Runs).
+- The synthetic dataset holds the 35 classes of `SHAPE_CATEGORIES` (run ends with `MC35`) and is drawn without a seed, so a regenerated dataset holds other images. The CPU run and the 9-class README run used the older 9-class dataset (README, Quick Start With Synthetic Data).
+- `Iterations Per Epoch` and the sample counts sent to MLflow count the manifest samples before the label mapping, so they are too high when the mapping leaves categories out (`count_split_samples()` of `split_description.py`).
 
 ## Table of Contents
 - [Read This First](#read-this-first)
@@ -146,593 +151,138 @@ Should a result of the task look wrong, check these behaviours first.
 
 ## Call Tree Overview
 
+To see the whole run on one page, this tree lists every function in calling order with one line on its role; each step below gives the details.
 
 ```text
-main()
-│   Entry point of the whole project, the same for every task. It reads the path of the YAML file from the command
-│   line (--configuration_path), so any configuration of any task is trained without editing the code. It first turns
-│   on the expandable segments of the CUDA allocator (enable_expandable_cuda_segments), then does four things in
-│   order: load and validate the YAML, look up the trainer of the task, build that trainer, start the training loop.
-│
-├── parse_configuration_path()
-│       argparse reader of --configuration_path (absolute or relative to the current folder), which stops with
-│       "No configuration file at ..." when the path is not a file.
-├── load_experiment_configuration(configuration_path)
-│   │   Prepares the configuration that every later stage reads. The YAML has 5 top-level sections:
-│   │   ExperimentConfiguration, Optimization, Data, Backbone, ClassificationHead. They are split in two:
-│   │     - experiment_configuration = 'ExperimentConfiguration' alone: task, experiment/train/validation/test
-│   │       folders, run name suffix, batch size, learning rate, logging/checkpoint/validation frequencies, number of
-│   │       iterations, evaluation and MLflow tracking settings, allow_data_change_on_resume, diagnosis modes
-│   │     - model_configuration = all the other sections: how to load data, how to build the network, how to optimize
-│   │   It checks the keys as written (check_configuration_keys, below), then fixes the values YAML reads with the
-│   │   wrong type: folders become Path objects, "1e10" becomes an int (a non-integer count is left to the checks),
-│   │   the learning rate becomes a float, and the optimization numbers written without a dot become numbers. It adds
-│   │   tracking_root, run_name (None) and standalone_evaluation_folder (None) to experiment_configuration, then
-│   │   label_mode and label_dictionary to 'Data'
-│   │   (taken from the label_dictionary.json of the folder of the YAML when it is a run folder), and runs the checks.
-│   │   It returns both dictionaries to main().
-│   │
-│   ├── load_configuration(configuration_path)
-│   │       Plain file reader: raises FileNotFoundError if the YAML is missing, otherwise parses it with
-│   │       yaml.safe_load into one raw nested dictionary (an empty file gives {}). No conversion or validation here.
-│   │
-│   ├── check_configuration_keys(experiment_configuration, model_configuration)
-│   │   ├── check_removed_settings()          a setting or section removed from the configuration files
-│   │   │                                     (resume_training, mixed_precision, Data.loading, evaluation.top_k,
-│   │   │                                     Data.view_augmentation, Optimization.gradient_clipping_norm...) is
-│   │   │                                     reported alone, with what replaced it, before the other checks
-│   │   └── check_unknown_keys()              then, alone too, every key the code of the task does not read
-│   │                                         (KNOWN_KEY_PATHS of configuration_keys.py): a misspelled key, a
-│   │                                         setting no code reads, a section of another task
-│   │
-│   ├── build_label_dictionary(label_mapping_configuration, task)
-│   │       Decides which class index each dataset category is trained as. For classification the mode must be
-│   │       "multi_class": it reads the JSON file at 'Data.label_mapping.mapping_file_path' ({category: index}),
-│   │       turning digit keys into ints. (The background class at 0 is for DET, INS, SEG and KPT only.)
-│   │       The result is stored in model_configuration["Data"]["label_dictionary"]. Later, the datasets use it to
-│   │       turn each image's raw category into a class index, and the classifier counts its distinct values to size
-│   │       its output layer. An unknown mode returns None, which the checks below then report.
-│   │
-│   └── check_configuration(experiment_configuration, model_configuration)
-│       │   Safety net run before anything expensive (data loaders, model, GPU) is created. Each check returns a list
-│       │   of error messages instead of raising, so ALL problems are gathered. If the list is not empty, the loader
-│       │   prints every message in red with a link to the YAML file and exits. It runs, in order:
-│       │
-│       ├── check_experiment_configuration()      task name is a known task, run name suffix, training loop
-│       │                                         settings, per-class report, number of sample images, MLflow
-│       │                                         tracking settings
-│       ├── check_data_configuration()            augmentation types and probabilities, label mapping mode, input
-│       │                                         image size is a positive even integer
-│       ├── check_backbone_configuration()        convolution blocks numbered "1".."N", each [layers, channels],
-│       │                                         3 input channels, and the image size is a multiple of 2 ** the
-│       │                                         number of poolings, every map entering a pooling being even
-│       ├── check_optimization_configuration()    optimizer, weight decay, warm-up / cosine schedule, decay of the
-│       │                                         weight moving average
-│       └── check_classification_configuration()  classification-specific checks:
-│               ├── data:       "multi_class" mapping, at least 2 classes indexed 0..K-1 without gaps
-│               ├── no sequence normalization of the backbone, since images have no frames (the frame shuffling
-│               │               and independent frames settings are refused by check_removed_settings)
-│               ├── head:       global pooling (average/max/flatten), hidden layer sizes and their normalization,
-│               │               dropout and label smoothing in [0, 1), output mode (multi_class/multi_label), class
-│               │               weighting, pretrained settings, and batches of at least 2 images with batch
-│               │               normalized hidden layers
-│               ├── decorrelation: flag, weight > 0, hidden layer among the hidden layers of the head
-│               └── evaluation: target_precision a probability or a list of distinct probabilities, the
-│                               save_predictions flag, error images (a positive maximum_per_class_pair) only in
-│                               multi_class mode
-│
-├── get_trainer_class(task)
-│       Lookup in the TASK_TRAINER_CLASSES registry, which maps each task name to its trainer class
-│       (object_detection, instance_segmentation, classification, semantic_segmentation, sequence_classification,
-│       sequence_labelling, sequence_comparison, frame_selection, self_supervised, keypoint_detection). For
-│       "classification" it returns the ClassificationTrainer class itself, not an object. main() then builds the
-│       object by passing it both dictionaries and the YAML path (the trainer copies the YAML into the run folder).
-│
-├── ClassificationTrainer(experiment_configuration, model_configuration, configuration_path)  [STAGE 2]
-│   │   Receives both dictionaries and the YAML path from main(). Before calling the shared constructor, it stores the
-│   │   classification settings that its hooks read later: output_mode, class_weighting and whether the decorrelation
-│   │   is on (ClassificationHead), then target_precision, save_predictions and error_dumps (evaluation), and the
-│   │   k of the top-k accuracy, fixed at 5 (TOP_K_ACCURACY_CLASSES).
-│   │   TASK_NAME is "classification"; the base class refuses a configuration of another task.
-│   │
-│   └── BaseTrainer.__init__()
-│       │   Does everything that does not depend on the task, in this order: pick the device, name the run folder,
-│       │   read the settings, build the augmenter, keep the classes of a resumed run, refuse a resume on changed
-│       │   labels, the paths, the loaders (refused when one gives no batch), the record of the data, choose the
-│       │   sample images, build the model, the optimizer and the metric tracker, print the experiment information
-│       │   and the model summaries, then restore the last checkpoint of the run folder, a run always resuming. The
-│       │   steps that depend on the task (loaders, classes of the test samples, model, tracked metrics, split
-│       │   description) are hooks that ClassificationTrainer implements. Its attribute start_iteration tells the
-│       │   training loop where to begin. The MLflow tracker is a DisabledTracker that does nothing until the
-│       │   training loop starts.
-│       │
-│       ├── get_device()
-│       │       Returns torch.device("cuda") when an NVIDIA GPU is visible, else "mps" (Apple), else "cpu". The model,
-│       │       the batches and the checkpoints are all moved to this device.
-│       ├── get_run_name() -> build_run_name()
-│       │       Builds the folder name from the settings that define the model: task code, input, backbone, head, number
-│       │       of classes, optimizer and run_name_suffix. Batch size, learning rate, augmentation and dropout give no
-│       │       token. The run
-│       │       folder is experiment_folder/<run name>: the same settings resume in the same folder, and any change of
-│       │       the architecture starts a new one.
-│       ├── DataAugmenter(augmentation_configuration)
-│       │       Reads Data.data_augmentation: the global activated flag and probability, and the activated flag and
-│       │       probability of each of the 28 augmentation types, their strengths being the hard-coded
-│       │       SUPERVISED_AUGMENTATION_STRENGTHS. It only stores them; the random draws happen later, on the training
-│       │       batches (Stage 3, augment_batch).
-│       ├── restore_run_label_dictionary()
-│       │       Only acts for a resumed run with a checkpoint: when the mapping file now gives other classes than the
-│       │       label_dictionary.json of the run folder, the run keeps its own classes, so that the classes of its
-│       │       checkpoints keep their meaning, and prints it in yellow.
-│       ├── check_resumed_data()
-│       │       Only acts for a resumed run with a checkpoint and a data.json: a split whose labels.json changed (its
-│       │       SHA-256 differs from data.json) stops the launch with a ValueError before anything is replaced, unless
-│       │       allow_data_change_on_resume is true. Never for the input viewer.
-│       ├── setup_training_paths()
-│       │       Computes experiment_folder/Tensorboard, /Weights and /training_configuration.yaml. For a training it
-│       │       creates the two folders, copies the YAML into the run folder, so that the run keeps the settings it
-│       │       was launched with, and writes label_dictionary.json, the classes of the run. A resumed run first
-│       │       compares the YAML with the saved copy (compare_with_saved_configuration), lists the changed settings
-│       │       and keeps a changed copy as training_configuration_until_iteration_<n>.yaml. With view_input_images it
-│       │       only returns the paths and creates nothing.
-│       ├── build_dataloaders()
-│       │   │   Hook implemented by ClassificationTrainer. Builds the loaders of the three splits and keeps class_names
-│       │   │   (one name per class index, read from the manifest of the training split) for the evaluation reports.
-│       │   │   Returns the training, validation and test loaders, None in place of the validation loader when
-│       │   │   builds_validation_loader is False (validation_iteration_ratio 0 without a diagnosis mode ending the
-│       │   │   program): no validation dataset, batch or worker process is then made.
-│       │   │
+main()                                         entry point of every task: --configuration_path, expandable CUDA segments
+├── parse_configuration_path()                 argparse; "No configuration file at ..." when the path is not a file
+├── load_experiment_configuration()            splits the YAML into experiment_configuration and model_configuration
+│   ├── load_configuration()                   yaml.safe_load into one raw dictionary, FileNotFoundError if missing
+│   ├── check_configuration_keys()
+│   │   ├── check_removed_settings()           a removed setting reported alone, with what replaced it
+│   │   └── check_unknown_keys()               every key the task does not read (KNOWN_KEY_PATHS)
+│   ├── build_label_dictionary()               "multi_class": {category: index} from Data.label_mapping.mapping_file_path
+│   └── check_configuration()                  gathers ALL errors, prints them in red and exits
+│       ├── check_experiment_configuration()   task, suffix, loop settings, per-class report, samples, MLflow
+│       ├── check_data_configuration()         augmentations, label mapping mode, positive even image size
+│       ├── check_backbone_configuration()     blocks "1".."N", 3 input channels, size divisible by the poolings
+│       ├── check_optimization_configuration() optimizer, weight decay, schedule, moving average decay
+│       └── check_classification_configuration()  classes 0..K-1, head, decorrelation, evaluation settings
+├── get_trainer_class(task)                    TASK_TRAINER_CLASSES["classification"] -> ClassificationTrainer
+├── ClassificationTrainer(...)  [STAGE 2]      stores output_mode, class_weighting, evaluation settings, top-k = 5
+│   └── BaseTrainer.__init__()                 everything independent of the task, task hooks in ClassificationTrainer
+│       ├── get_device()                       cuda, else mps, else cpu
+│       ├── get_run_name() -> build_run_name() folder name from the settings that define the model
+│       ├── DataAugmenter()                    stores the 28 augmentation types, draws happen in Stage 3
+│       ├── restore_run_label_dictionary()     a resumed run keeps its own classes
+│       ├── check_resumed_data()               a changed labels.json stops a resume (allow_data_change_on_resume)
+│       ├── setup_training_paths()             Tensorboard/, Weights/, YAML copy, label_dictionary.json
+│       ├── build_dataloaders()                hook: three loaders (validation None when not needed), class_names
 │       │   └── get_classification_dataloaders()
-│       │       │   For each of the train, validation (only with build_validation_loader) and test folders: builds a
-│       │       │   ClassificationDataset from <folder>/labels.json and <folder>/data/, then wraps it in a loader. The
-│       │       │   splits share the same image size, keep_ratio and label dictionary.
-│       │       │
-│       │       ├── ClassificationDataset.__init__()
-│       │       │       Reads the labels.json manifest, converts the raw category of every sample into a class index
-│       │       │       with the label dictionary (samples of an unmapped category are dropped), shuffles the list once
-│       │       │       and builds the class names. No image is read here: images are opened in __getitem__, when a
-│       │       │       batch is requested.
-│       │       └── build_native_loader()
-│       │               Wraps the dataset in a torch DataLoader: batch_size from the YAML, reshuffling at every epoch,
-│       │               1 persistent worker process (NUMBER_LOADER_WORKERS), 2 batches prepared ahead by it
-│       │               (PREFETCH_BATCHES), pinned memory for a fast copy to a discrete GPU only (uses_pinned_memory),
-│       │               one OpenCV thread per worker.
-│       │               The training loader leaves out its last incomplete batch (drop_last) when the hidden layers
-│       │               of the head are batch normalized (fully_connected_normalization "batch").
-│       ├── check_loaders_give_batches()
-│       │       Refuses the run (ValueError) when the training or test loader, or the validation loader when
-│       │       validation_iteration_ratio > 0, gives no batch: an empty split, or a split whose every sample is left
-│       │       out by the label mapping, would make the training loop wait for a batch that never comes. Also refuses
-│       │       a validation loader that does not follow builds_validation_loader (built without it, None with it).
-│       ├── save_data_record() -> build_class_records() + record_split() -> build_split_record()
-│       │       Writes data.json next to the YAML: the classes of the run (index, name from list_class_names,
-│       │       categories and images of every split), then the data folder, the SHA-256 of labels.json and the images
-│       │       of every split. A resumed run keeps an unchanged record, and keeps a changed one (a moved data folder,
-│       │       or labels changed with allow_data_change_on_resume) as data_until_iteration_<n>.json before writing the
-│       │       new one. With view_input_images nothing is written.
-│       ├── get_test_sample_classes() + choose_sample_identifiers()
-│       │       The hook lists the class of every test image. choose_sample_identifiers then picks, once for the whole
-│       │       run, the evaluation.number_sample_images test images drawn at every evaluation (Stage 4), spread over
-│       │       the classes, so that the predictions of the same images can be followed over the training.
-│       ├── build_model()
-│       │   │   Hook implemented by ClassificationTrainer. Creates the ImageClassifier from the model registry
-│       │   │   (TASK_MODEL_CLASSES["classification"]) and, with class_weighting "balanced", sets its class weights from
-│       │   │   the training sample counts. BaseTrainer then moves the model to the device and the dtype.
-│       │   │
+│       │       ├── ClassificationDataset.__init__()  manifest read, categories mapped, list shuffled once
+│       │       └── build_native_loader()      DataLoader, 1 persistent worker, 2 batches ahead
+│       ├── check_loaders_give_batches()       refuses a split that gives no batch
+│       ├── save_data_record()                 data.json: classes, folders, SHA-256 of every labels.json
+│       ├── get_test_sample_classes() + choose_sample_identifiers()  fixed sample images for every evaluation
+│       ├── build_model()                      hook: ImageClassifier, balanced class weights
 │       │   ├── ImageClassifier.__init__()
-│       │   │   │   Counts the classes (distinct values of the label dictionary), then builds in order: the backbone,
-│       │   │   │   the size of the pooled vector, the pooling layer and the classification head. It also registers
-│       │   │   │   class_weights, a vector of ones that the trainer overwrites when the weighting is balanced.
-│       │   │   │
-│       │   │   ├── build_backbone()
-│       │   │   │   │   Builds the feature extractor from the 'Backbone' section: its input normalizer, then one
-│       │   │   │   │   ConvolutionBlock per entry of Backbone.convolutions. Returns the Backbone module, whose weights
-│       │   │   │   │   are random at this point.
-│       │   │   │   │
-│       │   │   │   ├── InputNormalizer(input_normalization, per_sample_normalization)
-│       │   │   │   │       Parameter-free layer at the entrance of the backbone: maps the raw [0, 255] pixels to [-0.5,
-│       │   │   │   │       0.5] (input_normalization) and/or standardizes every image to zero mean and unit variance
-│       │   │   │   │       (per_sample_normalization).
-│       │   │   │   └── ConvolutionBlock(...)   one per entry of Backbone.convolutions
-│       │   │   │           N convolution layers (3x3, stride 1, padding 1), each followed by the normalization of
-│       │   │   │           Backbone.normalization.feature_map_normalization (batch, layer or none) and
-│       │   │   │           ReLU, with the optional residual shortcuts (from block 2, one every pair of layers, the
-│       │   │   │           pairs of a block whose first layer changes the channel count starting at its second
-│       │   │   │           layer), squeeze-and-excitation or inception modules, then a 2x2 max pooling that halves
-│       │   │   │           the height and width (the pooling of the last block depends on Backbone.last_max_pooling).
-│       │   │   │           With residual_nets_v2, the blocks with shortcuts place them before the activations:
-│       │   │   │           normalization and ReLU before every convolution, nothing after the addition, and one
-│       │   │   │           normalization and ReLU at the end of the block.
-│       │   │   ├── compute_pooled_features()
-│       │   │   │       Applies the convolution and pooling size formula to every layer (no image is run through the
-│       │   │   │       network) to get the channels C and the size HxW of the last feature map. Returns C for the
-│       │   │   │       average and max poolings, or C x H x W for flatten: the number of inputs of the first layer of
-│       │   │   │       the head.
-│       │   │   ├── build_global_pooling()
-│       │   │   │       Returns the layer turning the [B, C, H, W] feature map into a [B, F] vector:
-│       │   │   │       AdaptiveAvgPool2d(1) + Flatten, AdaptiveMaxPool2d(1) + Flatten, or only Flatten.
-│       │   │   └── ClassificationHead.__init__()
-│       │   │       │   Builds the hidden layers of ClassificationHead.fully_connected (Dropout, Linear, the
-│       │   │       │   normalization of fully_connected_normalization, ReLU for each), then a last Dropout and a Linear
-│       │   │       │   layer with one output (logit) per class.
-│       │   │       │
-│       │   │       └── build_fully_connected_block()
-│       │   │               Stacks the hidden layers: for every size of the list, Dropout (an identity at rate 0),
-│       │   │               Linear(previous size, size), a BatchNorm ("batch") or LayerNorm ("layer") and ReLU.
-│       │   └── compute_balanced_class_weights()
-│       │           Only called when ClassificationHead.class_weighting is "balanced". weight of a class = total samples
-│       │           / (number of classes x samples of the class), so that rare classes weigh more in the loss; a class
-│       │           without sample counts as having one. The weights are copied into model.class_weights.
-│       ├── initialise_pretrained_components()
-│       │       Only acts when Backbone.pretrained or ClassificationHead.pretrained name another run (experiment_folder
-│       │       not null): loads its trained weights into the component and freezes it if asked. A run from scratch does
-│       │       nothing here, and a run that resumes from its own checkpoint does not reload the source run. A backbone
-│       │       deeper than its source backbone loads its first blocks only (loaded_backbone_blocks), the next ones
-│       │       staying random and never frozen, and a head with ClassificationHead.pretrained.class_layer False loads
-│       │       its hidden layers only, its class layer staying random and never frozen.
-│       ├── build_optimizer()
-│       │       Creates Adam, AdamW or SGD (Nesterov, momentum 0.9) over the model parameters, with the learning rate
-│       │       and the weight decay of the configuration. Every transferred component that is not frozen gets its own
-│       │       parameter group at learning rate x learning_rate_multiplier (only the loaded blocks of a backbone deeper
-│       │       than its source backbone, only the hidden layers of a head loaded without its class layer).
-│       │       base_learning_rates keeps the starting rate
-│       │       of every group for the schedule. With Optimization.exponential_moving_average.activated, the
-│       │       ExponentialMovingAverage is then created: a copy of the model, never trained, averaging its weights.
+│       │   │   ├── build_backbone()           InputNormalizer + one ConvolutionBlock per entry
+│       │   │   ├── compute_pooled_features()  C, or C x H x W for flatten
+│       │   │   ├── build_global_pooling()     average, max or flatten
+│       │   │   └── ClassificationHead.__init__() -> build_fully_connected_block()
+│       │   └── compute_balanced_class_weights()   N / (K x N_k)
+│       ├── initialise_pretrained_components() loads and freezes transferred components
+│       ├── build_optimizer()                  Adam, AdamW or SGD; moving average of the weights
 │       ├── get_tracked_metrics() + MetricTracker.__init__()
-│       │       get_tracked_metrics returns {total_loss, classification_loss, accuracy} with their display names
-│       │       (with decorrelation_loss and hidden_feature_correlation when ClassificationHead.decorrelation is on).
-│       │       MetricTracker stores them with batch_size, validation_iteration_ratio, the kind of sample ("Images")
-│       │       and the keys printed as percentages (get_percent_tracked_metrics: accuracy): it will average them over
-│       │       every console interval, print them with their changes and write them to TensorBoard.
-│       ├── print_experiment_information()
-│       │   │   Prints the launch panel: run name, clickable folders and data record, the settings and the data
-│       │   │   changed since the last start of a resumed run, one block per transferred component, one line per
-│       │   │   split, iterations per epoch, batch size, total iterations, checkpoint frequencies, learning rate,
-│       │   │   optimizer, schedule, moving average of the weights, validation ratio and MLflow backend. Display
-│       │   │   only, except the split sizes, kept for MLflow.
-│       │   │
-│       │   └── describe_split() -> count_split_samples()
-│       │           Reads the labels.json of a split and returns its number of samples and categories, e.g. '50000
-│       │           images, 1000 categories'. The size of the training split gives the iterations per epoch.
+│       ├── print_experiment_information() -> describe_split() -> count_split_samples()
 │       ├── print_summary() / print_receptive_field_summary() / print_model_size_summary()
-│       │       print_summary and print_model_size_summary always run: the input and output shape of every backbone
-│       │       block (traced with a dummy image), the head panel, then the parameters and size of backbone, head and
-│       │       total. print_receptive_field_summary, switched by diagnosis_modes.compute_receptive_field, prints the
-│       │       receptive field of every layer between them.
 │       ├── estimate_export_sizes() + print_export_size_summary()
-│       │       Always runs: the Export Sizes panel, the parameters the inference model reads and the sizes of the
-│       │       PyTorch, TorchScript, ONNX, TensorRT and checkpoint files the model is turned into.
-│       ├── view_input_batches()  (only with diagnosis_modes.view_input_images, then exits)
-│       │       Shows an augmented training image next to a validation image, each with its class. ENTER closes the
-│       │       viewer and exit() stops the program before any training; no run folder was created.
-│       ├── benchmark_speed()  (only with diagnosis_modes.benchmark_speed, then exits)
-│       │       Times the inference of every format and the training step on one training batch tiled to the
-│       │       configured and largest batch sizes that fit; no run folder is created.
-│       └── restore_last_model()
-│           │   Always called. Returns the iteration where the loop starts: 1 for a new run,
-│           │   or the last saved iteration + 1 after loading that checkpoint into the model and the optimizer.
-│           │
+│       ├── view_input_batches()               only with view_input_images, then exits
+│       ├── benchmark_speed()                  only with benchmark_speed, then exits
+│       └── restore_last_model()               start_iteration: 1, or last checkpoint + 1
 │           ├── get_last_checkpoint_iteration()
-│           │       Reads the first line of Weights/full-checkpoint (e.g. model_checkpoint_path: "Iteration_12") and
-│           │       returns 12; without a readable registry, the newest complete Iteration_N folder; 0 without any.
 │           └── load_model() -> load_checkpoint()
-│                   load_checkpoint reads Weights/Iteration_N/model_<N on 6 digits>.pt (model_000012.pt) with
-│                   torch.load, mapped to the current device. load_model puts its model_state in the model and its optimizer_state in the optimizer,
-│                   and restores the moving average of the weights from its exponential_moving_average_state.
-│
-└── trainer.run_training_loop()  [STAGE 3]
-    │   Runs the iterations (run_training_iterations) and closes the MLflow run whatever ends them: FINISHED, KILLED
-    │   (Ctrl+C) or FAILED (too many errors, a failed save or evaluation, too many dropped batches, or an unexpected
-    │   error, raised again once the run is closed).
-    │
-    └── run_training_iterations()
-        │   Loops from start_iteration up to number_iterations, the total of the run: a resumed run trains the
-        │   iterations left, and one whose last checkpoint already reaches number_iterations trains nothing ("The Run
-        │   Is Already Complete: ..."). Each iteration: fetch a batch, take one training step, save a checkpoint on
-        │   the multiples of weight_saving_iterations and intermediate_weight_saving_iterations, run one validation
-        │   batch on the multiples of validation_iteration_ratio, print a summary every information_dump iterations,
-        │   and last evaluate the checkpoint of a weight_saving_iterations iteration on the test split. A failing
-        │   iteration is printed in yellow (a batch with a non-finite loss in red, skipped without step) and the
-        │   training goes on; more than 5 failures in a row, a failed save or evaluation, more than 20 dropped
-        │   batches among the last 200 of a split, or Ctrl+C, end the loop. A last checkpoint is then saved when
-        │   steps were taken since the last save; nothing is evaluated after the loop.
-        │
-        ├── save_input_samples()
-        │       Writes Input_Samples/: the first 10 training, validation and test images by identifier, drawn as the
-        │       viewer of view_input_batches draws them (build_input_windows), the training ones augmented as by the
-        │       training step, with samples.json. A resume keeps the folder unless its configuration or data changed.
-        ├── setup_tensorboard_writers()
-        │       Creates Tensorboard/Train and, when validation_iteration_ratio > 0, Tensorboard/Validation. The Test
-        │       writer is only created at the first evaluation.
-        ├── initialize_training_loop_state()
-        │   │   Creates the iterator over the training loader and, when validation_iteration_ratio > 0, the one over
-        │   │   the validation loader, the two tracker dictionaries and the counter of consecutive errors.
-        │   │
-        │   └── MetricTracker.create_trackers()
-        │           Returns {start_time, interval_batches: 0, total_loss: 0.0, classification_loss: 0.0,
-        │           accuracy: 0.0}: the sums and the batch count that accumulate() fills during an interval.
-        ├── start_experiment_tracking()
-        │       With tracking.activated: creates the MLflow tracker (or reopens the run of mlflow_run.json for a
-        │       resumed run), sends the parameters, the tags, the configuration file, and data.json and the input
-        │       samples when this launch wrote them. A background thread writes
-        │       everything, so MLflow never slows down or stops the training. Without tracking it does nothing.
+└── trainer.run_training_loop()  [STAGE 3]     closes MLflow as FINISHED, KILLED or FAILED
+    └── run_training_iterations()              start_iteration to number_iterations (the run total)
+        ├── save_input_samples()               Input_Samples/: first 10 images of every split
+        ├── setup_tensorboard_writers()        Train, Validation (Test at the first evaluation)
+        ├── initialize_training_loop_state() -> MetricTracker.create_trackers()
+        ├── start_experiment_tracking()        MLflow run, background thread
         ├── for each training_iteration:
-        │   │   One pass of the loop body, from start_iteration (1 for a new run) to number_iterations.
-        │   │
-        │   ├── get_next_batch()
-        │   │   │   Takes the next batch from the loader iterator. At the end of an epoch the iterator is restarted,
-        │   │   │   which reshuffles the samples (two passes in a row without any batch raise a RuntimeError). A batch
-        │   │   │   whose loading fails is dropped and counted, its error printed in yellow once in the run, and the
-        │   │   │   next one is taken; 10 failed fetches in a row raise a RuntimeError, an error of the iteration,
-        │   │   │   and more than 20 dropped batches among the last 200 fetches of the split stop the training.
-        │   │   │   Returns images [B, 3, H, W] uint8, labels [B] int64 and sample_identifiers [B].
-        │   │   │
-        │   │   └── ClassificationDataset.__getitem__() -> read_image() + preprocess_image()
-        │   │           Runs in the loader workers, once per sample: read_image (OpenCV, BGR, uint8, a ValueError naming
-        │   │           an unreadable file), resize to image_size with black bars when keep_ratio is true, conversion to
-        │   │           a [3, H, W] tensor, label = class index. The default collate function stacks B samples into one
-        │   │           batch.
-        │   ├── MetricTracker.count_frames()
-        │   │       Counts the real frames of the batch for the frame throughput of the sequence tasks; nothing for
-        │   │       images.
-        │   ├── run_training_step()  set_training_mode() to step_optimizer() below, the step also timed by
-        │   │       the speed benchmark (diagnosis_modes.benchmark_speed)
-        │   ├── set_training_mode()
-        │   │       model.train(): dropout is active and the batch normalization layers update their statistics,
-        │   │       except those of the frozen transferred components, kept in eval mode. Needed again after every
-        │   │       evaluation and validation, which switch to model.eval().
-        │   ├── run_model_iteration()
-        │   │   │   The same function runs a training batch and a validation batch: prepare, augment (training only),
-        │   │   │   forward, losses, metrics, tracking. It returns the total loss, which the loop then back-propagates.
-        │   │   │   A total loss that is NaN or infinite raises a NonFiniteLossError before the tracking: the batch is
-        │   │   │   skipped without backward pass nor step, printed in red as a failing iteration.
-        │   │   │
-        │   │   ├── prepare_batch()
-        │   │   │       Moves the images to the device as float32 (still in [0, 255], BGR) and the labels to the device
-        │   │   │       as int64 class indices.
-        │   │   ├── augment_batch() -> DataAugmenter.augment_batch()
-        │   │   │       Training only. Each image is augmented with probability Data.data_augmentation.probability: the
-        │   │   │       geometric types first (crop, flips, rotations), then the photometric ones (brightness, CLAHE,
-        │   │   │       noise, blur...), each type with its own probability, one of the histogram equalizations
-        │   │   │       drawn together being kept. The labels do not change.
-        │   │   ├── forward_pass() -> ImageClassifier.forward()
-        │   │   │   │   Calls model(input_tensor=images, labels=labels), in bfloat16 autocast (mixed precision).
-        │   │   │   │   Returns class_logits [B, K], class_probabilities [B, K] and classification_loss (a scalar,
-        │   │   │   │   since the labels are given). With ClassificationHead.decorrelation on, the head runs
-        │   │   │   │   compute_logits, which keeps the chosen hidden layer, and compute_decorrelation_loss adds
-        │   │   │   │   decorrelation_loss and hidden_feature_correlation to the outputs.
-        │   │   │   │
+        │   ├── get_next_batch() -> ClassificationDataset.__getitem__() -> read_image() + preprocess_image()
+        │   ├── MetricTracker.count_frames()   frames of the sequence tasks; nothing for images
+        │   ├── run_training_step()            set_training_mode() to step_optimizer(), timed by benchmark_speed
+        │   ├── set_training_mode()            model.train(), frozen components in eval
+        │   ├── run_model_iteration()          one training or validation batch, returns the total loss
+        │   │   ├── prepare_batch()            float32 images, int64 labels on the device
+        │   │   ├── augment_batch() -> DataAugmenter.augment_batch()   training only
+        │   │   ├── forward_pass() -> ImageClassifier.forward()          bfloat16 autocast
         │   │   │   ├── Backbone.forward()
-        │   │   │   │       Normalizes the pixels (x / 255 - 0.5 with input_normalization), then runs the image through
-        │   │   │   │       every ConvolutionBlock. Returns the final feature map [B, C, H', W'].
         │   │   │   ├── global_pooling + ClassificationHead.forward()
-        │   │   │   │       The pooling (or flatten) gives a [B, F] vector; the head applies its hidden layers and the
-        │   │   │   │       last Linear layer to give the [B, K] logits, one per class.
-        │   │   │   ├── convert_logits_to_probabilities()
-        │   │   │   │       Softmax over the classes in "multi_class" mode (each row sums to 1), independent sigmoids
-        │   │   │   │       in "multi_label" mode.
-        │   │   │   └── compute_classification_loss()
-        │   │   │           Cross entropy of the logits against the class indices (with the class weights and the
-        │   │   │           label smoothing), or binary cross entropy with logits against the multi-hot labels in
-        │   │   │           "multi_label" mode.
-        │   │   ├── compute_batch_metrics()
-        │   │   │       Accuracy of the batch, from the logits already computed (no second forward pass): the share of
-        │   │   │       images whose highest logit is the true class; with the decorrelation on, it also passes on
-        │   │   │       hidden_feature_correlation.
+        │   │   │   ├── convert_logits_to_probabilities()   softmax, or sigmoids for multi_label
+        │   │   │   └── compute_classification_loss()       (binary) cross entropy
+        │   │   ├── compute_batch_metrics()    accuracy from the logits
         │   │   └── MetricTracker.accumulate() + log_to_tensorboard()
-        │   │           accumulate adds each tracked metric of the batch to the sums of the interval and counts the
-        │   │           batch. log_to_tensorboard writes each metric of the batch at the current iteration.
         │   ├── training_loss.backward()
-        │   │       Computes the gradient of the total loss for every trainable parameter. Training batches only.
         │   ├── step_optimizer() -> compute_learning_rate_factor()
-        │   │       Sets the learning rate of every parameter group to base rate x factor(iteration) (warm-up, then
-        │   │       constant or cosine), calls optimizer.step() with the gradients as they are, updates the moving
-        │   │       average of the weights when on, and writes the learning rate to TensorBoard.
-        │   ├── save_model() -> save_checkpoint()
-        │   │       Called right after the step when the iteration is a multiple of weight_saving_iterations
-        │   │       (checkpoint, evaluated at the end of the iteration) or of intermediate_weight_saving_iterations
-        │   │       (checkpoint only), so that Weights/Iteration_N holds the weights after N steps. Writes
-        │   │       Weights/Iteration_N/model_<N on 6 digits>.pt (model, optimizer, task, run name, label
-        │   │       dictionary, MLflow run, transfer sources, moving average of the weights when on) through a temporary file, then adds
-        │   │       the iteration to Weights/full-checkpoint. Weights holding NaN or infinite values are refused, and a
-        │   │       failed save (a full disk) stops the training.
+        │   ├── save_model() -> save_checkpoint()          multiples of the saving frequencies
         │   ├── validation pass: run_model_iteration() without augmentation
-        │   │       Every validation_iteration_ratio iterations: model.eval(), no gradients, next validation batch,
-        │   │       same run_model_iteration with apply_augmentation=False. Its metrics go to the validation trackers
-        │   │       and to Tensorboard/Validation.
         │   ├── average_trackers() + log_interval_metrics() + print_interval_summary() + report_dropped_batches()
-        │   │       Every information_dump iterations: divides the training and validation sums by the number of
-        │   │       batches each really ran, sends the averages, the throughput and the learning rate to MLflow, prints
-        │   │       the summary (every value with its change since the previous summary and the best value of the run
-        │   │       marked), then starts new trackers. report_dropped_batches then prints the batches of every split
-        │   │       dropped since the last summary, only when some were.
-        │   └── run_test_evaluation()   (multiples of weight_saving_iterations)  -> [STAGE 4]
-        │           Last in the iteration: evaluates the checkpoint saved after its step on the whole test split, then
-        │           its moving average of the weights when on. See Stage 4. A failing evaluation stops the training,
-        │           the step, checkpoint and summary of its iteration being already done.
+        │   └── run_test_evaluation()  -> [STAGE 4]        multiples of weight_saving_iterations
         ├── save_model() of the steps taken since the last checkpoint, if any
-        │       Whatever ended the loop (its last iteration, Ctrl+C, too many errors, a failed save or evaluation, too
-        │       many dropped batches): saves the last stepped iteration when its checkpoint is not saved yet (a save
-        │       failing again raises its error), then prints "Last Checkpoint Saved At Iteration <n>. Exiting
-        │       Training." Nothing is evaluated after the loop: a weight_saving_iterations checkpoint saved by this
-        │       launch and left unevaluated is named in yellow, for scripts/evaluation/evaluate_checkpoint.py.
-        └── close TensorBoard writers, then shutdown_loader_workers() and finish_experiment_tracking()
-                Closes the Train and Validation writers; run_training_loop then stops the worker processes of the three
-                loaders, sends Results.txt to MLflow and closes the MLflow run with its status.
+        └── close TensorBoard writers, shutdown_loader_workers(), finish_experiment_tracking()
 
-run_test_evaluation(iteration)  [STAGE 4]
-│   Scores the current weights on the whole test split, exactly once per image, then reports. It is called by the
-│   training loop at every weight_saving_iterations checkpoint, and by Stage 5 for each evaluated checkpoint. It puts
-│   the model in eval mode, runs the test loader without gradients, accumulates the predictions, draws the sample
-│   images, computes the metrics, then prints, writes and logs them. With the moving average of the weights on, the
-│   same evaluation runs again on the averaged weights once the average was updated at least once, reported as "EMA
-│   Weights" in Evaluation/Iteration_N/EMA/ and Tensorboard/Test_EMA.
-│
+run_test_evaluation(iteration)  [STAGE 4]      whole test split, then again on the EMA weights when on
 ├── create_evaluation_accumulator()
-│       Returns the empty collection filled during the loop: lists for probabilities, labels, sample identifiers and
-│       logits (filled for the temperature explorer only), the folder Evaluation/Iteration_N/Errors for the error
-│       images and their counter per class pair.
 ├── for each test batch:
-│   │   A progress bar "Test Evaluation Iteration N" follows the loader.
-│   │
 │   ├── prepare_batch()
-│   │       Same function as in training: images to the device as float32, labels as int64.
 │   ├── predict_batch() -> ImageClassifier.forward() without labels
-│   │       Runs the model as in deployment: no labels, so no loss. Returns class_logits and class_probabilities,
-│   │       the softmax of the logits.
-│   ├── accumulate_evaluation_batch()
-│   │   │   Moves the probabilities, labels and sample identifiers of the batch to the CPU and appends them to the
-│   │   │   accumulator, with the logits when the temperature explorer is written (per_class_report). With
-│   │   │   error_dumps activated it also saves the misclassified images of the batch.
-│   │   │
-│   │   └── dump_errors() -> reserve_error_image() + build_input_image()
-│   │           For each wrong prediction: reserve_error_image counts one more image for the pair TRUE-TO-PREDICTED and
-│   │           refuses it past maximum_per_class_pair; build_input_image rebuilds the network input; a caption bar
-│   │           names both classes and the score; the PNG is written in Errors/<TRUE>-TO-<PREDICTED>/.
+│   ├── accumulate_evaluation_batch() -> dump_errors() -> reserve_error_image() + build_input_image()
 │   └── save_sample_images() -> build_sample_image()
-│           For each of the fixed sample images found in the batch: the network input captioned with its true class,
-│           its predicted class and its probability, green when right and red when wrong, saved in
-│           Evaluation/Iteration_N/Samples/ and kept for TensorBoard.
-├── compute_evaluation_results()
-│   │   Runs once the whole split has been predicted. Concatenates the batches, computes every metric and writes the
-│   │   evaluation files, then returns one EvaluationResults dictionary (header text, headline metrics, notes, tables,
-│   │   scalars, class scalars, images, file links, headline metric) that the reporter displays.
-│   │
-│   ├── compute_confusion_matrix()
-│   │       Counts, for each pair (true class, predicted class), the number of images: a [K, K] table, rows true,
-│   │       columns predicted. Multi-class mode only. Above 1,000 classes (MAXIMUM_DENSE_CONFUSION_CLASSES), only
-│   │       its non-zero cells, as a sparse tensor.
+├── compute_evaluation_results()               EvaluationResults dictionary for the reporter
+│   ├── compute_confusion_matrix()             [K, K], sparse above 1,000 classes
 │   ├── compute_metrics_from_confusion_matrix() -> compute_precision_recall_f1()
-│   │       From the diagonal and the row and column sums: accuracy, balanced accuracy, macro F1 and, for each class,
-│   │       precision, recall, F1, support (number of test images of the class) and true positives (the diagonal).
-│   ├── compute_top_k_accuracy()
-│   │       Share of images whose true class is among the 5 highest probabilities (TOP_K_ACCURACY_CLASSES). In
-│   │       multi_label mode, compute_multi_label_metrics replaces the steps from compute_confusion_matrix to
-│   │       save_confusion_matrix_table: Subset Accuracy, Micro F1 and Macro F1 of the class decisions at a
-│   │       probability of 0.5, without top-k accuracy nor confusion matrix.
-│   ├── save_confusion_matrix_table()
-│   │       Writes the matrix to Evaluation/Iteration_N/confusion_matrix.csv, with the class names as headers; a
-│   │       sparse one to confusion_cells.csv, one row (true_class, predicted_class, count) per non-zero cell.
-│   ├── find_class_thresholds()
-│   │       For each class (one against the rest), finds the probability threshold whose precision stays at or
-│   │       above target_precision with the highest recall (the highest such threshold), with the recall kept at
-│   │       that threshold, or None when no threshold reaches it, for every target precision of a list. Saved in
-│   │       class_thresholds.json.
-│   ├── compute_class_score_curves() + compute_macro_curve_metrics()   (only with per_class_report)
-│   │       For each class (one against the rest), counts the positive and negative images at every distinct
-│   │       probability and gives its ROC curve and ROC AUC, its precision-recall curve and average precision (as
-│   │       scikit-learn computes them) and the point of its threshold; their means over the classes defining them are
-│   │       the Macro ROC AUC and Macro Average Precision headline metrics.
+│   ├── compute_top_k_accuracy()               (compute_multi_label_metrics in multi_label mode)
+│   ├── save_confusion_matrix_table()          confusion_matrix.csv or confusion_cells.csv
+│   ├── find_class_thresholds()                class_thresholds.json
+│   ├── compute_class_score_curves() + compute_macro_curve_metrics()   per_class_report only
 │   ├── compute_recall_intervals() -> compute_clopper_pearson_intervals()
-│   │       For each class, the exact (Clopper-Pearson) 95 % confidence interval of its recall, from its true positives
-│   │       and its test images (recall_intervals.py), None for a class without test image.
-│   ├── build_class_metrics_rows() + write_class_metrics_file()
-│   │       Merges the per-class metrics (the recall followed by recall_lower and recall_upper), curve metrics (with
-│   │       per_class_report) and thresholds into one row per class, in class index order, and writes
-│   │       class_metrics.csv. Written at every evaluation, whatever per_class_report.
-│   ├── save_confusion_matrix_image()   (only with per_class_report, up to 1,000 classes)
-│   │       Draws the confusion matrix with matplotlib (counts, shares, recall column, precision row, colour bar) and
-│   │       saves confusion_matrix.png. The same image is later sent to TensorBoard.
-│   ├── save_score_curve_images()   (only with per_class_report)
-│   │       Draws the ROC and precision-recall curves of every class (one plot up to 10 classes, a grid of panels
-│   │       above, the thresholds marked) and saves roc_curves.png, precision_recall_curves.png and
-│   │       precision_recall_thresholds.png (the zoom on the thresholds, written). The same images are later sent to
-│   │       TensorBoard.
-│   ├── save_temperature_explorer() + save_class_logits()   (only with per_class_report)
-│   │       Divides the kept logits by every temperature of a grid from 0.5 to 10 and writes
-│   │       temperature_explorer.html: for each temperature the histogram of the score of up to 100 classes over
-│   │       their own images (in class index order) and their thresholds (Step 4.13). Up to 100 classes the logits
-│   │       are written next to it, class_logits.npz, for the serve script.
-│   ├── write_predictions_file()   (only with save_predictions)
-│   │       Writes predictions.csv: one row per test image with its file name, true class, predicted class, whether it
-│   │       is correct and the probability of every class.
+│   ├── build_class_metrics_rows() + write_class_metrics_file()        class_metrics.csv
+│   ├── save_confusion_matrix_image()          per_class_report, up to 1,000 classes
+│   ├── save_score_curve_images()              per_class_report
+│   ├── save_temperature_explorer() + save_class_logits()              per_class_report
+│   ├── write_predictions_file()               save_predictions only
 │   └── build_class_metrics_table() + build_recall_interval_table() + build_class_metric_scalars()
-│           Prepare what is displayed: the per-class table (columns, rows, sort by F1, legend), the per-class recall
-│           table (recall and 95 % bounds, sort by recall, legend), with several target precisions the table of
-│           build_class_thresholds_table (the threshold and recall of every class at each of them), and the
-│           per-class TensorBoard scalars Precision/<class>, Recall/<class>, F1/<class> (and with per_class_report
-│           ROC AUC/<class>, Average Precision/<class>).
 └── report_evaluation()
-    │
-    ├── report_evaluation_results()
-    │       Writes the global scalars, the sample images (and with per_class_report the class scalars, the confusion
-    │       matrix image and the curve images) to Tensorboard/Test, builds the report block, appends its plain text to
-    │       Results.txt, prints the coloured version in the console and prints the links of the files written by the
-    │       evaluation.
-    ├── track_evaluation()
-    │       With MLflow tracking: sends the global scalars (and with per_class_report the class scalars), the best
-    │       value so far of the headline metric, and the small evaluation files to the MLflow run.
-    └── update_evaluation_curves()
-            Writes the scalars into the row of the iteration of Evaluation/evaluation_summary.csv, draws
-            evaluation_curves.png (next to Results.txt) again from every row, prints its link and, with MLflow
-            tracking, sends both files to the MLflow run.
+    ├── report_evaluation_results()            TensorBoard Test, Results.txt, console, file links
+    ├── track_evaluation()                     MLflow scalars, best value, small files
+    └── update_evaluation_curves()             evaluation_summary.csv, evaluation_curves.png
 
-scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
-│   Separate script, run on its own (uv run python -m scripts.evaluation.evaluate_checkpoint): evaluates checkpoints
-│   of a trained run without training. Its settings are variables at the top of its main block (no command line): the
-│   run name and its folder, the iteration ("all" for every checkpoint from the last one, None for the last one, or an
-│   integer), an optional other labelled test folder, the evaluation batch size, whether the evaluation is tracked in
-│   MLflow, whether predictions.csv is saved, the maximum number of error images per pair of classes, the target
-│   precisions of the class thresholds (a probability or a list such as [0.99, 0.95, 0.90]) and the final NMS of the
-│   detection tasks (skipped with a warning for a classifier). It writes in <run>/Checkpoint_Evaluation/
-│   (Checkpoint_Evaluation_split_<parent folder>_<split folder>/ for another labelled test folder).
-│
+scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]   main block settings, writes <run>/Checkpoint_Evaluation/
 ├── list_evaluated_iterations() -> get_checkpoint_iterations() / get_last_checkpoint_iteration()
-│       Read Weights/full-checkpoint of the trained run before anything is written: all the recorded iterations,
-│       evaluated from the last one ("all"), only the last one (None), or the given one. Raises FileNotFoundError
-│       when none of them has its weight file (a run stopped before its first save, an iteration without checkpoint).
 ├── load_experiment_configuration() + get_trainer_class() + trainer construction   (same as Stages 1-2)
-│       Loads training_configuration.yaml from the trained run (its classes from the label_dictionary.json next to
-│       it), sets test_data_folder (apply_test_data_folder(), another split naming its own folder), batch_size,
-│       tracking.activated, evaluation.save_predictions, evaluation.error_dumps (turned on with the given limit) and
-│       evaluation.target_precision to the given values, points the trainer to <run>/Checkpoint_Evaluation/
-│       (point_to_checkpoint_evaluation(), the run name kept), refuses a folder whose data.json records another
-│       test split (check_evaluation_folder_split()), turns off the transfer of pretrained components, then builds
-│       the same trainer as for a training. It writes its iteration folders directly in Checkpoint_Evaluation/ and
-│       saves no weights.
 └── evaluate_checkpoints()
-    │   Opens the MLflow run of the evaluation, evaluates the checkpoints, and closes the run.
-    │
-    ├── start_evaluation_tracking()
-    │       With tracking: a new MLflow run '<run name>-evaluation' in the backend of the trained run (tracking_root,
-    │       named by the launch panel), tagged with the MLflow run of the training ('evaluation_of'). The MLflow run
-    │       of the training is never modified.
-    └── summarise_checkpoint_evaluations()
-        │   For each iteration: skips it with a warning if its file is missing (FileNotFoundError when every file is
-        │   missing, the MLflow run closed as failed), loads its weights (and their moving
-        │   average when on) into the trainer's model and runs the test evaluation, whose report adds the row of the
-        │   iteration to evaluation_summary.csv (the averaged weights in ema_ columns), draws evaluation_curves.png
-        │   again and sends both to the MLflow run. At the end prints the best iteration of the headline metric for
-        │   every kind of weights, tied iterations listed.
-        │
+    ├── start_evaluation_tracking()            MLflow run '<run name>-evaluation'
+    └── summarise_checkpoint_evaluations()     best iteration per kind of weights
         └── run_test_evaluation()  for each checkpoint  -> [STAGE 4]
-                The same function as in the training loop, so the same Results.txt block, TensorBoard Test curves,
-                sample images and evaluation files.
 
-scripts/evaluation/draw_report_figures.py  [STEP 5.7]
-    Separate script, run on its own (uv run python -m scripts.evaluation.draw_report_figures), settings in its main
-    block: draws the figures of the research report of a kept checkpoint from its evaluation folder (class_logits.npz,
-    confusion_matrix.csv, saved_temperature_thresholds.json, predictions.csv) and the TensorBoard Test curves of its
-    training, into <evaluation folder>/Report_Figures/ with report_values.json.
-
-scripts/evaluation/score_image_split.py  [STEP 5.8]
-    Separate script with command line options (uv run python -m scripts.evaluation.score_image_split ...): scores
-    every image of a large split with one checkpoint, forward pass only, into a predictions file with the columns of
-    predictions.csv, resumed where it stopped by the next launch on the same file.
+scripts/evaluation/draw_report_figures.py  [STEP 5.7]   report figures of a kept checkpoint
+scripts/evaluation/score_image_split.py  [STEP 5.8]     scores a large split with one checkpoint
 ```
 
 ---
 
 ## Stage 1 — Entry Point and Configuration Loading
 
-> The examples below are real outputs from running the loader on `configurations/classification/configuration_example.yaml` when it read ImageNet-1k (1000 classes); it reads ImageNet-22k (21,841 classes) since 2026-11-11.
+> The outputs below come from the loader on `configurations/classification/configuration_example.yaml` when it read ImageNet-1k (1000 classes); it reads ImageNet-22k (21,841 classes) since 2026-11-11.
 
 ### Step 1.1 — `main()`
-This is the entry point of the whole project, the same for every task. It first turns on the expandable segments of the CUDA allocator (`enable_expandable_cuda_segments()` of `vision_training/utilities/os_utilities.py` adds `expandable_segments:True` to `PYTORCH_CUDA_ALLOC_CONF` before anything reaches the GPU). `parse_configuration_path()` then reads the path to the YAML file of the experiment from the command line (`--configuration_path`, absolute or relative to the current folder; `parser.error()` stops with "No configuration file at ..." when it is not a file), so any configuration, of this task or of another one, is trained without editing the code. It loads and validates that file (Step 1.2), asks the registry which trainer fits `experiment_configuration["task"]` (Step 1.6), builds that trainer with both dictionaries and the YAML path (Stage 2) and starts training (Stage 3). The loading and the construction run inside `read_manifests_once()` (`vision_training/data/manifest_cache.py`): the datasets, the record of the data (`data.json`), the split descriptions and the task readers (the test manifest of the detection tasks, the keypoint definitions) read every `labels.json` through `read_manifest()`, which parses each file once and shares it, then frees the parsed manifests with their heap memory before the training starts and the first batch forks the loader workers. Each `labels.json` used to be parsed up to five times; on the 50,000 validation images of the instance segmentation benchmark dataset, the reads of the launch take 5.8 s instead of 15.5 s (2026-11-13). `scripts/evaluation/evaluate_checkpoint.py` builds its trainer the same way. It returns nothing. Everything after this point happens inside the trainer.
+Every task starts here.
+- `enable_expandable_cuda_segments()` (`os_utilities.py`) adds `expandable_segments:True` to `PYTORCH_CUDA_ALLOC_CONF` before any GPU use.
+- `parse_configuration_path()` reads `--configuration_path`; `parser.error()` stops with "No configuration file at ..." for a missing file.
+- Loading and trainer construction run inside `read_manifests_once()` (`vision_training/data/manifest_cache.py`): every `labels.json` is parsed once by `read_manifest()`, shared, and freed before the workers fork. `evaluate_checkpoint.py` builds its trainer the same way.
 
-```bash
-python -m vision_training.main --configuration_path vision_training/configurations/classification/configuration_example.yaml
-```
+The block below shows the body of `main()`.
 
 ```python
 enable_expandable_cuda_segments()                           # before the first CUDA call
@@ -745,9 +295,11 @@ trainer.run_training_loop()
 ```
 
 ### Step 1.2 — `load_experiment_configuration()`
-This function produces the two dictionaries that every later stage reads. It removes the `ExperimentConfiguration` section from the raw YAML and keeps it as `experiment_configuration`, which holds the run settings. Whatever is left becomes `model_configuration`, which holds the data, network and optimization settings. It checks the keys of the file as written (`check_configuration_keys()`, Step 1.5), then converts the values YAML reads with the wrong type (the folders, the iteration counts written in scientific notation, a non-integer count being left to the checks, the learning rate, and the optimization numbers written without a dot such as `weight_decay: 1e-4`), adds `tracking_root` (the root folder of the MLflow backend, the `experiment_folder` of the configuration) and `run_name` (None, the name of the run folder then being built from the settings, Step 2.4) and `standalone_evaluation_folder` (None for a training, `Checkpoint_Evaluation` set by the standalone evaluation, Step 5.2) to `experiment_configuration`, adds `label_mode` and `label_dictionary` to `Data` (Step 1.4), and runs the checks (Step 1.5). There is no data type to convert: every model is built in float32 (`MODEL_DTYPE` of `vision_training/models/model_registry.py`, Step 2.3).
+It returns the two dictionaries every later stage reads: `experiment_configuration` (the `ExperimentConfiguration` section) and `model_configuration` (every other section).
+- It checks the keys as written (Step 1.5), then fixes types YAML reads wrong: folders to `Path`, counts such as `1e10` to `int` (a non-integer count is left to the checks), the learning rate, optimization numbers without a dot such as `weight_decay: 1e-4`.
+- It adds `tracking_root` (the `experiment_folder`, MLflow root), `run_name` (None, Step 2.4) and `standalone_evaluation_folder` (None, set by Step 5.2), and `label_mode` and `label_dictionary` to `Data` (Step 1.4), then runs the checks. Every model is built in float32 (`MODEL_DTYPE` of `vision_training/models/model_registry.py`).
 
-**Example: how the dictionaries are split**
+The block below shows how the keys are split.
 ```text
 experiment_configuration keys: task, experiment_folder, run_name_suffix, train_data_folder, validation_data_folder,
                                test_data_folder, batch_size, information_dump, weight_saving_iterations,
@@ -758,37 +310,47 @@ model_configuration keys:      Optimization, Data, Backbone, ClassificationHead
 Data keys after loading:       image_settings, label_mapping, data_augmentation, label_mode, label_dictionary
 ```
 
-**Example: types before and after conversion**
+This table shows three values before and after conversion.
 
 | Key | Raw YAML value | After conversion |
 |---|---|---|
 | `number_iterations` | `'1e10'` (string) | `10000000000` (int) |
 | `train_data_folder` | `'/home/.../imagenet-1k/manifests/train'` (string) | `PosixPath('/home/.../imagenet-1k/manifests/train')` |
-| `learning_rate` | `0.0002` (`2.0e-4` has a dot, so YAML already reads a float) | `0.0002` (float) |
+| `learning_rate` | `0.0002` (`2.0e-4` has a dot, so YAML reads a float) | `0.0002` (float) |
 
 ### Step 1.3 — `load_configuration()`
-This is a plain file reader. It raises `FileNotFoundError` if the YAML file is missing. Otherwise it parses the file with `yaml.safe_load` into one nested dictionary that mirrors the file exactly. Nothing is converted or validated here. Numbers written without a dot, such as `1e10`, are still strings at this point, which is why Step 1.2 has to convert them.
-
-**Example output**
-```text
-top-level keys:    ['ExperimentConfiguration', 'Optimization', 'Data', 'Backbone', 'ClassificationHead']
-number_iterations: '1e10'      <- still a string
-learning_rate:     0.0002      <- already a float
-```
+A plain file reader. It raises `FileNotFoundError` if the YAML is missing, otherwise parses it with `yaml.safe_load` into one nested dictionary. Nothing is converted: `1e10` is still a string, hence Step 1.2.
 
 ### Step 1.4 — `build_label_dictionary()`
-This function decides which class index each dataset category is trained as. For classification the mode must be `"multi_class"`. It reads the JSON file at `Data.label_mapping.mapping_file_path` and turns digit keys into integers. The result goes into `model_configuration["Data"]["label_dictionary"]`. Later, the datasets use it to turn each image's raw category into a class index, and the classifier counts its distinct values to size its output layer. You can merge categories by mapping several of them to the same index. A configuration file read from a run folder holding a `label_dictionary.json` (the copy of the configuration read by the evaluation, export and model loading tools, Step 5.2) takes the classes of that file instead of the mapping file (`read_run_label_dictionary()`).
+This function decides which class index each dataset category is trained as.
+- The mode must be `"multi_class"`. It reads the JSON at `Data.label_mapping.mapping_file_path` and turns digit keys into integers.
+- The result goes into `model_configuration["Data"]["label_dictionary"]`. Datasets map raw categories with it; the classifier counts its distinct values to size its output layer.
+- Several categories mapped to the same index are merged.
+- A configuration read from a run folder holding `label_dictionary.json` (evaluation, export and model loading tools, Step 5.2) takes that file's classes (`read_run_label_dictionary()`).
 
-**Example: `label_mapping.json` (input) → `label_dictionary` (output)**
+The example shows the mapping file and the resulting dictionary.
 ```text
 {'1': 0, '2': 1, '3': 2, '4': 3, ...}      ->   {1: 0, 2: 1, 3: 2, 4: 3, ...}
                                                 1000 entries, 1000 distinct classes -> 1000 output neurons
 ```
 
 ### Step 1.5 — `check_configuration()`
-This is the safety net that runs before anything expensive, such as the data loaders, the model or GPU memory, is created. Before the conversions of Step 1.2, `check_configuration_keys()` refuses the settings and sections removed from the configuration files (`check_removed_settings()`), alone, each with a message naming what replaced it (`'<key>' was removed: <what replaced it>. Delete it from the configuration file.`), then, alone too, every key the code of the task does not read (`check_unknown_keys()` against `KNOWN_KEY_PATHS` of `configuration_keys.py`: a misspelled key, a setting no code reads, a section of another task), whose value would otherwise be silently ignored (`'<key>' is not a configuration key (did you mean '<closest key>'?): no code reads it, so its value would be ignored. Correct it or delete it from the configuration file.`). `check_configuration()` then runs the common checks (experiment, data, backbone, optimization), then the checks of the task found in `TASK_CONFIGURATION_CHECKS` (for classification: data, sequence settings, head, decorrelation, evaluation). Each check returns a list of messages instead of raising an error, so every problem in the file is reported together. If there are any messages, `load_experiment_configuration()` prints them in red under a link to the YAML file and exits with code 1.
+This safety net runs before loaders, model or GPU memory exist.
+- Before the conversions of Step 1.2, `check_configuration_keys()` reports alone the removed settings (`check_removed_settings()`: `'<key>' was removed: <what replaced it>. Delete it from the configuration file.`). Examples: `resume_training`, `mixed_precision`, `Data.loading`, `evaluation.top_k`, `Data.view_augmentation`, `Optimization.gradient_clipping_norm`.
+- Then, alone too, every key the task does not read (`check_unknown_keys()` against `KNOWN_KEY_PATHS` of `configuration_keys.py`): `'<key>' is not a configuration key (did you mean '<closest key>'?): no code reads it, so its value would be ignored. Correct it or delete it from the configuration file.`
+- `check_configuration()` runs the common checks, then the task checks of `TASK_CONFIGURATION_CHECKS`. Each returns a list of messages, so every problem is reported together. Any message: printed in red under a link to the YAML, exit code 1.
 
-**Example: output with `global_pooling: "median"` and `dropout_rate: 1.5` in the YAML** (the separators are one character longer than the visible line, the underlined file name being the link to the file)
+This table lists what each check covers.
+
+| Check | Covers |
+|---|---|
+| `check_experiment_configuration()` | known task, run name suffix, loop settings, per-class report, number of sample images, MLflow tracking |
+| `check_data_configuration()` | augmentation types and probabilities, label mapping mode, image size a positive even integer |
+| `check_backbone_configuration()` | blocks numbered "1".."N", each [layers, channels], 3 input channels, image size a multiple of 2 ** poolings with every map entering a pooling even |
+| `check_optimization_configuration()` | optimizer, weight decay, warm-up / cosine schedule, moving average decay |
+| `check_classification_configuration()` | at least 2 classes indexed 0..K-1 without gaps; no sequence normalization; head settings (pooling, hidden layers, dropout and label smoothing in [0, 1), output mode, weighting, pretrained, batches of at least 2 with batch normalized layers); decorrelation; `target_precision`, `save_predictions`, error images only in multi_class mode |
+
+The output below comes from `global_pooling: "median"` and `dropout_rate: 1.5` (the file name is a link).
 ```text
 ------------------------------------------------------
 Invalid Configuration File : configuration_wrong.yaml
@@ -799,9 +361,9 @@ SystemExit code 1
 ```
 
 ### Step 1.6 — `get_trainer_class()`
-This is a lookup in `TASK_TRAINER_CLASSES`, which maps each task name to its trainer class. It returns the class itself, not an object. `main()` builds the object right after, which is where Stage 2 begins. An unknown task raises a `KeyError` that lists the valid tasks. In practice the checks in Step 1.5 already catch a wrong task name before this point.
+A lookup in `TASK_TRAINER_CLASSES`. It returns the class, not an object; `main()` builds the object with both dictionaries and the YAML path (Stage 2). An unknown task raises a `KeyError` listing the valid tasks, though Step 1.5 already catches it.
 
-**Example output**
+The output below shows a hit and a miss.
 ```text
 get_trainer_class(task="classification")
 -> <class 'vision_training.trainers.classification_trainer.ClassificationTrainer'>
@@ -812,17 +374,20 @@ get_trainer_class(task="segmentation")
    'sequence_comparison', 'frame_selection', 'self_supervised', 'keypoint_detection']."
 ```
 
-
 ---
 
 ## Stage 2 — Trainer Initialization
 
-> The examples below are real outputs from building the trainer on `configurations/classification/configuration_example.yaml` when it read ImageNet-1k (1000 classes, 256 pixel images; ImageNet-22k and its 21,841 classes since 2026-11-11), with the run folder redirected to a temporary folder. Nothing is trained in this stage: it only prepares everything that Stage 3 needs. The whole construction took 12.3 s on CPU. On this machine a GPU is available, so a normal run prints `cuda` where the example below, run on CPU, prints `cpu`.
+> The outputs below come from building the trainer on `configurations/classification/configuration_example.yaml` when it read ImageNet-1k (1000 classes, 256 pixel images), run folder redirected to a temporary folder. Nothing is trained here. The construction took 12.3 s on CPU; a normal run on this machine prints `cuda` where the example prints `cpu`.
 
 ### Step 2.1 — `ClassificationTrainer.__init__()`
-`main()` builds the trainer with both dictionaries from Stage 1 and the YAML path. Before calling the shared constructor of `BaseTrainer`, this one stores the classification settings that its hooks read later: `output_mode`, `class_weighting` and whether `ClassificationHead.decorrelation` is on (`decorrelation_activated`, always False for the sequence tasks sharing this trainer), `top_k`, the k of the top-k accuracy fixed at 5 (`TOP_K_ACCURACY_CLASSES`), and from `evaluation` the `target_precisions` (`target_precision` as a list), `target_precision`, its first one, `save_predictions` and `error_dumps`. They must be stored first because `BaseTrainer.__init__()` already calls the hooks (`build_dataloaders()`, `build_model()`, `get_tracked_metrics()`), which use them.
+Before calling `BaseTrainer.__init__()`, the trainer stores the settings its hooks read, since the base constructor already calls `build_dataloaders()`, `build_model()` and `get_tracked_metrics()`.
+- From `ClassificationHead`: `output_mode`, `class_weighting`, `decorrelation_activated` (always False for the sequence tasks sharing this trainer).
+- `top_k`, fixed at 5 (`TOP_K_ACCURACY_CLASSES`).
+- From `evaluation`: `target_precisions` (a list), `target_precision` (its first), `save_predictions`, `error_dumps`.
+- `TASK_NAME` is `"classification"`.
 
-**Example: the attributes set before `super().__init__()`**
+The block below shows these attributes.
 ```text
 self.output_mode                = 'multi_class'
 self.class_weighting            = 'balanced'
@@ -835,15 +400,19 @@ self.error_dumps_configuration  = {'activated': False, 'maximum_per_class_pair':
 ```
 
 ### Step 2.2 — `BaseTrainer.__init__()`
-This is the constructor shared by every task. It first checks that the task of the configuration is the one of the trainer, then it runs the steps below in order: device (2.3), run name (2.4), the settings of the evaluation and of the tracking, augmenter (2.5), the classes kept by a resumed run, the refusal of a resume on changed labels and the paths (2.6), loaders, the check that each gives a batch and the record of the data (2.7–2.10), sample images (2.11), model (2.12–2.18), pretrained components (2.19), optimizer and moving average of the weights (2.20), metric tracker (2.21), information printouts (2.22–2.24), input viewer (2.25), the analysis of the training data (`analyse_training_data()`, the anchor recall of the detection tasks, nothing for classification) and checkpoint restoration (2.26–2.28). The steps that depend on the task (loaders, classes of the test samples, model, tracked metrics, split description) are abstract hooks that `ClassificationTrainer` implements. At the end, the attribute `start_iteration` tells the training loop where to begin. The MLflow tracker is a `DisabledTracker`, which accepts every call and does nothing, until the training loop opens the real one (Step 3.5): the input viewer, the benchmarking loop and a standalone evaluation never create an MLflow run for the training.
+The constructor shared by every task. It first refuses a configuration of another task, then runs, in order:
+- device (2.3), run name (2.4), evaluation and tracking settings, augmenter (2.5);
+- classes of a resumed run, refusal of changed labels, paths (2.6);
+- loaders, the check that each gives a batch, `data.json` (2.7–2.10), sample images (2.11);
+- model (2.12–2.18), pretrained components (2.19), optimizer and weight moving average (2.20), metric tracker (2.21);
+- printouts (2.22–2.24), input viewer (2.25), `analyse_training_data()` (nothing for classification), checkpoint restoration (2.26–2.28).
 
-**Example: the error raised when the configuration is for another task**
+The task-dependent steps are hooks of `ClassificationTrainer`; `start_iteration` tells the loop where to begin. The MLflow tracker is a `DisabledTracker` (does nothing) until Step 3.5, so the viewer, the speed benchmark and a standalone evaluation never create a training MLflow run.
+
+The error and attributes below come from this constructor.
 ```text
 ValueError: ClassificationTrainer trains the task 'classification', but the configuration is for the task 'object_detection'.
-```
 
-**Example: some attributes set by the constructor**
-```text
 self.per_class_report       = False                 <- evaluation.per_class_report, 1000 classes are too many to list
 self.number_sample_images   = 16                    <- evaluation.number_sample_images
 self.experiment_tracker     = <DisabledTracker>     <- replaced at the start of the training loop
@@ -852,41 +421,37 @@ self.start_iteration        = 1
 ```
 
 ### Step 2.3 — `get_device()`
-This function picks the hardware used for the whole run: CUDA if an NVIDIA GPU is visible, otherwise MPS (Apple GPU), otherwise the CPU. The model, every batch and every checkpoint are moved to this device. The trainer also keeps `dtype` for the model weights and the images: `MODEL_DTYPE` of `vision_training/models/model_registry.py`, `torch.float32` for every model, the mixed precision computing the forward passes in bfloat16 on top of it (Step 3.11).
-
-**Example output** (this run was forced on the CPU; a normal run on this machine prints `cuda`)
-```text
-get_device() -> device(type='cpu')
-For Training We Will Be Using device: cpu
-```
+It returns CUDA if an NVIDIA GPU is visible, else MPS (Apple), else CPU. Model, batches and checkpoints go to this device. The trainer also keeps `dtype`: `MODEL_DTYPE`, `torch.float32` for every model, with mixed precision computing the forward passes in bfloat16 (Step 3.11).
 
 ### Step 2.4 — `get_run_name()` → `build_run_name()`
-The run folder is `experiment_folder / <run name>`. The name is built from the settings that define the model: task, input, backbone, head, number of classes and optimizer. The same settings always give the same folder, so a stopped run resumes where it was, and any change of the architecture starts a new folder. The batch size, the learning rate and its schedule, the augmentation and the dropout rates give no token, because they can change between two resumptions of a run.
+The run folder is `experiment_folder / <run name>`, built from the settings that define the model: task, input, backbone, head, number of classes, optimizer. The same settings give the same folder, so a stopped run resumes; an architecture change starts a new folder. Batch size, learning rate and schedule, augmentation and dropout give no token, since they may change between resumptions.
 
-**Example: the run name of `configuration_example.yaml`, read token by token**
+This table reads the run name of `configuration_example.yaml` token by token.
 
 | Token | Meaning |
 |---|---|
 | `CLS` | task (`DET`, `INS`, `CLS`, `SEG`, `M2O`, `M2M`, `CMP`, `SEL`, `SSL`, `KPT`) |
 | `IN` | `input_normalization`: pixels mapped to [-0.5, 0.5] |
-| `KAR` | `keep_ratio`: aspect ratio kept, the image is padded to a square |
+| `KAR` | `keep_ratio`: aspect ratio kept, image padded to a square |
 | `256` | input image size |
-| `SE`, `RES`, `BN` | squeeze-and-excitation, residual shortcuts and batch normalization are used in the backbone |
-| `B1x64.2x64.2x64.4x64.5x64.5x64` | the 6 blocks of the backbone, `<convolution layers>x<filters>` each |
-| `HFLAT.512.256` | head: `flatten` pooling, then hidden layers of 512 and 256 units |
-| `HLN` | `fully_connected_normalization: "layer"`: the hidden layers are layer normalized (`HBN` for `"batch"`) |
+| `SE`, `RES`, `BN` | squeeze-and-excitation, residual shortcuts, batch normalization in the backbone |
+| `B1x64.2x64.2x64.4x64.5x64.5x64` | the 6 backbone blocks, `<convolution layers>x<filters>` each |
+| `HFLAT.512.256` | head: `flatten` pooling, hidden layers of 512 and 256 units |
+| `HLN` | `fully_connected_normalization: "layer"` (`HBN` for `"batch"`) |
 | `CWB` | `class_weighting: "balanced"` |
-| `MC1000` | `multi_class` output, 1000 classes (`MC21841` with the current file, which reads ImageNet-22k) |
+| `MC1000` | `multi_class` output, 1000 classes (`MC21841` with the current file) |
 
 ```text
 CLS_IN-KAR-256_SE-RES-BN-B1x64.2x64.2x64.4x64.5x64.5x64_HFLAT.512.256-HLN-CWB_MC1000
 ```
-There is no optimizer section at the end because the run uses plain Adam without weight decay, and no suffix because `run_name_suffix` is null: `run_name_suffix: "v1"` would end the name with `_v1`, so that a run of the same settings with another batch size, augmentation or learning rate starts in a folder of its own instead of resuming this one.
+There is no optimizer token (plain Adam, no weight decay) and no suffix (`run_name_suffix` null). `run_name_suffix: "v1"` would add `_v1`, so a run of the same settings with another batch size, augmentation or learning rate gets its own folder.
 
 ### Step 2.5 — `DataAugmenter()`
-This creates the augmentation tool of the training batches from `Data.data_augmentation`. It only reads and stores the settings: the global `activated` flag and `probability` (the chance that an image is augmented at all), and for each of the 28 augmentation types (10 geometric, 18 photometric) its own `activated` flag and `probability`. The strengths of the types (crop sizes, rotation angles, brightness steps...) are not settings: the augmenter of a supervised task takes the hard-coded `SUPERVISED_AUGMENTATION_STRENGTHS`, and the views of the self-supervised task the stronger `SELF_SUPERVISED_AUGMENTATION_STRENGTHS` (README, Data Augmentation). The random draws happen later, in Step 3.13, on every training batch. The `independent_frames` and `shuffle_frames` settings exist in the configurations of the sequence tasks only, the augmenter of the other tasks keeping them off.
+It stores the settings of `Data.data_augmentation`: the global `activated` flag and `probability` (chance that an image is augmented at all), and the `activated` flag and `probability` of each of the 28 types (10 geometric, 18 photometric).
+- Strengths are not settings: supervised tasks use `SUPERVISED_AUGMENTATION_STRENGTHS`, the self-supervised views the stronger `SELF_SUPERVISED_AUGMENTATION_STRENGTHS` (README, Data Augmentation).
+- The draws happen in Step 3.13. `independent_frames` and `shuffle_frames` exist only in sequence configurations.
 
-**Example: the settings of `configuration_example.yaml`**
+The block below shows the settings of `configuration_example.yaml`.
 ```text
 activated: True    probability: 0.3
 types:     12 of the 28 types activated, random_left_right_flip with probability 0.5 and the 11 others with 0.25
@@ -902,13 +467,17 @@ attributes of the augmenter: activated, probability, self_supervised (False), st
 ```
 
 ### Step 2.6 — `setup_training_paths()`
-Two steps run first, right after the settings are read. `restore_run_label_dictionary()` only acts for a resumed run whose run folder holds a checkpoint: when the mapping file now gives other classes than the `label_dictionary.json` saved in the run folder (the same number of classes, since another number gives another run name), the run keeps its own classes, so that the class indices of its checkpoints keep their meaning, and prints in yellow `The Label Mapping Changed Since The Run Started, The Run Keeps Its Own Classes : <link>`. A new run, a run without checkpoint and a run started before the file existed take the mapping file. `check_resumed_data()` then only acts for a resumed run whose run folder holds a checkpoint and a `data.json` (Step 2.7): it computes the SHA-256 of the `labels.json` of every split and stops the launch with a `ValueError` naming the changed splits when one differs from `data.json`, before the copy of the configuration and the record are replaced, changed labels needing a new run (another `run_name_suffix` or `experiment_folder`, or the run folder moved away), unless `ExperimentConfiguration.allow_data_change_on_resume` is true; a data folder moved with the same labels file resumes. A run always resumes from the last checkpoint of its folder: to train the same settings from scratch, set another `run_name_suffix` or `experiment_folder`, or move the run folder away.
+Two checks run first, only for a resumed run whose folder holds a checkpoint.
+- `restore_run_label_dictionary()`: when the mapping file gives other classes than the saved `label_dictionary.json`, the run keeps its own and says so in yellow.
+- `check_resumed_data()`: a `labels.json` whose SHA-256 differs from `data.json` stops the launch with a `ValueError` before anything is replaced, unless `ExperimentConfiguration.allow_data_change_on_resume` is true. A moved data folder with the same labels resumes.
 
-This function then gives the three paths of the run folder: `Tensorboard/`, `Weights/` and `training_configuration.yaml`. For a training it creates the two folders, copies the YAML into the run folder, so that the run keeps the exact settings it was launched with (Stage 5 reads this copy), and writes `label_dictionary.json`, the class index of every category of the run (its keys written as text), which a resumed run and the evaluation, export and model loading tools read back. With `diagnosis_modes.view_input_images` or `diagnosis_modes.benchmark_speed` it only returns the paths: the viewer and the speed benchmark exit without training and must not leave an empty run folder.
+A run always resumes from its last checkpoint. To train the same settings from scratch, set another `run_name_suffix` or `experiment_folder`, or move the run folder away.
 
-A run resumed from a checkpoint first compares the launched YAML with the copy saved by its previous start (`compare_with_saved_configuration()`, through `find_changed_settings()` of `vision_training/configuration_processing/configuration_changes.py`), since the settings that give no token in the run name (learning rate, `learning_rate_multiplier`, batch size, dropout, augmentation...) may have changed. It returns the changed settings, printed at Step 2.22, and keeps the saved copy as `training_configuration_until_iteration_<n>.yaml` when they differ, n being the iteration of the checkpoint the run resumes from. A file of that name is never replaced. A new run compares nothing.
+`setup_training_paths()` then returns `Tensorboard/`, `Weights/` and `training_configuration.yaml`.
+- For a training it creates both folders, copies the YAML (read by Stage 5) and writes `label_dictionary.json`. With `view_input_images` or `benchmark_speed` it creates nothing.
+- A resumed run compares the YAML with the saved copy (`compare_with_saved_configuration()`); changed settings are printed at Step 2.22 and the old copy is kept as `training_configuration_until_iteration_<n>.yaml`.
 
-**Example: what exists in the run folder after this step**
+The tree below shows the run folder after this step.
 ```text
 <experiment_folder>/CLS_IN-KAR-256_SE-RES-BN-B1x64.2x64.2x64.4x64.5x64.5x64_HFLAT.512.256-HLN-CWB_MC1000/
 ├── Tensorboard/
@@ -918,24 +487,25 @@ A run resumed from a checkpoint first compares the launched YAML with the copy s
 ```
 
 ### Step 2.7 — `build_dataloaders()`
-This hook of `ClassificationTrainer` builds the loaders of the three splits (Step 2.8) and keeps `class_names`: one name per class index, read from the categories of the manifest of the training split. The evaluation reports, the error images and the sample images use them. It returns the training, validation and test loaders, which `BaseTrainer` stores as `train_dataloader`, `validation_dataloader` and `test_dataloader`.
+This hook builds the loaders of the three splits (Step 2.8) and keeps `class_names` (one per class index, from the training manifest) for reports, error images and sample images. `BaseTrainer` stores them as `train_dataloader`, `validation_dataloader` and `test_dataloader`.
+- The validation loader is built only when read: `builds_validation_loader` is True when `validation_iteration_ratio > 0` or for a diagnosis mode ending the program (`view_input_images`, `benchmark_speed`, `compute_anchor_coverage` of the detection tasks). Otherwise the loader is `None` and no validation dataset or worker exists. The validation folder is still described and recorded in `data.json`.
+- `check_loaders_give_batches()` raises a `ValueError` (split, kept samples, folder) when the training or test loader, or the validation loader with `validation_iteration_ratio > 0`, gives no batch. It also refuses a validation loader that does not follow `builds_validation_loader`.
 
-The validation loader is built only when the run reads it: `BaseTrainer.__init__()` sets `builds_validation_loader` to True when `validation_iteration_ratio > 0`, or for a diagnosis mode ending the program (`view_input_images` and `benchmark_speed`, and `compute_anchor_coverage` of the detection tasks): the input viewer shows the validation split and the anchor coverage measures it, the speed benchmark timing batches of the training loader. Every task passes it to its loader function (`build_validation_loader`), which gives `None` in place of the validation loader when it is False: a training without validation then builds no validation dataset and starts no worker process for it. In a 1024-pixel instance segmentation training of batch 64 (2026-11-13), that left out about 2.3 GB: 1.14 GB private to the idle validation worker, 0.68 GB for the parsed manifest of the 50,000 validation images (0.31 GB since the dataset packs it, `SerializedRecords`) and 0.50 GB for the 2 validation batches prepared in advance and never read. The worker showed 4.4 to 4.8 GB of proportional memory (PSS), most of it pages shared with the main process, which stay in use without it. The validation folder is still described at the start of the run and recorded in `data.json`.
-
-**Example: the first class names of ImageNet-1k (the folder names, called wnids)**
+The first class names of ImageNet-1k are its folder names (wnids).
 ```text
 trainer.class_names[:5] -> ['n01440764', 'n01443537', 'n01484850', 'n01491361', 'n01494475']
 ```
 
-Once the loaders exist, `check_loaders_give_batches()` refuses a training split or a test split whose loader gives no batch, and a validation split too when `validation_iteration_ratio > 0`, with a `ValueError` naming the split, the number of samples its dataset keeps and its folder: an empty split, or a split whose every sample has a category left out by the label mapping, would otherwise make the training loop wait for a batch that never comes. It also refuses a validation loader that does not follow `builds_validation_loader` (built without it, or `None` with it), so that a task forgetting to pass the setting to its loaders stops at its launch. `BaseTrainer.__init__()` then writes `data.json` in the run folder (`save_data_record()` and its hook `record_split()` of `BaseTrainer`, with `build_class_records()` and `build_split_record()` of `vision_training/data/data_record.py`). It starts with the classes of the run in class index order (`classes`): for every class its `class_index`, its `class_name` (given by `list_class_names()`, which a run adding classes to this one compares with its own, Step 2.19), the `category_ids` of the manifest mapped to it and its number of `images` in every split, counted in the `labels.json` files. For each split, it records the absolute data folder, the SHA-256 of `labels.json` (which identifies the images and their labels exactly) and the `file_name` of every sample in manifest order. A model can then be traced back to the exact images it saw, even after the data folders change. A resumed run compares the data folders and SHA-256 with the saved record. When they are unchanged, the record of the first start is kept with its date. Changed labels were already refused by `check_resumed_data()` (Step 2.6) unless `allow_data_change_on_resume` is true: with that switch, or when only the data folder moved, the saved record is kept as `data_until_iteration_<n>.json` (never replaced, like the archived configurations) before the new record is written. The input viewer writes nothing. With MLflow on, the record is sent to the `data` folder of the run whenever it is written.
+`save_data_record()` then writes `data.json` (hook `record_split()` of `BaseTrainer`, `build_class_records()` and `build_split_record()` of `vision_training/data/data_record.py`).
+- `classes`: `class_index`, `class_name` (`list_class_names()`, Step 2.19), mapped `category_ids`, `images` per split. Per split: data folder, SHA-256 of `labels.json`, every `file_name`, so a model traces back to its exact images.
+- A resume keeps an unchanged record; a changed one is kept as `data_until_iteration_<n>.json` before the new one is written. MLflow receives it in its `data` folder.
 
-**Example: the start of `data.json` for ImageNet-1k (2.4 seconds to build, 69 MB for the 1,271,167 training images; every class record is written here on one line, the file giving every value its own line)**
+The start of `data.json` for ImageNet-1k is below (2.4 seconds, 69 MB for 1,271,167 training images; one class per line here).
 ```text
 {
   "created": "2026-10-24 01:57:36",
   "classes": [
     {"class_index": 0, "class_name": "n01440764", "category_ids": [1], "images": {"train": 1290, "validation": 10, "test": 50}},
-    {"class_index": 1, "class_name": "n01443537", "category_ids": [2], "images": {"train": 1290, "validation": 10, "test": 50}},
     ...
   ],
   "splits": {
@@ -945,14 +515,13 @@ Once the loaders exist, `check_loaders_give_batches()` refuses a training split 
       "number_images": 1271167,
       "images": [
         "n01440764/n01440764_10026_n01440764.JPEG",
-        "n01440764/n01440764_10027_n01440764.JPEG",
         ...
 ```
 
 ### Step 2.8 — `get_classification_dataloaders()`
-For each of `train_data_folder`, `validation_data_folder` and `test_data_folder`, it builds one `ClassificationDataset` (Step 2.9) from `<folder>/labels.json` and the images in `<folder>/data/`, then wraps it in a loader (Step 2.10). The three splits share the image size, `keep_ratio`, the label dictionary of Stage 1 and the number of loader workers. With `build_validation_loader=False`, the validation folder is skipped and `None` is returned in place of its loader. Only the training split is used to learn: the validation split gives the curves of Stage 3 and the test split is only used by Stage 4.
+For each data folder it builds a `ClassificationDataset` (Step 2.9) from `<folder>/labels.json` and `<folder>/data/`, then a loader (Step 2.10). The splits share image size, `keep_ratio`, label dictionary and worker count. With `build_validation_loader=False` the validation folder is skipped. Only the training split teaches; validation gives the Stage 3 curves, test is used by Stage 4.
 
-**Example: size of the three splits**
+The sizes of the three splits are below.
 ```text
 train       1271167 samples -> 4966 batches of 256 (one epoch = 4966 iterations)
 validation    10000 samples ->   40 batches of 256
@@ -960,9 +529,14 @@ test          50000 samples ->  196 batches of 256
 ```
 
 ### Step 2.9 — `ClassificationDataset.__init__()`
-This reads the `labels.json` manifest of a split. For every sample it converts the raw category into a class index with the `label_dictionary` (a sample whose category is not mapped is left out and counted in `number_unlabelled_samples`, which `get_classification_dataloaders()` prints for the three splits in one yellow block, `Samples Of Unmapped Categories, Left Out :` then one line per split; in `multi_label` mode a sample keeps each class of its mapped categories once, merged categories giving one class, its unmapped categories are ignored, it is left out and counted the same way when none of its categories is mapped, and a sample listing no category is kept as a negative of every class), shuffles the list once, and builds the class names from the categories. Every kept sample keeps its optional `groups` (named attributes of the sample, read only by the grouped batches of the self-supervised task). The kept samples are then packed in their shuffled order as the pickled records of one read-only NumPy byte buffer (`SerializedRecords` of `vision_training/data/serialized_records.py`, which also holds the detection manifests): `samples[index]` unpickles one sample, a pass over `samples` reads them all, and `samples.find_record()` finds a sample by its identifier, so that the evaluation can name the image of a prediction. The loader workers, forked from the main process, never touch the Python objects of the samples: reading them would write to their reference counts, and the kernel copies every page written (the copy-on-access of the PyTorch documentation of multi-process data loading). On the 1.27 million training images of ImageNet-1k (2026-11-13), the dataset holds 0.18 GB instead of 0.87 GB, a process reading every sample as a worker does copies nothing of the main process instead of 0.40 GB, and the dataset is built from the parsed manifest in 10.5 s instead of 5.9 s, the packing taking the difference. No image is opened here: the files are only read when a batch is requested (Step 3.9), which is why a manifest of 1.27 million images is ready in seconds.
+It reads the `labels.json` of a split and maps every category to a class index with `label_dictionary`.
+- Unmapped samples are left out and counted in `number_unlabelled_samples`, printed for the three splits in one yellow block, `Samples Of Unmapped Categories, Left Out :`.
+- In `multi_label` mode a sample keeps each class of its mapped categories once, ignores unmapped ones, is left out when none is mapped, and is kept as a negative of every class when it lists no category.
+- The list is shuffled once and the class names are built. Each sample keeps its optional `groups` (read only by the grouped batches of the self-supervised task).
+- The samples are packed as pickled records in one read-only NumPy byte buffer (`SerializedRecords` of `vision_training/data/serialized_records.py`), so forked workers copy no memory pages. `samples[index]` unpickles one; `samples.find_record()` finds one by identifier.
+- No image is opened here (Step 3.9).
 
-**Example: a manifest sample, and a kept sample after mapping and shuffling**
+The example shows a manifest sample and a kept sample after mapping and shuffling.
 ```text
 labels.json:   {'id': 1, 'file_name': 'n01440764/n01440764_10026_n01440764.JPEG', 'category_id': 1}
 categories[0]: {'id': 1, 'name': 'n01440764'}
@@ -972,40 +546,36 @@ kept (shuffled order, its raw category is mapped to the class index 948, 'groups
 ```
 
 ### Step 2.10 — `build_native_loader()`
-This wraps the dataset in a PyTorch `DataLoader`: the samples are reshuffled at every epoch, 1 worker process decodes the images (`NUMBER_LOADER_WORKERS` of `vision_training/data/loaders.py`, with a single OpenCV thread, kept alive between epochs and evaluations), preparing 2 batches ahead of the model (`PREFETCH_BATCHES`), and, with a discrete GPU, the batches are copied to pinned memory so that the transfer to the GPU is fast (`uses_pinned_memory()`). An integrated GPU, such as the GB10 of the DGX Spark, shares its memory with the processor, so its batches are not pinned: on the instance segmentation benchmark dataset (batches of 64 images of 1024 pixels, one worker), pinned batches trained at the same speed (40.17 images per second against 39.85 without, the two launches with them 0.88 apart) and left 0.8 GB less free memory at iteration 180, their pinned blocks reaching 2.54 GB per launch at iteration 9000. Its `number_workers` argument, given by the embedding clustering script and the tests, loads the images in the main process at 0, which is slower but easier to debug.
+It wraps the dataset in a PyTorch `DataLoader`.
+- Reshuffled every epoch; 1 persistent worker (`NUMBER_LOADER_WORKERS` of `vision_training/data/loaders.py`, one OpenCV thread) preparing 2 batches ahead (`PREFETCH_BATCHES`).
+- Pinned memory only with a discrete GPU (`uses_pinned_memory()`); an integrated GPU such as the GB10 of the DGX Spark shares its memory.
+- `number_workers` 0 (embedding clustering script, tests) loads in the main process.
+- The training loader drops its last incomplete batch (`drop_last`) when its training needs batch statistics (`ClassificationTrainer.drops_last_training_batch()`), i.e. with `fully_connected_normalization: "batch"`: a one-image batch has no batch statistics. An epoch is then `floor(training samples / batch size)` and a training split smaller than a batch is refused. Validation and test loaders always keep it.
 
-The training loader leaves out the last incomplete batch of every epoch (`drop_last`) when its training needs batch statistics (`ClassificationTrainer.drops_last_training_batch()`): when the hidden layers of the head are batch normalized (`ClassificationHead.fully_connected_normalization: "batch"`), since a last batch of a single image gives no batch statistics and would fail at every epoch. An epoch is then `floor(training samples / batch size)` iterations, which the launch panel prints (Step 2.22), and a training split holding fewer images than a batch is refused. Otherwise, as in `configuration_example.yaml` (`fully_connected_normalization: "layer"`), the last incomplete batch is kept. The validation and test loaders always keep it.
-
-**Example: the training loader of `configuration_example.yaml`** (recorded with 8 workers, when the number of workers was a setting, and pinned memory; every loader now has 1 worker and pins its batches only on a discrete GPU)
+The training loader below was recorded with 8 workers, when this was a setting.
 ```text
 len(loader) = 4966   batch_size = 256   num_workers = 8   prefetch_factor = 2   pin_memory = True   persistent_workers = True
 ```
 
 ### Step 2.11 — `get_test_sample_classes()` + `choose_sample_identifiers()`
-The evaluation of every checkpoint draws a few fixed test images with their true and predicted classes (Step 4.7), so that the predictions of the same images can be followed over the training. They are chosen once, here, from the identifiers and the classes only, so that a resumed run follows the same images. The hook `get_test_sample_classes()` gives the class of every test image. `choose_sample_identifiers()` groups the images by class, gives one image to each class in turn, in class order, until `evaluation.number_sample_images` images are chosen, then takes the images of each class evenly spread over its sorted identifiers. With 1000 classes and 16 images, the 16 first classes get one image each. `number_sample_images: 0` turns the sample images off.
+Every evaluation draws a few fixed test images with their true and predicted classes (Step 4.7), so their predictions can be followed over training. They are chosen once, from identifiers and classes only, so a resume follows the same images.
+- `get_test_sample_classes()` gives the class of every test image.
+- `choose_sample_identifiers()` gives one image to each class in turn until `evaluation.number_sample_images` are chosen, spread evenly over each class's sorted identifiers. `0` turns the sample images off.
 
-**Example output** (16 images, 1000 classes)
+With 16 images and 1000 classes, the first 16 classes get one image each (the manifest lists 50 images per class).
 ```text
 get_test_sample_classes() -> 50000 entries, e.g. {43211: [864], 43537: [870], 3875: [77], ...}
 sample_image_identifiers  -> [1, 51, 101, 151, 201, 251, 301, 351, 401, 451, 501, 551, 601, 651, 701, 751]
                              1 n01440764 (n01440764_ILSVRC2012_val_00000293_n01440764), 51 n01443537 (...), ...
 ```
-The test manifest lists its images class by class, 50 per class, so the first image of each of the first 16 classes is chosen.
 
 ### Step 2.12 — `build_model()`
-This hook creates the network through the registry `TASK_MODEL_CLASSES["classification"]`, which gives an `ImageClassifier` (Step 2.13). With `class_weighting: "balanced"` it counts the training samples of every class and stores the balanced weights in the model (Step 2.18). Back in `BaseTrainer.__init__()`, the model is then moved to the device and cast to the `dtype`, every layer keeping the PyTorch initialisation. Its weights are random at this point: the transferred components (Step 2.19) and a resumed checkpoint (Step 2.28) replace them.
-
-**Example: size of the model of `configuration_example.yaml`**
-```text
-Backbone              746,752 parameters
-Classification Head 2,487,528 parameters
-Total Model         3,234,280 parameters (12.95 MB)
-```
+This hook creates an `ImageClassifier` through `TASK_MODEL_CLASSES["classification"]` (Step 2.13). With `class_weighting: "balanced"` it stores balanced weights in the model (Step 2.18). `BaseTrainer.__init__()` moves it to the device and `dtype`. Weights are random; Steps 2.19 and 2.28 may replace them.
 
 ### Step 2.13 — `ImageClassifier.__init__()`
-This builds the `nn.Module` in this order: the backbone (2.14), the number of features of the pooled vector (2.15), the pooling layer (2.16) and the classification head (2.17). The number of classes is the number of distinct values of the label dictionary. It also registers `class_weights`, a vector of ones (a buffer: saved in the checkpoints but not learned) that Step 2.18 overwrites when the weighting is balanced. The forward pass chains these parts: image → backbone → pooling → head → logits.
+It builds, in order, the backbone (2.14), the pooled vector size (2.15), the pooling layer (2.16) and the head (2.17). The number of classes is the number of distinct label dictionary values. `class_weights` is a buffer of ones (saved, not learned), overwritten by Step 2.18. The forward pass is image → backbone → pooling → head → logits.
 
-**Example: the attributes of the model**
+The attributes of the model are below.
 ```text
 model.backbone               Backbone (6 convolution blocks)
 model.global_pooling         Sequential(Flatten)
@@ -1015,11 +585,14 @@ model.number_classes         1000
 ```
 
 ### Step 2.14 — `build_backbone()` (→ `InputNormalizer`, `ConvolutionBlock`)
-This builds the feature extractor, shared by all the tasks, from the `Backbone` section. It starts with an `InputNormalizer` (parameter-free: pixels `x / 255 - 0.5`), then creates one `ConvolutionBlock` per entry of `Backbone.convolutions`. A block is `N` convolutions (3×3, stride 1, padding 1), each followed by batch normalization and ReLU, then a 2×2 max pooling that halves the height and width. The residual shortcuts start at block 2, one every pair of layers, added before the ReLU of the layer closing the pair, and squeeze-and-excitation recalibrates the channels after every convolution. A block whose first layer changes the channel count cannot add its input to a layer output, so its pairs start at its second layer (`residual_parity` 1): with 2 layers such a block adds no shortcut, and `count_residual_additions()` gives 0. The summary lists `Residual Shortcuts` only for the blocks adding at least one (`get_active_module_names()`). Every block of `configuration_example.yaml` keeps 64 channels from block 2 on and adds one shortcut (blocks 2 and 3) or two (blocks 4, 5 and 6); in the synthetic configuration (16, 32, 32, 64, 64 and 128 channels), only blocks 3 and 5 add one. `last_max_pooling: False` removes the pooling of the last block.
+It builds the feature extractor shared by all tasks from the `Backbone` section.
+- `InputNormalizer`, parameter-free: `x / 255 - 0.5` (`input_normalization`) and/or per-image standardization (`per_sample_normalization`).
+- One `ConvolutionBlock` per entry of `Backbone.convolutions`: N convolutions (3×3, stride 1, padding 1), each with the normalization of `Backbone.normalization.feature_map_normalization` (batch, layer or none) and ReLU, then a 2×2 max pooling. `last_max_pooling: False` removes the last pooling.
+- Residual shortcuts start at block 2, one every pair of layers, added before the ReLU closing the pair; a block changing the channel count starts its pairs at its second layer (`residual_parity` 1, see Pitfalls). Squeeze-and-excitation follows every convolution; inception modules are also available.
+- `configuration_example.yaml` keeps 64 channels from block 2: one shortcut in blocks 2 and 3, two in blocks 4 to 6.
+- `Backbone.modules.residual_nets_v2: True` (`RES2`) uses pre-activation ("Identity Mappings in Deep Residual Networks") in blocks with shortcuts: normalization, ReLU, then convolution, one normalization and ReLU at the end of the block. The summary says `Pre-Activation Residual Shortcuts`.
 
-With `Backbone.modules.residual_nets_v2: True` (run name token `RES2` instead of `RES`), the blocks with residual shortcuts use the pre-activation order of the paper "Identity Mappings in Deep Residual Networks": every layer is normalization, ReLU, then convolution, nothing follows the addition of the shortcut, so that the shortcuts form an identity path through the block, and the block ends with one normalization and ReLU, so that its output stays normalized and activated like a plain block. Block 1, without shortcut, keeps the original order. The summary names these blocks `Pre-Activation Residual Shortcuts`, and `Pre-Activation Layers` a block of this order that adds no shortcut (a block changing the channel count with 2 layers).
-
-**Example: the backbone panel of `print_summary()` for a 256×256 image** (Step 2.24, shortened), printed after the titles `Backbone Architecture Summary` and `Input image shape: [1, 3, 256, 256]`
+The backbone panel of `print_summary()` (Step 2.24) for a 256×256 image is below, shortened.
 ```text
 ╭─────────────────────────── Backbone Architecture ────────────────────────────╮
 │ Normalization Strategy: Batch                                                │
@@ -1028,11 +601,6 @@ With `Backbone.modules.residual_nets_v2: True` (run name token `RES2` instead of
 │    - Modules      : Squeeze-and-Excitation                                   │
 │    - Input Shape  : [1, 3, 256, 256]                                         │
 │    - Output Shape : [1, 64, 128, 128]                                        │
-│                                                                              │
-│  - Convolution Block 2                                                       │
-│    - Modules      : Residual Shortcuts, Squeeze-and-Excitation               │
-│    - Input Shape  : [1, 64, 128, 128]                                        │
-│    - Output Shape : [1, 64, 64, 64]                                          │
 │  ...                                                                         │
 │  - Convolution Block 6                                                       │
 │    - Modules      : Residual Shortcuts, Squeeze-and-Excitation               │
@@ -1043,9 +611,9 @@ Final Backbone output shape: [1, 64, 8, 8]
 ```
 
 ### Step 2.15 — `compute_pooled_features()`
-This gives the number of inputs of the first layer of the head, which must be known before the head is built. It does not run an image through the network: it applies the size formula of every convolution and pooling to get the channels `C` and the size `H×W` of the last feature map. The result is `C` for the `average` and `max` poolings (whatever the image size), and `C × H × W` for `flatten`, which is why a flattened head is tied to `Data.image_settings.size` and `Backbone.last_max_pooling`.
+It gives the input size of the first head layer without running an image: the size formula of every convolution and pooling yields `C` and `H×W` of the last map. The result is `C` for `average` and `max`, `C × H × W` for `flatten`. Hence a flattened head is tied to `Data.image_settings.size` and `Backbone.last_max_pooling`.
 
-**Example: the same backbone with the three poolings**
+The same backbone gives these sizes with the three poolings.
 ```text
 final feature map [64, 8, 8]
 average / max -> 64 features
@@ -1053,19 +621,12 @@ flatten       -> 64 x 8 x 8 = 4096 features   (the "Input Features" of the head 
 ```
 
 ### Step 2.16 — `build_global_pooling()`
-This returns the layer that turns the `[B, C, H, W]` feature map into a `[B, F]` vector, the shape the head expects: an adaptive average pooling to 1×1 then a flatten (`F = C`), an adaptive max pooling to 1×1 then a flatten (`F = C`), or only a flatten (`F = C × H × W`), which keeps where in the image each feature was found.
-
-**Example output** (`global_pooling: "flatten"`)
-```text
-Sequential(
-  (0): Flatten(start_dim=1, end_dim=-1)
-)
-```
+It returns the layer turning `[B, C, H, W]` into `[B, F]`: `AdaptiveAvgPool2d(1)` + `Flatten` (`F = C`), `AdaptiveMaxPool2d(1)` + `Flatten` (`F = C`), or `Flatten` alone (`F = C × H × W`, keeping where each feature was found).
 
 ### Step 2.17 — `ClassificationHead.__init__()` (→ `build_fully_connected_block()`)
-This builds the fully connected part. `build_fully_connected_block()` stacks, for every size of `ClassificationHead.fully_connected`, a dropout (always present, an identity at a rate of 0, so that the names of the weights do not depend on the rate), a `Linear` layer, the normalization of `ClassificationHead.fully_connected_normalization` (`FeatureBatchNormalization` for `"batch"`, `LayerNorm` for `"layer"`, nothing for `"none"`) and a ReLU. A last dropout and a `Linear` layer with one output per class follow: its outputs are the logits, the raw class scores. The same head is also used by the sequence tasks, which is why it works on the last dimension of its input.
+`build_fully_connected_block()` stacks, for every size of `ClassificationHead.fully_connected`: Dropout (always present, an identity at rate 0, so weight names do not depend on the rate), `Linear`, the normalization of `fully_connected_normalization` (`FeatureBatchNormalization` for `"batch"`, `LayerNorm` for `"layer"`, none for `"none"`) and ReLU. A last Dropout and a `Linear` with one output per class give the logits. The sequence tasks share this head, so it works on the last dimension of its input.
 
-**Example output** (`fully_connected: [512, 256]`, `fully_connected_normalization: "layer"`, `dropout_rate: 0.2`, 1000 classes)
+The head below has `fully_connected: [512, 256]`, `"layer"`, `dropout_rate: 0.2`, 1000 classes.
 ```text
 ClassificationHead(
   (fully_connected_block): FullyConnectedBlock(
@@ -1073,10 +634,7 @@ ClassificationHead(
     (1): Linear(in_features=4096, out_features=512, bias=True)
     (2): LayerNorm((512,), eps=1e-05, elementwise_affine=True, bias=True)
     (3): ReLU(inplace=True)
-    (4): Dropout(p=0.2, inplace=False)
-    (5): Linear(in_features=512, out_features=256, bias=True)
-    (6): LayerNorm((256,), eps=1e-05, elementwise_affine=True, bias=True)
-    (7): ReLU(inplace=True)
+    ...                                          the same four layers for 256 units
   )
   (dropout): Dropout(p=0.2, inplace=False)
   (classifier): Linear(in_features=256, out_features=1000, bias=True)
@@ -1084,80 +642,50 @@ ClassificationHead(
 ```
 
 ### Step 2.18 — `compute_balanced_class_weights()`
-This is only used with `class_weighting: "balanced"`. The weight of a class is `total samples / (number of classes × samples of the class)`, so a class with few images weighs more in the loss, and a perfectly balanced dataset gives a weight of 1 everywhere. A class without any sample counts as having one. The trainer gets the counts from `ClassificationDataset.get_class_counts()` and copies the weights into `model.class_weights`.
+Only with `class_weighting: "balanced"`. Weight of a class = `total samples / (number of classes × samples of the class)`: rare classes weigh more, a balanced dataset gives 1 everywhere, a class without samples counts as one. Counts come from `ClassificationDataset.get_class_counts()`; the weights are copied into `model.class_weights`.
 
-**Example: ImageNet-1k training split** (1271167 images, between 722 and 1290 per class)
+The ImageNet-1k training split (1271167 images, 722 to 1290 per class) gives:
 ```text
 class with 1290 images: 1271167 / (1000 x 1290) = 0.9854     <- model.class_weights[:5] = tensor([0.9854, 0.9854, ...])
 class with  722 images: 1271167 / (1000 x  722) = 1.7606     <- the largest weight of model.class_weights
 ```
 
 ### Step 2.19 — `initialise_pretrained_components()`
-This is the transfer learning step. For each of the `Backbone` and `ClassificationHead` sections whose `pretrained.experiment_folder` is not `null`, it loads the trained weights of that other run into the component, and freezes it (or only the scale and shift of the normalization layers of the backbone) if asked. It raises an error if every parameter ends up frozen, since nothing would be learned. When a run resumes from its own checkpoint, the source run is not loaded again: the checkpoint already holds the components as they were trained. A backbone deeper than its source backbone (the source blocks being its first blocks) loads those blocks only, its next blocks keeping their random weights; `loaded_backbone_blocks` counts them, from the configuration of the source run for a new run and from the `pretrained_backbone_blocks` of the last checkpoint for a resumed one, and only these blocks are frozen (`get_transferred_part()`).
+This is the transfer learning step, for `Backbone` and `ClassificationHead` sections whose `pretrained.experiment_folder` is not `null`.
+- It loads the other run's weights and freezes the component (or only the backbone normalization scale and shift) if asked; every parameter frozen raises an error. A resume from its own checkpoint does not reload the source.
+- The source's averaged weights are read when it kept a moving average and this run has `Optimization.exponential_moving_average.activated`, its trained weights otherwise (`read_checkpoint_model_state()`).
+- A backbone deeper than its source loads its first blocks only (`loaded_backbone_blocks`, from the source configuration for a new run, from `pretrained_backbone_blocks` of the last checkpoint on resume). Only these are frozen (`get_transferred_part()`).
+- `ClassificationHead.pretrained.class_layer: False` (default): `keep_target_class_layers()` loads the hidden layers only, whatever the classes; the class layer stays random and is never frozen. The console prints `Classification Head : Loaded Without Its Class Layer, Which Keeps The Random Initialisation Of This Run For Its <n> Classes (The Source Run Predicts <m> Classes).`
+- `class_layer: True`: `prepare_class_layers()` compares class names (`read_source_class_names()` from the source `data.json`). Every source class must exist in this run (`compare_class_names()`), as its first classes or under the same name anywhere; a missing class stops the run. `extend_class_layers()` copies the source rows to their classes (e.g. ImageNet-1k classes moved to the index of their name in the merged ImageNet); other classes keep random rows.
 
-A component is read from the averaged weights of the source checkpoint when the source run kept a moving average and this run has `Optimization.exponential_moving_average.activated`, and from its trained weights otherwise (`read_checkpoint_model_state()`), the console printing which ones. With `ClassificationHead.pretrained.class_layer: False` (the default), `keep_target_class_layers()` loads the hidden layers of the head only, whatever the classes of both runs: the class layer keeps the random weights the head was built with, only the hidden layers are frozen or fine-tuned at the multiplier (`get_transferred_part()`), and the console prints `Classification Head : Loaded Without Its Class Layer, Which Keeps The Random Initialisation Of This Run For Its <n> Classes (The Source Run Predicts <m> Classes).` With `class_layer: True`, the head may also have more classes than its source run, or the same classes in another order: `prepare_class_layers()` compares the class names of both runs, those of the source run read from the `classes` of its `data.json` (`read_source_class_names()`, or its `class_names` for a run written before the classes were counted): every source class must be a class of this run (`compare_class_names()`), either among its first classes in the same order or anywhere under the same name, which must name one class in each run. A missing source class stops the run, the error naming the first five missing classes and counting the others, and a source run whose `data.json` holds no class names (written before they were recorded) gives its classes as the first classes of this run, with a yellow warning. Then `extend_class_layers()` copies the rows of the source classes into the rows of their classes in the head of this run (the first rows, or those at the index of their name, as for the 1,000 ImageNet-1k classes of a source run among the classes of the merged ImageNet sorted by WordNet identifier), the other classes keeping the random rows the head was built with. The console then prints `Classes Of The Source Run Moved To The Index Of Their Name In This Run` instead of the message below.
-
-**Example: the head of a 9-class run initialising a run of 20 classes**
+The output below shows a 9-class head initialising a 20-class run.
 ```text
 Classification Head : 9 Classes Of The Source Run Kept, 11 New Classes Added After Them, Randomly Initialised.
 Classification Head Initialised From The Averaged Weights Of : model_002000.pt
                                          <- the link opens .../run_37/CLS_IN-KAR-256_..._MC9/Weights/Iteration_2000/model_002000.pt
 ```
 
-**Example: a run from scratch** (`configuration_example.yaml`)
-```text
-pretrained_configurations['Backbone']           = {'experiment_folder': None, 'iteration': None, 'freeze': False,
-                                                   'freeze_normalization_parameters': False, 'learning_rate_multiplier': 1.0}
-pretrained_configurations['ClassificationHead'] = {'experiment_folder': None, 'iteration': None, 'freeze': False,
-                                                   'class_layer': False, 'learning_rate_multiplier': 1.0}
-pretrained_checkpoint_paths                     = {'Backbone': None, 'ClassificationHead': None}   <- nothing loaded
-```
-
 ### Step 2.20 — `build_optimizer()`
-This creates the optimizer chosen by `Optimization.optimizer` (`adam`, `adamw` or `sgd` with Nesterov momentum 0.9) over the parameters of the model, with the learning rate of the experiment and `Optimization.weight_decay`. Every transferred component that is not frozen gets its own parameter group at the learning rate times its `learning_rate_multiplier`, so it can learn at another speed; for a backbone deeper than its source backbone, only its loaded blocks join that group, its next blocks learning at the learning rate of the run with the new layers, and for a head loaded without its class layer only its hidden layers, its class layer learning with the new layers. The group exists even with a multiplier of 1, so that the multiplier, which gives no token in the run name, can change when the run is resumed without changing the groups saved in its checkpoints. The trainer then keeps `base_learning_rates`, the rate of every group, which the schedule multiplies at every step (Step 3.22).
-
-With `Optimization.exponential_moving_average.activated`, `BaseTrainer.__init__()` then creates an `ExponentialMovingAverage` (`vision_training/trainers/weight_averaging.py`): a copy of the model, kept in `eval()` mode without gradients, updated after every optimizer step (Step 3.22) with `ema_weights = decay × ema_weights + (1 − decay) × current_weights` and evaluated next to the trained weights (Step 4.1). It is created after the transferred components are loaded, so that it starts from their weights.
-
-**Example output** (`optimizer: "adam"`, `learning_rate: 2.0e-4`, `weight_decay: 0.0`)
-```text
-Adam (
-Parameter Group 0
-    amsgrad: False
-    betas: (0.9, 0.999)
-    ...
-    eps: 1e-08
-    ...
-    lr: 0.0002
-    maximize: False
-    weight_decay: 0.0
-)
-param groups: 1    base_learning_rates: [0.0002]
-```
+It creates `Optimization.optimizer` (`adam`, `adamw`, or `sgd` with Nesterov momentum 0.9) with the run learning rate and `Optimization.weight_decay`.
+- Every transferred, unfrozen component gets its own parameter group at learning rate × `learning_rate_multiplier`: only the loaded blocks of a deeper backbone, only the hidden layers of a head loaded without its class layer. The group exists even at multiplier 1, so the multiplier can change on resume.
+- `base_learning_rates` keeps each group's rate for the schedule (Step 3.22).
+- With `Optimization.exponential_moving_average.activated`, an `ExponentialMovingAverage` (`vision_training/trainers/weight_averaging.py`) is created after the transfer: a copy of the model in `eval()` without gradients, updated after every step with `ema_weights = decay × ema_weights + (1 − decay) × current_weights`, evaluated next to the trained weights (Step 4.1).
 
 ### Step 2.21 — `get_tracked_metrics()` + `MetricTracker.__init__()`
-`get_tracked_metrics()` lists what is followed on every training and validation batch: the keys that the model or the trainer produce and their display names. The `MetricTracker` stores this list with `batch_size`, `validation_iteration_ratio`, the kind of sample (`"Images"`, which names the throughput) and the keys printed as percentages with their changes in percentage points, given by `get_percent_tracked_metrics()` (`['accuracy']`, the losses keeping 4 decimals). In Stage 3 it averages the metrics over every console interval and prints them (Step 3.24), and writes them to TensorBoard (Step 3.20). It also keeps the values of the previous summary and the best value of the run of every metric, empty for now, for the changes printed in the summaries.
-
-**Example output**
-```text
-get_tracked_metrics() -> {'total_loss': 'Total Loss', 'classification_loss': 'Classification Loss', 'accuracy': 'Accuracy'}
-MetricTracker: batch_size 256, validation_iteration_ratio 25, sample_name 'Images', counts_frames False,
-               previous_values {'Train': {}, 'Valid': {}}, best_values {'Train': {}, 'Valid': {}}
-```
+`get_tracked_metrics()` lists the keys followed on every training and validation batch with their display names; `decorrelation_loss` and `hidden_feature_correlation` are added when `ClassificationHead.decorrelation` is on. `MetricTracker` stores them with `batch_size`, `validation_iteration_ratio`, the sample kind (`"Images"`) and the keys printed as percentages (`get_percent_tracked_metrics()`: `['accuracy']`; losses keep 4 decimals). It averages per console interval (Step 3.24), writes TensorBoard (Step 3.20), and keeps previous and best values for the changes.
 
 ### Step 2.22 — `print_experiment_information()`
-This prints the launch panel, so the settings of the run can be checked before anything long starts: the run name, the clickable folders and files (terminal hyperlinks showing their names), in yellow `- Run Folder Not Created  : The Diagnosis Mode Exits Without Training` with `view_input_images` (Step 2.25) or `benchmark_speed`, the settings and the data changed since the last start of a resumed run (`print_configuration_changes()`, Step 2.6, and `print_data_record_changes()`, Step 2.7), one block per component initialised by another run with its source run folder, source iteration, freezes and learning rate times its multiplier (`print_pretrained_components()`), one line per split (Step 2.23), the number of iterations per epoch (`ceil(training samples / batch size)`, or `floor` when the training loader leaves out its last incomplete batch, Step 2.10), the total of iterations of the run (`number_iterations`, Step 3.1), the checkpoint frequencies, the optimization settings and the MLflow backend (`Off`, the local database of the experiments root folder, or a server). It also keeps the number of samples of every split and the iterations per epoch, sent to MLflow as parameters.
+It prints the launch panel so the settings can be checked before anything long starts.
+- Run name and clickable folders (with a diagnosis mode, `- Run Folder Not Created  : The Diagnosis Mode Exits Without Training` in yellow); for a resume, the changed settings and data.
+- One block per transferred component (`print_pretrained_components()`), one line per split (Step 2.23), iterations per epoch (`ceil`, or `floor` when the last batch is dropped), checkpoint frequencies, optimization settings, MLflow backend. Split sizes and iterations per epoch are kept for MLflow.
 
-**Example output** (the values of `Experiment Folder` to `Data Record` and the names of the split folders are the underlined links to their folder or file, e.g. `train` opens `file:///home/.../imagenet-1k/manifests/train`)
+The panel below is the ImageNet-1k launch (folder and split names are links).
 ```text
 --------------------------------------
 === Experiment Launch Information ===
 --------------------------------------
 - Run Name                : CLS_IN-KAR-256_SE-RES-BN-B1x64.2x64.2x64.4x64.5x64.5x64_HFLAT.512.256-HLN-CWB_MC1000
-- Experiment Folder       : CLS_IN-KAR-256_SE-RES-BN-B1x64.2x64.2x64.4x64.5x64.5x64_HFLAT.512.256-HLN-CWB_MC1000
-- Tensorboard Directory   : Tensorboard
-- Weights Directory       : Weights
-- Configuration File      : training_configuration.yaml
-- Data Record             : data.json
+...
 - Train Data Folder       : train (1271167 images, 1000 categories)
 - Validation Data Folder  : validation (10000 images, 1000 categories)
 - Test Data Folder        : test (50000 images, 1000 categories)
@@ -1167,60 +695,28 @@ This prints the launch panel, so the settings of the run can be checked before a
 - Save And Evaluate Every : 10000 iterations
 - Save Only Every         : 2500 iterations
 - Learning Rate           : 0.0002
-- Optimizer               : adam (weight decay 0.0)
-- Learning Rate Schedule  : constant (warm-up 0 iterations)
-- Weight Moving Average   : Off
-- Validation Iter. Ratio  : 25
+...
 - MLflow Tracking         : Off
 ```
 
 ### Step 2.23 — `describe_split()` → `count_split_samples()`
-`print_experiment_information()` calls this hook once per split. `count_split_samples()` reads the `labels.json` of the split (`read_manifest()`, the manifest already parsed for the dataset during the launch, Step 1.1) and returns its number of samples and categories, counted before the label mapping. The hook turns them into the text between brackets. The size of the training split also gives the number of iterations per epoch.
-
-**Example output**
-```text
-describe_split(split_data_folder=".../manifests/test") -> (50000, '50000 images, 1000 categories')
-number_samples_per_split = {'train_data_folder': 1271167, 'validation_data_folder': 10000, 'test_data_folder': 50000}
-iterations_per_epoch     = 4966
-```
+Called once per split. `count_split_samples()` reads the split's `labels.json` (`read_manifest()`, already parsed, Step 1.1) and returns its samples and categories, counted before the label mapping. The training size gives the iterations per epoch.
 
 ### Step 2.24 — `print_summary()` / `print_receptive_field_summary()` / `print_model_size_summary()`
-`print_summary()` always runs: for every backbone block, the modules it uses and the input and output shape traced with a dummy image in `eval()` mode without gradients (as shown in Step 2.14), then a panel for the head (`print_classification_head_summary()`: pooling, input features, hidden layers, their normalization, with its momentum for `"batch"`, dropout, output mode, classes). `print_model_size_summary()` always runs too, as the last panel of the model: the number of parameters and the size of the backbone, the head and the whole model. `print_receptive_field_summary()` is optional, switched by `diagnosis_modes.compute_receptive_field`, and prints between them the receptive field of every layer (the area of the input image that one output value depends on). The trainer then prints the Export Sizes panel (`print_export_size_summary()` on the sizes of `estimate_export_sizes()`): the parameters the forward pass of the inference model (`InferenceClassifier`) reads, as `Exported Parameters : <n> of <total>`, then the size of the PyTorch weights in FP32 and FP16, the TorchScript file, the ONNX files, the TensorRT engines in FP32 and FP16 and the training checkpoint, each with how it was obtained (a margin for an estimate, `± 1 %` or `± 3 %` for ONNX, `traced` for the TorchScript file written to a temporary `model.pt` and measured, `range` for the TensorRT engines), and the seconds it took in its subtitle. A failed probe or trace prints its rows `failed` in red, with the error under the table, and the training goes on (Export Sizes).
+These panels describe the model before training.
+- `print_summary()` (always): every backbone block traced with a dummy image (Step 2.14), then the head panel (`print_classification_head_summary()`).
+- `print_receptive_field_summary()` (only with `diagnosis_modes.compute_receptive_field`): the receptive field of every layer.
+- `print_model_size_summary()` (always): parameters and size of backbone, head and model.
+- Then the Export Sizes panel (`print_export_size_summary()` on `estimate_export_sizes()`): the parameters `InferenceClassifier` reads and the size of every export format and of the checkpoint, with its method (a margin, `traced` for TorchScript written to a temporary `model.pt`, `range` for TensorRT). A failed probe prints `failed` in red with the error and training goes on.
 
-**Example output: the head panel, the receptive field panel (shortened) and the size panel**
+The size panel of the ImageNet-1k model is below.
 ```text
-╭──────────────────────────── Classification Head ─────────────────────────────╮
-│ Global Pooling     : flatten                                                 │
-│ Input Features     : 4096                                                    │
-│ Hidden Layers      : [512, 256]                                              │
-│ Normalization      : layer                                                   │
-│ Dropout Rate       : 0.2                                                     │
-│ Output Mode        : multi_class                                             │
-│ Number Of Classes  : 1000                                                    │
-╰──────────────────────────────────────────────────────────────────────────────╯
-╭──────────────────────────────────── Backbone Receptive Field ────────────────────────────────────╮
-│ Input Image Size : 256x256                                                                       │
-│                                                                                                  │
-│ Block 1 - Convolution 1  : Output 256x256x64 | Stride 1 | Receptive Field 3                      │
-│ Block 1 - Max Pooling    : Output 128x128x64 | Stride 2 | Receptive Field 4                      │
-│                                                                                                  │
-│ ...                                                                                              │
-│ Block 6 - Convolution 5  : Output 8x8x64 | Stride 32 | Receptive Field 602                       │
-│                                                                                                  │
-│ Squeeze-and-Excitation adds global image context.                                                │
-│ This is not captured by the convolutional receptive field above.                                 │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─────────────────────── Model Size ───────────────────────╮
 │ Backbone                                                 │
 │   - Parameters           : 746,752                       │
 │   - Trainable Parameters : 746,752                       │
 │   - Estimated Size       : 3.00 MB                       │
-│                                                          │
-│ Classification Head                                      │
-│   - Parameters           : 2,487,528                     │
-│   - Trainable Parameters : 2,487,528                     │
-│   - Estimated Size       : 9.95 MB                       │
-│                                                          │
+│ ...                                                      │
 │ Total Model                                              │
 │   - Parameters           : 3,234,280                     │
 │   - Trainable Parameters : 3,234,280                     │
@@ -1228,7 +724,7 @@ iterations_per_epoch     = 4966
 ╰──────────────────────────────────────────────────────────╯
 ```
 
-**Example output: the Export Sizes panel** (the panels above, of the ImageNet-1k file, were recorded before it existed: this one is the model of `configuration_synthetic_shapes.yaml`, 35 classes, Adam without moving average, estimated on the CPU on 2026-11-25; every parameter is exported, the classifier having no part used by the training only)
+The Export Sizes panel below is the 35-class `configuration_synthetic_shapes.yaml` model (Adam, no moving average, CPU, 2026-11-25); the classifier exports every parameter.
 ```text
 ╭────────────────────── Export Sizes ──────────────────────╮
 │ Exported Parameters : 4,637,571 of 4,637,571             │
@@ -1245,15 +741,22 @@ iterations_per_epoch     = 4966
 ╰────────────────────── 0.5 seconds ───────────────────────╯
 ```
 
+With `diagnosis_modes.benchmark_speed`, `benchmark_speed()` then times the inference of every format and the training step on one training batch tiled to the configured and largest fitting batch sizes, and exits; no run folder is created.
+
 ### Step 2.25 — `view_input_batches()`
-This only runs with `diagnosis_modes.view_input_images: True`. It shows what the network will really receive: an augmented training image (Step 3.13) next to a validation image, in two windows titled `Training` and `Validation`, centred on the screen, drawn by the hook `build_input_windows()` of the trainer and shown by `show_input_samples()` → `view_input_data()`. Each image is followed by a black information panel (`build_viewer_window()` → `build_information_panel()`) giving its class (`Class : n04456115`) and, for the training image, the augmentations drawn for it with their values, written by `describe_input_augmentations()` from the report of `augment_batch()` (one line per type, such as `random_rotation : <angle> degrees`, the angle within 5 degrees either way (`SUPERVISED_AUGMENTATION_STRENGTHS`), or `brightness_contrast_saturation : brightness +18.0 levels, ...`), the validation image giving `Augmentations : none (validation sample)`. The panels are not printed in the terminal, which only receives the title of the viewer in red, `View Of The Training And Validation Images That Are Fed To The Neural Network`, and its keys in green, `Press SPACE To Navigate, Press ENTER To Stop Viewing And Exit` (and, without a display, `No display available (DISPLAY is not set). Skipping the input image viewer.` in yellow). SPACE shows the next images and ENTER closes the viewer, after which `sys.exit()` ends the program before any training, and no run folder was created (Step 2.6). Without a display, the same windows are written for the first samples of every split at the start of every training launch (`save_input_samples()`, Step 3.1).
+Only with `diagnosis_modes.view_input_images: True`. It shows what the network receives.
+- Two windows, `Training` (an augmented image, Step 3.13) and `Validation`, drawn by `build_input_windows()` and shown by `show_input_samples()` → `view_input_data()`.
+- A black information panel under each (`build_viewer_window()` → `build_information_panel()`) gives the class (`Class : n04456115`) and, for training, the drawn augmentations with their values (`describe_input_augmentations()`, e.g. `random_rotation : <angle> degrees` within 5 degrees either way); validation gives `Augmentations : none (validation sample)`.
+- The terminal prints `Press SPACE To Navigate, Press ENTER To Stop Viewing And Exit`; without a display, `No display available (DISPLAY is not set). Skipping the input image viewer.` in yellow.
+- ENTER closes the viewer and `sys.exit()` ends the program before training, with no run folder. The same windows are written at every training launch (`save_input_samples()`, Step 3.1).
 
 ### Step 2.26 — `restore_last_model()`
-This always runs, a run always resuming from its last checkpoint. It asks Step 2.27 for the last saved iteration. Without any checkpoint it returns 1 and the run starts from the random weights (or from the pretrained components of Step 2.19, which the message then names: `No Checkpoint Of This Run Found, The New Model Starts From Pretrained Components Of Other Runs : Backbone.` and `Every Other Layer Is Trained From Scratch.`). Otherwise it loads that checkpoint (Step 2.28) and returns the iteration + 1, which becomes `start_iteration`: the training loop continues exactly where it stopped, up to `number_iterations`, the total of the run. The run of Stage 3 built again with `number_iterations: 12` therefore trains nothing more (Step 3.1): `number_iterations` must be raised to train it further.
+It always runs, since a run always resumes from its last checkpoint.
+- Without a checkpoint (Step 2.27 gives 0) it returns 1: random weights, or the components of Step 2.19, which it names.
+- Otherwise it loads the checkpoint (Step 2.28) and returns iteration + 1 as `start_iteration`. Training continues up to `number_iterations`, the run total: raise it to train further.
+- Then `release_freed_heap_memory()` (`malloc_trim`, Linux only) gives the freed heap back before the workers fork.
 
-Once the checkpoint is restored, the launch gives the heap memory it freed back to the system (`release_freed_heap_memory()`, `malloc_trim` of the GNU C library, nothing outside Linux) before the first batch forks the loader workers: the record of the data and the split descriptions parse every manifest again, which leaves 0.26 GB resident per 50,000 images of the instance segmentation benchmark dataset otherwise.
-
-**Example output: a new run, then the run of Stage 3 built again after its 12 iterations**
+The output below shows a new run, then the Stage 3 run rebuilt after its 12 iterations.
 ```text
 -----------------------------------------------------------
 No Initiation Model Weights Will Be Used...
@@ -1266,9 +769,9 @@ We Loaded A Model That Was Previously Saved At Iteration 12           -> start_i
 ```
 
 ### Step 2.27 — `get_last_checkpoint_iteration()`
-This reads the first line of the registry file `Weights/full-checkpoint`, which always names the last checkpoint saved (`save_model()` rewrites it, Step 3.6), and returns its iteration. When the registry is missing, or cannot be read (empty, or with cut lines, announced by a yellow line), it takes the newest `Iteration_N` folder holding its complete `model_<N on 6 digits>.pt` instead; it returns 0 for a run without any checkpoint. The standalone evaluation of Stage 5 uses it too.
+It reads the first line of `Weights/full-checkpoint`, which names the last checkpoint (rewritten by Step 3.6). When the registry is missing or unreadable (empty or cut lines, announced in yellow), it takes the newest `Iteration_N` folder with a complete `model_<N on 6 digits>.pt`; 0 without any. Stage 5 uses it too.
 
-**Example: `Weights/full-checkpoint` of the run of Stage 3, which saved checkpoints at iterations 3, 6, 9 and 12**
+The registry below belongs to the Stage 3 run (checkpoints at 3, 6, 9 and 12).
 ```text
 model_checkpoint_path: "Iteration_12"          <- first line: the last checkpoint, read by this function
 all_model_checkpoint_paths: "Iteration_3"
@@ -1280,9 +783,9 @@ get_last_checkpoint_iteration(weights_directory=...) -> 12
 ```
 
 ### Step 2.28 — `load_model()` → `load_checkpoint()`
-`load_checkpoint()` reads `Weights/Iteration_N/model_<N on 6 digits>.pt` with `torch.load`, mapping every tensor to the current device. `load_model()` then puts `model_state` into the model and `optimizer_state` into the optimizer, which restores the weights and the moving averages of Adam. With the moving average of the weights on, `load_exponential_moving_average()` restores it from `exponential_moving_average_state`; a checkpoint saved without it (the average was just turned on) restarts the average from the loaded weights, with a yellow message. The checkpoint also stores the task, the run name, the label dictionary of the run (`label_dictionary`, its keys written as text as in `label_dictionary.json`), the MLflow run and the source runs of the transferred components, which tools such as the model transfer check.
+`load_checkpoint()` reads `Weights/Iteration_N/model_<N on 6 digits>.pt` with `torch.load`, mapped to the current device. `load_model()` puts `model_state` into the model and `optimizer_state` into the optimizer (weights and Adam moving averages). With the weight moving average on, `load_exponential_moving_average()` restores `exponential_moving_average_state`; a checkpoint without it restarts the average from the loaded weights, with a yellow message. The checkpoint also stores the task, run name, `label_dictionary` (keys as text), MLflow run and transfer sources, which tools such as the model transfer check.
 
-**Example: the keys of a checkpoint of the run of Stage 3**
+The keys of a Stage 3 checkpoint are below. Checkpoints written since a deeper backbone can start from a shorter one (Step 2.19) also hold `pretrained_backbone_blocks` (`None` here).
 ```text
 ['iteration', 'model_state', 'optimizer_state', 'format_version', 'task', 'run_name', 'label_dictionary',
  'mlflow_run_id', 'pretrained_backbone', 'pretrained_classification_head']
@@ -1290,21 +793,20 @@ iteration = 12    format_version = 2    task = 'classification'    mlflow_run_id
 pretrained_backbone = None    pretrained_classification_head = None
 ```
 
-The checkpoints written since a deeper backbone can start from a shorter one (Step 2.19) also hold `pretrained_backbone_blocks`, which would be `None` for this run.
-
-
 ---
 
 ## Stage 3 — Training Loop
 
-> The examples below are real outputs from a run on CPU of `configurations/classification/configuration_synthetic_shapes.yaml` on the 9-class synthetic dataset of 2026-10-09, shortened to: 64 pixel images, batch size 8, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4 iterations, the validation every 10 iterations (`validation_iteration_ratio`), with the error images and the MLflow tracking turned on. Its run name is `CLS_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128_MC9`: the run was recorded on 2026-10-09, when the configuration file had an `average` pooling, plain hidden layers, no class weighting and `learning_rate: 1.0e-3` (2.0e-4 now); the same shortening of the current file gives `CLS_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9`. Step 3.9 uses real ImageNet images instead, because their sizes show the padding better.
+> The outputs below come from a CPU run of `configurations/classification/configuration_synthetic_shapes.yaml` on the 9-class synthetic dataset of 2026-10-09: 64 pixel images, batch size 8, 12 iterations, a checkpoint every 6 (an intermediate one every 3), a summary every 4, validation every 10, error images and MLflow on. Its run name is `CLS_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128_MC9` (`average` pooling, plain hidden layers, no class weighting, `learning_rate: 1.0e-3`, 2.0e-4 now). The same shortening of the current file gives `CLS_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC9`. Step 3.9 uses ImageNet images, whose sizes show the padding better.
 
 ### Step 3.1 — `trainer.run_training_loop()` → `run_training_iterations()`
-This is the training itself. `run_training_loop()` runs `run_training_iterations()` and, whatever ends it, closes the MLflow run with its status: `FINISHED`, `KILLED` after a Ctrl+C, `FAILED` after too many errors, a failed save or test evaluation, or a split dropping too many batches (or an unexpected error, raised again once the run is closed). `number_iterations` is the total of iterations of the run: the loop runs the iterations from `start_iteration` to `number_iterations`, so that a resumed run only trains the iterations left. A run whose last checkpoint already reaches `number_iterations` trains nothing and prints in green `The Run Is Already Complete: Its Last Checkpoint Is At Iteration <n> And 'number_iterations' Is <N>, The Total Of The Run. Raise 'number_iterations' To Train It Further.`
+This is the training itself. `run_training_loop()` runs `run_training_iterations()` and closes the MLflow run with its status: `FINISHED`, `KILLED` (Ctrl+C) or `FAILED` (too many errors, a failed save or test evaluation, too many dropped batches, or an unexpected error, raised again once the run is closed).
+- The loop runs from `start_iteration` to `number_iterations`, the run total, so a resume trains only what is left. A run already at `number_iterations` trains nothing and prints in green `The Run Is Already Complete: Its Last Checkpoint Is At Iteration <n> And 'number_iterations' Is <N>, The Total Of The Run. Raise 'number_iterations' To Train It Further.`
+- Each iteration, in order: fetch a batch (3.8), one training step (3.10–3.22), checkpoint if due (3.6), validation batch if due (3.23), summary if due (3.24), test evaluation if due (3.7). The checkpoint of iteration N holds the weights after N steps; the evaluation runs last so a failure finds the rest done.
+- A failing iteration is printed in yellow (`report_iteration_error()`: full traceback the first time an error occurs, one line later) and the loop goes on; a NaN or infinite loss is skipped without step (3.11). More than 5 failures in a row end the loop (`FAILED`), Ctrl+C too (`KILLED`).
+- A failed save (3.6), failed evaluation (3.7) or too many dropped batches (3.8) end it at once (`FAILED`, `Critical Error At Iteration <n>, Exiting: <error>` in red).
 
-Every iteration does, in this order: fetch a batch (3.8), take one training step (3.10–3.22), save a checkpoint if due (3.6), run one validation batch if due (3.23), print a summary if due (3.24), and last evaluate the checkpoint on the test split if due (3.7). The checkpoint of iteration N is therefore saved after N steps, and its evaluation runs last, so that a failing evaluation finds the step, the checkpoint and the summary of its iteration done. An exception inside an iteration (10 batches in a row that cannot be loaded, Step 3.8, for instance) is printed in yellow, with its whole traceback the first time that error (its type and message) occurs in the run and one line at its later occurrences (`report_iteration_error()`), and the loop moves on to the next iteration; a batch whose total loss is NaN or infinite is a failing iteration too, printed in red on one line and skipped without backward pass nor step (Step 3.11). More than 5 failures in a row (`FAILED`, the last error printed with its traceback after `Last exception:`), or Ctrl+C (`KILLED`), end the loop. A failed save (Step 3.6), a failed evaluation (Step 3.7) or a split dropping too many batches (Step 3.8) end it at once (`FAILED`), printing `Critical Error At Iteration <n>, Exiting: <error>` in red and the traceback after `Last exception:`, since the training would otherwise go on without checkpoints, evaluations or most of its data. Whatever the reason, the loop ends with a checkpoint of the steps taken since the last save, when there are some (3.25).
-
-**Example: what happens at each iteration of the run** (`weight_saving_iterations: 6`, `intermediate_weight_saving_iterations: 3`, `information_dump: 4`, `validation_iteration_ratio: 10`), in the order of the rows within an iteration, after its training step
+This table shows what happens at each iteration of the run (`weight_saving_iterations: 6`, `intermediate_weight_saving_iterations: 3`, `information_dump: 4`, `validation_iteration_ratio: 10`), rows in their order within the iteration.
 
 | Iteration | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | after the loop |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -1313,24 +815,20 @@ Every iteration does, in this order: fetch a batch (3.8), take one training step
 | Console summary | | | | ✔ | | | | ✔ | | | | ✔ | |
 | Test evaluation | | | | | | ✔ | | | | | | ✔ | nothing |
 
-Before the first iteration, `save_input_samples()` writes `Input_Samples/` in the run folder (`vision_training/trainers/input_samples.py`), so that what the network was fed can be checked later without a display. It takes the first 10 samples by identifier of the training, validation and test splits (`NUMBER_INPUT_SAMPLES`), the same at every launch, each read in the main process and batched alone (`read_input_samples()`). `draw_input_split()` augments the training ones on the device as the training step does (`prepare_batch()` then `augment_input_batch()`, Steps 3.12 and 3.13), on copies of the random states (`fork_random_state()`) so that the training draws the same augmentations as without them, and draws every sample with `build_input_windows()` into `<split>/sample_<nn>.png`, the window of Step 2.25 without its keys. `samples.json` gives, for every sample, its split, file, identifier, `source` in the manifest, the `labels` and `augmentations` of its panel and the `image_size` fed to the network. A resumed run whose configuration and data are unchanged keeps the folder; when either changed, the folder is kept as `Input_Samples_until_iteration_<n>` and written again. Without validation loader (`validation_iteration_ratio: 0`) no `Validation/` is written, which the record and a console line say.
+Before the first iteration, `save_input_samples()` (`vision_training/trainers/input_samples.py`) writes `Input_Samples/`, so the network input can be checked without a display.
+- The first 10 samples by identifier of each split (`NUMBER_INPUT_SAMPLES`), the training ones augmented as in training on copies of the random states (`draw_input_split()`, `fork_random_state()`), drawn by `build_input_windows()` into `<split>/sample_<nn>.png`.
+- `samples.json` gives per sample its split, file, identifier, manifest `source`, panel `labels` and `augmentations`, and `image_size`.
+- A resume with unchanged configuration and data keeps the folder; otherwise the old one becomes `Input_Samples_until_iteration_<n>`. Without validation loader no `Validation/` is written.
 
-**Example: the console line and the first sample of `samples.json` of a tiny synthetic run** (224 pixel images, 2026-11-18)
+The console line below comes from a tiny synthetic run (224 pixels, 2026-11-18).
 ```text
 - Input Samples           : file:///…/Input_Samples (30 images written in 0.26 seconds)
-
-{"split": "Training", "file": "Training/sample_00.png", "sample_identifier": 1, "source": {"sample": "train_000000.png"},
- "labels": ["Class : ellipse"],
- "augmentations": {"Training": ["Augmentations", "Geometric :", "  random_crop : 93 % of each side, at top 3 and left 13 pixels",
-                                "  random_left_right_flip", "Photometric :", "  random_noise : standard deviation 20 levels",
-                                "  random_haze : strength 0.51, airlight 247 levels"]},
- "image_size": [224, 224]}
 ```
 
 ### Step 3.2 — `setup_tensorboard_writers()`
-This creates the TensorBoard writers right before the loop, not in the constructor, so that a trainer that never trains leaves no empty log file. There is one writer for the training curves and, if `validation_iteration_ratio > 0`, one for the validation curves, so that both appear as separate runs of the same charts. The `Test` writer is only created at the first evaluation (Step 4.18).
+The writers are created right before the loop, so a trainer that never trains leaves no empty log. `Train` always, `Validation` when `validation_iteration_ratio > 0`; `Test` at the first evaluation (Step 4.18).
 
-**Example: the folders and the curves they hold after the run**
+The folders below hold these curves after the run.
 ```text
 Tensorboard/Train/        Total Loss, Classification Loss, Accuracy, Learning Rate      (iterations 1 to 12)
 Tensorboard/Validation/   Total Loss, Classification Loss, Accuracy                     (iteration 10)
@@ -1339,20 +837,24 @@ Tensorboard/Test_EMA/     created by the first evaluation of the moving average 
 ```
 
 ### Step 3.3 — `initialize_training_loop_state()`
-This prepares what the loop body needs: an iterator over the training loader and, when `validation_iteration_ratio > 0`, one over the validation loader (`None` otherwise, the loader not being built; the loop pulls batches by hand with `get_next_batch()`, see Step 3.8), a flag telling whether validation is enabled, the tracker dictionaries of Step 3.4 (the validation one is `None` without validation), and the counter of consecutive errors.
+It prepares the loop body: an iterator over the training loader, one over the validation loader when `validation_iteration_ratio > 0` (`None` otherwise), a validation flag, the trackers of Step 3.4 (validation `None` without validation) and the consecutive error counter.
 
 ### Step 3.4 — `MetricTracker.create_trackers()`
-This returns a dictionary with one sum per tracked metric (see Step 2.21), the number of batches added to it (`interval_batches`) and the start time of the interval. One is used for the training metrics and one for the validation metrics. `accumulate()` fills them batch by batch (Step 3.20), and at the end of the interval `average_trackers()` divides the sums by the batch count, `print_interval_summary()` prints them and the loop creates fresh ones (Step 3.24). The sequence tasks also count `interval_frames`.
+It returns one sum per tracked metric (Step 2.21), `interval_batches` and the interval start time; one for training, one for validation. `accumulate()` fills them (3.20); `average_trackers()` divides them at the end of the interval (3.24). The sequence tasks also count `interval_frames`.
 
-**Example output**
+The empty tracker is below.
 ```text
 {'start_time': 1791532505.3603294, 'interval_batches': 0, 'total_loss': 0.0, 'classification_loss': 0.0, 'accuracy': 0.0}
 ```
 
 ### Step 3.5 — `start_experiment_tracking()`
-With `ExperimentConfiguration.tracking.activated: True`, this creates the MLflow tracker of the run (`create_experiment_tracker()`), right after the loader iterators exist, so that the loader worker processes are forked before the tracker starts its thread. The tracker writes to the server of `tracking.tracking_uri`, or to the local database `mlflow.db` of the experiments root folder (its artifacts in `mlartifacts/` next to it), in the MLflow experiment named after the task unless `tracking.experiment_name` is set. It sends the parameters of the run (every configuration section flattened, plus the number of parameters, the split sizes, the iterations per epoch, the device and the library versions), the tags (task, run name, run folder, source runs of the transferred components, host, git commit and whether the working tree had changes), the configuration file and, when this start wrote them, `data.json` (Step 2.7) and the input samples (Step 3.1, under `Input_Samples/`, or `Input_Samples_resume_<n>/` for a resume from iteration n). Every call only puts an event in a queue: a background thread opens the MLflow run and writes in batches, retrying while MLflow is unavailable, so MLflow never slows down nor stops the training, and any MLflow error only prints one warning (an artifact whose write keeps failing with a system error, such as a read-only artifact folder, is retried and holds back every later write until the run closes; a write MLflow rejects is dropped with a warning). The run is recorded in `mlflow_run.json` of the run folder, so that a resumed training reopens the same MLflow run. Without tracking, the tracker stays a `DisabledTracker`.
+With `ExperimentConfiguration.tracking.activated: True`, `create_experiment_tracker()` creates the MLflow tracker after the loader iterators exist, so the workers fork before its thread starts.
+- Backend: `tracking.tracking_uri`, or the local `mlflow.db` of the experiments root (artifacts in `mlartifacts/`); experiment named after the task unless `tracking.experiment_name` is set.
+- Sent: flattened parameters with parameter count, split sizes, iterations per epoch, device and library versions; tags (task, run name and folder, transfer sources, host, git commit, dirty tree); the configuration; and, when this launch wrote them, `data.json` and the input samples (`Input_Samples/` or `Input_Samples_resume_<n>/`).
+- Calls only queue events; a background thread writes in batches and retries, so MLflow never slows or stops training, an error printing one warning.
+- `mlflow_run.json` lets a resume reopen the same MLflow run.
 
-**Example: the line printed once the background thread opened the run** (here during the first evaluation, since creating the local database takes a few seconds), and `mlflow_run.json`
+The line below is printed once the thread opened the run (here during the first evaluation), followed by `mlflow_run.json`.
 ```text
 MLflow Run Created In The Experiment 'classification' : 9676967287064c1784b8a7c3bee0c1dc (Browse : mlflow ui --backend-store-uri sqlite:///.../runs/mlflow.db)
 
@@ -1363,7 +865,7 @@ MLflow Run Created In The Experiment 'classification' : 9676967287064c1784b8a7c3
 }
 ```
 
-**Example: the MLflow run after the training**
+The block below summarises the MLflow run after training.
 ```text
 experiment: classification   run name: CLS_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128_MC9   status: FINISHED
 tags:       task, run_name, run_folder, pretrained_backbone: 'None', pretrained_classification_head: 'None', host,
@@ -1379,14 +881,15 @@ artifacts:  Results.txt, configuration/training_configuration.yaml, metric_names
             evaluation/iteration_6/ and iteration_12/: class_metrics.csv, class_thresholds.json, confusion_matrix.png
 ```
 
-This run was recorded before the code sent the record of the data and the ROC and precision-recall curves. The MLflow run of the 9-class README run of 2026-10-23 (`5bcd8d21be0149b6b25b94b04621705c` in `experiments/readme_screenshots/mlflow.db`) shows what the code sent once it had the record of the data and the curves: 158 parameters, the same tags with `best_iteration: '1500'`, the metrics `test/Macro ROC AUC` and `test/Macro Average Precision` next to the four others, 45 `test_class/<metric>/<class>` (5 metrics x 9 classes, `ROC AUC` and `Average Precision` included), and the artifacts `data/data.json` and, for every evaluated iteration, `roc_curves.png` and `precision_recall_curves.png` next to the three files above. Its 158 parameters include settings removed since (`evaluation.top_k`, `resume_training`, `gradient_clipping_norm`, `mixed_precision`, `Data.loading`), and its `test/Top-2 Accuracy` the k of that time: a run of the current code sends fewer parameters, `test/Top-5 Accuracy`, and `precision_recall_thresholds.png` with the curves.
+This run predates the data record and the curves. The current code also sends `data/data.json`, `test/Macro ROC AUC`, `test/Macro Average Precision`, 5 `test_class/<metric>/<class>` per class, `test/Top-5 Accuracy` and, per iteration, the three curve images (see the 9-class README run `5bcd8d21be0149b6b25b94b04621705c` in `experiments/readme_screenshots/mlflow.db`).
 
 ### Step 3.6 — `save_model()` → `save_checkpoint()`
-This runs right after the training step (Step 3.22) of an iteration that is a multiple of `weight_saving_iterations` (a checkpoint evaluated at the end of the same iteration, Step 3.7) or of `intermediate_weight_saving_iterations` (a checkpoint only). `save_checkpoint()` writes `Weights/Iteration_N/model_<N on 6 digits>.pt` with the model, the optimizer, the task, the run name, the label dictionary of the run (`label_dictionary`, its keys written as text), the MLflow run (`None` without tracking, or while the background thread is still opening the run), the source run of the transferred components, the number of backbone blocks loaded from a shorter source backbone (`pretrained_backbone_blocks`, `None` otherwise, read back by a resumed run) and, when it is on, the moving average of the weights (`exponential_moving_average_state`: the averaged weights and the number of updates). Weights holding NaN or infinite values are refused first (`find_non_finite_tensors()`), with a `ValueError` naming the tensors, so that the registry keeps naming the last finite checkpoint. It writes to a temporary file and renames it, so a checkpoint on disk is complete or absent (a write that fails, e.g. on a full disk, removes the temporary file before raising its error), and it ignores Ctrl+C meanwhile. Then it records the iteration in `Weights/full-checkpoint`, the registry of Step 2.27. A save that fails stops the training (Step 3.1), instead of letting it go on without checkpoints.
+It runs right after the step of an iteration that is a multiple of `weight_saving_iterations` (checkpoint then evaluated, Step 3.7) or `intermediate_weight_saving_iterations` (checkpoint only).
+- `save_checkpoint()` writes `Weights/Iteration_N/model_<N on 6 digits>.pt` with the keys of Step 2.28; the MLflow run is `None` without tracking or while the thread is still opening it.
+- Non-finite weights are refused (`find_non_finite_tensors()`, `ValueError`). The file is written to a temporary name and renamed, so it is complete or absent; Ctrl+C is ignored meanwhile.
+- The iteration is then recorded in `Weights/full-checkpoint` (Step 2.27). A failed save stops training.
 
-**Good to know:** the checkpoint of iteration N is saved after the training step N, so it holds the weights after N steps, and a run resumed from it starts at iteration N + 1. After the loop, a last checkpoint is only saved for the steps taken since the last one (Step 3.25).
-
-**Example output and files**
+The checkpoint of iteration N holds the weights after N steps; a resume starts at N + 1. The output and files of the run are below.
 ```text
 Checkpoint Folder :
  - file:///.../CLS_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128_MC9/Weights/Iteration_3
@@ -1400,12 +903,16 @@ Weights/full-checkpoint
 ```
 
 ### Step 3.7 — `run_test_evaluation()`
-Last in an iteration that is a multiple of `weight_saving_iterations`, after the validation batch and the summary when they are due, the checkpoint saved right after the step of the same iteration (Step 3.6) is evaluated on the whole test split: the progress bar, the metrics, the files and the report are described in Stage 4. It runs last so that a failing evaluation (an unreadable test image or a full disk, for instance) finds the rest of the iteration done: it stops the training (Step 3.1), since it would fail again at every later evaluation, and the end of the loop names the checkpoint to be evaluated apart (Step 3.25). The evaluation puts the model in `eval()` mode, which is why Step 3.10 sets the training mode again before the next step.
+Last in an iteration that is a multiple of `weight_saving_iterations`, the checkpoint saved after its step is evaluated on the whole test split (Stage 4). A failing evaluation (unreadable test image, full disk) stops training, since it would fail again; the end of the loop names the checkpoint to evaluate apart (3.25). The evaluation switches to `eval()`, hence Step 3.10.
 
 ### Step 3.8 — `get_next_batch()`
-This takes the next batch from the loader iterator. At the end of an epoch the iterator raises `StopIteration` and is recreated, which reshuffles the samples, so the loop never ends because of the data; two passes in a row ending without any batch raise a `RuntimeError` (`The Training loader gives no batch: 2 passes over its split ended without any.`) instead of looping forever on an empty split. If the loader raises another exception (an unreadable image, Step 3.9, for instance), the batch is dropped and the next one is taken, so that a few bad files never stop a training. The dropped batch is counted for its split (`Training` or `Validation`), printed with the next console summary (Step 3.24), and its error is printed in yellow the first time it occurs in the run, as `Training Batch Dropped : <last line of the error>`, the first dropped batch of the run also printing the whole message with the traceback of the loader worker. After 10 failed fetches in a row the loading is taken as broken (a data folder that disappeared, for instance): a `RuntimeError` is raised, which the loop counts as an error of the iteration (Step 3.1). The outcomes of the last 200 fetches of every split are kept (`DROPPED_BATCH_WINDOW`): more than 20 dropped among them (`MAXIMUM_DROPPED_BATCHES_IN_WINDOW`, e.g. 1 % of unreadable images in batches of 64 drop about 47 % of the batches) stop the training (Step 3.1), the data being broken rather than holding a few bad files. It returns the batch and the (possibly new) iterator. The loop then calls `MetricTracker.count_frames()`, which counts the real frames of a sequence batch for the frame throughput, and does nothing for images.
+It takes the next batch from the loader iterator and returns the batch and the (possibly new) iterator.
+- At the end of an epoch the iterator is recreated, which reshuffles; two passes in a row without a batch raise a `RuntimeError`.
+- A batch whose loading fails (Step 3.9) is dropped, counted for the next summary (3.24), and its error printed once in yellow (`Training Batch Dropped : <last line of the error>`, the first with the worker traceback).
+- 10 failed fetches in a row raise a `RuntimeError`, an error of the iteration. More than 20 dropped (`MAXIMUM_DROPPED_BATCHES_IN_WINDOW`) among the last 200 fetches of a split (`DROPPED_BATCH_WINDOW`) stop the training; 1 % unreadable images in batches of 64 already drop about 47 % of batches.
+- The loop then calls `MetricTracker.count_frames()`, which counts frames for the sequence tasks and does nothing for images.
 
-**Example: the first batch of the training loader** (batch size 8, 64 pixel images)
+The first training batch (batch size 8, 64 pixels) is below.
 ```text
 images               [8, 3, 64, 64] torch.uint8     (BGR, values from 0 to 255)
 labels               [8] torch.int64                [1, 7, 6, 8, 3, 5, 8, 2]
@@ -1413,9 +920,12 @@ sample_identifiers   [8] torch.int64                [16905, 9751, 89490, 1234, 7
 ```
 
 ### Step 3.9 — `ClassificationDataset.__getitem__()` → `read_image()` + `preprocess_image()`
-These run inside the loader workers, in parallel with the training step, once per sample of the batch. `__getitem__()` reads the image file with `read_image()` (OpenCV, BGR, `uint8`), which raises `ValueError("The image cannot be read : <file link>")` for a missing or corrupted file instead of handing `None` to `preprocess_image()`, so that the dropped batch names the file (Step 3.8). It then calls `preprocess_image()` to get a square image, converts it to a `[3, H, W]` tensor and returns it with its class index and its identifier. `preprocess_image()` resizes the longest side to `image_size`; with `keep_ratio: True` the other side is padded with black bars (centred), otherwise the image is stretched to a square. The default collate function then stacks the samples of the batch.
+These run in the loader workers, once per sample, in parallel with the training step.
+- `read_image()` (OpenCV, BGR, `uint8`) raises `ValueError("The image cannot be read : <file link>")` for a missing or corrupted file, so the dropped batch names it.
+- `preprocess_image()` resizes the longest side to `image_size`; with `keep_ratio: True` the other side is padded with centred black bars, otherwise the image is stretched.
+- The image becomes a `[3, H, W]` tensor returned with its class index and identifier; the default collate function stacks the batch.
 
-**Example: three real ImageNet images with `image_size: 256` and `keep_ratio: True`**
+Three ImageNet images with `image_size: 256` and `keep_ratio: True` give:
 ```text
 n01440764_10026  original (250, 250, 3) -> (256, 256, 3)   image rows 0 to 255    (square: no padding)
 n01440764_10027  original (150, 200, 3) -> (256, 256, 3)   image rows 32 to 223   (resized to 192 x 256, 32 black rows above and below)
@@ -1423,37 +933,47 @@ n01440764_10029  original (375, 500, 3) -> (256, 256, 3)   image rows 32 to 223
 ```
 
 ### Step 3.10 — `set_training_mode()`
-This calls `model.train()` before every training step: dropout is active, and the batch normalization layers use the statistics of the current batch and update their running averages. It is needed at every iteration because the evaluation (Step 3.7) and the validation (Step 3.23) switch the model to `eval()`, where dropout is off and the batch normalization uses its running averages. The batch normalization of a frozen transferred component stays in `eval()` so that its statistics remain those of its source run.
+`model.train()` before every step: dropout on, batch normalization uses batch statistics and updates its running averages. Needed because evaluation (3.7) and validation (3.23) switch to `eval()`. The batch normalization of a frozen transferred component stays in `eval()`, keeping its source statistics.
 
 ### Step 3.11 — `run_model_iteration()`
-One function runs a training batch and a validation batch, the only difference being `apply_augmentation`. It prepares the batch (3.12), augments it for training (3.13), runs the forward pass (3.14 to 3.18, in `bfloat16` autocast), sums every output whose key ends with `_loss` into the total loss (the classification loss, with the decorrelation loss of Step 3.18 when it is on), adds the batch metrics (3.19), then accumulates and logs the metrics (3.20). A total loss that is NaN or infinite (a diverging step, a corrupted batch) raises a `NonFiniteLossError` before the metrics are tracked, giving the value of every loss: the batch is skipped, without backward pass nor optimizer step, so the weights stay finite, and the loop counts it as a failing iteration (Step 3.1). It returns the total loss, which the loop back-propagates for the training batch, and the model outputs.
+One function runs a training or validation batch; only `apply_augmentation` differs.
+- Prepare (3.12), augment for training (3.13), forward in `bfloat16` autocast (3.14–3.18).
+- Every output whose key ends with `_loss` is summed into the total loss (classification, plus decorrelation when on).
+- Batch metrics (3.19), accumulate and log (3.20).
+- A NaN or infinite total loss raises `NonFiniteLossError` before tracking, giving every loss: the batch is skipped without backward or step, a failing iteration (3.1).
+- It returns the total loss (back-propagated for training) and the outputs.
 
-**Example: what the first training batch of the run gave**
+The first training batch gave:
 ```text
 total_loss = classification_loss = 2.2124      accuracy = 0.0
 ```
 
 ### Step 3.12 — `prepare_batch()`
-This moves the batch to the device of the model and fixes the types: the images become `float32` (still BGR and in [0, 255]: the normalization is the first layer of the backbone, Step 3.15) and the labels become `int64` class indices (`float` multi-hot vectors in `multi_label` mode). The sample identifiers are kept for the evaluation.
+It moves the batch to the device: images to `float32` (still BGR, [0, 255]; normalization is the first backbone layer, 3.15), labels to `int64` class indices (`float` multi-hot in `multi_label`). Identifiers are kept for the evaluation.
 
-**Example: before and after**
+The types before and after are below.
 ```text
 images  [8, 3, 64, 64] torch.uint8   -> [8, 3, 64, 64] torch.float32 (cpu in this run, cuda on a GPU)
 labels  [8]            torch.int64   -> [8]            torch.int64
 ```
 
 ### Step 3.13 — `augment_batch()` → `DataAugmenter.augment_batch()`
-This is only called for training batches, so the model learns from varied images while the validation and the test stay on the original ones. Each image of the batch is drawn on its own: with probability `Data.data_augmentation.probability` it is augmented, otherwise it is left as it is. An augmented image gets the geometric types first (crop, aspect crop, zoom-out, translation, left-right flip, up-down flip, rotations, perspective, jigsaw), then the photometric ones (brightness, contrast, saturation, hue, CLAHE, sharpening, histogram equalizations, noise, grayscale, colour swap, gamma, linear illumination, plasma shadow, blur, motion blur, haze, solarization, black out, erasing), each type with its own probability, a single one of the three histogram equalizations (CLAHE, luminance, BGR channels) drawn together being kept at random. The labels do not change, since none of these changes the class. The result stays in [0, 255]. Every type is computed on the device of the batch from Python numbers (the rotation, the CLAHE and the YUV conversions of torchvision and kornia being ported to the device in `vision_training/data/device_image_operations.py`), and `augment_batch()` also returns the report of the types drawn for every image, which only the input viewer reads (Step 2.25).
+Training batches only; validation and test stay original.
+- Each image is augmented with probability `Data.data_augmentation.probability`.
+- Geometric types first (crop, aspect crop, zoom-out, translation, flips, rotations, perspective, jigsaw), then photometric (brightness, contrast, saturation, hue, CLAHE, sharpening, histogram equalizations, noise, grayscale, colour swap, gamma, linear illumination, plasma shadow, blur, motion blur, haze, solarization, black out, erasing), each with its own probability. Of the three histogram equalizations drawn together (CLAHE, luminance, BGR channels) one is kept at random.
+- Labels do not change; values stay in [0, 255].
+- Every type runs on the batch device from Python numbers (rotation, CLAHE and YUV conversions of torchvision and kornia ported in `vision_training/data/device_image_operations.py`).
+- It also returns the report of drawn types per image, read only by the input viewer (2.25).
 
-**Example: which images of the first batch were changed** (`probability: 0.4`, 8 images)
+The first batch (`probability: 0.4`, 8 images) had these images changed.
 ```text
 changed per image: [False, False, True, True, True, True, False, False]      pixel range after: 0.0 to 252.0      labels unchanged
 ```
 
 ### Step 3.14 — `forward_pass()` → `ImageClassifier.forward()`
-This calls the model with the images and the labels, so that it also returns the loss. The trainer only passes the batch: everything else happens inside the model, in the next four steps. For a test batch the trainer calls `predict_batch()` instead, which omits the labels (Step 4.4).
+It calls the model with images and labels, so the loss is returned too. Steps 3.15 to 3.18 happen inside the model. A test batch uses `predict_batch()` without labels (4.4).
 
-**Example: the dictionary returned** (recorded before the forward pass always ran in bfloat16 autocast: the logits now come out as `torch.bfloat16`, the probabilities too on the CPU, the loss as `torch.float32`)
+The dictionary below was recorded before the forward pass always ran in bfloat16 autocast; logits now come out as `torch.bfloat16` (probabilities too on the CPU), the loss as `torch.float32`.
 ```text
 class_logits          [8, 9] torch.float32
 class_probabilities   [8, 9] torch.float32
@@ -1461,45 +981,46 @@ classification_loss   2.2124 (scalar torch.float32)
 ```
 
 ### Step 3.15 — `Backbone.forward()`
-The images first go through the `InputNormalizer`, which maps the pixels to [-0.5, 0.5] (`input_normalization`) and/or standardizes each image (`per_sample_normalization`). Then they go through every `ConvolutionBlock`: the height and width are halved by each pooling while the channels are set by the block. It returns the final feature map and a dictionary of intermediate maps, which only the detector (with the skip outputs of the instance segmentation mask heads, when they read finer maps) and the segmentation decoder use; it stays empty for a classifier.
+The `InputNormalizer` maps pixels to [-0.5, 0.5] and/or standardizes each image, then every `ConvolutionBlock` runs, each pooling halving height and width. It returns the final map and a dictionary of intermediate maps, used only by the detector, the instance segmentation mask heads reading finer maps and the segmentation decoder; empty for a classifier.
 
-**Example: shapes for a batch of 8 images of 64 pixels** (6 blocks, the pooling of the last one removed)
+A batch of 8 images of 64 pixels (last pooling removed) has these shapes.
 ```text
 [8, 3, 64, 64] -> block 1 [8, 16, 32, 32] -> 2 [8, 32, 16, 16] -> 3 [8, 32, 8, 8] -> 4 [8, 64, 4, 4] -> 5 [8, 64, 2, 2] -> 6 [8, 128, 2, 2]
 ```
 
 ### Step 3.16 — `global_pooling` + `ClassificationHead.forward()`
-The pooling turns the `[B, C, H, W]` feature map into `[B, F]` (Step 2.16). The head then applies its hidden layers and its last `Linear` layer: one raw score, the logit, per class. A logit is not a probability: it can be any real number.
+The pooling gives `[B, F]` (2.16); the head applies its hidden layers and last `Linear`: one logit per class, any real number, not a probability.
 
-**Example: shapes** (`global_pooling: "average"`, `fully_connected: [128]`, the run of this stage)
+The run of this stage (`"average"`, `fully_connected: [128]`) gives these shapes.
 ```text
 feature map [8, 128, 2, 2] -> average pooling [8, 128] -> hidden layer (128) -> [8, 128] -> classifier -> logits [8, 9]
 ```
-With the current configuration file (`"flatten"`, `fully_connected_normalization: "layer"`), the same batch gives `[8, 128, 2, 2] -> flatten [8, 512] -> Linear, LayerNorm, ReLU [8, 128] -> logits [8, 9]`, and at its 512 pixels `[8, 128, 16, 16] -> flatten [8, 32768]`.
+The current file (`"flatten"`, `"layer"`) gives `[8, 128, 2, 2] -> flatten [8, 512] -> Linear, LayerNorm, ReLU [8, 128] -> logits [8, 9]`, and at 512 pixels `[8, 128, 16, 16] -> flatten [8, 32768]`.
 
 ### Step 3.17 — `convert_logits_to_probabilities()`
-This turns the logits into probabilities. In `multi_class` mode, a softmax over the classes gives numbers between 0 and 1 that sum to 1 for each image: one class per image. In `multi_label` mode, an independent sigmoid per class lets an image have several classes at once. The probabilities are what Stage 4 stores and thresholds.
+`multi_class`: a softmax, each row summing to 1. `multi_label`: an independent sigmoid per class. Stage 4 stores and thresholds these probabilities.
 
-**Example: the first images of the batch**
+The first images of the batch give:
 ```text
 class_probabilities.sum(dim=1)[:3] = [0.9999998807907104, 1.0, 1.0]
 class_logits.argmax(dim=-1)        = [2, 2, 2, 2, 2, 0, 2, 8]     <- predicted class of each of the 8 images
 ```
 
 ### Step 3.18 — `compute_classification_loss()`
-This measures how wrong the logits are, as one number to minimize. In `multi_class` mode it is the cross entropy against the class indices, weighted by `class_weights` (Step 2.18) and softened by `label_smoothing` (`torch.nn.functional.cross_entropy`, which also weights the smoothing term by the class weights, so that a smoothing above 0 with balanced weights pulls every image towards the rare classes). In `multi_label` mode it is the binary cross entropy with logits against the multi-hot labels smoothed towards 0.5, every class weighted by its class weight. A model that gives every class the same probability has a cross entropy of ln K, which is the starting point of a training.
+- `multi_class`: cross entropy against the class indices, weighted by `class_weights` (2.18), softened by `label_smoothing` (`torch.nn.functional.cross_entropy`, which also weights the smoothing term, see Pitfalls).
+- `multi_label`: binary cross entropy with logits against multi-hot labels smoothed towards 0.5, each class weighted by its class weight.
+- A model giving every class the same probability scores ln K, the start of a training.
+- With `ClassificationHead.decorrelation` on (off here), the head runs `ClassificationHead.compute_logits(kept_hidden_layer=...)`, which also returns the features of the chosen hidden layer as its ReLU receives them. `compute_decorrelation_loss()` adds `decorrelation_loss` (weight × squared off-diagonal correlations over the batch) and `hidden_feature_correlation` (mean absolute correlation, tracked by 3.19).
 
-With `ClassificationHead.decorrelation` on (off in this run), Step 3.16 runs the head through `ClassificationHead.compute_logits(kept_hidden_layer=...)`, which also returns a copy of the features of the decorrelated hidden layer as its ReLU receives them, and `compute_decorrelation_loss()` adds `decorrelation_loss`, the weight times the squared off-diagonal correlations of these features over the batch, and `hidden_feature_correlation`, their mean absolute correlation, tracked by Step 3.19.
-
-**Example output** (9 classes, an untrained network)
+An untrained 9-class network gives:
 ```text
 classification_loss = 2.2124        (ln 9 = 2.1972)
 ```
 
 ### Step 3.19 — `compute_batch_metrics()`
-This computes the accuracy of the batch from the logits that were just computed, without a second forward pass and without gradients: the share of images whose highest logit is the true class (in `multi_label` mode, the share of class decisions at probability 0.5 that are right). It is a monitoring value only; the loss of Step 3.18 is what is optimized.
+Accuracy from the logits already computed, without a second forward pass or gradients: the share of images whose highest logit is the true class (`multi_label`: the share of right class decisions at 0.5). Monitoring only; the loss is optimized. With the decorrelation on it passes on `hidden_feature_correlation`.
 
-**Example: the batch of Step 3.8**
+The batch of Step 3.8 gives:
 ```text
 labels      = [1, 7, 6, 8, 3, 5, 8, 2]
 predictions = [2, 2, 2, 2, 2, 0, 2, 8]      no image is right
@@ -1507,9 +1028,9 @@ accuracy    = 0 / 8 = 0.0
 ```
 
 ### Step 3.20 — `MetricTracker.accumulate()` + `log_to_tensorboard()`
-`accumulate()` adds every tracked metric of the batch to the sums of the interval and counts the batch in `interval_batches`; the outputs that are not tracked are ignored. The sums become means only at the end of the interval (Step 3.24), divided by the number of batches really added. `log_to_tensorboard()` writes the same metrics of the batch, at every iteration, under the name of Step 2.21, to the writer of the split (Train or Validation).
+`accumulate()` adds every tracked metric to the interval sums and counts the batch; untracked outputs are ignored. `log_to_tensorboard()` writes the batch metrics at every iteration to the split's writer.
 
-**Example: the console value is the mean of the TensorBoard points of the interval**
+The console value is the mean of the TensorBoard points of the interval.
 ```text
 Tensorboard/Train Accuracy at iterations 1 to 4:  0.0, 0.25, 0.125, 0.125      sum = 0.5      mean = 0.125
 console at iteration 4:  Moving Average of Train Accuracy : 12.50 %
@@ -1518,72 +1039,50 @@ console at iteration 8:  Moving Average of Train Accuracy : 9.38 %
 ```
 
 ### Step 3.21 — `training_loss.backward()`
-This is the back-propagation: PyTorch computes the gradient of the total loss with respect to every trainable parameter and stores it in `parameter.grad`. It only runs for training batches, after `optimizer.zero_grad()` has erased the gradients of the previous step. The validation and test batches never call it, and run without gradients.
+Back-propagation: the gradient of the total loss for every trainable parameter, in `parameter.grad`, after `optimizer.zero_grad()`. Training batches only; validation and test run without gradients.
 
-**Example: the norm of all the gradients together, at the first three steps of the run**
+The gradient norm at the first three steps:
 ```text
 iteration 1: gradient norm = 3.09      iteration 2: 2.36      iteration 3: 2.09
 ```
 
 ### Step 3.22 — `step_optimizer()` → `compute_learning_rate_factor()`
-This applies the gradients as the backward pass left them: the learning rate of every parameter group is set to `base_learning_rate × factor(iteration)` and `optimizer.step()` updates the weights, after which the moving average of the weights, when on, moves towards them: the parameters and the batch normalization running statistics with `min(decay, (1 + n) / (10 + n))` at its n-th update, the other buffers copied. The factor only depends on the iteration, so a resumed run continues the schedule without saving any scheduler state: a linear warm-up over `warmup_iterations`, then a constant rate or a cosine decay down to `minimum_learning_rate_ratio` over `decay_iterations`. The rate of the first group is written to TensorBoard.
+- Each group's rate is set to `base_learning_rate × factor(iteration)`, then `optimizer.step()` applies the gradients as they are.
+- The factor depends only on the iteration, so a resume needs no scheduler state: linear warm-up over `warmup_iterations`, then constant or a cosine decay to `minimum_learning_rate_ratio` over `decay_iterations`.
+- The weight moving average, when on, moves the parameters and batch normalization running statistics with `min(decay, (1 + n) / (10 + n))` at its n-th update; other buffers are copied.
+- The first group's rate goes to TensorBoard.
 
-**Example: this run** (`constant`, `learning_rate: 1.0e-3`): the first Adam step moves each weight by about the learning rate
+In this run (`constant`, `learning_rate: 1.0e-3`), the first Adam step moves each weight by about the learning rate.
 ```text
 Tensorboard/Train Learning Rate at iterations 1 to 12 = 0.001
 largest change of a weight of the classifier after the first step = 0.0010000
 ```
 
-**Example: the factor of a cosine schedule** (`warmup_iterations: 1000`, `decay_iterations: 100000`, `minimum_learning_rate_ratio: 0.01`)
+This table shows the factor of a cosine schedule (`warmup_iterations: 1000`, `decay_iterations: 100000`, `minimum_learning_rate_ratio: 0.01`).
 
 | Iteration | 1 | 500 | 1000 | 1001 | 51000 | 101000 | 200000 |
 |---|---|---|---|---|---|---|---|
 | Factor | 0.001 | 0.5 | 1.0 | 1.0 | 0.505 | 0.01 | 0.01 |
 
 ### Step 3.23 — validation pass: `run_model_iteration()` without augmentation
-Every `validation_iteration_ratio` iterations (10 here), the loop evaluates one batch of the validation split to follow the generalization during the training: `model.eval()`, no gradients, the next validation batch, and the same `run_model_iteration()` with `apply_augmentation=False`. Its metrics go to the validation trackers and to `Tensorboard/Validation`. It is only one batch, not the whole split, so it is cheap; the whole-split evaluation is the test evaluation of Stage 4.
+Every `validation_iteration_ratio` iterations (10 here): `model.eval()`, no gradients, the next validation batch, `run_model_iteration()` with `apply_augmentation=False`. Metrics go to the validation trackers and `Tensorboard/Validation`. One batch only, so cheap; the whole-split evaluation is Stage 4.
 
-**Example: iteration 10 of the run**
+Iteration 10 of the run gave:
 ```text
 Tensorboard/Validation at iteration 10: Total Loss 2.1964, Classification Loss 2.1964, Accuracy 0.125
 console at iteration 12: Validation Iterations In This Interval: 1 (Ratio: Every 10 Training Iterations).
 ```
 
 ### Step 3.24 — `average_trackers()` + `log_interval_metrics()` + `print_interval_summary()` + `report_dropped_batches()`
-Every `information_dump` iterations, the loop divides the training and the validation sums by the number of batches each really ran (`interval_batches`). The training interval usually holds `information_dump` batches, but the first interval of a run resumed between two summaries holds fewer, and the number of validation batches depends on the ratio. `log_interval_metrics()` sends the averages to MLflow (`train/<name>` and, when a validation batch ran, `validation/<name>`), with the throughput, the duration of the interval and the learning rate. `print_interval_summary()` prints the summary, and the loop starts fresh trackers. The summary gives the throughput and the moving average of every metric for the training and, if a validation batch ran in the interval, for the validation. After each value comes its change since the previous summary of the run, in green when it improved (a loss decreasing, an accuracy increasing) and in red when it got worse, and `Best` when it is the best value of the run so far. The accuracy is written as a percentage with its change in percentage points (`9.38 %    -3.12 %`), the losses with 4 decimals; TensorBoard and MLflow keep the accuracy between 0 and 1. The iterations, sample counts and throughputs of the header and of the interval lines have their digits grouped by three (`Total Images: 6 656 000`), and the header of the image tasks stays 120 characters wide up to 999 999 iterations. The duration includes everything between the two summaries, evaluations and checkpoints included. Right after the summary, `report_dropped_batches()` prints in yellow the batches of every split dropped since the previous summary because their loading failed (Step 3.8), e.g. `- Dropped Batches Since The Last Summary : Training 2, Validation 1 (their loading failed, see the errors printed above)`, then starts the counts again; it prints nothing when no batch was dropped.
+Every `information_dump` iterations:
+- `average_trackers()` divides the sums by the batches really run (fewer in the first interval of a resume between summaries; validation depends on the ratio).
+- `log_interval_metrics()` sends to MLflow `train/<name>` and, when a validation batch ran, `validation/<name>`, with throughput, interval duration and learning rate.
+- `print_interval_summary()` prints throughput and the mean of every metric, then fresh trackers start. Each value has its change since the previous summary, green when better, red when worse, and `Best` for the best of the run. Accuracy is a percentage with its change in points (`9.38 %    -3.12 %`), losses have 4 decimals; TensorBoard and MLflow keep 0 to 1.
+- Counts and throughputs are grouped by three (`Total Images: 6 656 000`); the header stays 120 characters wide up to 999 999 iterations. The duration includes evaluations and checkpoints.
+- `report_dropped_batches()` prints in yellow the batches dropped since the last summary (3.8), e.g. `- Dropped Batches Since The Last Summary : Training 2, Validation 1 (their loading failed, see the errors printed above)`, and nothing otherwise.
 
-**Example: the sums and the averages of the first interval**
+The summary of iteration 12 is below (at iteration 8 the train loss showed `-0.0154 Best` in green and the accuracy `9.38 %    -3.12 %` in red; that interval took 48 s because the evaluation of iteration 6 ran inside it).
 ```text
-before: {'interval_batches': 4, 'total_loss': 8.8198, 'classification_loss': 8.8198, 'accuracy': 0.5}
-after:  {'interval_batches': 4, 'total_loss': 2.205,  'classification_loss': 2.205,  'accuracy': 0.125}
-MLflow, step 4: {'train/Total Loss': 2.205, 'train/Classification Loss': 2.205, 'train/Accuracy': 0.125,
-                 'train/throughput': 8.5719, 'train/interval_seconds': 3.7331, 'learning_rate': 0.001}
-```
-
-**Example output: iterations 4, 8 and 12** (the evaluation of the checkpoint of iteration 6 ran inside the interval of iteration 8, which is why it took 48 s)
-```text
-========================================================================================================================
-|     Iteration: 4    |      Total Images: 32      |    Interval Images: 32    |   Throughput: 8.6 Images Per Second   |
-------------------------------------------------------------------------------------------------------------------------
-Moving Average of Train Total Loss                     :     2.2050
-Moving Average of Train Classification Loss            :     2.2050
-Moving Average of Train Accuracy                       :    12.50 %
-------------------------------------------------------------------------------------------------------------------------
-Interval Of 4 Iterations Took 00:00:03.
-Validation Iterations In This Interval: 0 (Ratio: Every 10 Training Iterations).
-========================================================================================================================
-...
-========================================================================================================================
-|     Iteration: 8    |      Total Images: 64      |    Interval Images: 32    |   Throughput: 0.7 Images Per Second   |
-------------------------------------------------------------------------------------------------------------------------
-Moving Average of Train Total Loss                     :     2.1895    -0.0154 Best       <- green: the loss decreased
-Moving Average of Train Classification Loss            :     2.1895    -0.0154 Best
-Moving Average of Train Accuracy                       :     9.38 %    -3.12 %            <- red: the accuracy decreased
-------------------------------------------------------------------------------------------------------------------------
-Interval Of 4 Iterations Took 00:00:48.
-Validation Iterations In This Interval: 0 (Ratio: Every 10 Training Iterations).
-========================================================================================================================
-...
 ========================================================================================================================
 |    Iteration: 12    |      Total Images: 96      |    Interval Images: 32    |   Throughput: 31.8 Images Per Second  |
 ------------------------------------------------------------------------------------------------------------------------
@@ -1600,9 +1099,11 @@ Validation Iterations In This Interval: 1 (Ratio: Every 10 Training Iterations).
 ```
 
 ### Step 3.25 — end of the loop: last checkpoint, closing
-After the last iteration, after a Ctrl+C, after more than 5 consecutive errors, or after a failed save or evaluation or too many dropped batches, the loop saves a checkpoint of the last iteration whose step was taken, only when that iteration is not saved yet (a save failing again raises its error): the steps taken since the last checkpoint are never lost, and a checkpoint saved right after the last step (iteration 12 here, a multiple of `weight_saving_iterations`) is kept as it is. It then prints in green `Last Checkpoint Saved At Iteration <n>. Exiting Training.` Nothing is evaluated after the loop, since the checkpoints of `weight_saving_iterations` are evaluated inside their iteration (Step 3.7): when the last checkpoint saved by this launch is one of them and was left unevaluated (a Ctrl+C between its save and its evaluation, or a failed evaluation), a yellow line names it, `The Checkpoint Of Iteration <n> Was Not Evaluated: scripts/evaluation/evaluate_checkpoint.py Evaluates It.` (Stage 5). The loop then closes the training and validation TensorBoard writers, and `run_training_loop()` stops the loader worker processes (`shutdown_loader_workers()`), then sends `Results.txt` to MLflow and closes the MLflow run with its status (`FINISHED` here). An exception inside an iteration is printed in yellow with a counter and the loop moves on to the next iteration.
+However the loop ends, it saves the last stepped iteration if not saved yet (a save failing again raises its error); iteration 12 here was already saved. It prints in green `Last Checkpoint Saved At Iteration <n>. Exiting Training.`
+- Nothing is evaluated after the loop. If the last `weight_saving_iterations` checkpoint of this launch was left unevaluated (Ctrl+C between save and evaluation, or a failed evaluation), a yellow line says `The Checkpoint Of Iteration <n> Was Not Evaluated: scripts/evaluation/evaluate_checkpoint.py Evaluates It.` (Stage 5).
+- The Train and Validation writers close; `run_training_loop()` stops the loader workers (`shutdown_loader_workers()`), sends `Results.txt` to MLflow and closes the MLflow run (`FINISHED` here).
 
-**Example output: the end of iteration 12 and of the loop**
+The end of iteration 12 and of the loop are below, with the form of a failed iteration message.
 ```text
 Checkpoint Folder :
  - file:///.../CLS_IN-KAR-64_..._MC9/Weights/Iteration_12
@@ -1617,50 +1118,49 @@ Last Checkpoint Saved At Iteration 12. Exiting Training.
 Error encountered during iteration 7. Continuing... (Consecutive Errors: 1/5)      <- the form of the message of a failed iteration
 ```
 
-
 ---
 
 ## Stage 4 — Test Evaluation of a Checkpoint
 
-> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (5,000 images, 9 classes), with `per_class_report: True`, `number_sample_images: 8`, `save_predictions: True`, `error_dumps` activated and the MLflow tracking on. The network was trained for 12 steps at most, so it predicts the same class for every image: the metrics are close to chance, but every file and every line of the report is the real one. (The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps, Step 3.6.) They were also recorded before the ROC and precision-recall curves: with `per_class_report`, the current evaluation adds `Macro ROC AUC` and `Macro Average Precision` to the headline metrics, the `ROC AUC` and `Average Precision` of every class to its row and its scalars, and `roc_curves.png` and `precision_recall_curves.png` to the files, which Steps 4.8, 4.14, 4.18 and 4.19 show with the README run. All the examples of this stage, those of the README run included, were also captured before the per-class recall intervals were added (2026-11-01): `class_metrics.csv` now holds `recall_lower` and `recall_upper` after `recall`, and with `per_class_report` the report shows a `Per Class Recall` table after `Per Class Metrics` (Step 4.17).
+> The outputs below come from evaluating the checkpoints of iterations 6 and 12 of the Stage 3 run on its whole test split (5,000 images, 9 classes), with `per_class_report: True`, `number_sample_images: 8`, `save_predictions: True`, `error_dumps` on and MLflow on. After 12 steps the network predicts one class for every image, so metrics are near chance, but every file and line is real. Iteration 6 was captured when its checkpoint was saved before its step (after 5 steps; it now holds 6, Step 3.6).
+> These outputs predate the curves and the recall intervals (2026-11-01). With `per_class_report`, the current code adds `Macro ROC AUC` and `Macro Average Precision`, per-class `ROC AUC` and `Average Precision`, `roc_curves.png` and `precision_recall_curves.png` (shown with the README run in Steps 4.8, 4.14, 4.18, 4.19), `recall_lower` and `recall_upper` in `class_metrics.csv`, and a `Per Class Recall` table (Step 4.17).
 
 ### Step 4.1 — `run_test_evaluation()`
-This function scores the current weights on the whole test split, which no training step ever sees, and reports the result. The training loop calls it at every `weight_saving_iterations` checkpoint, last in its iteration (Step 3.7), and Stage 5 calls it for every checkpoint it evaluates. It puts the model in `eval()` mode, creates the accumulator (4.2), runs the test loader without gradients within the `evaluation_context()` of the task (nothing for classification), then computes the results (4.8) and reports them (4.18). It also makes sure that every test image is counted exactly once: a loader filling its last batch with images already given would otherwise count them twice, so it keeps only the sample identifiers it has not seen yet (the loaders of the repository give a smaller last batch instead). It adds the sample images (4.7) to the results, with a note and their folder, and returns the results (with those of the averaged weights, `None` without them), which Stage 5 uses to compare the checkpoints.
+It scores the current weights on the whole test split and reports. The training loop calls it at every `weight_saving_iterations` checkpoint (3.7); Stage 5 calls it per checkpoint.
+- `eval()` mode, accumulator (4.2), test loader without gradients inside the task's `evaluation_context()` (nothing here), results (4.8), report (4.18). Each test image counts once (identifiers already seen are skipped).
+- It returns the results, with those of the averaged weights (else `None`), for Stage 5.
+- With the weight moving average on and updated at least once, `use_averaged_weights()` swaps in the averaged model for a second evaluation: files in `Evaluation/Iteration_N/EMA/`, `Tensorboard/Test_EMA`, header `Iteration N · <evaluated samples> · EMA Weights · <date and time>`, MLflow `test_ema/`, `test_ema_class/`, `test_ema/best_<headline metric>`.
 
-With the moving average of the weights on, `run_test_evaluation()` evaluates the trained weights first (`evaluate_test_split()`, everything above), then the averaged weights of the same checkpoint once the average was updated at least once: `use_averaged_weights()` puts the averaged model in place of `self.model` and gives it back afterwards, even on an error, and the progress bar reads `Test Evaluation Iteration N (EMA Weights)`. That second evaluation writes its files in `Evaluation/Iteration_N/EMA/`, its scalars and sample images in `Tensorboard/Test_EMA` with the same tags, so that both curves share the same charts, its report under the header `Iteration N · <evaluated samples> · EMA Weights · <date and time>`, and its MLflow metrics as `test_ema/` and `test_ema_class/`, with its own best value `test_ema/best_<headline metric>`. `test/best_<headline metric>` stays that of the trained weights, and Stage 5 reports the best checkpoint of each kind of weights (Step 5.5).
-
-**Example output: the progress bar of the evaluation** (5,000 images, batch size 8, CPU)
+The evaluated weights of iteration N are those after N steps (3.6). The progress bar (5,000 images, batch 8, CPU) is below.
 ```text
 Test Evaluation Iteration 6: 100%|██████████| 625/625 [00:47<00:00, 13.15it/s]
 ```
 
-**Good to know:** the weights evaluated at iteration N are those of the checkpoint saved right after the training step N (Step 3.6), i.e. after N training steps, the evaluation being the last thing the iteration does (Step 3.7).
-
 ### Step 4.2 — `create_evaluation_accumulator()`
-This creates the empty storage filled during the test loop. The predictions of all the batches are kept so that the metrics can be computed on the whole split at once: four lists (class probabilities, labels, sample identifiers and the class logits, filled only when the temperature explorer is written, one tensor per batch), the folder where the error images will be written and an empty counter of error images per pair of classes.
+It creates the storage filled during the test loop, so metrics are computed on the whole split at once: four lists (probabilities, labels, identifiers, and logits filled only when the temperature explorer is written), the error image folder and an empty error count per class pair.
 
-**Example output** (recorded before the `logits` list was added)
+The accumulator below was recorded before the `logits` list.
 ```text
 {'probabilities': [], 'labels': [], 'sample_identifiers': [],
  'errors_folder': PosixPath('.../Evaluation/Iteration_6/Errors'), 'error_counts': {}}
 ```
 
 ### Step 4.3 — `prepare_batch()`
-This is the same function as in training (Step 3.12): the images go to the device as `float32` (still in [0, 255] BGR) and the labels as `int64` class indices. Test images are never augmented: the model must be scored on the images as a deployment would give them.
+The same function as Step 3.12. Test images are never augmented: the model is scored on images as a deployment gives them.
 
 ### Step 4.4 — `predict_batch()` → `ImageClassifier.forward()` without labels
-This runs the model as in deployment: `model(input_tensor=images)`, without labels, so no loss is computed. The model is in `eval()` mode (dropout off, batch normalization using its running averages) and no gradient is kept (`torch.no_grad()`). It returns the logits and the probabilities.
+`model(input_tensor=images)` as in deployment: no labels, no loss, `eval()` mode, `torch.no_grad()`. It returns logits and probabilities.
 
-**Example output** (batch of 8 images, 9 classes)
+A batch of 8 images, 9 classes gives:
 ```text
 class_logits          [8, 9] torch.float32
 class_probabilities   [8, 9] torch.float32      (no 'classification_loss' key)
 ```
 
 ### Step 4.5 — `accumulate_evaluation_batch()`
-This keeps the useful part of the batch on the CPU. The probabilities (as `float32`, the precision the model computes them in, half the memory of `float64` for the [N, K] table of many classes), the labels and the sample identifiers of the kept samples (the `sample_indices` of Step 4.1) are appended to the accumulator lists, so the GPU memory is released after every batch, with the class logits (as `float32`) when the temperature explorer is written (`per_class_report`, Step 4.13). The identifiers let the predictions file and the error images name the image of each prediction. If `error_dumps.activated` is true, it also calls `dump_errors()` while the images are still in the batch.
+It moves the kept samples (the `sample_indices` of 4.1) to the CPU and appends them, freeing GPU memory after every batch: probabilities as `float32` (half the memory of `float64`), labels, identifiers, and logits as `float32` with `per_class_report` (4.13). Identifiers let the predictions file and error images name each image. With `error_dumps.activated` it calls `dump_errors()` while the images are still there.
 
-**Example: the accumulator at the end of the loop**
+The accumulator at the end of the loop is below.
 ```text
 'probabilities':      625 tensors, the first [8, 9] torch.float32      5,000 images / batch of 8
 'labels':             625 tensors, the first [8] torch.int64
@@ -1669,21 +1169,20 @@ This keeps the useful part of the batch on the CPU. The probabilities (as `float
 ```
 
 ### Step 4.6 — `dump_errors()` → `reserve_error_image()` + `build_input_image()`
-For every wrong prediction of the batch (predicted class ≠ true class), `reserve_error_image()` counts one more image for the pair `<TRUE>-TO-<PREDICTED>` and refuses it once the pair holds `maximum_per_class_pair` images, so the first ones met are kept and the disk does not fill up. `build_input_image()` rebuilds the image the network saw (BGR, `uint8`), a black bar above it is captioned with both classes and the probability of the predicted class, and the PNG is written, named after the sample and that score.
+For every wrong prediction, `reserve_error_image()` counts one more image for `<TRUE>-TO-<PREDICTED>` and refuses it past `maximum_per_class_pair`, so the first ones are kept and the disk does not fill. `build_input_image()` rebuilds the network input (BGR, `uint8`), a black caption bar gives both classes and the predicted probability, and the PNG is named after the sample and that score.
 
-**Example: the error images of the checkpoint of iteration 6** (every image was predicted as `triangle`)
+The error images of iteration 6 (every image predicted `triangle`) are below.
 ```text
 Evaluation/Iteration_6/Errors/
 ├── circle-TO-triangle/       20 images, e.g. test_000233_0.116.png    caption: "circle -> triangle 0.116"
 ├── hexagon-TO-triangle/      20 images
-├── octagon-TO-triangle/      20 images
 ...                           8 pairs x 20 images = 160 images, the number in the report line "Error Images : 160 in 8 class pairs"
 ```
 
 ### Step 4.7 — `save_sample_images()` → `build_sample_image()`
-For every fixed sample image of Step 2.11 found in the test batch, the hook `build_sample_image()` draws the network input (Step 4.6) with a caption bar: its true class, its predicted class and the probability of the predicted class, in green when the prediction is right and in red when it is wrong (in `multi_label` mode, the true classes and the predicted classes with their probabilities). The caption bar is wider than a small image, so the image is padded on the right. `save_sample_images()` writes the image in `Evaluation/Iteration_N/Samples/<sample name>.png` and keeps it, in RGB, under the TensorBoard tag `Samples/<sample name>`. The same images are drawn at every evaluation, so the TensorBoard image slider shows how the prediction of each one changes over the training.
+For every fixed sample of Step 2.11 in the batch, `build_sample_image()` draws the network input with a caption bar: true class, predicted class and its probability, green when right, red when wrong (in `multi_label`, the true and predicted classes with probabilities). A small image is padded on the right to fit the bar. `save_sample_images()` writes `Evaluation/Iteration_N/Samples/<sample name>.png` and keeps it in RGB for TensorBoard tag `Samples/<sample name>`, whose slider shows each prediction over training.
 
-**Example: the 8 sample images of the checkpoint of iteration 12** (one image per class for the first 8 classes)
+The 8 samples of iteration 12 (one per class for the first 8 classes) are below.
 ```text
 Evaluation/Iteration_12/Samples/
 test_000000.png  test_000001.png  test_000002.png  test_000003.png  test_000006.png  test_000010.png  test_000016.png  test_000017.png
@@ -1693,9 +1192,9 @@ note of the report: "Sample Images : 8 fixed test images"
 ```
 
 ### Step 4.8 — `compute_evaluation_results()`
-Once the loop is done, this function concatenates the accumulated batches, computes every metric, writes the evaluation files (Steps 4.9 to 4.16) and organizes what must be displayed (Step 4.17). The notes are the extra notes of the task (`describe_extra_notes()`, none for classification) followed by the error images line. It does not display anything: it returns a dictionary, the `EvaluationResults`, that `report_evaluation()` shows (Step 4.18) and that Stage 5 keeps to compare the checkpoints. The files are written in `Evaluation/Iteration_N/` of the run, whatever `per_class_report`, except the confusion matrix image, the three curve images, the temperature explorer and its logits, which need it.
+After the loop it concatenates the batches, computes every metric, writes the files (4.9–4.16) and prepares the display (4.17). It displays nothing: it returns an `EvaluationResults` dictionary for `report_evaluation()` (4.18) and Stage 5. Notes are the task's extra notes (`describe_extra_notes()`, none here) then the error images line. Files go to `Evaluation/Iteration_N/` whatever `per_class_report`, except the confusion matrix image, the three curve images, the temperature explorer and its logits, which need it. In `multi_label` mode, `compute_multi_label_metrics` replaces Steps 4.9 to 4.12: `Subset Accuracy`, `Micro F1` and `Macro F1` of the class decisions at probability 0.5, without top-k accuracy or confusion matrix.
 
-**Example: the headline part of the results of iteration 6** (after Step 4.1 added the sample images)
+The headline part of iteration 6 is below.
 ```text
 evaluated_samples = '5000 Test Images'
 metrics           = {'Accuracy': 0.1096, 'Balanced Accuracy': 0.1111, 'Macro F1': 0.0219, 'Top-2 Accuracy': 0.2244}
@@ -1707,37 +1206,28 @@ images            = Confusion Matrix        sample_images = Samples/test_000010,
 class_scalars     = 27: Precision/square, Recall/square, F1/square, Precision/circle, ...
 tables            = one table: title, columns, rows, sort_column, per_class, legend
 ```
-
-**Example: the same parts with the curves, the 9-class README run of 2026-10-23 at iteration 1500** (50,000 test images, error images off)
-```text
-evaluated_samples = '50000 Test Images'
-metrics           = {'Accuracy': 0.8273, 'Balanced Accuracy': 0.8264, 'Macro F1': 0.8273, 'Top-2 Accuracy': 0.9917,
-                     'Macro ROC AUC': 0.9892, 'Macro Average Precision': 0.9074}
-notes             = ['Sample Images : 8 fixed test images']
-files             = Confusion Matrix Table, Class Thresholds, Class Metrics, Confusion Matrix Image, ROC Curves Image,
-                    Precision Recall Curves Image, Predictions, Sample Images
-images            = Confusion Matrix, ROC Curves, Precision Recall Curves
-class_scalars     = 45: Precision/square, Recall/square, F1/square, ROC AUC/square, Average Precision/square, ...
-```
-The current results also hold `percent_metrics`, the names of the global metrics written as percentages in the report and in the best checkpoint line (every headline metric of the classification), and every table its `percent_columns`; `metrics` and the scalars keep their values between 0 and 1.
+With `per_class_report` the current code adds `Macro ROC AUC`, `Macro Average Precision`, the three curve images and 5 scalars per class. The results also hold `percent_metrics` (the global metrics written as percentages: every headline metric of the classification) and each table's `percent_columns`; `metrics` and scalars stay between 0 and 1.
 
 ### Step 4.9 — `compute_confusion_matrix()`
-This counts, for every pair (true class, predicted class), the number of test images. The result is a `[K, K]` table (K = number of classes): the row is the true class, the column the predicted class, so the diagonal holds the correct predictions. It is computed with a single `bincount` over `true × K + predicted`. It is used in multi-class mode only: in multi-label mode an image has several classes, so no single matrix exists.
-
-Should a test split cover more than 1,000 classes (`MAXIMUM_DENSE_CONFUSION_CLASSES` of `classification_metrics.py`), as ImageNet-22k does with its 21,841 classes, the dense matrix would take 3.8 GB in int64 while at most one cell per test image is non-zero. The evaluation then asks for `sparse=True`: `torch.unique` counts the distinct values of `true × K + predicted`, and the result is a sparse `[K, K]` COO tensor holding only these cells, sorted by true class then predicted class, a negative true class or one beyond the K classes being refused as by the dense `bincount`. Up to 1,000 classes (ImageNet-1k included, 8 MB) nothing changes. The k-NN evaluation of the self-supervised trainer follows the same rule.
-
-**Example output** (first rows of the matrix of iteration 6: every image was predicted as class 2, `triangle`)
-```text
-tensor([[  0,   0, 579,   0,   0,   0,   0,   0,   0],      <- the 579 squares, all predicted as triangle
-        [  0,   0, 544,   0,   0,   0,   0,   0,   0],      <- the 544 circles
-        [  0,   0, 548,   0,   0,   0,   0,   0,   0],      <- the 548 triangles, all right
-        ...
-```
+It counts test images for every (true, predicted) pair: a `[K, K]` table, rows true, columns predicted, correct predictions on the diagonal, from one `bincount` over `true × K + predicted`. Multi-class mode only.
+- Above 1,000 classes (`MAXIMUM_DENSE_CONFUSION_CLASSES` of `classification_metrics.py`), e.g. the 21,841 of ImageNet-22k, a dense int64 matrix would take 3.8 GB. With `sparse=True`, `torch.unique` counts the distinct values and returns a sparse `[K, K]` COO tensor of the non-zero cells, sorted by true then predicted class; out-of-range classes are refused as in the dense path.
+- Up to 1,000 classes (ImageNet-1k, 8 MB) nothing changes. The k-NN evaluation of the self-supervised trainer follows the same rule.
 
 ### Step 4.10 — `compute_metrics_from_confusion_matrix()` → `compute_precision_recall_f1()`
-All the multi-class metrics come from the matrix. For a class: the **support** is its row sum (its test images), the **precision** is the diagonal divided by its column sum (how many images predicted as the class are right), the **recall** is the diagonal divided by its row sum (how many images of the class were found) and the **F1** is their harmonic mean. A class that is never predicted gets a precision of 0. The **accuracy** is the diagonal sum over all the images, the **balanced accuracy** is the mean recall over the classes present in the test set, and the **macro F1** the mean F1 over the classes present or predicted, a class predicted without any test image counting with its F1 of 0, as in scikit-learn: they do not depend on how many images each class has. The **true positives** of every class (the diagonal) are returned with the support, for the confidence interval of its recall (Step 4.14). From a sparse matrix (Step 4.9), the row sums, column sums and diagonal are added up from its non-zero cells (`index_add`), which gives exactly the same metrics.
+Every multi-class metric comes from the matrix; this table gives their definitions.
 
-**Example: how the numbers of iteration 6 are obtained**
+| Metric | Definition |
+|---|---|
+| support | row sum (test images of the class) |
+| precision | diagonal / column sum; 0 for a class never predicted |
+| recall | diagonal / row sum |
+| F1 | harmonic mean of precision and recall |
+| accuracy | diagonal sum / all images |
+| balanced accuracy | mean recall over the classes present in the test set |
+| macro F1 | mean F1 over classes present or predicted (a predicted class without test image counts with F1 0, as in scikit-learn) |
+| true positives | the diagonal, returned with the support for the recall interval (4.14) |
+
+From a sparse matrix the sums and diagonal are added from its non-zero cells (`index_add`), giving the same metrics. The numbers of iteration 6 are obtained like this:
 ```text
 accuracy          = 548 / 5000                           = 0.1096   (only the triangle images are right)
 triangle          precision = 548 / 5000 = 0.1096        recall = 548 / 548 = 1.0      F1 = 2 x 0.1096 x 1.0 / (0.1096 + 1.0) = 0.1975
@@ -1747,57 +1237,68 @@ macro F1          = (8 x 0.0 + 0.1975) / 9               = 0.0219
 ```
 
 ### Step 4.11 — `compute_top_k_accuracy()`
-This is the share of test images whose true class is among the 5 classes with the highest probability (`TOP_K_ACCURACY_CLASSES` of `classification_metrics.py`, the k being fixed for every classification-like task). It is more forgiving than the accuracy and tells whether the right class is at least close. With fewer classes than k, k is clipped to the number of classes, and the result is 1.
+The share of test images whose true class is among the 5 highest probabilities (`TOP_K_ACCURACY_CLASSES` of `classification_metrics.py`, fixed for every classification-like task). It tells whether the right class is at least close. With fewer classes than k, k is clipped and the result is 1.
 
-**Example output** (recorded when the k was a setting, `top_k: 2`)
+The output below was recorded with `top_k: 2`.
 ```text
 Top-2 Accuracy = 0.2244 at iteration 6, 0.2276 at iteration 12      (about 2 / 9 = 0.222: chance level for 9 classes)
 ```
 
 ### Step 4.12 — `save_confusion_matrix_table()`
-This writes the matrix of Step 4.9 as `confusion_matrix.csv`, with the class names as row and column headers, to read the exact counts or open them in a spreadsheet. It is written at every evaluation in multi-class mode, whatever `per_class_report`. Above 1,000 classes, the sparse matrix is written as `confusion_cells.csv` instead, a name that no reader of the dense table can mistake for it: one row `true_class,predicted_class,count` per non-zero cell, in the row order of the dense table (true class, then predicted class), the counts adding up to the test images. For the 21,841 classes of ImageNet-22k, the dense table would take about 955 MB whatever the number of test images; the long table holds at most one row per test image, 0.13 MB for 5,000 images.
+It writes the matrix as `confusion_matrix.csv` with class names as headers, at every multi-class evaluation whatever `per_class_report`. Above 1,000 classes it writes `confusion_cells.csv` instead: one row `true_class,predicted_class,count` per non-zero cell, in dense row order, counts adding up to the test images. For ImageNet-22k the dense table would take about 955 MB; the long table holds at most one row per test image (0.13 MB for 5,000 images).
 
-**Example: `Evaluation/Iteration_6/confusion_matrix.csv`**
+The `confusion_matrix.csv` of iteration 6 is below: every image was predicted as `triangle`.
 ```text
 true \ predicted,square,circle,triangle,rectangle,pentagon,hexagon,plus_sign,star,octagon
 square,0,0,579,0,0,0,0,0,0
 circle,0,0,544,0,0,0,0,0,0
 triangle,0,0,548,0,0,0,0,0,0
-rectangle,0,0,537,0,0,0,0,0,0
-pentagon,0,0,557,0,0,0,0,0,0
-hexagon,0,0,574,0,0,0,0,0,0
-plus_sign,0,0,545,0,0,0,0,0,0
-star,0,0,526,0,0,0,0,0,0
+...
 octagon,0,0,590,0,0,0,0,0,0
 ```
 
-**Example: `confusion_cells.csv`** (first rows, 5,000 test images of random labels and probabilities over 21,842 classes named `class_<index>`, the synthetic split of the memory measurement)
+The first rows of a `confusion_cells.csv` (5,000 test images of random labels over 21,842 classes named `class_<index>`) are below.
 ```text
 true_class,predicted_class,count
 class_00000,class_02897,1
 class_00000,class_10297,1
-class_00000,class_12507,1
 class_00011,class_19444,1
 ```
 
 ### Step 4.13 — `find_class_thresholds()`
-A deployment can ask for a prediction to be trusted only above a probability threshold. For every class, treated one against the rest, this function sorts the test images by decreasing probability of the class and looks for the threshold where the precision stays at or above `target_precision` (0.99 here) with the highest recall, the highest such threshold when a lower one only adds wrong predictions (its precision, closer to the target, being the one new images would more likely fall below), together with the recall kept at this threshold. If no threshold reaches the target precision, or the class has no sample, the result is `null`. The thresholds are saved in `class_thresholds.json`, for the deployment of the checkpoint. With a list of target precisions, e.g. `target_precision: [0.99, 0.95, 0.90]`, the thresholds are found for each: the first precision stays the main target, in `target_precision` and `classes` as below, and the others follow in `additional_targets`, a list of `{"target_precision": ..., "classes": {...}}` of the same form.
+A deployment may trust a prediction only above a probability threshold.
+- For every class, one against the rest, it sorts the test images by decreasing probability and finds the threshold whose precision stays at or above `target_precision` (0.99 here) with the highest recall; among those, the highest threshold. It also keeps the recall at that threshold. `null` when no threshold reaches the target or the class has no sample.
+- Thresholds go to `class_thresholds.json` for deployment. With a list, e.g. `target_precision: [0.99, 0.95, 0.90]`, the first stays the main target (`target_precision`, `classes`); the others follow in `additional_targets`, a list of `{"target_precision": ..., "classes": {...}}`.
+- Probabilities are the softmax of the logits at temperature 1, recorded as `logit_temperature`. A cross-entropy classifier is often overconfident, pushing thresholds to 0.999 or above. A temperature above 1 spreads the scores without changing the predicted class: with two classes only the threshold moves, with more the recall can move a little.
 
-The probabilities are the softmax of the class logits, a temperature of 1 recorded as `logit_temperature` in the file. A cross-entropy classifier is often overconfident, its probabilities squeezed against 1, so that its thresholds end up at 0.999 or above. A temperature above 1 spreads them without changing the predicted class: with two classes the recall at the target precision stays the same and only the threshold moves, with more classes it can move a little. With `per_class_report`, `save_temperature_explorer()` writes `temperature_explorer.html`, a self-contained page whose slider divides the logits by temperatures from 0.5 to 10. For every temperature it shows, for every class, the histogram of its score over its own images, which shows how far the temperature spreads the scores squeezed against 1, with a dashed line at the threshold of every target precision, and the thresholds and recalls at every target precision (found by this function; columns `Threshold @ P99 %` and `Recall @ P99 %`, the recalls written as percentages with their change from T = 1 in points below them, e.g. `(+0.36 points from T = 1)`). The page draws at most 100 classes in class index order, those of the lowest F1 above 100. Up to 100 classes, `save_class_logits()` writes the logits next to the page, `class_logits.npz`, with everything the page is built from.
+**Temperature explorer.** With `per_class_report`, `save_temperature_explorer()` writes `temperature_explorer.html`, a self-contained page.
+- Its slider divides the logits by temperatures from 0.5 to 10. For each it shows, per class, the histogram of its score over its own images with a dashed line at every target threshold, and the thresholds and recalls (`Threshold @ P99 %`, `Recall @ P99 %`, recall changes from T = 1 in points, e.g. `(+0.36 points from T = 1)`).
+- At most 100 classes are drawn, in class index order (the lowest F1 above 100). Up to 100 classes, `save_class_logits()` writes `class_logits.npz` next to it.
 
-So that a temperature reaches the deployment, `scripts/evaluation/serve_temperature_explorer.py` (`uv run python -m scripts.evaluation.serve_temperature_explorer`) serves the evaluations of the folders of the repository root whose name holds `experiments`, those of the training in `<run>/Evaluation/Iteration_<n>[/EMA]` and those of Stage 5 in `<run>/Checkpoint_Evaluation/Iteration_<n>[/EMA]`, its index at `http://127.0.0.1:8091/` grouping them by run folder, then by iteration (newest first), every iteration listing its weights (`Trained`, `EMA`, each linking to its page), evaluation (`Training` or `Checkpoint evaluation`), temperatures, saved temperature and exports. Every page is built again with the current template: from `class_logits.npz`, any temperature from 0.05 to 100 can be typed (`check_logit_temperature()`, `LOGIT_TEMPERATURE_RANGE`); an evaluation without it offers the temperatures of its slider only (`Grid only` in the index), and a page written before the save button must be evaluated again. Every page opens on the global metrics of its checkpoint (Balanced Accuracy, Accuracy and Macro F1; Subset Accuracy, Micro F1 and Macro F1 in multi-label mode) read from the `evaluation_summary.csv` of its folder (`describe_model_performance()`), with its run and the best iteration of that summary by the first metric, trained and EMA weights together, so that the exported checkpoint is checked against it. On a page with `class_logits.npz`, the score ranges table gives, for every class, the share and number of its images whose own class score falls below, between and above 1 to 10 cut points typed strictly between 0 and 1, at the temperature shown, a score equal to a cut point counting in the range above (`check_score_cut_points()`, `compute_score_ranges()`, route `/api/score_ranges`); it is counted again when the temperature changes, and starts from `0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99` (`DEFAULT_SCORE_CUT_POINTS`) until other cut points are typed. The **Save Thresholds At This Temperature** button writes `saved_temperature_thresholds.json` next to the page, in the format of this file (`build_class_thresholds_file()`), with the chosen temperature and the thresholds of every class found at it by `compute_temperature_thresholds()`, checked against `class_thresholds.json` (`check_saved_thresholds()`). The **Export At T = …** button exports the checkpoint at the saved temperature, with the formats, Triton version, maximum batch size and TensorRT precision chosen on the page (the defaults of the arguments of `export_model.py` shown first), in a separate process whose console output the page shows; one export runs at a time, and saving is refused while that checkpoint is exported. `explorer_export.py` writes the export into `<run>/Exports/Iteration_<n>[_EMA]_T<temperature>/`, a Triton model repository of its own, through a `.partial` folder holding its job and `export_log.txt`, then adds `export_record.json`; the finished folder replaces an earlier export of the same temperature. The export is `export_experiment()` with `use_saved_temperature` and `saved_thresholds_path`, which `check_saved_thresholds_location()` checks to be the evaluation of the exported run, iteration and weights, in its `Evaluation/` or `Checkpoint_Evaluation/` folder. Whether launched from the page or from `export_model.py`, `export_experiment()` exports and checks every format against the eager model in a staging folder next to the repository (`.export_staging_<random>/`, removed at the end), and moves the checked models into the repository only once all of them match (`install_staged_models()`), so that a failed check raises `The <format> Export Does Not Match The Eager Model, The Served Models Left Unchanged` and leaves the models of an earlier export as they were. Opened as a plain file, the page downloads the saved file instead, which `export_model.py` reads with `--use_saved_temperature` once it is placed next to the page.
+**Serving and saving.** In order to bring a temperature to deployment, run the serve script.
 
-**Example: `Evaluation/Iteration_6/class_thresholds.json`** (only `hexagon` reaches it, with a single image)
+```bash
+# Serve every evaluation of the experiments folders at http://127.0.0.1:8091/
+uv run python -m scripts.evaluation.serve_temperature_explorer
+```
+
+- It serves the evaluations of the root folders whose name holds `experiments` (`<run>/Evaluation/Iteration_<n>[/EMA]` and `<run>/Checkpoint_Evaluation/Iteration_<n>[/EMA]`), indexed by run, then iteration (newest first), with weights, evaluation kind, temperatures, saved temperature and exports.
+- Every page is rebuilt with the current template. With `class_logits.npz` any temperature from 0.05 to 100 can be typed (`check_logit_temperature()`, `LOGIT_TEMPERATURE_RANGE`); without it, only the slider ones (`Grid only`).
+- A page opens on its checkpoint's global metrics from the folder's `evaluation_summary.csv` (`describe_model_performance()`), with the best iteration by the first metric.
+- With `class_logits.npz`, a score ranges table gives per class the share of its images whose own score falls between 1 to 10 typed cut points in (0, 1), at the shown temperature (`compute_score_ranges()`, route `/api/score_ranges`; default `0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99`, `DEFAULT_SCORE_CUT_POINTS`).
+- **Save Thresholds At This Temperature** writes `saved_temperature_thresholds.json` next to the page, in this file's format (`build_class_thresholds_file()`), with the temperature and the thresholds of `compute_temperature_thresholds()`, checked against `class_thresholds.json` (`check_saved_thresholds()`). Opened as a plain file, the page downloads it instead; `export_model.py --use_saved_temperature` reads it once placed next to the page.
+- **Export At T = …** exports the checkpoint at the saved temperature with the formats, Triton version, maximum batch size and TensorRT precision chosen on the page, in a separate process whose console the page shows; one export at a time.
+- `explorer_export.py` writes `<run>/Exports/Iteration_<n>[_EMA]_T<temperature>/`, its own Triton model repository, through a `.partial` folder, with `export_log.txt` and `export_record.json`. It calls `export_experiment()` with `use_saved_temperature` and `saved_thresholds_path` (checked by `check_saved_thresholds_location()`).
+- `export_experiment()` checks every format against the eager model in a staging folder and installs them only when all match (`install_staged_models()`); otherwise `The <format> Export Does Not Match The Eager Model, The Served Models Left Unchanged`.
+
+The `class_thresholds.json` of iteration 6 is below (only `hexagon` reaches 0.99, with one image).
 ```text
 {
     "logit_temperature": 1.0,
     "target_precision": 0.99,
     "classes": {
         "square": null,
-        "circle": null,
-        "triangle": null,
-        "rectangle": null,
-        "pentagon": null,
+        ...
         "hexagon": {
             "threshold": 0.11630892753601074,
             "recall": 0.0017421602787456446          <- 1 of the 574 hexagons
@@ -1807,25 +1308,21 @@ So that a temperature reaches the deployment, `scripts/evaluation/serve_temperat
 ```
 
 ### Step 4.14 — `build_class_metrics_rows()` + `write_class_metrics_file()`
-Before the rows are built, `compute_recall_intervals()` gives the 95 % confidence interval of the recall of every class with `compute_clopper_pearson_intervals()` of `vision_training/evaluation/recall_intervals.py`: the test images being independent, the interval is the exact (Clopper-Pearson) one, from the beta quantiles of the true positives and the support of the class, leaving 2.5 % on each side. It covers the true recall at least 95 % of the time, is wider for a class with few images, and stays within [0, 1] (lower bound 0 for a recall of 0, upper bound 1 for a recall of 1). A class without test image has no interval. In multi-label mode, the counts are those of the positive samples of the class.
+- **Recall intervals.** `compute_recall_intervals()` gives each class the exact (Clopper-Pearson) 95 % interval of its recall (`compute_clopper_pearson_intervals()` of `vision_training/evaluation/recall_intervals.py`), from its true positives and support; none without test image.
+- **Curves** (only with `per_class_report`). `compute_class_score_curves()` gives every class, one against the rest, its ROC curve and ROC AUC and its precision-recall curve and average precision, as scikit-learn computes them. `compute_macro_curve_metrics()` averages them into `Macro ROC AUC` and `Macro Average Precision`; rows then hold `roc_auc` and `average_precision` after `f1`.
+- **Rows.** `build_class_metrics_rows()` merges per class, in class index order: support, precision, recall, `recall_lower`, `recall_upper`, F1, threshold and recall at the target precision, then `threshold_at_precision_<p>` and `recall_at_precision_<p>` for every other target. With several targets, `build_class_thresholds_table()` adds the `Per Class Thresholds` table.
+- `write_class_metrics_file()` writes `class_metrics.csv` (6 decimals, empty cell when missing) at every evaluation, whatever `per_class_report`, so all classes stay on disk.
 
-`build_class_metrics_rows()` merges, for every class, its support, precision, recall with the bounds of its interval (`recall_lower`, `recall_upper`), F1 and its threshold and recall at the target precision into one row, in class index order, followed by `threshold_at_precision_<p>` and `recall_at_precision_<p>` for every other target precision of a list. The per-class table of the report keeps the main target precision, and with several target precisions `build_class_thresholds_table()` adds the `Per Class Thresholds` table (class order, the threshold and recall of every target precision, the thresholds written as on `precision_recall_thresholds.png`). `write_class_metrics_file()` saves them as `class_metrics.csv`, with 6 decimals and an empty cell for a missing value. It is written at every evaluation, whatever `per_class_report`, so that the details of all the classes (a 1000 class run included) stay on the disk even when they are not displayed.
-
-With `per_class_report`, `compute_class_score_curves()` first scores every class one against the rest from the probabilities of the test images: the images are counted, positive or negative, at every distinct probability of the class, from the highest down, every probability being a threshold, which gives the ROC curve (false and true positive rates) with its trapezoidal area, the ROC AUC, and the step-wise precision-recall curve with its average precision (the precision of every threshold weighted by the recall it adds), as scikit-learn computes them. A class without image has neither, a class made of every image no ROC AUC. Their means over the classes defining them, `compute_macro_curve_metrics()`, are the `Macro ROC AUC` and `Macro Average Precision` headline metrics, placed after the other headline metrics and before the extra metrics of the task, and the rows then hold `roc_auc` and `average_precision` after `f1`. The first example below comes from the run of Stage 3, made before the curves, without these two columns; the second from the README run, with them.
-
-**Example: `Evaluation/Iteration_6/class_metrics.csv`**
+The Stage 3 run (before the curves) wrote this `class_metrics.csv` at iteration 6.
 ```text
 class_index,class,samples,precision,recall,f1,threshold_at_target_precision,recall_at_target_precision
 0,square,579,0.000000,0.000000,0.000000,,
-1,circle,544,0.000000,0.000000,0.000000,,
 2,triangle,548,0.109600,1.000000,0.197549,,
-3,rectangle,537,0.000000,0.000000,0.000000,,
-4,pentagon,557,0.000000,0.000000,0.000000,,
 5,hexagon,574,0.000000,0.000000,0.000000,0.116309,0.001742
 ...
 ```
 
-**Example: `Evaluation/Iteration_1500/class_metrics.csv` of the 9-class README run of 2026-10-23** (first rows)
+The 9-class README run of 2026-10-23 wrote these first rows at iteration 1500, with the curves.
 ```text
 class_index,class,samples,precision,recall,f1,roc_auc,average_precision,threshold_at_target_precision,recall_at_target_precision
 0,square,5543,0.820935,0.621144,0.707199,0.974022,0.823801,0.894590,0.000722
@@ -1836,11 +1333,15 @@ class_index,class,samples,precision,recall,f1,roc_auc,average_precision,threshol
 ```
 
 ### Step 4.15 — `save_confusion_matrix_image()` + `save_score_curve_images()`   (only with `per_class_report`)
-`save_score_curve_images()` draws the curves of Step 4.14 and saves them as `roc_curves.png` and `precision_recall_curves.png`, the same image arrays being returned to be logged to TensorBoard as `ROC Curves` and `Precision Recall Curves` (Step 4.18) and to MLflow (Step 4.19). Up to 10 classes, every class is a curve of its own colour on a single plot, its ROC AUC or average precision in the legend; above, every class has a small panel titled with its metric, 10 panels per row at most, and above 100 classes only the 100 classes with the lowest metric are drawn. The ROC curves come with the chance diagonal; the precision-recall curves with a dotted line at every target precision and a point at the recall and precision of the threshold of Step 4.13 on every class having one. The titles give the iteration and the macro mean. `precision_recall_thresholds.png` (TensorBoard `Precision Recall Thresholds`) draws the precision-recall curves again, zoomed on these points, and writes every threshold next to its point in the colour of its curve, rounded down to the fewest decimals (at least 4, at most 9 significant digits) that select the same images as the exact threshold, so that a threshold can be chosen from the image.
+`save_score_curve_images()` writes `roc_curves.png` and `precision_recall_curves.png` and returns them for TensorBoard (`ROC Curves`, `Precision Recall Curves`, 4.18) and MLflow (4.19).
+- Up to 10 classes one plot, above one panel per class (10 per row, the 100 lowest above 100 classes). Precision-recall curves mark every target precision and the threshold point of 4.13.
+- `precision_recall_thresholds.png` (`Precision Recall Thresholds`) zooms on these points and writes every threshold, rounded to the fewest decimals selecting the same images.
 
-`save_confusion_matrix_image()` draws the matrix with matplotlib and saves it as `confusion_matrix.png`; the same image array is returned to be logged to TensorBoard (Step 4.18). Rows are the true classes and columns the predicted ones. Each cell shows its count and its share of the true class, with a colour from white (0 %) to dark blue (100 %); a column on the right gives the recall of each class, a row at the bottom the precision of each class (grey for a class that is never predicted), and the corner the accuracy. The shares, recalls, precisions and accuracy are written as percentages with two decimals (`62.11 %`), the matrix taking 0.65 inch per class instead of 0.4 (still between 4 and 16 inches) so that they fit, and the colour bar goes from `0 %` to `100 %`. The numbers and the class names disappear for many classes (counts and shares up to 20 classes, counts up to 40, names up to 60), which is why it depends on `per_class_report`. Above 1,000 classes it is not drawn at all, even with `per_class_report`: the matrix is sparse (Step 4.9), the largest image gives its classes under 2.4 pixels each (a ninth of a pixel at 21,842 classes), and the drawing would need the dense counts and shares in float64, 3.8 GB each.
+`save_confusion_matrix_image()` writes `confusion_matrix.png` and returns it for TensorBoard.
+- Each cell shows its count and share of the true class (white to dark blue); a right column gives recall, a bottom row precision (grey when never predicted), the corner accuracy, all as percentages.
+- Counts and shares are shown up to 20 classes, counts up to 40, names up to 60. Above 1,000 classes it is not drawn (sparse matrix, 3.8 GB of dense float64 otherwise).
 
-**Example: `Evaluation/Iteration_12/confusion_matrix.png`** (1470 x 1432 pixels with the current cells, 1192 x 1155 when it was recorded)
+The `confusion_matrix.png` of iteration 12 (1470 x 1432 pixels with the current cells) reads:
 ```text
 title:    Confusion Matrix · Iteration 12 · Accuracy 10.96 % · Balanced Accuracy 11.11 %
 matrix:   9 x 9 cells, rows = true class, columns = predicted class
@@ -1852,23 +1353,10 @@ corner:   Accuracy 10.96 %
 colour bar: 0 % to 100 %
 ```
 
-**Example: the curve images of the 9-class README run of 2026-10-23, `Evaluation/Iteration_1500/`** (1125 x 975 pixels each, 9 classes on one plot)
-```text
-roc_curves.png               title "ROC Curves · Iteration 1500", "Macro ROC AUC 98.92 %" on its second line, the
-                             chance diagonal dashed, legend "Class · ROC AUC": square · 97.40 % ... rectangle · 97.23 %
-                             ... octagon · 97.22 %
-precision_recall_curves.png  title "Precision-Recall Curves · Iteration 1500", "Macro Average Precision 90.74 %" on its
-                             second line, the dotted line "Target Precision 99 %", a point "Threshold Reaching 99 %"
-                             on the 8 classes having one (rectangle has none), legend "Class · Average Precision":
-                             rectangle · 70.23 %
-both images                  axes from 0 % to 100 %; the thresholds written on precision_recall_thresholds.png stay
-                             between 0 and 1
-```
-
 ### Step 4.16 — `write_predictions_file()`   (only with `save_predictions`)
-This writes `predictions.csv`, one row per test image: its file name (`describe_sample()` of the dataset), its true and predicted classes, whether the prediction is right and the probability of every class. The errors and the thresholds can then be studied again without running the model. The file grows with the number of test images times the number of classes, which is why it is optional.
+It writes `predictions.csv`, one row per test image: file name (`describe_sample()`), true and predicted classes, correctness, probability of every class. Errors and thresholds can then be studied without the model. Its size is test images × classes, hence optional.
 
-**Example: `Evaluation/Iteration_6/predictions.csv`** (5,000 rows, 585,792 bytes; first rows, columns shortened)
+The first rows of iteration 6 (5,000 rows, 585,792 bytes, columns shortened) are below.
 ```text
 sample,true_class,predicted_class,correct,probability_square,probability_circle,probability_triangle, ... ,probability_octagon
 test_000612.png,triangle,triangle,1,0.111758,0.105057,0.116420, ... ,0.115801
@@ -1876,50 +1364,19 @@ test_000662.png,plus_sign,triangle,0,0.111758,0.105057,0.116420, ... ,0.115801
 ```
 
 ### Step 4.17 — `build_class_metrics_table()` + `build_class_metric_scalars()`
-These prepare what is displayed, without displaying it. `build_class_metrics_table()` returns the per-class table: the columns (with `per_class_report`, `ROC AUC` and `Average Precision` after the F1), one row per class, the sort column (F1, worst first, ties in class order, a class without test sample last and shown with a dash), and the legend; with `in_percent`, its `percent_columns` (every column but the class, its samples and the threshold) are written as percentages (`82.09 %`) and the target precision of its headers and legend as `99 %`, the rows keeping their values between 0 and 1 so that the sort is unchanged. `build_recall_interval_table()` of `recall_intervals.py` returns the `Per Class Recall` table, shown after the per-class table and before the `Per Class Thresholds` table: the class, its samples, its recall and the bounds of its interval (`95 % Lower`, `95 % Upper`), all three written as percentages, read from the rows of `class_metrics.csv`, sorted by recall, worst first (a class without test sample last and shown with a dash), with a legend naming the interval. `build_class_metric_scalars()` returns one TensorBoard scalar per class and metric, with `per_class_report` also `ROC AUC/<class>` and `Average Precision/<class>` for the classes defining them (the example below predates them). Both are marked as per-class outputs: the reporter shows them only with `per_class_report`.
-
-**Example: the per-class scalars of the 9 classes**
-```text
-Precision/square, Recall/square, F1/square, Precision/circle, ... , F1/octagon       27 scalars (9 classes x 3 metrics)
-```
-With the curves, the 9-class README run of 2026-10-23 writes 45 per-class scalars (9 classes x 5 metrics), the 35-class README run 175: `Precision/square`, `Recall/square`, `F1/square`, `ROC AUC/square`, `Average Precision/square`, `Precision/circle`, ...
+These prepare the display without displaying. The reporter shows their outputs only with `per_class_report`.
+- `build_class_metrics_table()`: the per-class table (with `per_class_report`, `ROC AUC` and `Average Precision` after F1), sorted by F1, worst first, ties in class order, a class without sample last with a dash. With `in_percent`, its `percent_columns` (all but class, samples and threshold) print as percentages and the target as `99 %`; the rows keep 0 to 1 so the sort is unchanged.
+- `build_recall_interval_table()` (`recall_intervals.py`): the `Per Class Recall` table, after the per-class table and before `Per Class Thresholds`. Class, samples, recall, `95 % Lower`, `95 % Upper` as percentages, from `class_metrics.csv`, worst recall first, with a legend naming the interval.
+- `build_class_metric_scalars()`: one TensorBoard scalar per class and metric, plus `ROC AUC/<class>` and `Average Precision/<class>` with `per_class_report`.
+The 9 classes of the Stage 3 run give 27 scalars (3 metrics); with the curves, the 9-class README run writes 45 (9 x 5), the 35-class README run 175.
 
 ### Step 4.18 — `report_evaluation()` → `report_evaluation_results()`
-This shows the results in four places. The scalars (the global metrics, and with `per_class_report` the per-class scalars) are written to `Tensorboard/Test` at the iteration of the checkpoint, with the sample images and, with `per_class_report`, the confusion matrix image and the ROC, precision-recall and threshold curve images. The report block (header, global metrics, notes and tables) is appended as plain text to `Results.txt`, which accumulates one block per evaluation. Its global metrics listed in the `percent_metrics` of the results (every headline metric of the classification) and the `percent_columns` of its tables are written as percentages with two decimals (`format_percentage()` of `report_formatting.py`), the other numbers with 4 decimals; the scalars sent to TensorBoard and MLflow stay between 0 and 1. The same block is printed in colour in the console, followed by the links of the files written by the evaluation. With `per_class_report: False`, the block stops after the global metrics and the notes, and the per-class scalars, the tables, the images and the curve metrics are left out; `class_metrics.csv`, `class_thresholds.json` and `confusion_matrix.csv` are still written. `report_evaluation()` then sends the evaluation to MLflow (Step 4.19) and calls `update_evaluation_curves()`, which writes the scalars into the row of the iteration of `Evaluation/evaluation_summary.csv`, draws `evaluation_curves.png` next to `Results.txt` again from every row and prints its link (`Evaluation Curves` below), sending both files to MLflow with the tracking on ([training reference, Run Folder](../reference/training_reference.md#run-folder)).
+The results go to four places.
+- `Tensorboard/Test`: global scalars, sample images, and with `per_class_report` the per-class scalars and images.
+- `Results.txt` and the console: the report block (header, global metrics, notes, tables), percentages by `format_percentage()` of `report_formatting.py`, then in the console the file links. With `per_class_report: False` the block stops after the global metrics and notes.
+- MLflow (4.19). Then `update_evaluation_curves()` writes the iteration's row of `Evaluation/evaluation_summary.csv`, redraws `evaluation_curves.png` next to `Results.txt`, prints its link and sends both to MLflow ([training reference, Run Folder](../reference/training_reference.md#run-folder)).
 
-**Example output: the block of iteration 6** (the same text, without the links, is appended to `Results.txt`; recorded before the curves, see the block of the README run below for the current layout)
-```text
-Iteration 6 · 5000 Test Images · 2026-10-09 09:53 ──────────────────────────────────────────────────────────────────
-  Accuracy   10.96 %   Balanced Accuracy   11.11 %
-  Macro F1   2.19 %    Top-2 Accuracy      22.44 %
-  Error Images : 160 in 8 class pairs, at most 20 per pair
-  Sample Images : 8 fixed test images
-
-  Per Class Metrics
-                                                          Threshold    Recall
-   Class       Samples   Precision     Recall        F1     @ P99 %   @ P99 %
-  ────────────────────────────────────────────────────────────────────────────
-   square          579      0.00 %     0.00 %    0.00 %           —         —
-   circle          544      0.00 %     0.00 %    0.00 %           —         —
-   rectangle       537      0.00 %     0.00 %    0.00 %           —         —
-   pentagon        557      0.00 %     0.00 %    0.00 %           —         —
-   hexagon         574      0.00 %     0.00 %    0.00 %      0.1163    0.17 %
-   plus_sign       545      0.00 %     0.00 %    0.00 %           —         —
-   star            526      0.00 %     0.00 %    0.00 %           —         —
-   octagon         590      0.00 %     0.00 %    0.00 %           —         —
-   triangle        548     10.96 %   100.00 %   19.75 %           —         —
-  Worst F1 first, ties in class order. — : no samples of the class, or the precision 99 % is never reached.
-  - Results : file:///.../Results.txt
-  - Confusion Matrix Table : file:///.../Evaluation/Iteration_6/confusion_matrix.csv
-  - Class Thresholds : file:///.../Evaluation/Iteration_6/class_thresholds.json
-  - Class Metrics : file:///.../Evaluation/Iteration_6/class_metrics.csv
-  - Confusion Matrix Image : file:///.../Evaluation/Iteration_6/confusion_matrix.png
-  - Predictions : file:///.../Evaluation/Iteration_6/predictions.csv
-  - Error Images : file:///.../Evaluation/Iteration_6/Errors
-  - Sample Images : file:///.../Evaluation/Iteration_6/Samples
-```
-
-**Example output: the block of iteration 2000 of the README run**, recorded on 2026-11-19 (its `Results.txt`, then the links the console prints after it, shown by their names; the error images were off, and the tables of the 35 classes are cut after their first rows).
+The block of iteration 2000 of the README run (2026-11-19, error images off, tables cut) is below; the same text, without the links, goes to `Results.txt`. The CPU run's blocks show `Top-2 Accuracy` and an `Error Images : 160 in 8 class pairs, at most 20 per pair` note.
 ```text
 Iteration 2000 · 50000 Test Images · 2026-11-19 20:20 ──────────────────────────────────────────────────────────────────
   Accuracy        81.76 %   Balanced Accuracy         81.65 %
@@ -1933,7 +1390,6 @@ Iteration 2000 · 50000 Test Images · 2026-11-19 20:20 ────────
   ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
    trapezoid                 1387     38.52 %   17.66 %   24.22 %    97.11 %     38.31 %           —         —
    rhombus                   1425     52.00 %   36.49 %   42.89 %    97.86 %     50.69 %      0.7118    0.14 %
-   hollow_trapezoid          1424     40.88 %   51.76 %   45.68 %    97.67 %     45.51 %      0.7281    0.21 %
    ...                     (35 rows, worst F1 first)
   Worst F1 first, ties in class order. — : no samples of the class, no negative for the ROC AUC, or the precision 99 %
   is never reached.
@@ -1944,26 +1400,16 @@ Iteration 2000 · 50000 Test Images · 2026-11-19 20:20 ────────
   ──────────────────────────────────────────────────────────────
    trapezoid                 1387   17.66 %   15.69 %   19.77 %
    rhombus                   1425   36.49 %   33.99 %   39.05 %
-   hollow_parallelogram      1382   43.85 %   41.21 %   46.51 %
    ...                     (35 rows, worst recall first)
   Worst Recall first, ties in class order. 95 % Lower and Upper : exact (Clopper-Pearson) interval, the counted samples
   being independent. — : no samples of the class.
   - Results : Results.txt
   - Confusion Matrix Table : confusion_matrix.csv
-  - Class Thresholds : class_thresholds.json
-  - Class Metrics : class_metrics.csv
-  - Confusion Matrix Image : confusion_matrix.png
-  - ROC Curves Image : roc_curves.png
-  - Precision Recall Curves Image : precision_recall_curves.png
-  - Precision Recall Thresholds Image : precision_recall_thresholds.png
-  - Temperature Explorer : temperature_explorer.html
-  - Class Logits : class_logits.npz
-  - Predictions : predictions.csv
-  - Sample Images : Samples
+  ...                                (one link per file of the evaluation)
   - Evaluation Curves : evaluation_curves.png
 ```
 
-**Example: what the run folder holds after the two evaluations, and the Test curves**
+The block below shows the run folder and the Test curves after the two evaluations of the Stage 3 run.
 ```text
 Results.txt                                   one block per evaluation (iterations 6 and 12)
 Evaluation/Iteration_6/                       Errors/  Samples/  class_metrics.csv  class_thresholds.json  confusion_matrix.csv
@@ -1973,17 +1419,19 @@ Evaluation/Iteration_12/                      the same files for the checkpoint 
 Tensorboard/Test: 31 scalars (4 global + 27 per class), 9 images
     scalar Accuracy          6: 0.1096, 12: 0.1096
     scalar Top-2 Accuracy    6: 0.2244, 12: 0.2276
-    scalar Precision/square  6: 0.0000, 12: 0.0000
     ...
     image  Samples/test_000010 ... Samples/test_000006    steps [6, 12]     (the 8 sample images)
     image  Confusion Matrix                               steps [6, 12]
 ```
-The `Tensorboard/Test` of the 9-class README run of 2026-10-23 holds 51 scalars (6 global + 45 per class) and 11 images (the 8 samples, `Confusion Matrix`, `ROC Curves` and `Precision Recall Curves`), at the steps 500, 1000 and 1500, and its evaluation folders also hold `roc_curves.png` and `precision_recall_curves.png`. The tree above was recorded before the evaluation summary: a run of the code of this document also holds `Evaluation/evaluation_summary.csv` and `evaluation_curves.png`.
+The 9-class README run holds 51 scalars (6 global + 45 per class) and 11 images (8 samples, `Confusion Matrix`, `ROC Curves`, `Precision Recall Curves`) at steps 500, 1000 and 1500. The current code also writes `Evaluation/evaluation_summary.csv` and `evaluation_curves.png`.
 
 ### Step 4.19 — `track_evaluation()`
-With the MLflow tracking on, this sends the evaluation to the MLflow run at the iteration of the checkpoint: the global scalars as `test/<name>`, the per-class scalars as `test_class/<name>` only with `per_class_report` (they would be thousands for 1000 classes), the best value so far of the headline metric as `test/best_<metric>` with the tag `best_iteration` (for the averaged weights `test_ema/best_<metric>` with the tag `best_iteration_test_ema`), and the small evaluation files (`TRACKED_EVALUATION_FILES` of `base_trainer.py`: `class_metrics.csv` and `class_thresholds.json`, and with `per_class_report` `confusion_matrix.png`, `roc_curves.png`, `precision_recall_curves.png` and `precision_recall_thresholds.png`) under `evaluation/iteration_<n>/` (`evaluation/iteration_<n>/ema/` for the averaged weights). The predictions, the error images and the sample images grow with the test split, so they stay in the run folder only. Without tracking it does nothing. The example below was recorded before the curves.
+With MLflow on, it sends at the checkpoint iteration:
+- global scalars as `test/<name>`; per-class scalars as `test_class/<name>` only with `per_class_report` (thousands for 1000 classes otherwise);
+- the best headline value so far as `test/best_<metric>` with tag `best_iteration` (`test_ema/best_<metric>` and `best_iteration_test_ema` for averaged weights);
+- the small files (`TRACKED_EVALUATION_FILES` of `base_trainer.py`: `class_metrics.csv`, `class_thresholds.json`, and with `per_class_report` `confusion_matrix.png`, `roc_curves.png`, `precision_recall_curves.png`, `precision_recall_thresholds.png`) under `evaluation/iteration_<n>/` (`ema/` below it for averaged weights).
 
-**Example: what MLflow received at iteration 6**
+Predictions, error and sample images stay in the run folder only. Without tracking it does nothing. What MLflow received at iteration 6 (before the curves) is below.
 ```text
 step 6: {'test/Accuracy': 0.1096, 'test/Balanced Accuracy': 0.1111, 'test/Macro F1': 0.0219, 'test/Top-2 Accuracy': 0.2244,
          'test_class/Precision/square': 0.0, 'test_class/Recall/square': 0.0, ... (27 values)}
@@ -1991,41 +1439,50 @@ test/best_Accuracy: step 6 -> 0.1096, step 12 -> 0.1096      tag best_iteration 
 artifacts: evaluation/iteration_6/class_metrics.csv, class_thresholds.json, confusion_matrix.png
 ```
 
-
 ---
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> The examples below are real outputs of this script logic run on the run of Stage 3 (checkpoints saved at iterations 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step), with `iteration = "all"` and, to keep it short, a test folder of 300 images taken from the test split (`test_data_folder`), instead of the 5,000 images of Stage 4. They were also captured before the per-class recall intervals were added (2026-11-01): the block of Step 5.6 now also holds the `Per Class Recall` table after `Per Class Metrics`, and `class_metrics.csv` the `recall_lower` and `recall_upper` columns after `recall`. They also predate the folder of its own of another split (2026-11-20): the 300-image test folder, not the test split of the run, would now be written to `Checkpoint_Evaluation_split_<parent folder>_test_300/` rather than `Checkpoint_Evaluation/`.
+> The outputs below come from this script on the Stage 3 run (checkpoints at 3, 6, 9 and 12, captured when 3, 6 and 9 were saved before their step), with `iteration = "all"` and a 300-image test folder taken from the test split (`test_data_folder`). They predate the recall intervals (2026-11-01: the block of Step 5.6 now adds the `Per Class Recall` table, `class_metrics.csv` the `recall_lower` and `recall_upper` columns) and the folder per split (2026-11-20: this 300-image folder would now go to `Checkpoint_Evaluation_split_<parent folder>_test_300/`).
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-This separate script evaluates checkpoints of a run that has already been trained (or is still training) without training anything: to compare several checkpoints, to pick the one to deploy, or to score a run on another labelled split. It is launched alone, as a module from the root of the repository (`uv run python -m scripts.evaluation.evaluate_checkpoint`), and has no command line: its settings are the variables at the top of its `__main__` block. The files of the run are only read; everything the evaluation writes goes to the `Checkpoint_Evaluation/` folder of the run, next to the `Evaluation/` folder of the training, or, for another labelled split, to a folder of its own named after it, `Checkpoint_Evaluation_split_<parent folder>_<split folder>/` (e.g. `Checkpoint_Evaluation_split_synthetic_shapes_validation`), so that the evaluations of two splits never mix.
+If one wishes to compare checkpoints, pick one to deploy, or score a run on another labelled split, this script evaluates checkpoints of a trained (or training) run without training.
+- It has no command line: its settings are the variables at the top of its `__main__` block.
+- The run's files are only read. Everything goes to `<run>/Checkpoint_Evaluation/`, next to the training's `Evaluation/`, or for another labelled split to `Checkpoint_Evaluation_split_<parent folder>_<split folder>/` (e.g. `Checkpoint_Evaluation_split_synthetic_shapes_validation`), so two splits never mix.
 
-**Example: the settings of the script** (`run_name` and `experiment_folder` of the file name the last evaluated run, change them for another run)
+```bash
+# Evaluate the checkpoints named in the main block
+uv run python -m scripts.evaluation.evaluate_checkpoint
+```
+
+This table lists the settings of the main block (`run_name` and `experiment_folder` name the last evaluated run; change them for another run).
 
 | Variable | Role |
 |---|---|
-| `run_name` | the trained run, `<experiments>/<run_name>` (`experiment_folder`, `<experiments>` being the `experiment_folder` of its configuration file), with its `Weights/` and its `training_configuration.yaml` |
-| `iteration` | `"all"` for every checkpoint of the registry, the last saved first; `None` for the last checkpoint; an integer for one checkpoint |
-| `test_data_folder` | another labelled split to evaluate instead of the test split of the run, `None` to keep the test split of the run |
-| `batch_size` | batch size of the evaluation, `128` by default (no gradient is kept, so it can be larger than the training one), `None` to keep the one of the run |
-| `track_evaluation` | `True` or `False` to track the evaluation in an MLflow run of its own, `None` to keep `tracking.activated` of the run |
-| `save_predictions` | `True` or `False` to write `predictions.csv` in every evaluated iteration folder (Step 4.16), read by the chart of the groups seen and never seen in training of `draw_report_figures.py` (Step 5.7); `None` to keep `evaluation.save_predictions` of the run (`apply_save_predictions()`) |
-| `maximum_error_images_per_class_pair` | turns the error images on with at most this number of images per pair of true and predicted classes, the first ones met, a number above the number of test samples saving every error; `None` to keep `evaluation.error_dumps` of the run |
-| `target_precisions` | the precision of the class thresholds, or a list of distinct precisions whose first one is the main target (e.g. `[0.99, 0.95, 0.90]`, Step 4.13), checked like the configuration (`apply_target_precisions()`); `None` to keep `evaluation.target_precision` of the run |
-| `nms_criterion`, `nms_distance_exponent` | the final non-maximum suppression of the detection tasks; skipped with a warning for a classifier |
+| `run_name` | the trained run, `<experiments>/<run_name>` (`experiment_folder`, the `experiment_folder` of its configuration), with `Weights/` and `training_configuration.yaml` |
+| `iteration` | `"all"`: every checkpoint of the registry, last first; `None`: the last; an integer: one checkpoint |
+| `test_data_folder` | another labelled split instead of the run's test split; `None` keeps the test split |
+| `batch_size` | evaluation batch size, `128` by default (no gradients, so it can exceed the training one); `None` keeps the run's |
+| `track_evaluation` | `True`/`False` for an MLflow run of its own; `None` keeps `tracking.activated` |
+| `save_predictions` | `True`/`False` for `predictions.csv` per iteration (4.16), read by the seen and never seen groups chart of `draw_report_figures.py` (5.7); `None` keeps `evaluation.save_predictions` (`apply_save_predictions()`) |
+| `maximum_error_images_per_class_pair` | turns error images on with at most this many per class pair, the first met (a number above the test samples saves every error); `None` keeps `evaluation.error_dumps` |
+| `target_precisions` | precision of the class thresholds, or a list of distinct precisions whose first is the main target (e.g. `[0.99, 0.95, 0.90]`, 4.13), checked like the configuration (`apply_target_precisions()`); `None` keeps `evaluation.target_precision` |
+| `nms_criterion`, `nms_distance_exponent` | final non-maximum suppression of the detection tasks; skipped with a warning for a classifier |
 
 ### Step 5.2 — `load_experiment_configuration()` + `get_trainer_class()` + trainer construction (same as Stages 1–2)
-The script loads `training_configuration.yaml` of the trained run, the copy that the training saved (Step 2.6), through the same loader as Stage 1 (conversion, label dictionary, checks), the label dictionary being read from the `label_dictionary.json` saved next to it, so that the classes of the run keep their meaning when the mapping file was edited or moved since (a run started before the file existed takes the mapping file). It then sets `test_data_folder` (`apply_test_data_folder()`, which gives the `_split_<parent folder>_<split folder>` suffix of the folder when the split is not the test split of the run), `batch_size`, `tracking.activated`, `evaluation.save_predictions`, `evaluation.error_dumps` (turned on with `maximum_error_images_per_class_pair`) and `evaluation.target_precision` (`target_precisions`) when they are given, and points the trainer to the `Checkpoint_Evaluation/` folder of the run with `point_to_checkpoint_evaluation()`, `check_evaluation_folder_split()` refusing a folder whose `data.json` records another test split (`ValueError`, e.g. a `Checkpoint_Evaluation/` folder written by the evaluation of another split before every split had its own folder): `experiment_folder` becomes the folder holding the run, `run_name` the name of the evaluated run folder (the trainer otherwise builds the name from the settings, which lose the `PT` tokens once the transfer is turned off) and `standalone_evaluation_folder` is set to `Checkpoint_Evaluation`, so that the trainer writes in `<run>/Checkpoint_Evaluation/`, with its iteration folders directly in it, and creates no `Weights/` folder. It finally calls `disable_pretrained_settings()`: the weights come from the evaluated checkpoint, so the source runs the training started from are neither loaded nor needed anymore. It builds the same trainer as for a training (Stage 2) with the same model architecture and the same sample images, which creates `<run>/Checkpoint_Evaluation/` with its copy of the configuration, `data.json` and `label_dictionary.json`. The trainer keeps a `DisabledTracker` until Step 5.4.
+- It loads the run's saved `training_configuration.yaml` (2.6) through the Stage 1 loader, classes from the `label_dictionary.json` next to it.
+- When given, it sets `test_data_folder` (`apply_test_data_folder()`, which gives the `_split_<parent folder>_<split folder>` suffix for another split), `batch_size`, `tracking.activated`, `evaluation.save_predictions`, `evaluation.error_dumps` (on with `maximum_error_images_per_class_pair`) and `evaluation.target_precision` (`target_precisions`).
+- `point_to_checkpoint_evaluation()` sets `experiment_folder` to the folder holding the run, `run_name` to the evaluated folder name (a built name would lose its `PT` tokens) and `standalone_evaluation_folder` to `Checkpoint_Evaluation`. No `Weights/` is created.
+- `check_evaluation_folder_split()` raises a `ValueError` when the folder's `data.json` records another test split. `disable_pretrained_settings()` turns off the transfer.
+- It builds the Stage 2 trainer, which writes the configuration copy, `data.json` and `label_dictionary.json` into the folder.
 
-**Example output:** the construction prints the launch panel of Step 2.22 with the evaluation folder. The evaluation folder holds no weights, so no model is loaded here: the weights are loaded by Step 5.5.
+The construction prints the launch panel of Step 2.22 with the evaluation folder. No weights are loaded here (Step 5.5 does it).
 ```text
 tracking in the saved configuration: {'activated': True, 'tracking_uri': None, 'experiment_name': None}
 - Run Name                : CLS_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128_MC9
 - Experiment Folder       : file:///.../runs/CLS_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128_MC9/Checkpoint_Evaluation
 ...
 - Test Data Folder        : file:///.../test_300 (300 images, 9 categories)
-- Iterations Per Epoch    : 782
 - Batch Size              : 128
 ...
 - MLflow Tracking         : sqlite:///.../runs/mlflow.db
@@ -2034,12 +1491,15 @@ No Initiation Model Weights Will Be Used...
 We Generate A New Model That Will Be Trained From Scratch.
 -----------------------------------------------------------
 ```
-The `MLflow Tracking` line of the panel names the database of the trained run, where the MLflow run of the evaluation is written (Step 5.4): the script moves the trainer to the `Checkpoint_Evaluation/` folder of the run, but `tracking_root` keeps the experiments root folder of the configuration of the run, which `start_evaluation_tracking()` also uses, so that a run folder moved or archived since its training is still evaluated in the database of its training run.
+`MLflow Tracking` names the trained run's database: `tracking_root` keeps the experiments root of the run's configuration, so a moved or archived run folder is still evaluated in its training database.
 
 ### Step 5.3 — `get_checkpoint_iterations()` / `get_last_checkpoint_iteration()`
-They read the registry `Weights/full-checkpoint` of the trained run (Step 2.27) to decide which iterations are evaluated, called by `list_evaluated_iterations()` before the configuration is loaded (Step 5.2), so that nothing is written for a run that cannot be evaluated: `get_checkpoint_iterations()` lists every recorded iteration, intermediate checkpoints included, and the script reverses the list (`iteration = "all"`), so that the most trained weights are evaluated first; `get_last_checkpoint_iteration()` gives the last one (`iteration = None`), and an integer iteration is used as given. When none of these iterations has its weight file, as for a run stopped before its first save (no registry, the last iteration being then 0) or an integer iteration without checkpoint, the script stops with a `FileNotFoundError` naming the `Weights/` folder and the iterations of its registry.
+`list_evaluated_iterations()` calls them on the registry `Weights/full-checkpoint` (2.27) before the configuration is loaded, so nothing is written for a run that cannot be evaluated.
+- `"all"`: `get_checkpoint_iterations()` lists every recorded iteration, intermediate ones included, reversed so the most trained weights come first.
+- `None`: `get_last_checkpoint_iteration()`. An integer is used as given.
+- When none of the iterations has its weight file (a run stopped before its first save, an integer without checkpoint), a `FileNotFoundError` names the `Weights/` folder and the registry iterations.
 
-**Example output** (registry of the run of Stage 3)
+The Stage 3 registry gives:
 ```text
 get_checkpoint_iterations(weights_directory=...)      -> [3, 6, 9, 12]
 get_last_checkpoint_iteration(weights_directory=...)  -> 12
@@ -2047,9 +1507,9 @@ iteration = "all"  -> evaluated_iterations = [12, 9, 6, 3]
 ```
 
 ### Step 5.4 — `evaluate_checkpoints()` → `start_evaluation_tracking()`
-This function wraps the evaluations in an MLflow run of their own. `start_evaluation_tracking()` creates it when the tracking is on: a new run named `<run name>-evaluation`, in the database (or server) and the MLflow experiment of the trained run, with the parameters of the trainer and tags naming the evaluated run folder, the evaluated split, the evaluated iterations and, through `mlflow_run.json` of the trained run, its MLflow run (`evaluation_of`). The MLflow run of the training is only read, so that an evaluation on another split never mixes into its curves. `evaluate_checkpoints()` then runs Step 5.5, every evaluation sending `evaluation_summary.csv` and `evaluation_curves.png` to the MLflow run again as soon as they are written, and closes the run with its status, whatever ends the evaluation.
+With tracking on, `start_evaluation_tracking()` creates an MLflow run `<run name>-evaluation` in the trained run's backend and experiment, tagged with the evaluated folder, split, iterations and training run (`evaluation_of`, from `mlflow_run.json`). The training MLflow run is never modified. `evaluate_checkpoints()` runs Step 5.5 and closes the run with its status.
 
-**Example: the MLflow run of the evaluation**
+The MLflow run of the evaluation is below.
 ```text
 MLflow Run Created In The Experiment 'classification' : 6b1db68d415d41d692a29f7b87fd4b69 (Browse : mlflow ui --backend-store-uri sqlite:///.../runs/mlflow.db)
 
@@ -2061,12 +1521,17 @@ metrics:  test/Accuracy, test/Balanced Accuracy, test/Macro F1, test/Top-2 Accur
 artifacts: evaluation/iteration_12/, iteration_9/, iteration_6/, iteration_3/ (3 files each), evaluation_summary.csv,
            metric_names.json
 ```
-`test/best_Accuracy` is the best value of the checkpoints evaluated so far, in the order of the evaluation: 0.1000 at step 12, then 0.1133 at steps 9, 6 and 3. MLflow summarises a metric by its value at its highest step, so the table of the runs shows 0.1000, the value of step 12, while the tag `best_iteration` is 9: the evaluation going from the highest iteration down, the best value is only right in the history of the metric. These artifacts also predate the curves, which add `roc_curves.png`, `precision_recall_curves.png` and `precision_recall_thresholds.png` to every `evaluation/iteration_<n>/` with `per_class_report`, and `evaluation_curves.png` next to `evaluation_summary.csv`.
+`test/best_Accuracy` is the best so far in evaluation order (0.1000 at step 12, then 0.1133). MLflow shows a metric's value at the highest step, so its runs table gives 0.1000 while `best_iteration` is 9.
 
 ### Step 5.5 — `summarise_checkpoint_evaluations()`
-For each iteration, in order, this function loads the weights of `Weights/Iteration_N/model_<N on 6 digits>.pt` of the trained run into the model of the trainer (a missing file is skipped with a warning, and a `FileNotFoundError` closes the MLflow run as failed when every file is missing), evaluates it (Step 5.6) and keeps the headline metric of the results. Every evaluation adds the row of its iteration to `Checkpoint_Evaluation/evaluation_summary.csv`, one column per scalar, the rows in increasing iteration order with those of the earlier launches into the folder, and draws `Checkpoint_Evaluation/evaluation_curves.png` again (`BaseTrainer.update_evaluation_curves`, [training reference, Run Folder](../reference/training_reference.md#run-folder)). After the last checkpoint, the function prints the summary and the curves, then the iteration with the best headline metric (the accuracy for the classification, the higher the better), or every tied iteration in the evaluation order, as `Best Checkpoint : iterations 12, 9 tie (Accuracy <value>)`, when several checkpoints share the best value; the value is written like in the report, as a percentage when the headline metric is one of the `percent_metrics` of the results (`Accuracy 81.76 %` for the README run at iteration 2000), while `evaluation_summary.csv` keeps every scalar between 0 and 1. The per-class columns are only in the summary when `per_class_report` is on. With the moving average of the weights on, `run_test_evaluation()` also returns the results of the averaged weights: their scalars follow as `ema_<scalar>` columns with their number of updates in `ema_number_updates`, and a second line `Best Checkpoint (EMA Weights) : iteration <n> (Accuracy <value>)` is printed.
+For each iteration, in order:
+- It loads `Weights/Iteration_N/model_<N on 6 digits>.pt` into the trainer's model. A missing file is skipped with a warning; when every file is missing, a `FileNotFoundError` closes the MLflow run as failed.
+- It evaluates (5.6) and keeps the headline metric.
+- Each evaluation adds its row to `Checkpoint_Evaluation/evaluation_summary.csv` (rows in increasing iteration order, per-class columns only with `per_class_report`) and redraws `evaluation_curves.png` (`BaseTrainer.update_evaluation_curves`, [training reference, Run Folder](../reference/training_reference.md#run-folder)).
 
-**Example output** (after the four evaluations)
+At the end it prints the summary, the curves and the best iteration by headline metric, ties listed (`Best Checkpoint : iterations 12, 9 tie (Accuracy <value>)`). With the weight moving average on, `ema_<scalar>` columns and `ema_number_updates` follow, and a line `Best Checkpoint (EMA Weights) : iteration <n> (Accuracy <value>)` is printed.
+
+The output after the four evaluations is below.
 ```text
 Evaluation Summary Of 4 Checkpoints : file:///.../runs/CLS_IN-KAR-64_..._MC9/Checkpoint_Evaluation/evaluation_summary.csv
   - Evaluation Curves : file:///.../runs/CLS_IN-KAR-64_..._MC9/Checkpoint_Evaluation/evaluation_curves.png
@@ -2082,9 +1547,12 @@ iteration,Accuracy,Balanced Accuracy,Macro F1,Top-2 Accuracy,Precision/square,Re
 ```
 
 ### Step 5.6 — `run_test_evaluation()` for each checkpoint
-This is exactly the function of Stage 4, so a checkpoint evaluated here gives the same block in the console and in `Results.txt`, the same TensorBoard curves (`Tensorboard/Test`), the same sample images and the same evaluation files (`Iteration_N/`, as in `Evaluation/` during the training) as during the training, only in `<run>/Checkpoint_Evaluation/` for the test split of the run, and tracked in the MLflow run of the evaluation. Another split gets a folder of its own, `<run>/Checkpoint_Evaluation_split_<parent folder>_<split folder>/` (`apply_test_data_folder()`), and a folder holding the evaluations of another split is refused (`check_evaluation_folder_split()`). Evaluating the same split twice reuses its folder: `Results.txt` receives new blocks, the files of the `Iteration_N` folders are rewritten and the error images of the evaluated checkpoint are replaced. With `per_class_report`, a classifier evaluated here also gets its `temperature_explorer.html` and `class_logits.npz`, which `serve_temperature_explorer.py` lists with those of the training (Step 4.13): the thresholds saved on its page land in this `Iteration_N` folder, one of the two folders where `export_model.py` looks for them with `use_saved_temperature` (`find_saved_thresholds_path()`, which refuses the export when both `Evaluation/` and `Checkpoint_Evaluation/` hold a saved file for the checkpoint). The tree below was recorded before the curves and the temperature explorer.
+The Stage 4 function, so the console and `Results.txt` block, `Tensorboard/Test`, sample images and `Iteration_N/` files are the same as in training, only in `<run>/Checkpoint_Evaluation/` and tracked in the evaluation MLflow run.
+- Another split gets `<run>/Checkpoint_Evaluation_split_<parent folder>_<split folder>/` (`apply_test_data_folder()`); a folder holding another split is refused (`check_evaluation_folder_split()`).
+- Evaluating the same split again reuses its folder: new `Results.txt` blocks, rewritten `Iteration_N` files, replaced error images.
+- With `per_class_report`, a classifier also gets `temperature_explorer.html` and `class_logits.npz`, listed by `serve_temperature_explorer.py` (4.13). Thresholds saved there land in this `Iteration_N` folder, one of the two places `export_model.py` searches with `use_saved_temperature` (`find_saved_thresholds_path()`, which refuses the export when both `Evaluation/` and `Checkpoint_Evaluation/` hold a saved file for the checkpoint).
 
-**Example output: the block of the checkpoint of iteration 9 on the 300 images** (the console prints the same links as in Step 4.18, then the next checkpoint starts with its `Evaluating :` line)
+The block of iteration 9 on the 300 images and the folder tree below predate the curves and the temperature explorer.
 ```text
 ----------------------------------------------------------------------------------------------------------
 Evaluating : file:///.../runs/CLS_IN-KAR-64_..._MC9/Weights/Iteration_9/model_000009.pt
@@ -2094,14 +1562,7 @@ Iteration 9 · 300 Test Images · 2026-10-09 09:53 ─────────�
   Macro F1   2.26 %    Top-2 Accuracy      21.33 %
   Error Images : 160 in 8 class pairs, at most 20 per pair
   Sample Images : 8 fixed test images
-
-  Per Class Metrics
-                                                          Threshold    Recall
-   Class       Samples   Precision     Recall        F1     @ P99 %   @ P99 %
-  ────────────────────────────────────────────────────────────────────────────
-   ...
-   octagon          34     11.33 %   100.00 %   20.36 %           —         —
-  Worst F1 first, ties in class order. — : no samples of the class, or the precision 99 % is never reached.
+  ...
 
 CLS_IN-KAR-64_..._MC9/Checkpoint_Evaluation/
 ├── Iteration_12/, Iteration_9/, Iteration_6/ and Iteration_3/
@@ -2117,12 +1578,27 @@ CLS_IN-KAR-64_..._MC9/Checkpoint_Evaluation/
 ```
 
 ### Step 5.7 — `scripts/evaluation/draw_report_figures.py`
-Should a research report of a kept classifier need its figures again, after a new evaluation of its checkpoint or a new temperature saved on its page, this separate script (`uv run python -m scripts.evaluation.draw_report_figures`, its settings in its `__main__` block, listed in the tools reference under Drawing The Figures Of A Research Report) draws them from the run folder into `Report_Figures/` of the evaluation folder of the kept iteration and weights, `<run>/Checkpoint_Evaluation/Iteration_<n>[/EMA]/` by default (`evaluation_folder_name`, `Evaluation` for the evaluation of the training). `draw_report_figures()` reads and checks every input before the first figure is drawn, so that a wrong one stops it without writing anything: the logits of the evaluation (`class_logits.npz`, one class per sample only), its `confusion_matrix.csv` with the same classes, the thresholds (`read_report_thresholds()`: those of `saved_temperature_thresholds.json`, which must be exactly the ones found again from the logits at its temperature, or without that file the thresholds at a temperature of 1, with a yellow warning) and the balanced accuracy of the trained and EMA weights at every checkpoint evaluated during the training (`Tensorboard/Test` and `Tensorboard/Test_EMA` of the run). It then writes `confusion_matrix.png` (drawn by `save_confusion_matrix_image()`, the accuracy and the balanced accuracy in percent in its title), `precision_recall_curves.png` (`draw_precision_recall_figure()`, the curves at the temperature of the thresholds with the threshold of every target precision), `training_curves.png` (the kept checkpoint ringed) and `report_values.json`, every number the figures show. Given a JSON Lines manifest of the group of every sample (`group_manifest_path`, e.g. the truck of every image), it also reads the `predictions.csv` of the evaluation (`save_predictions`, Step 5.1) and the `labels.json` of the training split, and draws `seen_and_never_seen_groups.png`, the balanced accuracy on the groups seen in training and on those never seen (`compare_seen_and_never_seen_groups()`).
-
-### Step 5.8 — `scripts/evaluation/score_image_split.py`
-In case a kept classifier must find the images of a rare class among a million unlabelled ones, this separate script scores every image of a split with one checkpoint, without the metrics, the error images and the second weights of `evaluate_checkpoint.py`. Its settings are command line options ([tools reference, Scoring A Large Split](../reference/tools_reference.md#scoring-a-large-split)): it runs only the forward pass of the trained weights, or of their moving average (`--use-averaged-weights`), in `float32` or in `bfloat16` autocast (`--precision`, `--compare-precisions` first comparing both on the labelled test split of the run), the images being decoded by many loader workers through the test dataset of the run, in the order of the `labels.json` of the split. Batch by batch, it appends to the file of `--output-path` the `sample` and `probability_<class>` columns of `predictions.csv` (Step 4.16), so that a launch stopped by `--time-budget-hours` or interrupted resumes on the same file with the images it does not hold yet. The trainer it builds on the split writes its copy of the configuration, `label_dictionary.json`, `data.json` and `Tensorboard/` into `<run>/Checkpoint_Evaluation_split_<parent folder>_<split folder>/`, so that no file of the run or of its evaluations changes.
+Should a research report of a kept classifier need its figures again (a new evaluation, a new saved temperature), this script draws them into `Report_Figures/` of the evaluation folder of the kept iteration and weights. Settings are in its `__main__` block (tools reference, Drawing The Figures Of A Research Report); the folder is `<run>/Checkpoint_Evaluation/Iteration_<n>[/EMA]/` by default (`evaluation_folder_name`, `Evaluation` for the training's).
 
 ```bash
+# Draw the report figures of the checkpoint named in the main block
+uv run python -m scripts.evaluation.draw_report_figures
+```
+
+- `draw_report_figures()` checks every input before writing: `class_logits.npz` (one class per sample), `confusion_matrix.csv` with the same classes, the thresholds, and the balanced accuracy of trained and EMA weights from `Tensorboard/Test` and `Tensorboard/Test_EMA`.
+- `read_report_thresholds()` takes `saved_temperature_thresholds.json` (it must match the thresholds recomputed from the logits), or the thresholds at temperature 1 with a yellow warning.
+- It writes `confusion_matrix.png` (`save_confusion_matrix_image()`, accuracy and balanced accuracy in percent in the title), `precision_recall_curves.png` (`draw_precision_recall_figure()`, curves at the thresholds' temperature with the threshold of every target precision), `training_curves.png` (kept checkpoint ringed) and `report_values.json` (every number shown).
+- Given a JSON Lines manifest of every sample's group (`group_manifest_path`, e.g. the truck of every image), it reads the evaluation's `predictions.csv` (`save_predictions`, 5.1) and the training `labels.json`, and draws `seen_and_never_seen_groups.png`: balanced accuracy on groups seen and never seen in training (`compare_seen_and_never_seen_groups()`).
+
+### Step 5.8 — `scripts/evaluation/score_image_split.py`
+In case a kept classifier must find the images of a rare class among a million unlabelled ones, this script scores every image of a split with one checkpoint, without metrics, error images or second weights. Its command line options are in the [tools reference, Scoring A Large Split](../reference/tools_reference.md#scoring-a-large-split).
+- Forward pass only, of the trained weights or their moving average (`--use-averaged-weights`), in `float32` or `bfloat16` autocast (`--precision`; `--compare-precisions` first compares both on the run's labelled test split).
+- Images are decoded by many loader workers through the run's test dataset, in the order of the split's `labels.json`.
+- Batch by batch it appends the `sample` and `probability_<class>` columns of `predictions.csv` (4.16) to `--output-path`, so a launch stopped by `--time-budget-hours` or interrupted resumes on the same file.
+- Its trainer writes its configuration copy, `label_dictionary.json`, `data.json` and `Tensorboard/` into `<run>/Checkpoint_Evaluation_split_<parent folder>_<split folder>/`, so no file of the run or its evaluations changes.
+
+```bash
+# Score a split with the checkpoint of iteration 2000 in bfloat16, for at most 3 hours
 uv run python -m scripts.evaluation.score_image_split --experiment-folder <run> --iteration 2000 \
     --test-data-folder <split> --output-path <predictions.csv> --precision bfloat16 --time-budget-hours 3
 ```
