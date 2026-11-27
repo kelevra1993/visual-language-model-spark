@@ -8,8 +8,8 @@ To read the examples, know which run each comes from; this table lists them.
 |---|---|
 | 1 and 2 | `configuration_example.yaml` on CPU when it read ImageNet-1k (1000 classes, 256 pixels, batch 256, flattened head); it reads ImageNet-22k (`MC21841`) since 2026-11-11 |
 | 3, 4 and 5 | `configuration_synthetic_shapes.yaml` on CPU, 2026-10-09, 9-class dataset, shortened to 64 pixels, batch 8, 12 iterations (settings in the Stage 3 note); near chance on purpose (1/9 = 11.11 %, loss near ln 9 = 2.197) |
-| current outputs (Step 4.18) | README run `CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35` of `experiments/readme_screenshots/`: 2,000 iterations, batch 64, shape pre-trained backbone, 35-class dataset (500,000 / 50,000 / 50,000), 81.76 % accuracy, 99.12 % top-5 |
-| curves, class metrics, MLflow at iteration 1500 | 9-class README run of 2026-10-23 (`..._HFLAT.128-HLN-CWB_MC9`, 1,500 iterations from scratch) |
+| current outputs (Step 4.18), current MLflow run (Step 3.5) | README run `CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35` of `~/Data/tutorial_runs/readme_screenshots/` (outside the repository): 2,000 iterations, batch 64, shape pre-trained backbone, 35-class dataset (500,000 / 50,000 / 50,000), 81.76 % accuracy, 99.12 % top-5 |
+| curves, class metrics, TensorBoard at iteration 1500 | 9-class README run of 2026-10-23 (`..._HFLAT.128-HLN-CWB_MC9`, same folder, 1,500 iterations from scratch) |
 
 The CPU run and the 9-class README run show `Top-2 Accuracy` (k was a setting); the current code writes `Top-5 Accuracy`. Console rates are percentages with two decimals (`10.96 %`, changes in points); files, TensorBoard and MLflow keep 0 to 1. Console paths are terminal hyperlinks (`format_path_link()`): Stages 1 and 2 show the names, Stages 3 to 5 the `file://` URI.
 
@@ -42,7 +42,7 @@ every weight_saving_iterations: test split ─► confusion matrix, accuracy, ba
    per class precision, recall with its 95 % interval, F1, ROC AUC, average precision, threshold at precision 0.99
    ─► Results.txt block, Tensorboard/Test, Evaluation/Iteration_<n>/ (confusion_matrix.csv/.png, class_metrics.csv,
       class_thresholds.json, roc_curves.png, precision_recall_curves.png, precision_recall_thresholds.png,
-      temperature_explorer.html, class_logits.npz, predictions.csv, Samples/, Errors/)
+      temperature_explorer.html, class_logits.npz, predictions.csv, Samples/; Errors/ with error_dumps)
 temperature: serve_temperature_explorer.py, http://127.0.0.1:8091/ ─► a typed T ─► Save Thresholds At This Temperature
    ─► saved_temperature_thresholds.json next to the page ─► Export At T ─► <run>/Exports/Iteration_<n>[_EMA]_T<T>/
 export: InferenceClassifier, input images [B, 3, 512, 512] float32 BGR ─► class_logits / logit temperature ─► softmax
@@ -68,7 +68,7 @@ If you are looking for the code of a step, this table lists the files of the tas
 | Configuration checks | `vision_training/configuration_processing/classification_checks.py` | `check_classification_configuration` |
 | Run name | `vision_training/configuration_processing/run_name.py` | `build_run_name`, `build_classification_sections` |
 | Synthetic data generator | `vision_training/data/synthetic/create_synthetic_dataset.py` | `create_synthetic_dataset`, `build_classification_labels` (one shape per image, or with `multi_label` the distinct classes of the counted shapes images of `configuration_synthetic_counted_shapes.yaml`) |
-| ImageNet-22k download | `vision_training/data/classification/imagenet_download.py` | `download_imagenet_22k` (one held-out image per class as both validation and test), `write_class_folder_manifests` |
+| ImageNet-22k download | `vision_training/data/classification/imagenet_download.py` | `download_imagenet_22k` (one held-out image per class of at least 50 images as both validation and test, `--held_out_images_per_class`, `--minimum_held_out_class_size`), `write_class_folder_manifests` |
 | Export | `vision_training/models/classification/inference_classifier.py`, `vision_training/deployment/export_model.py`, `vision_training/deployment/input_contract.py` | `InferenceClassifier` (model name `image_classifier`), `export_experiment`, `build_input_contract`, `write_preprocessing_file` |
 | Export sizes at launch | `vision_training/deployment/export_size_estimates.py` | `estimate_export_sizes`, `probe_inference_graph`, `print_export_size_summary` |
 | Standalone evaluation | `scripts/evaluation/evaluate_checkpoint.py`, `vision_training/evaluation/checkpoint_evaluation.py` | `evaluate_checkpoints`, `summarise_checkpoint_evaluations` |
@@ -134,8 +134,8 @@ Should a result of the task look wrong, check these behaviours first.
 
 - Blocks 2, 4 and 6 of the synthetic configuration change the channel count (16 to 32, 32 to 64, 64 to 128, 2 layers each), so they add no residual shortcut. Only blocks 3 and 5 list `Residual Shortcuts` (`ConvolutionBlock.residual_parity`, `count_residual_additions()` of `convolution_block.py`).
 - `label_smoothing` above 0 with `class_weighting: "balanced"` trains towards the rare classes: PyTorch also weights the smoothing term. With weights [1, 20, 1000] and smoothing 0.1, the loss of a class-0 image is lowest at [0.027, 0.019, 0.954] (`compute_classification_loss()`; latent, every shipped configuration has smoothing 0).
-- The `flatten` pooling ties the head to `Data.image_settings.size` and `Backbone.last_max_pooling`. Another image size changes the first hidden layer input and the run name; a head transfers only to a run of the same image size (`compute_pooled_features()`; README, Transfer Between Runs).
-- The synthetic dataset holds the 35 classes of `SHAPE_CATEGORIES` (run ends with `MC35`) and is drawn without a seed, so a regenerated dataset holds other images. The CPU run and the 9-class README run used the older 9-class dataset (README, Quick Start With Synthetic Data).
+- The `flatten` pooling ties the head to `Data.image_settings.size` and `Backbone.last_max_pooling`. Another image size changes the first hidden layer input and the run name; a head transfers only to a run of the same image size (`compute_pooled_features()`; [training reference, Transfer Between Runs](../reference/training_reference.md#transfer-between-runs)).
+- The synthetic dataset holds the 35 classes of `SHAPE_CATEGORIES` (run ends with `MC35`) and is drawn without a seed, so a regenerated dataset holds other images. The CPU run and the 9-class README run used the older 9-class dataset ([tasks reference, Synthetic Datasets](../reference/tasks_reference.md#synthetic-datasets)).
 - `Iterations Per Epoch` and the sample counts sent to MLflow count the manifest samples before the label mapping, so they are too high when the mapping leaves categories out (`count_split_samples()` of `split_description.py`).
 
 ## Table of Contents
@@ -156,13 +156,13 @@ To see the whole run on one page, this tree lists every function in calling orde
 ```text
 main()                                         entry point of every task: --configuration_path, expandable CUDA segments
 ├── parse_configuration_path()                 argparse; "No configuration file at ..." when the path is not a file
-├── load_experiment_configuration()            splits the YAML into experiment_configuration and model_configuration
+├── load_experiment_configuration() -> prepare_experiment_configuration()   splits the YAML into the two dictionaries
 │   ├── load_configuration()                   yaml.safe_load into one raw dictionary, FileNotFoundError if missing
 │   ├── check_configuration_keys()
 │   │   ├── check_removed_settings()           a removed setting reported alone, with what replaced it
 │   │   └── check_unknown_keys()               every key the task does not read (KNOWN_KEY_PATHS)
 │   ├── build_label_dictionary()               "multi_class": {category: index} from Data.label_mapping.mapping_file_path
-│   └── check_configuration()                  gathers ALL errors, prints them in red and exits
+│   └── check_configuration()                  gathers ALL errors, printed in red, exit code 1
 │       ├── check_experiment_configuration()   task, suffix, loop settings, per-class report, samples, MLflow
 │       ├── check_data_configuration()         augmentations, label mapping mode, positive even image size
 │       ├── check_backbone_configuration()     blocks "1".."N", 3 input channels, size divisible by the poolings
@@ -230,9 +230,9 @@ main()                                         entry point of every task: --conf
         │   ├── average_trackers() + log_interval_metrics() + print_interval_summary() + report_dropped_batches()
         │   └── run_test_evaluation()  -> [STAGE 4]        multiples of weight_saving_iterations
         ├── save_model() of the steps taken since the last checkpoint, if any
-        └── close TensorBoard writers, shutdown_loader_workers(), finish_experiment_tracking()
+        └── close TensorBoard writers; run_training_loop() then calls shutdown_loader_workers(), finish_experiment_tracking()
 
-run_test_evaluation(iteration)  [STAGE 4]      whole test split, then again on the EMA weights when on
+run_test_evaluation(iteration) -> evaluate_test_split()  [STAGE 4]   whole test split, then again on the EMA weights when on
 ├── create_evaluation_accumulator()
 ├── for each test batch:
 │   ├── prepare_batch()
@@ -295,7 +295,7 @@ trainer.run_training_loop()
 ```
 
 ### Step 1.2 — `load_experiment_configuration()`
-It returns the two dictionaries every later stage reads: `experiment_configuration` (the `ExperimentConfiguration` section) and `model_configuration` (every other section).
+Through `prepare_experiment_configuration()`, it returns the two dictionaries every later stage reads: `experiment_configuration` (the `ExperimentConfiguration` section) and `model_configuration` (every other section).
 - It checks the keys as written (Step 1.5), then fixes types YAML reads wrong: folders to `Path`, counts such as `1e10` to `int` (a non-integer count is left to the checks), the learning rate, optimization numbers without a dot such as `weight_decay: 1e-4`.
 - It adds `tracking_root` (the `experiment_folder`, MLflow root), `run_name` (None, Step 2.4) and `standalone_evaluation_folder` (None, set by Step 5.2), and `label_mode` and `label_dictionary` to `Data` (Step 1.4), then runs the checks. Every model is built in float32 (`MODEL_DTYPE` of `vision_training/models/model_registry.py`).
 
@@ -338,7 +338,7 @@ The example shows the mapping file and the resulting dictionary.
 This safety net runs before loaders, model or GPU memory exist.
 - Before the conversions of Step 1.2, `check_configuration_keys()` reports alone the removed settings (`check_removed_settings()`: `'<key>' was removed: <what replaced it>. Delete it from the configuration file.`). Examples: `resume_training`, `mixed_precision`, `Data.loading`, `evaluation.top_k`, `Data.view_augmentation`, `Optimization.gradient_clipping_norm`.
 - Then, alone too, every key the task does not read (`check_unknown_keys()` against `KNOWN_KEY_PATHS` of `configuration_keys.py`): `'<key>' is not a configuration key (did you mean '<closest key>'?): no code reads it, so its value would be ignored. Correct it or delete it from the configuration file.`
-- `check_configuration()` runs the common checks, then the task checks of `TASK_CONFIGURATION_CHECKS`. Each returns a list of messages, so every problem is reported together. Any message: printed in red under a link to the YAML, exit code 1.
+- `check_configuration()` runs the common checks, then the task checks of `TASK_CONFIGURATION_CHECKS`. Each returns a list of messages, so every problem is reported together. Any message: printed in red under a link to the YAML (`print_configuration_problems()`, called by `load_experiment_configuration()`), exit code 1.
 
 This table lists what each check covers.
 
@@ -448,7 +448,7 @@ There is no optimizer token (plain Adam, no weight decay) and no suffix (`run_na
 
 ### Step 2.5 — `DataAugmenter()`
 It stores the settings of `Data.data_augmentation`: the global `activated` flag and `probability` (chance that an image is augmented at all), and the `activated` flag and `probability` of each of the 28 types (10 geometric, 18 photometric).
-- Strengths are not settings: supervised tasks use `SUPERVISED_AUGMENTATION_STRENGTHS`, the self-supervised views the stronger `SELF_SUPERVISED_AUGMENTATION_STRENGTHS` (README, Data Augmentation).
+- Strengths are not settings: supervised tasks use `SUPERVISED_AUGMENTATION_STRENGTHS`, the self-supervised views the stronger `SELF_SUPERVISED_AUGMENTATION_STRENGTHS` ([training reference, Data Augmentation](../reference/training_reference.md#data-augmentation)).
 - The draws happen in Step 3.13. `independent_frames` and `shuffle_frames` exist only in sequence configurations.
 
 The block below shows the settings of `configuration_example.yaml`.
@@ -658,7 +658,7 @@ This is the transfer learning step, for `Backbone` and `ClassificationHead` sect
 - `ClassificationHead.pretrained.class_layer: False` (default): `keep_target_class_layers()` loads the hidden layers only, whatever the classes; the class layer stays random and is never frozen. The console prints `Classification Head : Loaded Without Its Class Layer, Which Keeps The Random Initialisation Of This Run For Its <n> Classes (The Source Run Predicts <m> Classes).`
 - `class_layer: True`: `prepare_class_layers()` compares class names (`read_source_class_names()` from the source `data.json`). Every source class must exist in this run (`compare_class_names()`), as its first classes or under the same name anywhere; a missing class stops the run. `extend_class_layers()` copies the source rows to their classes (e.g. ImageNet-1k classes moved to the index of their name in the merged ImageNet); other classes keep random rows.
 
-The output below shows a 9-class head initialising a 20-class run.
+The output below shows a 9-class head initialising a 20-class run with `class_layer: True`.
 ```text
 Classification Head : 9 Classes Of The Source Run Kept, 11 New Classes Added After Them, Randomly Initialised.
 Classification Head Initialised From The Averaged Weights Of : model_002000.pt
@@ -746,7 +746,7 @@ With `diagnosis_modes.benchmark_speed`, `benchmark_speed()` then times the infer
 ### Step 2.25 — `view_input_batches()`
 Only with `diagnosis_modes.view_input_images: True`. It shows what the network receives.
 - Two windows, `Training` (an augmented image, Step 3.13) and `Validation`, drawn by `build_input_windows()` and shown by `show_input_samples()` → `view_input_data()`.
-- A black information panel under each (`build_viewer_window()` → `build_information_panel()`) gives the class (`Class : n04456115`) and, for training, the drawn augmentations with their values (`describe_input_augmentations()`, e.g. `random_rotation : <angle> degrees` within 5 degrees either way); validation gives `Augmentations : none (validation sample)`.
+- A black information panel to the right of each image (`build_viewer_window()` → `build_information_panel()`) gives the class (`Class : n04456115`) and, for training, the drawn augmentations with their values (`describe_input_augmentations()`, e.g. `random_rotation : <angle> degrees` within 5 degrees either way); validation gives `Augmentations : none (validation sample)`.
 - The terminal prints `Press SPACE To Navigate, Press ENTER To Stop Viewing And Exit`; without a display, `No display available (DISPLAY is not set). Skipping the input image viewer.` in yellow.
 - ENTER closes the viewer and `sys.exit()` ends the program before training, with no run folder. The same windows are written at every training launch (`save_input_samples()`, Step 3.1).
 
@@ -881,7 +881,7 @@ artifacts:  Results.txt, configuration/training_configuration.yaml, metric_names
             evaluation/iteration_6/ and iteration_12/: class_metrics.csv, class_thresholds.json, confusion_matrix.png
 ```
 
-This run predates the data record and the curves. The current code also sends `data/data.json`, `test/Macro ROC AUC`, `test/Macro Average Precision`, 5 `test_class/<metric>/<class>` per class, `test/Top-5 Accuracy` and, per iteration, the three curve images (see the 9-class README run `5bcd8d21be0149b6b25b94b04621705c` in `experiments/readme_screenshots/mlflow.db`).
+This run predates the data record and the curves. The current code also sends `data/data.json`, `Input_Samples/`, `evaluation_summary.csv`, `evaluation_curves.png`, `test/Macro ROC AUC`, `test/Macro Average Precision`, 5 `test_class/<metric>/<class>` per class, `test/Top-5 Accuracy` and, per iteration, the three curve images (see the 35-class README run `d6faf784de66494f8e7f18f8d82392ed` in `~/Data/tutorial_runs/readme_screenshots/mlflow.db`).
 
 ### Step 3.6 — `save_model()` → `save_checkpoint()`
 It runs right after the step of an iteration that is a multiple of `weight_saving_iterations` (checkpoint then evaluated, Step 3.7) or `intermediate_weight_saving_iterations` (checkpoint only).
@@ -963,7 +963,7 @@ Training batches only; validation and test stay original.
 - Geometric types first (crop, aspect crop, zoom-out, translation, flips, rotations, perspective, jigsaw), then photometric (brightness, contrast, saturation, hue, CLAHE, sharpening, histogram equalizations, noise, grayscale, colour swap, gamma, linear illumination, plasma shadow, blur, motion blur, haze, solarization, black out, erasing), each with its own probability. Of the three histogram equalizations drawn together (CLAHE, luminance, BGR channels) one is kept at random.
 - Labels do not change; values stay in [0, 255].
 - Every type runs on the batch device from Python numbers (rotation, CLAHE and YUV conversions of torchvision and kornia ported in `vision_training/data/device_image_operations.py`).
-- It also returns the report of drawn types per image, read only by the input viewer (2.25).
+- It also returns the report of drawn types per image, read only by the input viewer (2.25) and the input samples (3.1).
 
 The first batch (`probability: 0.4`, 8 images) had these images changed.
 ```text
@@ -1126,7 +1126,7 @@ Error encountered during iteration 7. Continuing... (Consecutive Errors: 1/5)   
 > These outputs predate the curves and the recall intervals (2026-11-01). With `per_class_report`, the current code adds `Macro ROC AUC` and `Macro Average Precision`, per-class `ROC AUC` and `Average Precision`, `roc_curves.png` and `precision_recall_curves.png` (shown with the README run in Steps 4.8, 4.14, 4.18, 4.19), `recall_lower` and `recall_upper` in `class_metrics.csv`, and a `Per Class Recall` table (Step 4.17).
 
 ### Step 4.1 — `run_test_evaluation()`
-It scores the current weights on the whole test split and reports. The training loop calls it at every `weight_saving_iterations` checkpoint (3.7); Stage 5 calls it per checkpoint.
+It scores the current weights on the whole test split and reports (`evaluate_test_split()`, once per kind of weights). The training loop calls it at every `weight_saving_iterations` checkpoint (3.7); Stage 5 calls it per checkpoint.
 - `eval()` mode, accumulator (4.2), test loader without gradients inside the task's `evaluation_context()` (nothing here), results (4.8), report (4.18). Each test image counts once (identifiers already seen are skipped).
 - It returns the results, with those of the averaged weights (else `None`), for Stage 5.
 - With the weight moving average on and updated at least once, `use_averaged_weights()` swaps in the averaged model for a second evaluation: files in `Evaluation/Iteration_N/EMA/`, `Tensorboard/Test_EMA`, header `Iteration N · <evaluated samples> · EMA Weights · <date and time>`, MLflow `test_ema/`, `test_ema_class/`, `test_ema/best_<headline metric>`.
@@ -1282,12 +1282,12 @@ A deployment may trust a prediction only above a probability threshold.
 uv run python -m scripts.evaluation.serve_temperature_explorer
 ```
 
-- It serves the evaluations of the root folders whose name holds `experiments` (`<run>/Evaluation/Iteration_<n>[/EMA]` and `<run>/Checkpoint_Evaluation/Iteration_<n>[/EMA]`), indexed by run, then iteration (newest first), with weights, evaluation kind, temperatures, saved temperature and exports.
+- It serves the evaluations (`<run>/Evaluation/Iteration_<n>[/EMA]` and `<run>/Checkpoint_Evaluation/Iteration_<n>[/EMA]`) of the repository folders whose name holds `experiments`, or of those given by `--experiments_roots` (`--port` for another port than 8091). They are indexed by run, then iteration (newest first), with weights, evaluation kind, temperatures, saved temperature and exports.
 - Every page is rebuilt with the current template. With `class_logits.npz` any temperature from 0.05 to 100 can be typed (`check_logit_temperature()`, `LOGIT_TEMPERATURE_RANGE`); without it, only the slider ones (`Grid only`).
 - A page opens on its checkpoint's global metrics from the folder's `evaluation_summary.csv` (`describe_model_performance()`), with the best iteration by the first metric.
 - With `class_logits.npz`, a score ranges table gives per class the share of its images whose own score falls between 1 to 10 typed cut points in (0, 1), at the shown temperature (`compute_score_ranges()`, route `/api/score_ranges`; default `0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99`, `DEFAULT_SCORE_CUT_POINTS`).
 - **Save Thresholds At This Temperature** writes `saved_temperature_thresholds.json` next to the page, in this file's format (`build_class_thresholds_file()`), with the temperature and the thresholds of `compute_temperature_thresholds()`, checked against `class_thresholds.json` (`check_saved_thresholds()`). Opened as a plain file, the page downloads it instead; `export_model.py --use_saved_temperature` reads it once placed next to the page.
-- **Export At T = …** exports the checkpoint at the saved temperature with the formats, Triton version, maximum batch size and TensorRT precision chosen on the page, in a separate process whose console the page shows; one export at a time. With a TensorRT precision, its engine is checked by a temporary Triton container, so Docker is needed ([TensorRT Check](../reference/tools_reference.md#tensorrt-check)).
+- **Export At T = …** exports the checkpoint at the saved temperature with the formats, Triton version, maximum batch size, TensorRT precision and TorchScript precision chosen on the page, in a separate process whose console the page shows; one export at a time. With a TensorRT precision, its engine is checked by a temporary Triton container, so Docker is needed ([TensorRT Check](../reference/tools_reference.md#tensorrt-check)).
 - `explorer_export.py` writes `<run>/Exports/Iteration_<n>[_EMA]_T<temperature>/`, its own Triton model repository, through a `.partial` folder, with `export_log.txt` and `export_record.json`. It calls `export_experiment()` with `use_saved_temperature` and `saved_thresholds_path` (checked by `check_saved_thresholds_location()`).
 - `export_experiment()` checks every format against the eager model in a staging folder and installs them only when all match (`install_staged_models()`); otherwise `The <format> Export Does Not Match The Eager Model, The Served Models Left Unchanged`.
 
@@ -1362,6 +1362,7 @@ sample,true_class,predicted_class,correct,probability_square,probability_circle,
 test_000612.png,triangle,triangle,1,0.111758,0.105057,0.116420, ... ,0.115801
 test_000662.png,plus_sign,triangle,0,0.111758,0.105057,0.116420, ... ,0.115801
 ```
+The current code writes every probability with nine significant digits, so that thresholds computed again from the file are those of `class_thresholds.json`.
 
 ### Step 4.17 — `build_class_metrics_table()` + `build_class_metric_scalars()`
 These prepare the display without displaying. The reporter shows their outputs only with `per_class_report`.
@@ -1423,7 +1424,7 @@ Tensorboard/Test: 31 scalars (4 global + 27 per class), 9 images
     image  Samples/test_000010 ... Samples/test_000006    steps [6, 12]     (the 8 sample images)
     image  Confusion Matrix                               steps [6, 12]
 ```
-The 9-class README run holds 51 scalars (6 global + 45 per class) and 11 images (8 samples, `Confusion Matrix`, `ROC Curves`, `Precision Recall Curves`) at steps 500, 1000 and 1500. The current code also writes `Evaluation/evaluation_summary.csv` and `evaluation_curves.png`.
+The 9-class README run holds 51 scalars (6 global + 45 per class) and 11 images (8 samples, `Confusion Matrix`, `ROC Curves`, `Precision Recall Curves`) at steps 500, 1000 and 1500. The current code also writes the `Precision Recall Thresholds` image, `Evaluation/evaluation_summary.csv` and `evaluation_curves.png`.
 
 ### Step 4.19 — `track_evaluation()`
 With MLflow on, it sends at the checkpoint iteration:
@@ -1443,7 +1444,7 @@ artifacts: evaluation/iteration_6/class_metrics.csv, class_thresholds.json, conf
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> The outputs below come from this script on the Stage 3 run (checkpoints at 3, 6, 9 and 12, captured when 3, 6 and 9 were saved before their step), with `iteration = "all"` and a 300-image test folder taken from the test split (`test_data_folder`). They predate the recall intervals (2026-11-01: the block of Step 5.6 now adds the `Per Class Recall` table, `class_metrics.csv` the `recall_lower` and `recall_upper` columns) and the folder per split (2026-11-20: this 300-image folder would now go to `Checkpoint_Evaluation_split_<parent folder>_test_300/`).
+> The outputs below come from this script on the Stage 3 run (checkpoints at 3, 6, 9 and 12, captured when 3, 6 and 9 were saved before their step), with `--iteration all` and a 300-image test folder taken from the test split (`--test_data_folder`). They predate the recall intervals (2026-11-01: the block of Step 5.6 now adds the `Per Class Recall` table, `class_metrics.csv` the `recall_lower` and `recall_upper` columns) and the folder per split (2026-11-20: this 300-image folder would now go to `Checkpoint_Evaluation_split_<parent folder>_test_300/`).
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
 If one wishes to compare checkpoints, pick one to deploy, or score a run on another labelled split, this script evaluates checkpoints of a trained (or training) run without training.

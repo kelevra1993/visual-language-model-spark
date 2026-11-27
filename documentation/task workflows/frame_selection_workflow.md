@@ -239,7 +239,7 @@ SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4_F
 
 ### Step 2.5 — `DataAugmenter()`
 
-The augmenter of the sequence tasks. The configuration activates 6 of the 28 types (`random_crop`, `random_left_right_flip`, `random_rotation`, `brightness_contrast_saturation`, `random_noise`, `random_haze`) at probability 0.4, with `independent_frames` and `shuffle_frames` off.
+The augmenter of the sequence tasks. The configuration activates 6 of the 28 types (`random_crop`, `random_left_right_flip`, `random_rotation`, `brightness_contrast_saturation`, `random_noise`, `random_haze`), each at probability 0.25 (the flip at 0.5), a sequence being augmented with probability 0.4, with `independent_frames` and `shuffle_frames` off.
 
 ### Step 2.6 — `setup_training_paths()`
 As for every task (`classification_workflow.md`, Step 2.6): a resumed run keeps the classes of its `label_dictionary.json`, then the run folder gets the configuration copy and `label_dictionary.json`. `data.json` follows the loaders (Step 2.7).
@@ -442,7 +442,7 @@ Tensorboard/Validation at iteration 10: Total Loss 3.3946, Classification Loss 1
 ### Step 3.14 — `average_trackers()` + `log_interval_metrics()` + `print_interval_summary()`
 The interval averages go to TensorBoard, MLflow (with `train/frame_throughput`) and the console.
 
-**Example output: iteration 12**
+**Example output: iteration 12** (shortened)
 ```text
 |   Iteration: 12    |     Total Sequences: 48      |    Interval Sequences: 16   |   Throughput: 9.7 Sequences Per Second   |    81.8 Frames Per Second   |
 --------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -686,7 +686,7 @@ After the two evaluations, `Tensorboard/Test` holds 22 scalars (13 global + 9 pe
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> The examples below are real outputs of `scripts/evaluation/evaluate_checkpoint.py` on the Stage 3 run (checkpoints 3, 6, 9 and 12), with `iteration = "all"`, `batch_size = 16` and the first 20 test sequences (`labels.json` reduced, `data/` linked). Like Stage 4, they predate the recall intervals and the background and swapped picks, whose values are counted from the captured choices. Every sequence holds 3 true frames among its 155 frames, so each decoding makes 60 picks and leaves 95 frames truly unselected.
+> The examples below are real outputs of `scripts/evaluation/evaluate_checkpoint.py` on the Stage 3 run (checkpoints 3, 6, 9 and 12), with `--iteration all`, `--batch_size 16` and the first 20 test sequences (`labels.json` reduced, `data/` linked). Like Stage 4, they predate the recall intervals and the background and swapped picks, whose values are counted from the captured choices. They also predate the folder per split (2026-11-20): given as `--test_data_folder`, this reduced split now goes to `Checkpoint_Evaluation_split_<parent folder>_test_reduced/`, not `Checkpoint_Evaluation/`. Each of the 20 sequences holds 3 true frames, 60 of their 155 frames, so each decoding makes 60 picks and leaves 95 frames truly unselected.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
 The script of every task (`classification_workflow.md`, Stage 5). The test sequences are checked with the `Selection` section of the run, and both decodings are scored on every checkpoint.

@@ -343,7 +343,7 @@ scenes:
       - {type: box, box: [1080, 110, 1500, 330], text: "class_probabilities\n[B, {{classification.head.number_classes}}]\nsoftmax(logits / T) inside", font: diagram_small, outline: aqua, highlight: [0, 2]}
       - {type: box, box: [20, 420, 1000, 560], text: "Triton model: {{constant:vision_training/deployment/export_specifications.py#TASK_MODEL_NAMES.classification}}_<format>\nTorchScript and ONNX\nfrom the page: <run>/Exports/Iteration_<n>[_EMA]_T<T>/", font: diagram_small, appear: 2, highlight: [2, 3]}
       - {type: arrow, points: [[1290, 338], [1290, 402]], appear: 2}
-      - {type: box, box: [1080, 410, 1740, 600], text: "saved_temperature_thresholds.json\nof the exported checkpoint: its T built in,\ncopied next to the model as class_thresholds.json\nuse_saved_temperature off: T = 1, no thresholds", font: diagram_small, outline: yellow, appear: 2, highlight: [2, 4, 5]}
+      - {type: box, box: [1080, 410, 1740, 600], text: "saved_temperature_thresholds.json\nof the exported checkpoint: its T built in,\ncopied next to the model as class_thresholds.json\nno --use_saved_temperature: T = 1, no thresholds", font: diagram_small, outline: yellow, appear: 2, highlight: [2, 4, 5]}
       - {type: box, box: [20, 625, 1740, 725], text: "preprocessing.json next to the model, and the metadata of the ONNX model: colour order · resize · size\ninterpolation · padding value and placement · layout · value range, read from the run and its data loaders", font: diagram_small, outline: blue, appear: 1, highlight: [1]}
       - {type: box, box: [20, 345, 1000, 405], text: "at launch: the Export Sizes panel estimates every file", font: diagram_small, outline: magenta, appear: 6, highlight: [6]}
     narration:
@@ -352,7 +352,7 @@ scenes:
       - "Its Triton model is named after the task in the export specifications, followed by its format, and the softmax is inside it, after the logits are divided by the temperature saved on the explorer page, whose thresholds are copied next to the model as class thresholds json."
       - "Exported from that page, every checkpoint, weights and temperature gets its own Triton repository in the Exports folder of the run, with the record and the console output of the export."
       - "Faced with several evaluated checkpoints, the export only accepts the thresholds saved on the evaluation of the exported iteration and weights, in the evaluation folder of the training or the checkpoint evaluation folder, never in both."
-      - "Run from export model with use saved temperature off, it keeps a temperature of one and copies no thresholds."
+      - "Run by the export model script without its use saved temperature flag, the export keeps a temperature of one and copies no thresholds."
       - "Long before any export, the launch of every training prints the Export Sizes panel after the Model Size panel: the estimated size of the PyTorch weights, the TorchScript and ONNX files, the TensorRT engines and the checkpoint."
 
   - kind: summary
