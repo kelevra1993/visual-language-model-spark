@@ -1,12 +1,12 @@
 """
 Draws the figure of the "Triton Or The Model In The Process" subsection of the README Deployment section
-(README/dynamic_batching_requests.png): the same eight requests answered by the model in the process without Triton
+(README/dynamic_batching_batches.png): the same eight requests answered by the model in the process without Triton
 (one call per image, one after another), by Triton with one instance and its dynamic batcher (the config.pbtxt that
 export_model.py writes) and by Triton with two instances (instance_group count 2, set by hand). The schedules are
 computed from the arrival times by schedule_in_process and schedule_with_triton, on a schematic time scale, not
 measured. From the repository root:
 
-    uv run python -m documentation.presentation.figures.draw_dynamic_batching --output_path README/dynamic_batching_requests.png
+    uv run python -m documentation.presentation.figures.draw_dynamic_batching --output_path README/dynamic_batching_batches.png
 """
 
 import argparse
@@ -81,17 +81,18 @@ def schedule_with_triton(arrival_times: List[float], instance_count: int) -> Lis
 
 def describe_members(members: List[int]) -> str:
     """
-    Writes the requests a box answers, numbered from 1 as on the arrival markers.
+    Writes the requests a box answers, numbered from 1 as on the arrival markers, and the size of the batch they form
+    on the GPU, so that a request run alone reads as a batch of 1.
 
     Args:
         members (List[int]): The request indices, consecutive.
 
     Returns:
-        str: 'request 8' for one request, 'requests 1-3' for several.
+        str: 'request 8' then 'batch of 1' for one request, 'requests 1-3' then 'batch of 3' for several.
     """
     if len(members) == 1:
-        return f"request {members[0] + 1}"
-    return f"requests {members[0] + 1}-{members[-1] + 1}"
+        return f"request {members[0] + 1}\nbatch of 1"
+    return f"requests {members[0] + 1}-{members[-1] + 1}\nbatch of {len(members)}"
 
 
 def draw_panel(axes: plt.Axes, top: float, title: str, lane_labels: List[str], runs: List[Dict], colour: str,
@@ -207,7 +208,7 @@ def draw_dynamic_batching(output_path: Path) -> None:
 
 
 if __name__ == "__main__":
-    # Path of the PNG file, README/dynamic_batching_requests.png for the README
+    # Path of the PNG file, README/dynamic_batching_batches.png for the README
     parser = argparse.ArgumentParser(description="Draw the dynamic batching figure of the README.")
     parser.add_argument("--output_path", type=Path, required=True)
     arguments = parser.parse_args()

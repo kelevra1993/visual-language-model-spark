@@ -633,8 +633,10 @@ Suppose several cameras or services query the same model at once. In the process
 The figure below follows the same eight requests in the process without Triton, then through Triton with one instance, as the export writes it, and with two instances, two copies of the model on the GPU:
 
 <p align="center">
-  <img src="README/dynamic_batching_requests.png" width="100%" />
+  <img src="README/dynamic_batching_batches.png" width="100%" />
 </p>
+
+Each box is one run of the model on the GPU. In the process, every request is its own batch of 1; Triton groups the requests waiting in its queue, and a request left alone when the wait ends runs as a batch of 1.
 
 For one request at a time, Triton is slightly slower: 2.5 milliseconds for a CLS image with TensorRT FP16, against 2.2 in the process. Batching did not help the benchmark models: two instances without batching served more (CLS 1,747 against 1,168 images per second). Two instances share one GPU, so each runs slower while both are busy, which the schematic figure does not draw.
 
@@ -653,24 +655,24 @@ TensorRT has these costs with the exported configuration:
 - **A longer export**: the engine check took about 1 minute for CLS and 11 for DET on a shared GPU, and TensorRT allows TF32 in "FP32" engines.
 
 #### Serving Benchmark Results
-Should you need to pick a serving path, the table gives CLS / DET / M2M in each cell: the 9-class README classifier (512 pixels), the detection benchmark run_9 (1024 pixels) and the sequence labelling tutorial run (in frames). Triton rows use the exported configuration over shared memory; the test metric is in points against eager. To rerun the benchmark, see the [tools reference](documentation/reference/tools_reference.md#serving-benchmark).
+Should you need to pick a serving path, the table gives three models in each cell: CLS, the 9-class README classifier (512 pixels); DET, the detection benchmark run_9 (1024 pixels); M2M, the sequence labelling tutorial run. To rerun the benchmark, see the [tools reference](documentation/reference/tools_reference.md#serving-benchmark). The columns read as follows:
+- **One image, median time**: one request of one image (one sequence of 7 frames for M2M), timed over many requests. The median, also called p50, is the time half of the requests stay under.
+- **Batches of 16**: requests of 16 images (16 sequences for M2M), in images per second (frames for M2M).
+- **Memory**: what the process or the Triton server took from the memory of the machine, which the GB10 shares between the CPU and the GPU.
+- **Test metric**: the score of the eager model on the whole test split, then for every other path its change in points against that score.
 
-| Path | Batch 1 p50 (milliseconds) | Batch 16 (images per second) | Memory (gigabytes) | Test metric against eager (points) |
+Triton rows use the configuration of the export, with the images sent through shared memory.
+
+| Path | One image, median (milliseconds) | Batches of 16 (images per second) | Memory (gigabytes) | Test metric |
 |---|---|---|---|---|
-| In the process, eager PyTorch | 2.2 / 16.0 / 3.6 | 349 / 11 / 1,841 | 1.74 / 6.73 / 2.23 | 82.73 % / 86.77 % / 77.15 % |
-| In the process, TorchScript | 3.3 / 15.6 / 3.4 | 355 / 11 / 2,013 | 1.42 / 6.61 / 2.05 | not measured |
-| Triton, TorchScript | 4.5 / 24.3 / 5.9 | 320 / 11 / 1,788 | 2.55 / 8.72 / 2.41 | 0.00 / 0.00 / +0.01 |
-| Triton, ONNX Runtime CUDA | 3.6 / 17.0 / 5.3 | 435 / 30 / 2,207 | 3.93 / 13.66 / 5.49 | 0.00 / +0.01 / +0.01 |
-| Triton, ONNX with TensorRT FP32 | 3.0 / 23.8 / 4.2 | 646 / 153 / 3,357 | 4.08 / 7.26 / 2.73 | -0.01 / -0.46 / 0.00 |
-| Triton, ONNX with TensorRT FP16 | 2.5 / 17.6 / 3.1 | 1,215 / 246 / 6,249 | 3.98 / 5.99 / 2.47 | -0.03 / **-7.88** / +0.02 |
+| In the process, eager PyTorch | CLS 2.2<br>DET 16.0<br>M2M 3.6 | CLS 349<br>DET 11<br>M2M 1,841 | CLS 1.74<br>DET 6.73<br>M2M 2.23 | CLS 82.73 % accuracy<br>DET 86.77 % mAP@0.5<br>M2M 77.15 % frame accuracy |
+| In the process, TorchScript | CLS 3.3<br>DET 15.6<br>M2M 3.4 | CLS 355<br>DET 11<br>M2M 2,013 | CLS 1.42<br>DET 6.61<br>M2M 2.05 | not measured |
+| Triton, TorchScript | CLS 4.5<br>DET 24.3<br>M2M 5.9 | CLS 320<br>DET 11<br>M2M 1,788 | CLS 2.55<br>DET 8.72<br>M2M 2.41 | CLS 0.00<br>DET 0.00<br>M2M +0.01 |
+| Triton, ONNX Runtime CUDA | CLS 3.6<br>DET 19.5 \*<br>M2M 5.3 | CLS 435<br>DET 71 \*<br>M2M 2,207 | CLS 3.93<br>DET 13.66<br>M2M 5.49 | CLS 0.00<br>DET +0.01 \*<br>M2M +0.01 |
+| Triton, ONNX with TensorRT FP32 | CLS 3.0<br>DET 7.5 \*<br>M2M 4.2 | CLS 646<br>DET 189 \*<br>M2M 3,357 | CLS 4.08<br>DET 7.26<br>M2M 2.73 | CLS -0.01<br>DET +0.01 \*<br>M2M 0.00 |
+| Triton, ONNX with TensorRT FP16 | CLS 2.5<br>DET 7.7 \*<br>M2M 3.1 | CLS 1,215<br>DET 189 \*<br>M2M 6,249 | CLS 3.98<br>DET 5.99<br>M2M 2.47 | CLS -0.03<br>DET +0.21 \*<br>M2M +0.02 |
 
-The DET cells of the ONNX rows predate a fix of the exported NMS (`suppress_stacked_groups` in `vision_training/models/detection/postprocessing.py`). Re-exported, run_9 reads:
-
-| DET, exported NMS fixed | Batch 1 p50 (milliseconds) | Batch 16 (images per second) | Test metric against eager (points) |
-|---|---|---|---|
-| Triton, ONNX Runtime CUDA | 19.5 | 71 | +0.01 |
-| Triton, ONNX with TensorRT FP32 | 7.5 | 189 | +0.01 |
-| Triton, ONNX with TensorRT FP16 | 7.7 | 189 | +0.21 |
+\* DET of the ONNX rows, measured again once the NMS of the exported detector was fixed (`suppress_stacked_groups` in `vision_training/models/detection/postprocessing.py`); their memory is from before the fix. Before it, the box areas of the NMS overflowed FP16 and TensorRT FP16 lost 7.88 points of mAP.
 
 In short:
 - **TensorRT FP16 is the fastest** for CLS and M2M: 3.5 (CLS) and 3.4 (M2M) times eager at batch 16, metric within 0.03 points.
