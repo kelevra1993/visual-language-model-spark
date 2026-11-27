@@ -25,8 +25,9 @@ from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_
                                                 POINTS_PER_PIXEL, SERIES_COLOURS, SURFACE_COLOUR,
                                                 TEXT_PRIMARY_COLOUR, TEXT_SECONDARY_COLOUR, compute_pixel_box,
                                                 register_fonts, round_fact, save_figure, style_chart_panel)
-from tutorials.figures.sequence_classification.sequence_figure_utilities import (copy_frames, read_generator_setting,
-                                                                                 write_text_lines)
+from tutorials.figures.sequence_classification.sequence_figure_utilities import copy_frames, write_text_lines
+from vision_training.data.synthetic.create_synthetic_dataset import (TASK_IMAGE_SIZES, TASK_MAXIMUM_FRAMES,
+                                                                     TASK_MINIMUM_FRAMES)
 from vision_training.evaluation.report_formatting import format_percentage, format_percentage_tick
 
 # Sequence shown on the scene of the task, the first of the training manifest, and its number of frames, one image
@@ -44,21 +45,20 @@ SMALL_PADDING_BATCH_SIZE = 8
 # Splits of a dataset, in the order of the manifests
 SPLIT_NAMES = ["train", "validation", "test"]
 
-# Task of the synthetic generator whose main block settings the facts read
+# Task of the synthetic generator whose constants the facts read
 GENERATOR_TASK = "sequence_classification"
 
 
 def read_generator_frame_range() -> Tuple[int, int]:
     """
-    Reads the fewest and the most frames the synthetic generator draws for a sequence of the task, the minimum_frames
-    and maximum_frames of its main block, so that the animated batch and the narration follow the script rather than a
-    typed range.
+    Reads the fewest and the most frames the synthetic generator draws for a sequence of the task, its entries of
+    TASK_MINIMUM_FRAMES and TASK_MAXIMUM_FRAMES, so that the animated batch and the narration follow the script rather
+    than a typed range.
 
     Returns:
         Tuple[int, int]: The fewest and the most frames of a generated sequence.
     """
-    return (read_generator_setting(setting_name="minimum_frames", task=GENERATOR_TASK),
-            read_generator_setting(setting_name="maximum_frames", task=GENERATOR_TASK))
+    return TASK_MINIMUM_FRAMES[GENERATOR_TASK], TASK_MAXIMUM_FRAMES[GENERATOR_TASK]
 
 
 def read_manifest(split_folder: Path) -> Dict[str, Any]:
@@ -261,8 +261,7 @@ def make_dataset_figures(output_folder: Path, train_folder: Path, batch_size: in
                   "dataset.last_class_index": max(label_mapping.values()),
                   "dataset.class_names": [category_names[int(category_identifier)] for category_identifier, _ in
                                           sorted(label_mapping.items(), key=lambda item: item[1])],
-                  "dataset.generator_image_size": read_generator_setting(setting_name="image_sizes",
-                                                                         task=GENERATOR_TASK),
+                  "dataset.generator_image_size": TASK_IMAGE_SIZES[GENERATOR_TASK],
                   "dataset.generator_minimum_frames": generator_frame_range[0],
                   "dataset.generator_maximum_frames": generator_frame_range[1]})
 

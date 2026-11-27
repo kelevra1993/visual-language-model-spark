@@ -49,9 +49,9 @@ Evaluation/Iteration_<n>/   class_metrics.csv   class_thresholds.json   confusio
 
 ### Run It
 ```bash
-# Dataset: the sequence_labelling task of vision_training/data/synthetic/create_synthetic_dataset.py, whose image_sizes and
-# split_sizes give 512 pixel frames, 250,000 / 50,000 / 50,000 sequences of 2 to 12 frames, written into the
-# required dataset folder
+# Dataset: the sequence_labelling task of vision_training/data/synthetic/create_synthetic_dataset.py, whose
+# TASK_IMAGE_SIZES and TASK_SPLIT_SIZES give 512 pixel frames, 250,000 / 50,000 / 50,000 sequences of 2 to 12 frames,
+# written into the required dataset folder
 uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=sequence_labelling --output_folder="$HOME/Data/sequence_data/synthetic_changing_shapes"
 
 # Training, after setting experiment_folder, the three data folders and Data.label_mapping.mapping_file_path
@@ -63,6 +63,12 @@ uv run python -m vision_training.main --configuration_path="vision_training/conf
 uv run python -m scripts.evaluation.evaluate_checkpoint
 ```
 `scripts/data/create_sequence_split_subset.py` writes a fixed random subset of a split (`test_10000`, 10,000 of the 50,000 test sequences, seed 0), the test split of the launches of `documentation/architecture_benchmarking/sequence_labelling_experiment_plan.md`.
+
+So that every launch of an experiment is tested on the same shorter split, give it the source split and the folder of the subset. Its frames are a link to those of the source split.
+```bash
+# Subset of the test split: 10,000 sequences drawn with the seed 0 by default (--number_sequences, --seed)
+uv run python -m scripts.data.create_sequence_split_subset --source_split_folder="$HOME/Data/sequence_data/synthetic_changing_shapes/test" --output_split_folder="$HOME/Data/sequence_data/synthetic_changing_shapes/test_10000"
+```
 
 Should you start on sequences of your own, `configuration_example.yaml` holds the settings kept by that experiment plan after its 13 stages: learning rate 1e-3, `class_weighting: "balanced"`, a bidirectional LSTM of 2 layers of 256 and `flatten` frame pooling, with batch normalization. The plan kept the 2 layers and `flatten` with a pretrained backbone (1 layer and `max` from scratch), which the example leaves off (`Backbone.pretrained.experiment_folder: null`). Its 384 pixel frames go through 6 blocks and a last max pooling down to 64 x 6 x 6, 2,304 values per frame; built on the CPU with the mapping file of the synthetic changing shapes, it gives `M2M_IN-KAR-384_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.4x64-LMP_T50_LSTM2x256-BI_HFLAT.256-CWB_MC71` and 7,486,375 parameters (backbone 512,864, LSTM 6,823,936, head 149,575). The frame size and the backbone are those of the example, not of the plan, which trained 256 pixel frames.
 

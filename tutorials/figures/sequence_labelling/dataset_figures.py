@@ -6,8 +6,8 @@ of the training split (data.json of the run) with the share of no_change at ever
 labels.json), the first test sequences padded into one batch by the collate function of the repository, and the
 listings of a labels.json entry and of the label mapping. The class balance gives the facts of the position prior, the
 predictor knowing only where a frame is in its sequence, whose cross entropy the training curves and the evaluation
-chapter compare the run with. The settings the synthetic dataset generator and the split subset script type in their
-main block (split sizes, shapes per frame, size and seed of the test subset) and the number of sequence tasks of the
+chapter compare the run with. The task constants of the synthetic dataset generator and the defaults of the split
+subset script (split sizes, shapes per frame, size and seed of the test subset) and the number of sequence tasks of the
 repository are facts too, so that the narration quoting them follows the code. The shares of the class balance are
 written as the percentages of the reports of the repository ("46.82 %", ticks "20 %"), the facts keeping them between 0
 and 1. A build from the committed snapshots (tutorials/run_snapshots, without the training labels.json) reuses the
@@ -27,6 +27,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 from typing import Any, Dict, List
 
+from scripts.data.create_sequence_split_subset import DEFAULT_SUBSET_SETTINGS
 from tutorials.figures.figure_utilities import (CHART_HEIGHT, CHART_WIDTH, DOTS_PER_INCH, MONOSPACE_FONT_FAMILY,
                                                 POINTS_PER_PIXEL, SERIES_COLOURS, SURFACE_COLOUR, TEXT_PRIMARY_COLOUR,
                                                 TEXT_SECONDARY_COLOUR, compute_pixel_box, format_thousands,
@@ -36,12 +37,12 @@ from tutorials.figures.sequence_labelling.sequence_utilities import (build_test_
                                                                      convert_frame_to_image, describe_run_source,
                                                                      draw_captioned_frames, draw_figure_header,
                                                                      format_sequence_entry, load_thumbnail_fonts,
-                                                                     read_main_block_settings, read_run_reused_facts,
-                                                                     read_run_sections, reads_committed_dataset,
-                                                                     write_listing)
+                                                                     read_run_reused_facts, read_run_sections,
+                                                                     reads_committed_dataset, write_listing)
 from tutorial_builder.layout import ACCENT_COLOUR, CARD_COLOUR, DIM_TEXT_COLOUR, NAMED_COLOURS, TEXT_COLOUR
 from vision_training.configuration_processing.common_checks import SEQUENCE_TASKS
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
+from vision_training.data.synthetic.create_synthetic_dataset import TASK_MAXIMUM_OBJECTS, TASK_SPLIT_SIZES
 from vision_training.evaluation.report_formatting import format_percentage, format_percentage_tick
 from vision_training.losses.classification_losses import compute_balanced_class_weights
 
@@ -61,10 +62,8 @@ BATCH_FRAME_SIZE = 110
 # Prefix of the names of the classes of a shape appearing, one per shape class of the synthetic data
 APPEARING_CLASS_PREFIX = "appearing_"
 
-# Scripts whose main block settings the narration quotes, the task of the generator they are read for, and the facts
-# of the class balance a reused cache must hold (those added after its first version)
-GENERATOR_SCRIPT = "vision_training/data/synthetic/create_synthetic_dataset.py"
-SUBSET_SCRIPT = "scripts/data/create_sequence_split_subset.py"
+# Task of the generator whose constants the narration quotes, and the facts of the class balance a reused cache must
+# hold (those added after its first version)
 GENERATOR_TASK = "sequence_labelling"
 REQUIRED_BALANCE_FACTS = ["dataset.minimum_sequence_frames", "dataset.maximum_sequence_frames",
                           "dataset.change_class_count", "dataset.shape_class_count",
@@ -372,24 +371,21 @@ def write_label_listings(training_labels: Dict[str, Any], mapping_path: Path, li
 
 def read_script_facts() -> Dict[str, Any]:
     """
-    Reads the settings the narration quotes from the main blocks of the synthetic dataset generator (the split sizes
-    and the largest number of shapes of a frame of the sequence labelling) and of the split subset script (the size
-    and the seed of test_10000), and counts the sequence tasks of the repository, so that the chapter on the task and
-    its data follows the scripts and the code.
+    Reads the settings the narration quotes from the task constants of the synthetic dataset generator (the split
+    sizes and the largest number of shapes of a frame of the sequence labelling) and from the defaults of the split
+    subset script (the size and the seed of test_10000), and counts the sequence tasks of the repository, so that the
+    chapter on the task and its data follows the scripts and the code.
 
     Returns:
         Dict[str, Any]: The facts, named generator.*, subset.* and code.sequence_task_count.
     """
-    generator_settings = read_main_block_settings(script_path=GENERATOR_SCRIPT,
-                                                  setting_names=["split_sizes", "maximum_objects"])
-    subset_settings = read_main_block_settings(script_path=SUBSET_SCRIPT, setting_names=["number_sequences", "seed"])
-    split_sizes = generator_settings["split_sizes"][GENERATOR_TASK]
+    split_sizes = TASK_SPLIT_SIZES[GENERATOR_TASK]
     return {"generator.train_sequences": split_sizes["train"],
             "generator.validation_sequences": split_sizes["validation"],
             "generator.test_sequences": split_sizes["test"],
-            "generator.maximum_objects": generator_settings["maximum_objects"][GENERATOR_TASK],
-            "subset.sequence_count": subset_settings["number_sequences"], "subset.seed": subset_settings["seed"],
-            "code.sequence_task_count": len(SEQUENCE_TASKS)}
+            "generator.maximum_objects": TASK_MAXIMUM_OBJECTS[GENERATOR_TASK],
+            "subset.sequence_count": DEFAULT_SUBSET_SETTINGS["number_sequences"],
+            "subset.seed": DEFAULT_SUBSET_SETTINGS["seed"], "code.sequence_task_count": len(SEQUENCE_TASKS)}
 
 
 def make_dataset_figures(output_folder: Path, run_folder: Path, force: bool) -> Dict[str, Any]:

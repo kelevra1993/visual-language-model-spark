@@ -187,10 +187,11 @@ Training Batch Dropped : The image cannot be read : <file>
 
 Every type is computed on the device (`vision_training/data/device_image_operations.py`), so the host only waits for the GPU to update the boxes of DET, INS and KPT.
 
-`scripts/data/visualize_augmentation_strengths.py` writes one figure per type, `<type>.png`: a few images of a split with the type applied alone at both strengths, the drawn values written under every image. `random_crop_aspect_ratio_explained.png` and `random_noise_levels_explained.png` explain the crop aspect ratios and the noise levels. Set the configuration, split and output folder in its main block, then run:
+Should you need to review these strengths by eye before a training, `scripts/data/visualize_augmentation_strengths.py` writes one figure per type, `<type>.png`: a few images of a split with the type applied alone at both strengths, the drawn values written under every image. `random_crop_aspect_ratio_explained.png` and `random_noise_levels_explained.png` explain the crop aspect ratios and the noise levels. The split and the output folder are required. The configuration defaults to the synthetic shapes classifier, with 4 images and the seed 0. Run it without arguments for its help.
 
 ```bash
-uv run python -m scripts.data.visualize_augmentation_strengths
+# Figures of 4 validation images, resized to the input of the synthetic shapes classifier
+uv run python -m scripts.data.visualize_augmentation_strengths --split_folder="$HOME/Data/classifier_data/synthetic_shapes/validation" --output_folder="$HOME/Data/augmentation_examples/synthetic_shapes"
 ```
 
 ## Viewing The Input Images

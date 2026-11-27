@@ -22,9 +22,10 @@ from tutorials.figures.sequence_classification.sequence_figure_utilities import 
 from tutorials.figures.sequence_comparison.pair_batch_animation import make_pair_batch_animation
 from tutorials.figures.sequence_comparison.pair_dataset_figures import make_pair_dataset_figures
 from tutorials.figures.sequence_comparison.pair_evaluation_figures import make_pair_evaluation_figures
-from tutorials.figures.sequence_labelling.sequence_utilities import read_main_block_settings
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.augmentations import GEOMETRIC_AUGMENTATION_TYPES
+from vision_training.data.synthetic.create_synthetic_dataset import (TASK_IMAGE_SIZES, TASK_MAXIMUM_FRAMES,
+                                                                     TASK_MAXIMUM_OBJECTS, TASK_MINIMUM_FRAMES)
 from vision_training.models.sequence.member_fusion import FUSION_TYPES, MemberFusion
 from vision_training.models.sequence.temporal_modules import ORDERED_TEMPORAL_TYPES, POOLING_TEMPORAL_TYPES
 from vision_training.models.task_model import TaskModel
@@ -34,8 +35,7 @@ from vision_training.trainers.sequence_comparison_trainer import SequenceCompari
 # Run of the series in tutorial_sources.yaml
 RUN_KEY = "sequence_comparison"
 
-# Generator whose main block settings the narration quotes (what a dataset generated with it holds), and its task
-GENERATOR_SCRIPT = "vision_training/data/synthetic/create_synthetic_dataset.py"
+# Task of the generator whose constants the narration quotes (what a dataset generated with it holds)
 GENERATOR_TASK = "sequence_comparison"
 
 # Only geometric augmentation of the run, as the pitfalls of the third chapter say: the crops, zooms, shifts and
@@ -122,21 +122,20 @@ def read_run_setting_facts(run_configuration: Dict[str, Any], label_dictionary: 
 def read_code_facts() -> Dict[str, Any]:
     """
     Counts what the code of the comparison offers and imposes: the members of a sample of its trainer, the fusion types
-    and the temporal modules, and reads from the main block of the synthetic dataset generator the members it writes
-    (frame range, frame size, objects of the before member), the settings the dataset of the run was generated with.
+    and the temporal modules, and reads from the task constants of the synthetic dataset generator the members it
+    writes (frame range, frame size, objects of the before member), the settings the dataset of the run was generated
+    with.
 
     Returns:
         Dict[str, Any]: The facts, named code.* and generator.*.
     """
-    generator_settings = read_main_block_settings(script_path=GENERATOR_SCRIPT, setting_names=[
-        "minimum_frames", "maximum_frames", "image_sizes", "maximum_objects"])
     return {"code.members_per_sample": SequenceComparisonTrainer.MEMBERS_PER_SAMPLE,
             "code.fusion_type_count": len(FUSION_TYPES),
             "code.temporal_type_count": len(POOLING_TEMPORAL_TYPES) + len(ORDERED_TEMPORAL_TYPES),
-            "generator.minimum_frames": generator_settings["minimum_frames"][GENERATOR_TASK],
-            "generator.maximum_frames": generator_settings["maximum_frames"][GENERATOR_TASK],
-            "generator.image_size": generator_settings["image_sizes"][GENERATOR_TASK],
-            "generator.maximum_objects": generator_settings["maximum_objects"][GENERATOR_TASK]}
+            "generator.minimum_frames": TASK_MINIMUM_FRAMES[GENERATOR_TASK],
+            "generator.maximum_frames": TASK_MAXIMUM_FRAMES[GENERATOR_TASK],
+            "generator.image_size": TASK_IMAGE_SIZES[GENERATOR_TASK],
+            "generator.maximum_objects": TASK_MAXIMUM_OBJECTS[GENERATOR_TASK]}
 
 
 def make_figures(output_folder: Path, experiments_folder: Path, force: bool) -> Dict[str, Any]:

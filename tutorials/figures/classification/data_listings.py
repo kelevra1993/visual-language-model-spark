@@ -19,11 +19,7 @@ from typing import Any, Dict, List, Tuple
 from tutorials.figures.classification.evaluation_tables import format_class_name
 from tutorials.figures.classification.snapshot_helpers import count_manifest_samples
 from tutorials.figures.figure_utilities import read_run_configuration
-from tutorials.figures.foundations.code_values import read_main_block_value
-from tutorial_builder.figure_context import find_repository_root
-
-# Synthetic dataset script, whose main block sets the image size and the most shapes of every task
-SYNTHETIC_DATASET_SCRIPT = Path("vision_training") / "data" / "synthetic" / "create_synthetic_dataset.py"
+from vision_training.data.synthetic.create_synthetic_dataset import TASK_IMAGE_SIZES, TASK_MAXIMUM_OBJECTS
 
 # Samples of the training manifest shown in the labels.json listing
 LISTED_SAMPLE_COUNT = 3
@@ -189,10 +185,8 @@ def make_data_listings(output_folder: Path, run_folder: Path) -> Dict[str, Any]:
     for split in ["train", "validation", "test"]:
         facts[f"data.{split}_images"] = sum(record["images"][split] for record in classes)
 
-    # Image size of the classification images and most shapes of a multi-label image drawn by the generator
-    script_path = find_repository_root() / SYNTHETIC_DATASET_SCRIPT
-    image_sizes = read_main_block_value(script_path=script_path, variable_name="image_sizes")
-    maximum_objects = read_main_block_value(script_path=script_path, variable_name="maximum_objects")
-    facts.update({"generator.image_size": image_sizes["classification"],
-                  "generator.multi_label_maximum_objects": maximum_objects["multi_label_classification"]})
+    # Image size of the classification images and most shapes of a multi-label image drawn by the generator, from the
+    # constants of its tasks
+    facts.update({"generator.image_size": TASK_IMAGE_SIZES["classification"],
+                  "generator.multi_label_maximum_objects": TASK_MAXIMUM_OBJECTS["multi_label_classification"]})
     return facts
