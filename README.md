@@ -55,36 +55,33 @@
 ## Description
 If you are new to the repository, start from its tasks: it trains, evaluates and exports PyTorch models for nine vision tasks, plus a self-supervised task that pre-trains a backbone the other tasks can load. All tasks use the same backbone design (convolution blocks with optional residual, squeeze-and-excitation and inception modules), each run training its own weights unless it loads pre-trained ones, and share the training loop, the configuration format, the evaluation report and the export to Triton; each adds its own dataset, head, losses and metrics.
 
-| Code | Task | Input | Output | Model |
-|---|---|---|---|---|
-| CLS | `classification` | one image | one class (multi-class) or several classes (multi-label) | backbone, global pooling, fully connected head |
-| DET | `object_detection` | one image | boxes with their class and score | backbone, region proposal and RoI Align detection heads on several backbone levels |
-| INS | `instance_segmentation` | one image | the boxes of DET and the mask of every object | the detector of DET with a RoI Align mask head on every level |
-| KPT | `keypoint_detection` | one image | the objects of the image with their class, keypoints and score | backbone stem, HRNet, heatmap and tag head (HigherHRNet), keypoints grouped by their tags |
-| SEG | `semantic_segmentation` | one image | one class per pixel | backbone as the encoder of a U-Net decoder |
-| M2O | `sequence_classification` | a sequence of frames | one class per sequence | backbone on every frame, temporal module, fully connected head |
-| M2M | `sequence_labelling` | a sequence of frames | one class per frame | backbone on every frame, temporal module, head on every frame |
-| CMP | `sequence_comparison` | a before and an after sequence | one class per pair | backbone on every frame, temporal module on each member, fusion of both members (cross attention also before the temporal module), fully connected head |
-| SEL | `frame_selection` | a sequence of frames | the frames of every wanted class | the model of M2M, Hungarian or greedy decoding |
-| SSL | `self_supervised` | one unlabelled image (two random views of it) | a representation whose backbone initialises the other tasks | backbone, global pooling, projection head, SimCLR or Barlow Twins loss |
+| Code | Task | Input | Output |
+|---|---|---|---|
+| CLS | `classification` | one image | one class (multi-class) or several classes (multi-label) |
+| DET | `object_detection` | one image | boxes with their class and score |
+| INS | `instance_segmentation` | one image | the boxes of DET and the mask of every object |
+| KPT | `keypoint_detection` | one image | the objects of the image with their class, keypoints and score |
+| SEG | `semantic_segmentation` | one image | one class per pixel |
+| M2O | `sequence_classification` | a sequence of frames | one class per sequence |
+| M2M | `sequence_labelling` | a sequence of frames | one class per frame |
+| CMP | `sequence_comparison` | a before and an after sequence | one class per pair |
+| SEL | `frame_selection` | a sequence of frames | the frames of every wanted class |
+| SSL | `self_supervised` | one unlabelled image (two random views of it) | a representation whose backbone initialises the other tasks |
 
 <p align="center">
   <img src="README/architectures.png" width="100%" />
 </p>
 
-Should you need to change what a task computes, the code splits the same way: `base_trainer.py` runs the loop of every task, and the trainer of the task, picked from `ExperimentConfiguration.task` by `vision_training/core/task_registry.py`, fills its hooks.
+When this README, which gives the commands and the settings that matter most, is not enough, the details are in `documentation/`:
 
-<p align="center">
-  <img src="README/shared_and_task_code.png" width="100%" />
-</p>
-
-This README gives the commands and the settings that matter most. The details are in `documentation/`:
-- [Training reference](documentation/reference/training_reference.md): run folder, console output, resuming, augmentation strengths, input viewer, moving average of the weights, transfer between runs.
-- [Tasks reference](documentation/reference/tasks_reference.md): synthetic datasets, data format, converters, losses and metrics of every task.
-- [Configuration reference](documentation/reference/configuration_reference.md): keys and values of every task, evaluation outputs, run name tokens, MLflow metrics.
-- [Tools reference](documentation/reference/tools_reference.md): checkpoint evaluation, launch comparison, embedding clustering, export, input contract and Triton.
-- [Pretraining reference](documentation/reference/pretraining_reference.md): download of ImageNet-22k, on which the classification configurations pre-train the backbones, its validation and test splits, the order in which the Small, Medium and Large backbone sizes are pre-trained then fine-tuned for detection and instance segmentation, and the Open Images V7 splits and Small, Medium and Large configurations of the detection pretraining.
-- Task workflows: one run of every task followed function by function, such as the [classification](documentation/task%20workflows/classification_workflow.md) and [object detection](documentation/task%20workflows/object_detection_workflow.md) workflows; the Details column of the [Tasks](#tasks) table links the workflow of every task.
+| To ... | Read |
+|---|---|
+| follow a run: run folder, console, resuming, augmentations, input viewer, moving average, transfer | [Training reference](documentation/reference/training_reference.md) |
+| prepare data: synthetic datasets, label format, converters, losses and metrics of every task | [Tasks reference](documentation/reference/tasks_reference.md) |
+| set a configuration key, read an evaluation output, a run name or an MLflow metric | [Configuration reference](documentation/reference/configuration_reference.md) |
+| evaluate a checkpoint, compare launches, cluster embeddings, export or serve a model | [Tools reference](documentation/reference/tools_reference.md) |
+| pre-train the Small, Medium and Large backbones on ImageNet-22k and Open Images V7 | [Pretraining reference](documentation/reference/pretraining_reference.md) |
+| follow one run of a task function by function | its workflow, linked in the Details column of the [Tasks](#tasks) table |
 
 ## Prerequisites
 
@@ -1576,6 +1573,12 @@ To find your way in the code, the diagram follows the packages along the path of
 ├── tests/                             # Tests, mirroring vision_training/ and scripts/
 └── tutorials/                         # Narrated tutorial videos: storyboards, figure scripts, run snapshots, README.md of the build
 ```
+
+Should you need to change what a task computes, the training code splits into a shared part and one part per task: `base_trainer.py` runs the loop of every task, and the trainer of the task, picked from `ExperimentConfiguration.task` by `vision_training/core/task_registry.py`, fills its hooks.
+
+<p align="center">
+  <img src="README/shared_and_task_code.png" width="100%" />
+</p>
 
 ## Metrics Explained
 Each time a checkpoint is evaluated, its report (`Results.txt`, the console, TensorBoard, MLflow and `class_metrics.csv`) gives a dozen numbers or more, and choosing between two runs means knowing what each one measures. This section takes them one by one, task family by task family: what the metric answers, how the repository computes it (the function and the exact name it has in the report), a small worked example on synthetic shapes whose numbers come from the repository's own metric functions, and how to read it. The figures and animations were drawn from these same toy examples.
