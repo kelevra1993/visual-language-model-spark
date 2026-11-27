@@ -1,8 +1,9 @@
 # Tools Reference
 
-Settings and outputs of the scripts run after a training, completing the [Evaluating Checkpoints](../../README.md#evaluating-checkpoints) and [Deployment](../../README.md#deployment) sections of the README. Every setting is a command line argument of its script, which prints its help when launched without any.
+If you are looking for the settings and outputs of the scripts run after a training, this reference completes the [Evaluating Checkpoints](../../README.md#evaluating-checkpoints) and [Deployment](../../README.md#deployment) sections of the README. Every setting is a command line argument of its script; `--help` lists them with their defaults.
 
 ## Table Of Content
+To find your way in this reference, the sections are:
 - [Evaluating Checkpoints](#evaluating-checkpoints)
   - [Logit Temperature](#logit-temperature)
   - [Drawing The Figures Of A Research Report](#drawing-the-figures-of-a-research-report)
@@ -24,23 +25,23 @@ Settings and outputs of the scripts run after a training, completing the [Evalua
   - [Serving Benchmark](#serving-benchmark)
 
 ## Evaluating Checkpoints
-Whenever the checkpoints of a trained run must be judged again, on another split, with other target precisions or another NMS, `scripts/evaluation/evaluate_checkpoint.py` evaluates them into the `Checkpoint_Evaluation/` folder of the run, next to the `Evaluation/` folder of the training, without touching its other files.
+Whenever the checkpoints of a trained run must be judged again, on another split, with other target precisions or another NMS, use `scripts/evaluation/evaluate_checkpoint.py`. It writes into `<run>/Checkpoint_Evaluation/` and leaves the training files untouched. The table lists its arguments; one left out keeps the value of the run, and the two with a default keep it with `None`.
 
 | Argument | Meaning |
 |---|---|
-| `--experiment_folder` | the evaluated run folder, with its `Weights/` and `training_configuration.yaml` (required) |
-| `--iteration` | an iteration, or `all` for every checkpoint, the last saved one by default; a run without checkpoint, or an iteration without one, stops the script with a `FileNotFoundError` naming its `Weights/` folder before anything is written |
-| `--test_data_folder` | another labelled split, the test split of the run by default; another split is written to `<run>/Checkpoint_Evaluation_split_<parent folder>_<split folder>/` (e.g. `Checkpoint_Evaluation_split_synthetic_shapes_validation`), and a folder whose `data.json` records another test split is refused, so that the evaluations of two splits never mix |
-| `--batch_size` | the evaluation batch size, `128` by default, `None` keeping the run's |
-| `--track_evaluation` | `True` sends the evaluation to MLflow, in a run named `<run name>-evaluation` in the backend the launch panel names (that of the `experiment_folder` of the configuration of the run, even when the run folder was moved since), `False` does not; the `tracking.activated` of the run by default |
-| `--save_predictions` | `True` writes `predictions.csv` (CLS, M2O, M2M, CMP) or `selections.csv` (SEL) in every evaluated iteration folder, `False` does not; the `evaluation.save_predictions` of the run by default, skipped with a warning for the tasks without the setting |
-| `--maximum_error_images_per_class_pair` | turns the error images on with at most this number per pair of classes, `100000` by default, `None` keeping the `evaluation.error_dumps` of the run; skipped with a warning for the tasks without error images (SEG, KPT, SSL) |
-| `--target_precisions` | one precision, or several such as `0.99 0.95 0.90` (CLS, M2O, M2M, CMP), targeted by the class thresholds, the `evaluation.target_precision` of the run by default; skipped with a warning for the tasks without class thresholds |
-| `--nms_criterion`, `--nms_distance_exponent` | the final NMS of a DET or INS run replaced, `iou` (greedy) or `distance_iou` (DIoU-NMS) with the exponent of its distance term, the run's by default; an NMS other than the run's is written to `<run>/Checkpoint_Evaluation_nms_<criterion>[_<exponent>]/` (e.g. `Checkpoint_Evaluation_nms_distance_iou_0.6`), and the setting is skipped with a warning for the tasks without detector |
+| `--experiment_folder` | the evaluated run folder (required) |
+| `--iteration` | an iteration, or `all`, the last checkpoint by default; a missing checkpoint raises `FileNotFoundError` before anything is written |
+| `--test_data_folder` | another labelled split, written to `<run>/Checkpoint_Evaluation_split_<parent folder>_<split folder>/` so that two splits never mix |
+| `--batch_size` | the evaluation batch size, `128` by default |
+| `--track_evaluation` | `True` sends the evaluation to MLflow, in a run named `<run name>-evaluation` |
+| `--save_predictions` | `True` writes `predictions.csv` (CLS, M2O, M2M, CMP) or `selections.csv` (SEL) |
+| `--maximum_error_images_per_class_pair` | turns the error images on, at most this number per pair of classes, `100000` by default (not SEG, KPT, SSL) |
+| `--target_precisions` | one precision, or several such as `0.99 0.95 0.90`, targeted by the class thresholds |
+| `--nms_criterion`, `--nms_distance_exponent` | another final NMS for DET or INS, `iou` or `distance_iou`, written to `<run>/Checkpoint_Evaluation_nms_<criterion>[_<exponent>]/` |
 
-It writes `Results.txt`, `Tensorboard/Test` (and `Tensorboard/Test_EMA` for the averaged weights when the run kept a moving average), `training_configuration.yaml`, `label_dictionary.json`, `data.json` (its test split being the evaluated one) and one `Iteration_<n>/[EMA/]` folder per checkpoint, laid out as in the `Evaluation/` folder of the training, directly in `<run>/Checkpoint_Evaluation/`. A checkpoint evaluated again with error images replaces the `Errors/` folder of its iteration and weights. Every evaluated checkpoint adds its row to `Checkpoint_Evaluation/evaluation_summary.csv` (the averaged weights in `ema_<scalar>` columns with their number of updates restored with the checkpoint in `ema_number_updates`, every rate between 0 and 1, the rows of the earlier launches into the folder kept, in increasing iteration order) and draws `Checkpoint_Evaluation/evaluation_curves.png` again, as during the training, the window of the moving average ending at the highest evaluated iteration ([Run Folder](training_reference.md#run-folder)). `--iteration all` evaluates every checkpoint, and the best of the evaluated iterations is printed for both weights, its value written like in the report: `Best Checkpoint : iteration 2000 (Accuracy 81.76 %)`, the headline metric of every task (`mAP@0.5/area` of DET, `Mean IoU` of SEG, `Hungarian Selection Accuracy` of SEL, ...) being a rate written as a percentage, except the effective rank of an SSL run without labelled test images, which keeps 4 decimals.
+The folder is laid out as the `Evaluation/` folder of the training ([Run Folder](training_reference.md#run-folder)). Every checkpoint adds its row to `evaluation_summary.csv` and redraws `evaluation_curves.png`. With `--iteration all`, the best iteration is printed for both weights: `Best Checkpoint : iteration 2000 (Accuracy 81.76 %)`.
 
-To find where a classifier fails, read its confusion matrix (counts coloured by their share of the true class, precision and recall in the margins; above 1,000 classes no image is drawn, and `confusion_cells.csv` lists the non-zero cells as `true_class,predicted_class,count` in place of `confusion_matrix.csv`), then the misclassified images saved in `Errors/<true>-TO-<predicted>/` (at most `--maximum_error_images_per_class_pair` per pair), named after the sample and the probability of the predicted class.
+To find where a classifier fails, read its confusion matrix, then the misclassified images in `Errors/<true>-TO-<predicted>/`. Above 1,000 classes no image is drawn, and `confusion_cells.csv` lists the non-zero cells. The figures show the matrix and the error folders of the 35-class synthetic shapes classifier.
 
 <p align="center">
   <img src="../../README/confusion_matrix.png" width="80%" />
@@ -49,19 +50,24 @@ To find where a classifier fails, read its confusion matrix (counts coloured by 
 <p align="center">
   <img src="../../README/evaluation_error_images.png" width="100%" />
 </p>
-<p align="center"><em>The confusion matrix of the 35 classes of the synthetic shapes classifier of the README screenshots, evaluated at iteration 2000 (accuracy 81.76 %), and the error folders of its three largest confusions: hollow parallelograms read as hollow trapezoids, trapezoids as parallelograms and rectangles as squares.</em></p>
+<p align="center"><em>Iteration 2000 (accuracy 81.76 %): hollow parallelograms read as hollow trapezoids, trapezoids as parallelograms and rectangles as squares.</em></p>
 
 ### Logit Temperature
-A classifier trained with the cross entropy is often overconfident: its probabilities are squeezed against 0 and 1, and its thresholds at a high precision end up at 0.999 or above. Dividing the class logits by a temperature T above 1 before the softmax spreads them without changing the predicted class, so the accuracy and the confusion matrix stay the same. With two classes (or in multi-label mode) the recall at a target precision stays the same and only the threshold moves; with more classes it can move a little.
+Suppose a classifier is overconfident, its thresholds at high precision ending at 0.999 or above. Dividing the logits by a temperature T above 1 before the softmax spreads the probabilities without changing the predicted class. With two classes (or multi-label) the recall at a target precision stays the same and only the threshold moves.
 
-1. With `per_class_report`, every evaluation writes `Evaluation/Iteration_<n>/temperature_explorer.html` (`Checkpoint_Evaluation/Iteration_<n>/` for the evaluation script), a self-contained page whose slider divides the logits by temperatures from 0.5 to 10. For every temperature it shows, for every class in class index order, the histogram of its score over its own images, to see how far the temperature spreads the scores squeezed against 1, with the thresholds of every target precision, and a table of the thresholds and recalls (columns `Threshold @ P99 %` and `Recall @ P99 %`, the recall written as a percentage with its change from T = 1 in points below it, e.g. `(+0.36 points from T = 1)`). The thresholds and scores stay between 0 and 1. Up to 100 classes, the evaluation also keeps the logits next to the page, `class_logits.npz` (with the labels, class names, target precisions, class F1 and title; about 0.3 MB for 40,000 images of 2 classes, 20 MB for 50,000 images of 100 classes).
-2. Start `scripts/evaluation/serve_temperature_explorer.py` and open `http://127.0.0.1:8091/`. Its two arguments are optional: `--experiments_roots`, the folders served (by default the folders of the repository root whose name holds `experiments`), and `--port` (8091 by default, `DEFAULT_PORT`). The index lists the evaluations holding a page, `<run>/Evaluation/Iteration_<n>[/EMA]` of the training and `<run>/Checkpoint_Evaluation/Iteration_<n>[/EMA]` of the evaluation script, with the run folder up to three folders below an experiments folder, grouped by run folder (with its number of iterations, saved temperatures and exports), then by iteration, newest first and the newest open, every iteration giving its evaluations, trained weights first, with their evaluation, a link per weights (`Trained`, `EMA`), temperatures (`Any` with `class_logits.npz`, `Grid only` without), saved temperature and exports. Every page is built again with the current template: from `class_logits.npz`, where any temperature from 0.05 to 100 can be typed in (**Show T**), or from the data of the written page, with the temperatures of its slider. So that the exported checkpoint is known by its performance, every page opens on its global metrics, read from the `evaluation_summary.csv` of its `Evaluation/` or `Checkpoint_Evaluation/` folder (`describe_model_performance`, `PERFORMANCE_METRICS`: Balanced Accuracy, Accuracy and Macro F1, or Subset Accuracy, Micro F1 and Macro F1 in multi-label mode, the `ema_` columns for the EMA weights), with a last tile for the best iteration of that summary by the first metric over the trained and EMA weights, linked to its page, or "This checkpoint", then its experiment folder and run name; a summary without the row of the checkpoint shows no metric. With `class_logits.npz`, the **Score Ranges** section takes a list of 1 to 10 (`MAXIMUM_SCORE_CUT_POINTS`) distinct cut points strictly between 0 and 1, in any order (`0.5, 0.8`), and gives for every class of the page the share and the number of its images whose score for their own class is below 0.5, from 0.5 to below 0.8 and from 0.8, a score equal to a cut point counting in the range above, as an image scoring its threshold is given the class. The server counts them from the logits at the temperature shown (`/api/score_ranges`, `compute_score_ranges`), again whenever the temperature changes, and the browser keeps the cut points of every evaluation for its next visit, a first visit counting with `0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99` (`DEFAULT_SCORE_CUT_POINTS`).
-3. Choose the temperature and press **Save Thresholds At This Temperature**: `saved_temperature_thresholds.json` is written next to the page, in the format of `class_thresholds.json`, with the temperature as `logit_temperature` and the threshold and recall of every class at every target precision, found by the server from the logits (the thresholds the page shows), or, without logits, those posted by the page after a check against the `class_thresholds.json` of the folder. A save replaces the earlier one, and is refused while the checkpoint is being exported. Opened as a plain file, the page downloads the file instead; the button needs every class on the page (at most 100 classes).
-4. Choose the formats, version, maximum batch size, TorchScript precision and TensorRT precision of the **Export** panel (the defaults of the arguments of `export_model.py` first) and press **Export At T = …**: `vision_training/deployment/explorer_export.py` exports the checkpoint and weights of the page at the saved temperature, in a separate process, one export at a time, into `<run>/Exports/Iteration_<n>[_EMA]_T<temperature>/` (written as `<folder>.partial` until it succeeds), a Triton model repository holding `image_classifier_<format>/<version>/` with its `class_thresholds.json`, `export_record.json` (run, iteration, weights, temperature, settings, the TorchScript precisions kept, date) and `export_log.txt`, the console output the page shows while it runs. Another temperature gets its own folder, the same temperature replaces its folder (an export in the other TorchScript precision first copying the earlier `model.pt` or `model_fp16.pt` of the same version next to its own file, which its `config.pbtxt` serves, the TorchScript column of the table then reading e.g. `FP16, FP32 kept`), and a failed export leaves its `.partial` folder with its console output until the next export of that temperature. The run folder and checkpoint of the evaluation must still be on disk.
-5. Without the page, export the checkpoint with `--use_saved_temperature` ([Export](#export)).
+1. With `per_class_report`, every evaluation writes `temperature_explorer.html` in its iteration folder. Its slider tries temperatures from 0.5 to 10 and shows, per class, the score histogram, thresholds and recalls. Up to 100 classes, it also keeps `class_logits.npz`.
+2. Start the explorer server and open `http://127.0.0.1:8091/`. Its optional arguments are `--experiments_roots`, by default the folders of the repository root whose name holds `experiments`, and `--port`, 8091 by default. The index lists every evaluation with a page, grouped by run and iteration. With `class_logits.npz`, any temperature from 0.05 to 100 can be typed (**Show T**). Each page opens on the global metrics of the checkpoint and the best iteration of its summary. The **Score Ranges** section counts, per class, the images whose score falls between 1 to 10 cut points (default `0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99`).
+3. Press **Save Thresholds At This Temperature**. `saved_temperature_thresholds.json` is written next to the page, in the format of `class_thresholds.json`, with `logit_temperature`. A save replaces the earlier one.
+4. In the **Export** panel, choose formats, version, batch size and precisions, then press **Export At T = …**. `vision_training/deployment/explorer_export.py` exports into `<run>/Exports/Iteration_<n>[_EMA]_T<temperature>/`, a Triton model repository with `class_thresholds.json`, `export_record.json` and `export_log.txt`. One export runs at a time; a failed one leaves its `.partial` folder.
+5. Without the page, export with `--use_saved_temperature` ([Export](#export)).
+
+```bash
+# Serve the temperature explorer on port 8091
+uv run python -m scripts.evaluation.serve_temperature_explorer
+```
 
 ### Drawing The Figures Of A Research Report
-Should a research report need its figures again, after a new evaluation of its kept checkpoint or a new saved temperature, `scripts/evaluation/draw_report_figures.py` draws them from the run folder into `<run>/Checkpoint_Evaluation/Iteration_<n>[/EMA]/Report_Figures/`. It reads every input and checks it before the first figure is drawn, so that a wrong input stops the run without writing anything. Launched without arguments, it prints its help.
+Should a research report need its figures again, after a new evaluation or a new saved temperature, `scripts/evaluation/draw_report_figures.py` draws them into `<run>/Checkpoint_Evaluation/Iteration_<n>[/EMA]/Report_Figures/`. It checks every input before drawing, so a wrong input writes nothing.
 
 ```bash
 # Figures of the trained weights of iteration 2000, evaluated by evaluate_checkpoint.py
@@ -70,23 +76,24 @@ uv run python -m scripts.evaluation.draw_report_figures --experiment_folder ~/Da
 
 | Argument | Meaning |
 |---|---|
-| `--experiment_folder`, `--iteration` | required: the run folder of the kept classifier and the iteration of its kept checkpoint |
-| `--weights` | the kept weights, `trained` (default) or `ema` |
-| `--evaluation_folder_name` | `Checkpoint_Evaluation` (default, `evaluate_checkpoint.py`, where the temperature explorer saves the temperature) or `Evaluation` (the training) |
-| `--class_display_names` | the name shown for every class as `CLASS=NAME`, in the order of the curves or panels; by default the class names in class index order |
+| `--experiment_folder`, `--iteration` | required: the run of the kept classifier and its kept checkpoint |
+| `--weights` | `trained` (default) or `ema` |
+| `--evaluation_folder_name` | `Checkpoint_Evaluation` (default) or `Evaluation` |
+| `--class_display_names` | the name shown for every class as `CLASS=NAME`, the class names by default |
 | `--sample_kind`, `--split_name` | written in the titles, e.g. "on the 50,000 test images" (`images` and `test` by default) |
-| `--minimum_recall` | the left end of the recall axis, 0 by default, or close to 1 when every threshold keeps nearly every sample (e.g. 0.98) |
-| `--group_manifest_path` | a JSON Lines manifest, one object per sample, giving the group of every training and evaluated sample (such as the camera or vehicle of every frame); without it, no groups chart |
-| `--file_name_key`, `--group_key`, `--group_plural` | the keys of the file name and of the group in the manifest, and the groups in the plural (`file_name`, `camera`, `cameras` by default) |
-| `--training_labels_path` | the `labels.json` of the training split, by default the one of the `train_data_folder` of the run |
-| `--predictions_path` | the predictions of the evaluation, by default its `predictions.csv` (`--save_predictions True` of `evaluate_checkpoint.py`) |
+| `--minimum_recall` | the left end of the recall axis, 0 by default |
+| `--group_manifest_path` | a JSON Lines manifest giving the group (camera, vehicle) of every sample; without it, no groups chart |
+| `--file_name_key`, `--group_key`, `--group_plural` | the manifest keys and the plural of the group (`file_name`, `camera`, `cameras` by default) |
+| `--training_labels_path`, `--predictions_path` | the run's training `labels.json` and `predictions.csv` by default |
 
-It writes, drawn in the Inter font of the reports when it is installed in `/usr/share/fonts/opentype/inter`:
-- `confusion_matrix.png`: the trainer's drawing, its title giving the accuracy and the balanced accuracy in percent.
-- `precision_recall_curves.png`: the curve of every class with the point of its threshold at every target precision, the threshold rounded down to the fewest decimals (four at least) selecting the same samples, at the temperature of `saved_temperature_thresholds.json` (the scores of the exported model). The saved thresholds must be exactly those found again from `class_logits.npz` at that temperature; without saved file, the curves are drawn at a temperature of 1 with a warning. Two classes share one plot (the first one in red), more classes get one panel each, three per row.
-- `training_curves.png`: the balanced accuracy of the trained and averaged weights at every checkpoint evaluated during the training (`Tensorboard/Test`, `Tensorboard/Test_EMA`), the kept checkpoint ringed with its value, drawn like the `evaluation_curves.png` of a run (`save_evaluation_curves_figure` of `vision_training/evaluation/evaluation_curves.py`) without the window of the moving average.
-- `seen_and_never_seen_groups.png`, with a manifest: the balanced accuracy on the samples of the groups having at least one training sample and on those of the groups never seen, with their numbers of groups and samples. The predictions must give the confusion matrix of the evaluation exactly, and every training and evaluated sample needs its group.
-- `report_values.json`: the numbers shown, to fill the tables of the report: accuracy, balanced accuracy and recall of every class, the temperature, the written and exact threshold, recall and precision of every class at every target precision, the balanced accuracy of the kept checkpoint during the training, and the groups, classes, samples and recall of the seen, never seen and all samples.
+It writes these files:
+- `confusion_matrix.png`, titled with the accuracy and balanced accuracy.
+- `precision_recall_curves.png`: every class with its threshold at every target precision, at the saved temperature (1 with a warning when none is saved).
+- `training_curves.png`: the balanced accuracy of both weights at every evaluated checkpoint, the kept one ringed.
+- `seen_and_never_seen_groups.png`, with a manifest: the balanced accuracy on groups seen and never seen in training.
+- `report_values.json`: every number shown, to fill the tables of the report.
+
+The figures show the curves drawn for the classifier above at iteration 2000.
 
 <p align="center">
   <img src="../../README/report_precision_recall_curves.png" width="90%" />
@@ -95,26 +102,26 @@ It writes, drawn in the Inter font of the reports when it is installed in `/usr/
 <p align="center">
   <img src="../../README/report_training_curves.png" width="80%" />
 </p>
-<p align="center"><em>The precision-recall curves and the training curves drawn for the classifier above at iteration 2000 (test balanced accuracy 81.65 %), the curves shown for the first nine of its 35 classes (the script draws one panel per class): a dot marks the threshold reaching 99 % precision, reached by these nine and never by trapezoid, hollow parallelogram and hollow kite, at a logit temperature of 1 since no temperature was saved. The confusion matrix of the report is the one shown above; the chart of the groups needs a group manifest, which the synthetic shapes do not have.</em></p>
+<p align="center"><em>First nine of the 35 classes; a dot marks the threshold reaching 99 % precision, at temperature 1 since none was saved.</em></p>
 
 ### Scoring A Large Split
-Say a rare class must be mined from a split far larger than a test split: `scripts/evaluation/score_image_split.py` scores every image of it with one checkpoint, without the metrics, error images and second weights of `evaluate_checkpoint.py`.
+Say a rare class must be mined from a split far larger than a test split: `scripts/evaluation/score_image_split.py` scores every image with one checkpoint, without metrics or error images.
 
 | Option | Meaning |
 |---|---|
 | `--experiment_folder`, `--iteration` | the run folder and the scored checkpoint |
-| `--use_averaged_weights` | scores with the moving average of the weights saved with the checkpoint, refused for a run without one |
-| `--test_data_folder` | the scored split, a `labels.json` and its `data/` folder, every image given a class of the run (a placeholder class for unlabelled images) |
+| `--use_averaged_weights` | scores with the moving average |
+| `--test_data_folder` | the scored split, a `labels.json` and its `data/` folder (a placeholder class for unlabelled images) |
 | `--output_path` | the predictions file, appended to when it exists |
-| `--precision` | `float32` (default) or `bfloat16` autocast, the precision of the training |
-| `--batch_size`, `--number_workers` | the images per forward pass (128) and the loader worker processes (12) |
-| `--time_budget_hours` | the time after which no new batch is scored, `None` (default) for none |
-| `--compare_precisions` | first scores the labelled test split of the run in both precisions and prints their time, the largest difference of probability, the number of images whose predicted class changes and the balanced accuracy of each; without `--test_data_folder` it stops there |
+| `--precision` | `float32` (default) or `bfloat16` |
+| `--batch_size`, `--number_workers` | 128 images per pass, 12 loader workers |
+| `--time_budget_hours` | the time after which no new batch is scored |
+| `--compare_precisions` | first scores the test split of the run in both precisions and prints their differences |
 
-The predictions file has the columns of the `predictions.csv` of `evaluate_checkpoint.py`, `sample` (the file name of the image relative to `data/`) and one `probability_<class>` per class written with nine significant digits, one row per image in the order of the split, written batch by batch. A launch on an existing file scores only the images it does not hold, after checking that it names the same columns and that its last row is complete: a file of other classes, a row lacking a value or a file ending without a line break, as left by an interrupted write, is refused before anything is written. The header is written only by the launch that creates the file. The trainer of the run is built on the split and writes its `training_configuration.yaml`, `label_dictionary.json`, `data.json` and `Tensorboard/` into `<run>/Checkpoint_Evaluation_split_<parent folder>_<split folder>/` (`Checkpoint_Evaluation_score_image_split_test/` for the precision comparison), so that no file of the run or of its evaluations changes.
+The predictions file has the columns of `predictions.csv`: `sample` and one `probability_<class>` per class. A relaunch scores only the missing images, after checking the columns and that the last row is complete. The trainer files go to `<run>/Checkpoint_Evaluation_split_<parent folder>_<split folder>/`, so no file of the run changes.
 
 ## Comparing Launches
-To decide which setting of a stage of a hyperparameter experiment to keep, `scripts/evaluation/collect_experiment_results.py` gathers every launch of the experiment into one CSV file. Every launch trains in its own `run_<n>` folder, a repeat launch in `run_<n><letters>` (`run_23b`).
+To decide which setting of a hyperparameter stage to keep, `scripts/evaluation/collect_experiment_results.py` gathers every launch into one CSV file. Each launch trains in its own `run_<n>` folder, a repeat in `run_<n><letters>` (`run_23b`).
 
 ```bash
 # List every argument with its default
@@ -128,37 +135,39 @@ Say you collect another experiment, or launches kept elsewhere: the arguments se
 
 | Argument | Meaning |
 |---|---|
-| `--task` | required: `classification`, `sequence_labelling` or `object_detection`. It picks the swept settings, the compared test curve (`Accuracy`, `Macro F1`, `mAP@[0.5:0.95]/area`) and its column prefix (`accuracy`, `macro_f1`, `map_50_95`) |
-| `--experiment_folder` | the folder of the `run_<n>` folders. Default: `<repository>/hyperparameter_experiments` for classification, its `<task>/` subfolder for the others |
+| `--task` | required: `classification`, `sequence_labelling` or `object_detection`, choosing folder, swept settings and compared curve (`Accuracy`, `Macro F1`, `mAP@[0.5:0.95]/area`) |
+| `--experiment_folder` | the folder of the `run_<n>` folders, by default `<repository>/hyperparameter_experiments`, its `<task>/` subfolder for the other tasks |
 | `--number_last_evaluations` | the last evaluations averaged in a second mean column, 4 by default |
-| `--output_path` | the CSV file, `<experiment_folder>/results.csv` by default |
+| `--output_path` | `<experiment_folder>/results.csv` by default |
 
-Every row is a launch and its weights (`evaluated_weights`: `trained`, or `ema` from `Tensorboard/Test_EMA` for a launch keeping a moving average). It gives the metric at every evaluated iteration, its mean, the mean of the last evaluations (`<metric column>_last_<n>_mean`, which ignores how fast a launch starts), whether the launch finished, the swept settings of the experiment (`TASK_SWEPT_SETTINGS`) and the run folder. The launches of the same settings and weights are grouped in the order of their first launch, followed by a `mean` row. Settings given as lists, such as the `[layers, channels]` of the mask heads or the backbone blocks of their skips, which the driver of the instance segmentation experiment adds to the swept settings of the detection, are compared by their values (`make_hashable`) and written as the configuration gives them (`[4, 64]`). A launch still training leaves its future cells empty, so the file can be written at any time.
+Every row is a launch and its weights (`trained` or `ema`). It gives the metric at every iteration, its mean, the mean of the last evaluations, whether the launch finished, the swept settings (`TASK_SWEPT_SETTINGS`) and the folder. Launches of the same settings are grouped and followed by a `mean` row. A launch still training leaves its future cells empty.
+
+The figure shows the flow from launches to the results file.
 
 <p align="center">
   <img src="../../README/comparing_launches_flow.png" width="100%" />
 </p>
 
-Before trusting a gap between two settings, compare it with the spread of the launches of each: in the repeated squeeze-and-excitation stage below, six launches per setting overlap, and the means differ by 0.21 points for a standard error of 1.11 points.
+Before trusting a gap between two settings, compare it with the spread of each. In the repeated squeeze-and-excitation stage below, six launches per setting overlap: the means differ by 0.21 points for a standard error of 1.11 points.
 
 <p align="center">
   <img src="../../README/launch_comparison_stage_figure.png" width="80%" />
 </p>
 
 ### Comparing The Best Evaluations Of Runs
-`scripts/evaluation/compare_best_evaluations.py` prints Markdown tables comparing the best test evaluation of runs, over the trained (`Tensorboard/Test`) and averaged (`Tensorboard/Test_EMA`) weights. Launched without arguments, it prints its help.
+In order to compare the best test evaluation of several runs, `scripts/evaluation/compare_best_evaluations.py` prints Markdown tables over the trained and averaged weights. The table lists its arguments.
 
 | Argument | Meaning |
 |---|---|
-| `--experiment_folders` | required: experiment folders, whose subfolders holding a `training_configuration.yaml` are runs, or run folders |
+| `--experiment_folders` | required: experiment folders or run folders |
 | `--best_metric`, `--lower_is_better` | the test curve choosing the best evaluation, `Balanced Accuracy` by default, its highest value kept unless `--lower_is_better` is given |
-| `--evaluated_weights` | `trained ema` (default) or one of them; a win of the averaged weights is marked ` (EMA)` |
-| `--columns` | `experiment`, `run`, `best_iteration`; a test curve (`Recall/{class}` gives one column per class); a setting (`configuration:Data.image_settings.size`); a count of `data.json`, `<split>_<unit>` or `<split>_<unit>/{class}` (unit `images`, `annotations`, `sequences`, `frames` or `pairs`); by default `DEFAULT_COLUMNS`: the image size, the best iteration, the best metric, the recall of every class, and the validation and training images in total and per class |
-| `--column_titles` | the titles of the columns as `COLUMN=TITLE`, `{class}` being replaced by the class name, e.g. `"Recall/square=Recall square"`; a title given replaces that of its column only, the others keeping `DEFAULT_COLUMN_TITLES` |
-| `--table_grouping` | `run` (default) for one table per run, `columns` for one table per set of column titles |
-| `--rates_as_decimals`, `--number_decimals`, `--output_path` | the curves that are rates are written as the percentages of the reports, `89.80 %`, unless `--rates_as_decimals` is given; the decimals of the other curves (3 by default): the mean true frame rank, effective rank, standard deviation, proposals per image and keypoint pixel error of `NON_RATE_CURVE_NAMES`, or every curve with `--rates_as_decimals`; and a Markdown file receiving the tables (by default they are only printed) |
+| `--evaluated_weights` | `trained ema` (default) or one of them; an EMA win is marked ` (EMA)` |
+| `--columns` | `experiment`, `run`, `best_iteration`; a test curve (`Recall/{class}` gives one column per class); a setting (`configuration:Data.image_settings.size`); a `data.json` count `<split>_<unit>`; `DEFAULT_COLUMNS` by default |
+| `--column_titles` | titles as `COLUMN=TITLE`, `{class}` replaced by the class name; each replaces the title of its column only, the others keeping `DEFAULT_COLUMN_TITLES` |
+| `--table_grouping` | `run` (default) or `columns` |
+| `--rates_as_decimals`, `--number_decimals`, `--output_path` | rates as decimals instead of percentages, decimals of the other curves (3 by default), and a Markdown output file |
 
-Say you compare two runs of the 9-class synthetic shapes classifier of the README screenshots, trained at two learning rates, in one table, the learning rate as first column and the recalls of two of its classes:
+Say you compare two runs of the 9-class synthetic shapes classifier at two learning rates, in one table:
 
 ```bash
 # Two runs in one table, with the columns and titles of the comparison
@@ -180,10 +189,10 @@ It prints:
 | 0.001 | 600 | 41.61 % | 87.35 % | 100.00 % | 50,000 | 500,000 |
 ```
 
-A run not evaluated yet is printed in yellow and left out. A missing curve or count stops the script, listing the available ones.
+A run not evaluated yet is printed in yellow and left out. A missing curve or count stops the script.
 
 ### Drawing The Comparison Of Every Stage
-After a stage of a hyperparameter experiment, `scripts/evaluation/plot_experiment_comparisons.py` draws its figure next to its experiment plan, from the copy of its results file in `documentation/architecture_benchmarking` (`results.csv` for classification, `<task>_results.csv` for the others) and its entry in `experiment_comparisons.yaml`.
+After a stage of a hyperparameter experiment, `scripts/evaluation/plot_experiment_comparisons.py` draws its figure from the results file in `documentation/architecture_benchmarking` and its entry in `experiment_comparisons.yaml`.
 
 ```bash
 # Draw every stage of every experiment again
@@ -197,23 +206,24 @@ Should you need another registry, figures folder or stage, the arguments name th
 
 | Argument | Meaning |
 |---|---|
-| `--registry_path` | the registry of the compared stages, the results files being read from its folder. Default: `documentation/architecture_benchmarking/experiment_comparisons.yaml` |
-| `--output_folder` | the folder of the figures, one subfolder per experiment. Default: `documentation/architecture_benchmarking/figures` |
-| `--experiment`, `--stage` | the experiment (`classification`, `sequence_labelling`, `object_detection`, `instance_segmentation`) and stage (`3`, `2b`, `repeat`) to draw alone. Default: every stage |
+| `--registry_path` | `documentation/architecture_benchmarking/experiment_comparisons.yaml` by default |
+| `--output_folder` | `documentation/architecture_benchmarking/figures` by default, one subfolder per experiment |
+| `--experiment`, `--stage` | the stage to draw alone (`3`, `2b`, `repeat`), every stage by default |
 
-Every entry of the registry gives the results file, the stage and its title, the iteration and weights the plan compares (`last_iteration`, `compared_weights`), the verdict, and the compared settings (`arms`): their label, their launches as written in the results file, whether they are the reference, and `trained_as_averaged` for a setting trained without moving average whose trained weights stand in the column of the averaged weights. A figure has a column per kind of weights evaluated for every launch of the stage; every launch is a thin line, the mean of the launches of every setting a thick one labelled at the compared iteration, and the lower panel gives the gap of every setting to the reference. Every compared metric (`PERCENT_METRICS`: the accuracy of the classification, the macro F1 of the sequence labelling, the mAP of the detection and the mask mAP of the instance segmentation) is written as the percentages of the reports: labels such as `85.81 %` on axes such as `86 %`, gaps in points such as `+0.95 points`, the gap axis named `Gap to <reference>` with `(points)` on a line of its own. The verdict under the title is wrapped by `wrap_verdict`, which keeps every number with its unit (`85.81 %`, `+0.95 points`) on one line. A stage without exactly one reference stops the script.
+Each registry entry gives the results file, stage, title, compared iteration and weights, verdict, and compared settings (`arms`). Each launch is a thin line, the mean of each setting a thick one, and a lower panel gives the gap to the reference in points. A stage without exactly one reference stops the script.
 
 ### Drawing The Mask Head Designs
-If one wishes to see every convolution before the mask of the designs of stages 3 and 3b of the instance segmentation benchmark, with their cost, `scripts/models/instance_segmentation/draw_mask_head_designs.py` draws them one under the other:
+If one wishes to see every convolution of the mask head designs of stages 3 and 3b of the instance segmentation benchmark, with their cost, run `scripts/models/instance_segmentation/draw_mask_head_designs.py`.
 
 ```bash
+# Draw the mask head designs of a configuration
 uv run python -m scripts.models.instance_segmentation.draw_mask_head_designs --configuration_path=vision_training/configurations/instance_segmentation/configuration_synthetic_shapes.yaml --output_path=/tmp/mask_head_designs.png
 ```
 
-Any instance segmentation configuration can be given, the counts following its settings. The figure of the [instance segmentation plan](../architecture_benchmarking/instance_segmentation_experiment_plan.md), `documentation/architecture_benchmarking/figures/instance_segmentation/mask_head_designs.png`, was drawn from the launch file of the benchmark, a configuration not tracked by git. Every design of its `DESIGNS` (the reference `[3, 32]`, stage 3 `[4, 64]`, and on it the image branch of design A, the U-Net skips of design B and the fusion convolution alone of the control) is built from the configuration file with its settings, as the training builds it, the finer inputs a design leaves out being turned off whatever the configuration holds; the figure reads its layers, channels, strides and residual shortcuts from the built mask heads, and its multiply-accumulates per box are counted on those layers by forward hooks on one box, printed with the parameters of the mask heads and the fine inputs.
+Any instance segmentation configuration works. Each design of `DESIGNS` is built from it as the training builds it. Multiply-accumulates per box are counted with forward hooks. The figure of the [instance segmentation plan](../architecture_benchmarking/instance_segmentation_experiment_plan.md) was drawn this way.
 
 ## Clustering Image Embeddings
-Suppose a dataset of video frames holds many near-identical images: `scripts/embedding/cluster_image_embeddings.py` embeds them with a trained run and clusters them, to keep diverse ones. Its settings are command line arguments. Launched without any, it prints its help with every default.
+Suppose a dataset of video frames holds many near-identical images: `scripts/embedding/cluster_image_embeddings.py` embeds them with a trained run and clusters them, to keep diverse ones.
 
 ```bash
 # Block 6 and the first hidden layer of a classifier on one split, one group per subfolder, clustered with DBSCAN
@@ -224,105 +234,108 @@ uv run python -m scripts.embedding.cluster_image_embeddings --experiment_folder 
 
 | Argument | Meaning |
 |---|---|
-| `--experiment_folder`, `--iteration`, `--use_averaged_weights` | the embedding run and checkpoint, the first two required: any task for the convolution blocks, a classification run for the fully connected layers |
-| `--output_root` | the root folder of the extractions, required, best kept outside the run folder |
-| `--data_sources` | `run` (the splits of the run, the default), a configuration file (its splits), a split folder of any task, or a folder of plain images; a folder given twice is embedded once |
-| `--convolution_block_indices` | the blocks embedded, counted from 1, their whole output before pooling; a block of more than 32,768 values per image (`MAXIMUM_BLOCK_VALUES`) is refused |
-| `--fully_connected_layer_indices` | the hidden layers of the classification head embedded, after their ReLU; at least one index is given here or in `--convolution_block_indices` |
+| `--experiment_folder`, `--iteration`, `--use_averaged_weights` | the embedding run, the first two required: any task for blocks, a classification run for fully connected layers |
+| `--output_root` | the root folder of the extractions (required) |
+| `--data_sources` | `run` (default), a configuration file, a split folder, or a folder of plain images |
+| `--convolution_block_indices` | blocks counted from 1, whole output before pooling, at most 32,768 values per image (`MAXIMUM_BLOCK_VALUES`) |
+| `--fully_connected_layer_indices` | hidden layers of the classification head, after their ReLU; at least one index here or in `--convolution_block_indices` |
 | `--batch_size`, `--number_workers` | the extraction loader |
-| `--normalize_vectors`, `--no-normalize_vectors` | divides every vector by its length (the default), so the distances compare which features are active |
-| `--pca_dimensions` | the dimensions kept by the PCA before clustering (200 by default), with the variance they hold printed |
-| `--clustering_algorithm` | `dbscan` (the default: `--eps`, `--min_samples`), `hdbscan` (`--min_cluster_size`, `--min_samples`, which `None` sets to the cluster size, `--cluster_selection_method` `eom` or `leaf`) or `kmeans` (`--number_clusters`, `--number_initializations`); a parameter not given takes the value of `DEFAULT_CLUSTERING_PARAMETERS`, a parameter of another algorithm is refused |
-| `--number_representatives_per_cluster`, `--isolated_image_selection` | the images kept per cluster, and the isolated images kept (`all`, `none` or a number drawn at random) |
+| `--normalize_vectors`, `--no-normalize_vectors` | divides every vector by its length (default), or not |
+| `--pca_dimensions` | dimensions kept before clustering (200 by default) |
+| `--clustering_algorithm` | `dbscan` (default; `--eps`, `--min_samples`), `hdbscan` (`--min_cluster_size`, `--min_samples`, `--cluster_selection_method`) or `kmeans` (`--number_clusters`, `--number_initializations`); a parameter of another algorithm is refused |
+| `--number_representatives_per_cluster`, `--isolated_image_selection` | images kept per cluster, and isolated images kept (`all`, `none` or a number) |
 | `--group_pattern` | the regular expression giving the group of every image ([Group Pattern](#group-pattern)), no group by default |
-| `--seed`, `--mosaic_grid_size` | the draws and k-means, and the images per mosaic row |
+| `--seed`, `--mosaic_grid_size` | draws and k-means, mosaic row size |
 
-An asked layer outside the run stops the script before any inference, with the valid range. The images are read with the preprocessing of the run.
-
-HDBSCAN runs on a single core, its time growing with the square of the images and with the dimensions. On 31,805 images of block 6, it took 116 seconds at 200 dimensions and 487 at 800, the clusters agreeing closely (adjusted Rand index of 0.81 and more). The timings of every layer and setting are at the top of the script.
+HDBSCAN runs on a single core. On 31,805 images of block 6, it took 116 seconds at 200 dimensions and 487 at 800. The figure shows a run on 720 synthetic shapes of nine classes.
 
 <p align="center">
   <img src="../../README/embedding_clusters.png" width="100%" />
 </p>
-<p align="center"><em>A run on 720 synthetic shapes, one folder for each of nine of the 35 classes: the clusters follow what the layer of the classifier separates, one cluster for each of six shapes, the stars split in two and the rectangles shared between a cluster of their own and the cluster of the squares.</em></p>
+<p align="center"><em>One cluster for each of six shapes, the stars split in two, the rectangles shared with the squares.</em></p>
 
 ### Stored Features And Relaunch
-The features of a source are stored in `<output_root>/<run name>/Iteration_<n>[_EMA]/<source>/`:
-- `images.csv`: the file name and category of every image;
-- `features_block_<b>.npy` and `features_fully_connected_<l>.npy`, one float32 row per image, and `predictions.npy` for a classification run;
-- `extraction.json`: what produced the features (checkpoint, weights, preprocessing, source and its SHA-256) and the progress of every layer.
+So that a relaunch does not run the model again, the features are stored in `<output_root>/<run name>/Iteration_<n>[_EMA]/<source>/`:
+- `images.csv`: file name and category of every image.
+- `features_block_<b>.npy`, `features_fully_connected_<l>.npy`, and `predictions.npy` for a classification run.
+- `extraction.json`: checkpoint, weights, preprocessing, source SHA-256 and progress.
 
-A relaunch with the same layers only clusters again, a new layer runs the model for that layer only, and an interrupted extraction continues where it stopped. Another checkpoint or changed images stop the script without overwriting anything: delete the folder or change `--output_root`. The images and features are released from the Linux page cache once read (`posix_fadvise` with `POSIX_FADV_DONTNEED`, no `sudo`), so they do not take the unified memory of the DGX Spark from the GPU.
+A relaunch with the same layers only clusters again; an interrupted extraction continues. Another checkpoint or changed images stop the script: delete the folder or change `--output_root`. Read files are released from the page cache (`posix_fadvise`), so they do not take the unified memory of the DGX Spark.
 
 ### Clusters And Kept Images
-Every layer is clustered in `<source>/clusters/<layer>/<clustering>/`, written again at every launch. A classification split is clustered category by category. The isolated images are those in no cluster.
-- `clusters.csv`: every image with its cluster (-1 when isolated), its membership probability, its distance to the centre and rank, why it is kept, its predicted class and its group.
-- `cluster_summary.csv`: every cluster with its images, kept images, error rate and, with a group pattern, its groups.
-- `<category>/cluster_<k>/` and `<category>/isolated_images/`: links to the images, named by their rank, with a mosaic `.jpg` of the first ones.
-- Three folders of kept images, with the same number per category, to compare by training on each:
-  - `kept_images_by_clustering/`: the images closest to the centre of every cluster, and the chosen isolated images;
-  - `kept_images_at_random/`;
-  - `kept_images_evenly_spaced_per_group/`, with a group pattern: the images spread evenly over every group, in name order.
+Each time it runs, every layer is clustered again in `<source>/clusters/<layer>/<clustering>/`. A classification split is clustered per category.
+- `clusters.csv`: every image with its cluster (-1 when isolated), distance, rank, predicted class and group.
+- `cluster_summary.csv`: every cluster with its images, kept images, error rate and groups.
+- `<category>/cluster_<k>/` and `<category>/isolated_images/`: links to the images, with a mosaic.
+- Three folders of kept images to compare by training on each: `kept_images_by_clustering/`, `kept_images_at_random/`, and `kept_images_evenly_spaced_per_group/`.
 
-Every folder of kept images lists them in `kept_images.csv`. The kept images of a labelled split form a split to train on, `data` linking to the source and `labels.json` holding the kept samples. A table of the initial, clustered, isolated and kept images of every layer and category ends the run.
+Each kept folder lists its images in `kept_images.csv`. For a labelled split it forms a split to train on, with its `labels.json`.
 
 ### Group Pattern
-To find the video a frame comes from, `--group_pattern` gives a regular expression searched in the file name of every image, relative to its data folder. The group is the first capturing group that matched, or the whole match without capturing group; the images it does not match form `(no group)`. Quote it on the command line, as below.
+To keep frames of one video together, `--group_pattern` is a regular expression searched in every file name. The group is the first capturing group, or the whole match; unmatched images form `(no group)`. The table shows examples, quoted as on the command line.
 
 | Pattern | File name | Group |
 |---|---|---|
 | `'^(camera_\d+_\d{4}-\d{2}-\d{2})_'` | `camera_3_2026-09-25_frame_0040.jpg` | `camera_3_2026-09-25` |
-| `'^([^/]+)/'`, the subfolder (the sequence of a frame) | `test_000012/000003.png` | `test_000012` |
+| `'^([^/]+)/'` (the subfolder) | `test_000012/000003.png` | `test_000012` |
 | `'^(video_\d+)_\|^(camera_\d+)/'` | `video_3_frame_1.png`, `camera_2/frame_1.png` | `video_3`, `camera_2` |
 | `'video_\d+'` | `camera_2/video_7_frame_1.png` | `video_7` |
 
 ## Deployment
+Before serving a model, these sections give the export details the README leaves out.
 
 ### Export
-`vision_training/deployment/export_model.py` first refuses a format other than `torchscript` and `onnx`, a repeated format, a `tensorrt_precision` other than "FP32", "FP16" and None and a `torchscript_precision` other than "FP32" and "FP16" (`check_export_settings`), so that a misspelled format such as `tensorrt` is never served as plain ONNX Runtime. With `torchscript_precision` "FP16", `convert_to_half_precision` of `export_formats.py` copies the inference model on the GPU, converts the weights of its convolution, linear and attention layers to FP16, keeps its normalization layers, other parameters and buffers in FP32, runs its LSTM, GRU and RNN layers in FP32 without autocast (`FullPrecisionRecurrentLayer`, the tracer recording none of the casts autocast makes around them), and wraps it to run under FP16 autocast and return FP32 outputs; the traced file, `model_fp16.pt` (`TORCHSCRIPT_FILE_NAMES` of `triton_configuration.py`) so that it can sit next to the `model.pt` of an FP32 export, keeps the input names and the FP32 inputs and outputs, its `config.pbtxt` naming it in a `default_model_filename` line, the only difference from the FP32 configuration. Its random batch check compares it with that eager FP16 copy, whose GPU kernels may round otherwise, every tolerance of the task multiplied by `HALF_PRECISION_TOLERANCE_FACTOR` (100) and the shares of equal outputs kept, then prints its differences from the FP32 eager model for information. It writes every model with its `config.pbtxt` into a staging folder next to the model repository (`.export_staging_<random>/`, removed at the end), checks it against the PyTorch model, and moves the models into the repository only once every format matches: a failed check raises and leaves the served models as they were, and a checked export replaces the `<model>/<version>/` folder of an earlier export of that version whole, the other versions kept. With a TensorRT precision, the `config.pbtxt` of the ONNX model, written once its files are, caches the TensorRT engines under `trt_engine_cache_prefix` `<model>_<version>_<precision>_<hash>`, the hash of the files of its version folder (`build_tensorrt_engine_cache_prefix` of `triton_configuration.py`), so that an export of other weights builds its own engines instead of being served with those of an earlier export by a container that kept its cache. `use_averaged_weights` exports the moving average of the weights, raising an error for a checkpoint without it. For a classifier, `use_saved_temperature` builds the temperature of the `saved_temperature_thresholds.json` of the exported iteration and weights ([Logit Temperature](#logit-temperature)) into the model, a constant `logit_temperature` of the TorchScript and ONNX graphs dividing the logits before the softmax, and copies the file to `<model>/<version>/class_thresholds.json`. The file is looked for in `<run>/Evaluation/Iteration_<n>/[EMA/]` of the training and in `<run>/Checkpoint_Evaluation/Iteration_<n>/[EMA/]` of the evaluation script: the export stops when it is in neither or in both, or when it does not match the `class_thresholds.json` next to it or the number of classes of the model. `saved_thresholds_path` gives the file instead (the export button of the page gives the file of its evaluation), accepted only in one of these two folders of the exported run, iteration and weights. Without it, a classifier is exported with a temperature of 1, and the copy of an earlier export is removed. It is refused for the other tasks. The ONNX graph keeps none of the debugging metadata of the dynamo exporter (`strip_exporter_metadata` of `export_formats.py`: the stack traces, module paths and FX node text of every node, the original names of the values and weights and the signature of the traced program), so that a shipped `model.onnx` holds no path of the exporting machine and is 8 to 17 times smaller (the ten tutorial runs). Every model also gets the input contract of the run, in the `metadata_props` of `model.onnx` and as `<model>/<version>/preprocessing.json` for both formats, the export stopping before writing any file when the contract cannot describe the input of the run ([Input Contract](#input-contract)). The inputs and outputs of every model are listed in the [README](../../README.md#export).
+Each time `vision_training/deployment/export_model.py` runs, it first checks the settings (`check_export_settings`). Formats are `torchscript` and `onnx`, `tensorrt_precision` "FP32", "FP16" or None, `torchscript_precision` "FP32" or "FP16". A misspelled format is never served as plain ONNX Runtime.
+- **Staging**: models are written into `.export_staging_<random>/` and checked against the PyTorch model. They move into the repository only once every format matches. A checked export replaces its `<model>/<version>/` folder whole.
+- **FP16 TorchScript**: `convert_to_half_precision` (`export_formats.py`) converts convolution, linear and attention weights to FP16, keeps normalization layers in FP32 and runs LSTM, GRU and RNN layers in FP32. The file is `model_fp16.pt`, so it can sit next to `model.pt`. Its check uses tolerances multiplied by `HALF_PRECISION_TOLERANCE_FACTOR` (100).
+- **TensorRT cache**: engines are cached under `<model>_<version>_<precision>_<hash>` (`build_tensorrt_engine_cache_prefix`), so new weights never reuse old engines.
+- **Averaged weights**: `use_averaged_weights` exports the moving average, an error without one.
+- **Temperature**: for a classifier, `use_saved_temperature` builds the temperature of `saved_temperature_thresholds.json` ([Logit Temperature](#logit-temperature)) into the graphs and copies the file to `<model>/<version>/class_thresholds.json`. The file is searched in `Evaluation/` and `Checkpoint_Evaluation/` of the iteration; the export stops when it is in neither or both. `saved_thresholds_path` names it instead.
+- **ONNX metadata**: `strip_exporter_metadata` removes the debugging metadata of the exporter, so `model.onnx` holds no local path and is 8 to 17 times smaller.
+- **Input contract**: written into every model ([Input Contract](#input-contract)).
 
-**Semantic segmentation (SEG).** The outputs are at the network resolution: `restore_prediction_to_original_image` (`vision_training/data/preprocessing.py`) brings them back to the original image. A run trained on tiles takes one tile: the client scales the image by `Data.tiling.scale` and segments it with `segment_image_by_tiles` (`vision_training/models/segmentation/sliding_window.py`), given a function sending a batch of tiles to Triton; the scale, overlap, interpolation and padding of the tiles are in the input contract of the model (`input_resize` `tiles`, [Input Contract](#input-contract)).
+The inputs and outputs of every model are listed in the [README](../../README.md#export). Some tasks need client steps:
 
-**Instance segmentation (INS).** Every mask holds the probabilities of the detected class inside its box. The client brings the boxes back to the original image with `restore_boxes_to_original_image(..., clip=False)` (`vision_training/data/preprocessing.py`), since a box clipped at the border would squeeze its mask, pastes the masks with `paste_instance_masks` (`vision_training/models/instance_segmentation/mask_operations.py`), and keeps the pixels at or above `MaskHead.inference.mask_threshold`.
+**Semantic segmentation (SEG).** `restore_prediction_to_original_image` (`vision_training/data/preprocessing.py`) brings outputs back to the original image. A run trained on tiles takes one tile: the client scales the image and calls `segment_image_by_tiles` (`vision_training/models/segmentation/sliding_window.py`).
 
-**Keypoint detection (KPT).** The model gives the keypoint candidates of every channel, and the client groups them:
-1. Preprocess the image with `preprocess_image` (`vision_training/data/preprocessing.py`) and send it.
-2. Build the channel table with `build_keypoint_channel_table` (`vision_training/models/keypoints/keypoint_detector.py`), from the `Data.keypoint_categories` read by `load_experiment_configuration` (`vision_training/configuration_processing/configuration_loader.py`).
-3. Group the candidates with `group_keypoint_candidates` (`vision_training/models/keypoints/keypoint_grouping.py`) and the `KeypointHead.inference` settings of the run.
-4. Bring the keypoints back to the original image with `restore_boxes_to_original_image`, as boxes of zero size.
+**Instance segmentation (INS).** The client restores the boxes with `restore_boxes_to_original_image(..., clip=False)`, pastes the masks with `paste_instance_masks` (`vision_training/models/instance_segmentation/mask_operations.py`), and keeps pixels at or above `MaskHead.inference.mask_threshold`.
 
-**Frame selection (SEL).** The export adds the CPU decoder `frame_selector_decoder`, a Triton Python backend running the decoding of `Selection.decoding` with the thresholds of the `class_thresholds.json` of the exported iteration, in `Evaluation/` or `Checkpoint_Evaluation/` (0 when the checkpoint was not evaluated, an error when both folders hold one), and one ensemble per format, `frame_selector_<format>_ensemble`, chaining network and decoder. The decoder folder holds a copy of `vision_training/models/sequence/frame_selection_decoding.py` and `decoding_settings.json` (the wanted classes in output order), and uses the numpy and scipy of the Triton image:
+**Keypoint detection (KPT).** The model gives keypoint candidates per channel, which the client groups:
+1. Preprocess the image with `preprocess_image` and send it.
+2. Build the channel table with `build_keypoint_channel_table` (`vision_training/models/keypoints/keypoint_detector.py`) from `Data.keypoint_categories`.
+3. Group the candidates with `group_keypoint_candidates` (`vision_training/models/keypoints/keypoint_grouping.py`) and the `KeypointHead.inference` settings.
+4. Restore the keypoints with `restore_boxes_to_original_image`, as boxes of zero size.
+
+**Frame selection (SEL).** The export adds `frame_selector_decoder`, a Triton Python backend decoding with `Selection.decoding` and the thresholds of `class_thresholds.json`. One ensemble per format, `frame_selector_<format>_ensemble`, chains network and decoder. The table gives its outputs, W being the wanted classes, N `Selection.frames_per_class` and k `evaluation.top_k`.
 
 | Output | Type | Shape | Content |
 |---|---|---|---|
-| `selected_frames` | INT64 | [B, W, N] | frames chosen for every wanted class, -1 when the sequence is too short |
+| `selected_frames` | INT64 | [B, W, N] | chosen frames, -1 when the sequence is too short |
 | `selected_probabilities` | FP32 | [B, W, N] | probability of every chosen frame |
-| `low_confidence` | BOOL | [B, W, N] | choice below the threshold of its class, or no frame |
-| `candidate_frames` | INT64 | [B, W, k] | the k most probable frames of every wanted class |
+| `low_confidence` | BOOL | [B, W, N] | choice below its class threshold, or no frame |
+| `candidate_frames` | INT64 | [B, W, k] | the k most probable frames of every class |
 | `candidate_probabilities` | FP32 | [B, W, k] | their probabilities |
 
-W is the number of wanted classes, N `Selection.frames_per_class` and k `ExperimentConfiguration.evaluation.top_k`.
-
 ### Input Contract
-Should a server need to build the input of an exported model from a photo, it reads the input contract written with the model instead of assuming a resize or a channel order. Every export writes it into the `metadata_props` of `model.onnx` and as `preprocessing.json` next to the model of both formats (`<model name>_<format>/<version>/`), with the keys and values defined in `vision_training/deployment/input_contract.py`:
+Should a server need to build the input of an exported model from a photo, it reads the input contract instead of assuming a resize or channel order. Every export writes it into the `metadata_props` of `model.onnx` and as `preprocessing.json` next to each model. The table gives its keys, defined in `vision_training/deployment/input_contract.py`.
 
 | Key | Values | Meaning |
 |---|---|---|
-| `input_contract_version` | `2` | Version of the keys and values; a server refuses a version it does not know. |
-| `input_color_order` | `BGR` | Channel order of the photo decoded as `cv2.imread` (`read_image`) decodes it: 3 channels of 8 bits, rotated by its EXIF orientation; a file of more bits per channel (a 16 bit PNG) has its values divided by 256, with a yellow warning the first time. |
-| `input_resize` | `stretch`, `keep_ratio`, `tiles` | `stretch` (`Data.image_settings.keep_ratio` False): both sides resized to the input size. `keep_ratio` (True): the longest side resized to the input size and the other one to `max(1, round(side * size / longest side))` (Python `round`, half to even), then padded to the square. `tiles` (SEG with `Data.tiling.activated`): the photo scaled by `input_tile_scale`, padded to at least a tile, then cut into overlapping tiles of the input size, one input per tile. |
-| `input_size` | a positive integer | Side of the square input in pixels, the side of a tile for `tiles`, `Data.image_settings.size`. |
-| `input_interpolation` | `linear`, `area`, `none` | OpenCV resize of the uint8 photo: `cv2.INTER_LINEAR` (`stretch` and `keep_ratio`, `tiles` enlarged), `cv2.INTER_AREA` (`tiles` shrunk), or no resize (`tiles` at the scale 1). The bilinear resize of Pillow gives other pixels (58 % of them, by up to 49 levels, for a 600 x 400 photo resized to 384 x 256). |
-| `input_padding_value` | `0` | Value of every channel of the padding pixels (`keep_ratio` and `tiles`). |
-| `input_padding_placement` | `centred`, `bottom_right` | `centred` (`keep_ratio`): resized photo at the row `(size - resized height) // 2` and the column `(size - resized width) // 2`, an odd padding pixel going to the bottom or the right. `bottom_right` (`tiles`): the scaled photo padded on its bottom and right sides to at least a tile. |
-| `input_tile_scale` | a positive number, `none` | `Data.tiling.scale`: every side of the photo scaled to `max(1, round(side * scale))`, half to even (`tiles` only). |
-| `input_tile_overlap` | a non-negative integer, `none` | `Data.tiling.overlap`, the pixels shared by two neighbouring tiles: along a padded side of length L, the tiles start at 0, size - overlap, 2 (size - overlap)... below L - size, then at L - size, cut row by row (`tiles` only). |
-| `input_layout` | `NCHW`, `NTCHW` | Batch, channels, height and width, the frames coming after the batch for the sequence tasks (M2O, M2M, CMP, SEL); the tiles of a photo form the batch. |
-| `input_value_range` | `0-255` | The uint8 pixels cast to float32 without scaling. |
+| `input_contract_version` | `2` | A server refuses a version it does not know. |
+| `input_color_order` | `BGR` | As `cv2.imread` decodes it, 8 bits, rotated by its EXIF orientation; 16 bit files are divided by 256. |
+| `input_resize` | `stretch`, `keep_ratio`, `tiles` | `stretch`: both sides to the input size. `keep_ratio`: longest side to the input size, the other to `max(1, round(side * size / longest side))`, then padded. `tiles` (SEG with tiling): scaled, padded, cut into overlapping tiles. |
+| `input_size` | a positive integer | Side of the square input or tile, `Data.image_settings.size`. |
+| `input_interpolation` | `linear`, `area`, `none` | OpenCV resize: `cv2.INTER_LINEAR`, `cv2.INTER_AREA` (tiles shrunk), or none. Pillow gives other pixels. |
+| `input_padding_value` | `0` | Value of the padding pixels. |
+| `input_padding_placement` | `centred`, `bottom_right` | `centred` (`keep_ratio`): odd pixel at the bottom or right. `bottom_right` (`tiles`). |
+| `input_tile_scale` | a positive number, `none` | `Data.tiling.scale` (`tiles` only). |
+| `input_tile_overlap` | a non-negative integer, `none` | `Data.tiling.overlap`, pixels shared by two tiles (`tiles` only). |
+| `input_layout` | `NCHW`, `NTCHW` | Frames after the batch for M2O, M2M, CMP, SEL; tiles form the batch. |
+| `input_value_range` | `0-255` | uint8 pixels cast to float32 without scaling. |
 
-Every value is read from the configuration of the run or from the preprocessing code of the data loaders (`SegmentationDataset.cut_tile` and `segment_image_by_tiles` for the tiles), never written by hand. In case a run uses an input the contract cannot describe, the export stops before writing any file and names the setting: a change to `vision_training/data/preprocessing.py` (another default interpolation or padding value of `preprocess_image`, photos read as RGB by `read_image`, another placement in `compute_letterbox_region`), or to the scaling or padding of the tiles. The probabilities of the tiles are put back together by the client, averaged where tiles overlap ([Export](#export)).
+Every value is read from the run configuration or the preprocessing code, never by hand. When a run uses an input the contract cannot describe, the export stops before writing any file and names the setting.
 
-To read the contract of an ONNX model, ONNX Runtime gives its entries as the custom metadata of the model, and `check_input_contract` refuses a missing key, an unknown key or a value the version does not allow:
+To read the contract of an ONNX model, get its custom metadata; `check_input_contract` refuses a missing key, an unknown key or a bad value.
 
 ```python
 session = onnxruntime.InferenceSession("model.onnx", providers=["CPUExecutionProvider"])
@@ -330,22 +343,21 @@ input_contract = session.get_modelmeta().custom_metadata_map
 check_input_contract(input_contract=input_contract)
 ```
 
-If you are looking for a server-side implementation, `build_input_from_contract` in `tests/deployment/test_input_contract.py` builds the inputs of a photo from the contract alone, and the tests check them pixel for pixel against `preprocess_image` on a landscape and a portrait photo for both resizes, and against the tiles of the evaluation of a segmenter trained on tiles.
+If you are looking for a server-side implementation, `build_input_from_contract` in `tests/deployment/test_input_contract.py` builds inputs from the contract alone. The tests check them pixel for pixel against `preprocess_image`.
 
 ### Test Split Parity
-Should you need to know what an export costs in test metrics before it is served, the `--test_split_parity` argument of `export_model.py` scores every exported format on the whole test split of the run (`run_test_split_parity` of `vision_training/deployment/export_parity.py`), for every task. The random batch check of the export compares the FP32 formats with the eager model on random inputs only (TorchScript, and ONNX with ONNX Runtime on the CPU), never the TensorRT engines Triton builds.
-
-- **Before anything is read**: the export stops when no Triton container can be started (`check_triton_available` of `vision_training/deployment/triton_server.py`: the `docker` command and the image `TRITON_IMAGE`, the one of `deployment/triton/docker-compose.yml`).
-- **Rows**: the eager inference model of the export in the process first (its weights, averaged or not, and its logit temperature), the reference, then every format of the staging folder, served by a container on free ports (`export-parity-triton-<process>`, so that it never meets the deployed server or a benchmark) with its exported `config.pbtxt`, the ONNX model with its TensorRT precision and the TorchScript model in its precision (`TorchScript (FP16)` for an FP16 file). Every row runs even when the random batch check of a format failed.
-- **Requests**: the test evaluation of the trainer of the task (`build_evaluation_trainer`, its tracking, predictions file, error images, per-class report and sample images off) has its `predict_batch` replaced by `predict_exported_batch`: batches of `maximum_batch_size`, the real frames of every sequence alone (M2O, M2M, SEL, the frame probabilities of the padding left at 0), the real frames of both members of every pair alone (CMP), the tiles of every image of a SEG run trained on tiles in requests of at most `maximum_batch_size` tiles. The outputs become the predictions of the trainer (`convert_inference_outputs`): the class probabilities, the representations, the detections with no proposal (the proposal scalars read 0, left out of `parity_summary.md`), the masks pasted by the INS trainer, and the keypoint candidates grouped by the KPT trainer (`group_candidates`). The detectors are scored at their deployment score threshold (`Detector.inference.score_threshold`, the one of the export), not at `evaluation.score_threshold`.
-- **Samples**: every request of a served row also goes through the eager model, and every sample is compared with the comparison and FP32 tolerances of the random batch check (`compare_request_outputs`), an FP16 TorchScript row included, with its largest difference: of a class probability, of a representation value, or of the detection or candidate scores sorted by value, so that two detections swapped by a rounding are no difference. Every sample is named as in the evaluation outputs (`get_test_sample_name`: the image, sequence or pair name), every tile of a tiled SEG image under the name of its image, and the k-NN reference images of SSL, training images also sent to the served model, under their own `reference` split (`encode_named_reference_images`).
-- **Stored evaluation**: the `evaluation_summary.csv` of `<run>/Checkpoint_Evaluation/`, else of `<run>/Evaluation/`, at the exported iteration (`ema_` columns for the averaged weights), shown next to the rows, the eager row being expected to reproduce it. It is left out for DET and INS (another score threshold) and for a classifier exported at a temperature other than 1; the rank metrics of SSL differ by construction, the encoder returning normalized representations.
-- **Failed rows**: a model Triton refuses to load or fails to run (the TensorRT keypoint detector of the tutorials crashed the server) is recorded with its error, the log of the server up to the failure kept as `triton_server_<format>_failure.log`, and the server is started again for the other rows.
-- **Outputs**: `<run>/Export_Parity/Iteration_<n>[_EMA][_T<temperature>]_<precisions>/` (`get_parity_folder`), the temperature built into a classifier (`T1` without a saved temperature, no temperature for the other tasks) and the precision of every exported format in the order TorchScript, ONNX (`TorchScript-FP32` or `TorchScript-FP16`, then `TensorRT-FP32`, `TensorRT-FP16` or `ONNXRuntime-CUDA`), e.g. `Iteration_5000_EMA_T3_TorchScript-FP16_TensorRT-FP32`, replaced only by the next parity of the same export: `parity_summary.md` (installation, random batch check, every metric of every row with its change against the eager row, in points for a rate, the stored evaluation, the agreement of the samples and the 10 samples of largest difference of every row, the failed rows), `parity_summary.json`, `parity_samples.csv` (one line per compared sample of every served row: split, identifier, name, agreement, largest difference, mismatches), `row_evaluations/<row>/` (the `Results.txt`, summary and iteration folder of every row) and `triton_server.log` (with a `triton_server_<format>_failure.log` per failed row). The console prints the headline metric of every row, a change of at least 0.5 points in yellow. Both summaries are copied into the version folder of every installed model, which Triton ignores.
-- **Installation**: decided by the random batch check alone, as without the parity: a failed check raises once the summary is written, and an expected drop of a reduced precision never stops an export.
+Should you need to know what an export costs in test metrics before it is served, `--test_split_parity` of `export_model.py` scores every exported format on the whole test split (`run_test_split_parity` of `vision_training/deployment/export_parity.py`). The usual export check uses random inputs and never the TensorRT engines Triton builds.
+- **Before**: the export stops when no Triton container can start (`check_triton_available`).
+- **Rows**: the eager inference model first, as reference, then every format served by its own container on free ports (`export-parity-triton-<process>`). Every row runs even when a format failed the random check.
+- **Requests**: the task's test evaluation with `predict_batch` replaced by `predict_exported_batch`, in batches of `maximum_batch_size`. Detectors are scored at `Detector.inference.score_threshold`, the deployment threshold.
+- **Samples**: each request also goes through the eager model, and each sample is compared with the tolerances of the random check (`compare_request_outputs`).
+- **Stored evaluation**: the `evaluation_summary.csv` row of the iteration is shown next to the rows, except for DET, INS, and a classifier exported at a temperature other than 1.
+- **Failed rows**: a model Triton cannot load or run is recorded with its error and server log, and the server restarts for the other rows.
+- **Outputs**: `<run>/Export_Parity/Iteration_<n>[_EMA][_T<temperature>]_<precisions>/` (e.g. `Iteration_5000_EMA_T3_TorchScript-FP16_TensorRT-FP32`) holds `parity_summary.md`, `parity_summary.json`, `parity_samples.csv`, `row_evaluations/<row>/` and `triton_server.log`. The console prints the headline metric of every row, a change of 0.5 points or more in yellow. Both summaries are copied next to every installed model.
+- **Installation**: decided by the random batch check alone. A precision drop never stops an export.
 
 ### FP16 TorchScript Trial
-In case you want the cost of an FP16 TorchScript file of a classifier without starting Triton, with the deployed threshold decisions it moves, `scripts/deployment/check_half_precision_parity.py` converts it as the export does (`convert_to_half_precision`, `torchscript_precision` "FP16" of [Export](#export)), traces it and scores it on the whole test split against the eager FP32 model, classification only, without timing it; the export with `test_split_parity` scores the file served by Triton. Its arguments have the names and defaults of those of `export_model.py`: `--experiment_folder` (required), `--iteration`, `--use_averaged_weights`, `--use_saved_temperature`, `--saved_thresholds_path` and `--maximum_batch_size`.
+In case you want the cost of an FP16 TorchScript classifier without starting Triton, `scripts/deployment/check_half_precision_parity.py` converts it as the export does, traces it and scores it on the test split against the eager FP32 model. Its arguments are named and default as those of `export_model.py`: `--experiment_folder` (required), `--iteration`, `--use_averaged_weights`, `--use_saved_temperature`, `--saved_thresholds_path` and `--maximum_batch_size`.
 
 ```bash
 # List every argument with its default
@@ -355,27 +367,29 @@ uv run python -m scripts.deployment.check_half_precision_parity
 uv run python -m scripts.deployment.check_half_precision_parity --experiment_folder ~/Data/<run> --iteration 2000
 ```
 
-- **Model**: the inference classifier of the export, with the temperature of its saved thresholds when `--use_saved_temperature` is given, converted by `convert_to_half_precision`; the input stays the FP32 batch of the input contract and the FP16 logits meet the FP32 temperature, so that the division and the softmax run in FP32, FP16 values near 1 lying about 0.0005 apart.
-- **Rows**: the eager FP32 model, then the traced FP16 file in the process, each scored by `evaluate_parity_row` of the [test split parity](#test-split-parity), every FP16 request also going through the eager model.
-- **Outputs**: `<run>/Half_Precision_Parity/Iteration_<n>[_EMA]/`, replaced by the next trial of the same checkpoint and weights: `model_fp16.pt`, `model_fp32.pt` (the size reference), the evaluation files of both rows, and `half_precision_parity.md` and `.json`: Balanced Accuracy, Accuracy and Macro F1 of both rows with the change in points, the images whose predicted class or deployed threshold decision changed, those within the FP32 tolerances of the export, the largest and mean probability differences and the sizes of both files.
+- **Model**: the FP16 logits meet the FP32 temperature of `--use_saved_temperature`, so division and softmax run in FP32.
+- **Rows**: the eager FP32 model, then the FP16 file, each scored by `evaluate_parity_row`.
+- **Outputs**: `<run>/Half_Precision_Parity/Iteration_<n>[_EMA]/` with both models, their evaluation files, and `half_precision_parity.md` and `.json`. These give both rows' metrics, the images whose class or threshold decision changed, and the file sizes.
 
 ### Throughput Measurement
-`vision_training/deployment/run_inference.py` times the run of `--experiment_folder` on the images of `--image_folder`, `vision_training/deployment/inference_data/` by default. The image tasks send one request per image, letterboxed like the loaders of a run trained on whole images; a SEG run trained on tiles is refused, a photo needing many tiles per request. The sequence tasks send the whole folder as one sequence, of 2 to `maximum_sequence_length` images, CMP splitting it into a before and an after half. SEL decodes every sequence locally, and queries Triton through its ensembles.
+So that the served models of the run of `--experiment_folder` (required) can be timed, `vision_training/deployment/run_inference.py` sends them the images of `--image_folder`, `vision_training/deployment/inference_data/` by default. Image tasks send one request per image; a SEG run trained on tiles is refused. Sequence tasks send the folder as one sequence of 2 to `maximum_sequence_length` images, CMP splitting it in two halves. SEL queries Triton through its ensembles.
 
 ### Serving Benchmark
-Should you need to compare the serving paths of trained runs on an idle GPU, two drivers of `scripts/deployment/`, run one after the other from the repository root, measure them. Both take the folders of the machine: `--benchmark_folder` for their outputs, outside the repository, and `--runs_folder` and `--data_folder`, which the runs and test splits of `BENCHMARKED_MODELS` are relative to. The plan of the sweep stays in the constants of `benchmark_serving_formats.py`, as the keys of `results.csv` hold neither the calls nor the loads a relaunch must keep. The [serving benchmark plan](../architecture_benchmarking/serving_benchmark_plan.md) records the runs, the method and the results.
+Should you need to compare the serving paths of trained runs on an idle GPU, run the two drivers of `scripts/deployment/` one after the other. Both require `--benchmark_folder`, their output folder outside the repository, and `--runs_folder` and `--data_folder`, which the runs and test splits of `BENCHMARKED_MODELS` are relative to. The plan of the sweep stays in the constants of `benchmark_serving_formats.py`, and the [serving benchmark plan](../architecture_benchmarking/serving_benchmark_plan.md) records the results.
 
 ```bash
-# Export, then time in the process and through Triton
+# Export and time every format, in the process and through Triton
 uv run python -m scripts.deployment.benchmark_serving_formats --benchmark_folder ~/Data/serving_benchmark --runs_folder ~/Data/tutorial_runs --data_folder ~/Data
 
-# Score the test split through every served format
+# Score every served format on the test split
 uv run python -m scripts.deployment.evaluate_served_formats --benchmark_folder ~/Data/serving_benchmark --runs_folder ~/Data/tutorial_runs --data_folder ~/Data
 ```
 
-| Script | What it does | Settings | Output |
-|---|---|---|---|
-| `benchmark_serving_formats.py` | exports every run of `BENCHMARKED_MODELS` with `export_experiment` into one Triton model repository per precision setting, times the inference model in the process (eager, TorchScript FP32 and FP16), then serves every exported model alone in a Triton container (`TRITON_IMAGE` of `vision_training/deployment/triton_server.py`) and times it through system shared memory with `perf_analyzer` of `SDK_IMAGE` and over gRPC with the client of `run_inference.py`, with the first requests (TensorRT engine builds) and the memory taken | `BENCHMARKED_MODELS` (run, iteration, test split, frames of a sequence), `PRECISION_SETTINGS` (ONNX Runtime CUDA with the FP32 TorchScript model, TensorRT FP32 and FP16, and `torchscript_fp16`, the FP16 TorchScript model alone, exported with `torchscript_precision` "FP16" and named `triton_torchscript_fp16` and `in_process_torchscript_fp16` in the results; BF16 is refused by the ONNX Runtime backend of Triton), `BATCH_SIZES`, `LOAD_GROUPS` (server settings, transports, batch sizes and requests in flight), `MAXIMUM_BATCH_SIZE`, `IN_PROCESS_ITERATIONS` and `IN_PROCESS_WARMUP_ITERATIONS`; the argument `--phases` (`exports`, `in_process`, `triton`, all by default) runs some phases only | `results.csv`, one line per measurement, read again at a relaunch so that a stopped sweep restarts where it stopped |
-| `evaluate_served_formats.py` | sends the test split of every run through the eager inference model, then through every model of the repositories of the first script, each scored by the test evaluation of the trainer of its task with the requests of the [test split parity](#test-split-parity) (`evaluate_parity_row`, every task), so that the gap to the eager row measures the format and the precision only | `BENCHMARKED_MODELS`, `PRECISION_SETTINGS` and `MAXIMUM_BATCH_SIZE` of the first script, the last one the largest batch of the served models and of the test loaders | the evaluation files of every row (its own `Results.txt` included) and `test_metrics.csv`, one line per scalar of every row, the rows already measured skipped at a relaunch |
+The table gives what each driver does.
 
-In case you rerun them to compare with the plan, the three test splits of `BENCHMARKED_MODELS` were drawn again after the benchmark of 2026-11-17 (the classification split now holds 35 categories, of which the loaders keep the 9 of the run): a new run measures the same models on other images, so its scores are not those of the plan.
+| Script | What it does | Output |
+|---|---|---|
+| `benchmark_serving_formats.py` | exports every run of `BENCHMARKED_MODELS` per precision setting, times eager and TorchScript in the process, then serves each model alone in Triton and times it with `perf_analyzer` and over gRPC. Constants: `BENCHMARKED_MODELS`, `PRECISION_SETTINGS` (ONNX Runtime CUDA, TensorRT FP32 and FP16, `torchscript_fp16`; BF16 is refused by Triton), `BATCH_SIZES`, `LOAD_GROUPS`, `MAXIMUM_BATCH_SIZE`; `--phases` (`exports`, `in_process`, `triton`, all by default) runs some phases only | `results.csv`, read again so a stopped sweep restarts where it stopped |
+| `evaluate_served_formats.py` | scores the test split through the eager model, then every served model, with the requests of the [test split parity](#test-split-parity) | evaluation files of every row and `test_metrics.csv` |
+
+In case you rerun them, note that the three test splits of `BENCHMARKED_MODELS` were drawn again after the benchmark of 2026-11-17, so new scores are not those of the plan.

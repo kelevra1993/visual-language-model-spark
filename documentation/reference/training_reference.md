@@ -1,8 +1,9 @@
 # Training Reference
 
-Details of the training runs, completing the [Training](../../README.md#training) and [Transfer Between Runs](../../README.md#transfer-between-runs) sections of the README.
+Should you need the details of a training run, this reference completes the [Training](../../README.md#training) and [Transfer Between Runs](../../README.md#transfer-between-runs) sections of the README.
 
 ## Table Of Content
+To find your way in this reference, the sections are:
 - [Launching A Run](#launching-a-run)
 - [Run Folder](#run-folder)
 - [Console Output](#console-output)
@@ -17,84 +18,77 @@ Details of the training runs, completing the [Training](../../README.md#training
   - [Adding Classes](#adding-classes)
 
 ## Launching A Run
-- A `--configuration_path` leading to no file, or a configuration with problems, stops the program before anything starts, with the list of every problem. A setting removed from the configuration files is refused with a message naming what replaced it ([Fixed Settings](configuration_reference.md#fixed-settings)).
-- The training, validation and test loaders each read their batches with 1 worker process, preparing 2 batches in advance, the validation loader being built only when `validation_iteration_ratio` is above 0 (or for the diagnosis modes ending the program); the batches are copied to pinned memory only with a discrete CUDA GPU (`uses_pinned_memory` of `vision_training/data/loaders.py`), an integrated GPU such as that of the DGX Spark sharing one memory with the processor, and the training and validation forward passes always run in bfloat16 (mixed precision), the weights and the test evaluation staying in float32.
-- The launch adds `expandable_segments:True` to `PYTORCH_CUDA_ALLOC_CONF`, keeping its other settings. Without it, the changing shapes of the sequence batches make the allocator reserve more and more GPU memory.
+Before anything starts, the launch checks the configuration and applies fixed loader and memory settings.
+- A missing `--configuration_path` file or an invalid configuration stops the program with the list of every problem. Removed settings are refused ([Fixed Settings](configuration_reference.md#fixed-settings)).
+- Each loader uses 1 worker and prepares 2 batches. The validation loader exists only when `validation_iteration_ratio` is above 0 (or for the diagnosis modes).
+- Batches go to pinned memory only with a discrete CUDA GPU (`uses_pinned_memory` of `vision_training/data/loaders.py`). The DGX Spark shares one memory with the processor.
+- Forward passes run in bfloat16; weights and test evaluation stay in float32.
+- The launch adds `expandable_segments:True` to `PYTORCH_CUDA_ALLOC_CONF`. Without it, the changing shapes of sequence batches make the allocator reserve more and more memory.
 
 ## Run Folder
+To find your way in a run, the tree shows what each file holds.
 
 ```text
 <experiment_folder>/<run name>/
-├── training_configuration.yaml        # Copy of the configuration of the last start of the run
-├── training_configuration_until_iteration_<n>.yaml  # Configuration that trained the run up to iteration n, kept by a resume that changed it
-├── data.json                          # Classes counted in every split, and data folder, SHA-256 of labels.json and images of every split
-├── data_until_iteration_<n>.json      # Data that trained the run up to iteration n, kept by a resume whose data changed
-├── label_dictionary.json              # Class index of every category of the label mapping, the classes of the run
-├── anchor_recall.csv                  # Anchor recall of the training objects (DET, INS), written at every launch
-├── Input_Samples/                     # First 10 samples of every split as fed to the network, before the first iteration
-│   ├── Training/, Validation/, Test/  # sample_00.png to sample_09.png, drawn as the input viewer draws them
-│   └── samples.json                   # Split, source, labels drawn, augmentations and input size of every sample
-├── Input_Samples_until_iteration_<n>/ # Input samples of the run up to iteration n, kept by a resume that changed the configuration or data
+├── training_configuration.yaml        # Configuration of the last start
+├── training_configuration_until_iteration_<n>.yaml  # Configuration up to iteration n, kept by a resume that changed it
+├── data.json                          # Class counts per split, data folders, SHA-256 of labels.json and images
+├── data_until_iteration_<n>.json      # Data up to iteration n, kept by a resume whose data changed
+├── label_dictionary.json              # Class index of every category, the classes of the run
+├── anchor_recall.csv                  # Anchor recall of the training objects (DET, INS)
+├── Input_Samples/                     # First 10 samples of every split as fed to the network
+│   ├── Training/, Validation/, Test/
+│   └── samples.json                   # Source, labels, augmentations and input size of every sample
+├── Input_Samples_until_iteration_<n>/ # Kept by a resume that changed the configuration or data
 ├── Weights/
-│   ├── full-checkpoint                # Registry of the saved checkpoints, the last one first
-│   └── Iteration_<n>/model_<n>.pt     # Weights, optimizer state, moving average of the weights and metadata (classes included) of iteration n
-├── Tensorboard/
-│   ├── Train/                         # Training curves, every iteration
-│   ├── Validation/                    # Validation curves
-│   ├── Test/                          # Test metrics and sample images of every evaluation
-│   └── Test_EMA/                      # Same for the moving average of the weights, when it is on
+│   ├── full-checkpoint                # Registry of the saved checkpoints
+│   └── Iteration_<n>/model_<n>.pt     # Weights, optimizer state, moving average and metadata
+├── Tensorboard/Train/, Validation/, Test/, Test_EMA/
 ├── Results.txt                        # Report of every evaluated checkpoint
-├── evaluation_curves.png              # Headline metric of every evaluation, drawn again after each one
+├── evaluation_curves.png              # Headline metric of every evaluation
 ├── Evaluation/
-│   ├── evaluation_summary.csv         # Every test scalar of every evaluated iteration, the averaged weights in ema_ columns with ema_number_updates
-│   └── Iteration_<n>/                 # Files of the evaluation of iteration n
-│       └── EMA/                       # Files of the evaluation of the moving average of the weights, when it is on
-├── Checkpoint_Evaluation/             # Evaluations of scripts/evaluation/evaluate_checkpoint.py, written after the training
-│   ├── training_configuration.yaml    # Configuration of the evaluation, with its split and settings
-│   ├── data.json, label_dictionary.json # Data of the evaluated split and classes of the run
-│   ├── Results.txt, Tensorboard/Test/ # Report and test curves of the evaluated checkpoints
-│   ├── evaluation_summary.csv         # One row per checkpoint evaluated into the folder, by every launch
-│   ├── evaluation_curves.png          # Headline metric of these checkpoints, as during the training
-│   └── Iteration_<n>/[EMA/]           # Files of the evaluation of iteration n, as in Evaluation/
-├── Checkpoint_Evaluation_nms_<name>/  # The same for a DET or INS run evaluated with another final NMS (nms_criterion)
-└── mlflow_run.json                    # MLflow run of the training, with the tracking on
+│   ├── evaluation_summary.csv         # Every test scalar of every evaluated iteration
+│   └── Iteration_<n>/[EMA/]           # Evaluation files of iteration n
+├── Checkpoint_Evaluation/             # Same layout, written by scripts/evaluation/evaluate_checkpoint.py
+├── Checkpoint_Evaluation_nms_<name>/  # DET or INS run evaluated with another final NMS
+└── mlflow_run.json                    # MLflow run, with the tracking on
 ```
 
-- **Checkpoints**: one every `intermediate_weight_saving_iterations` iterations (0 for none), and one evaluated on the test split every `weight_saving_iterations`. `Iteration_<n>` holds n training steps, and its evaluation runs last in the iteration. The evaluation files are listed in [Evaluation Outputs](configuration_reference.md#evaluation-outputs).
-- **`evaluation_summary.csv` and `evaluation_curves.png`**: after the evaluation of the trained weights, then after that of the averaged weights, `update_evaluation_curves` of the base trainer (`vision_training/evaluation/evaluation_curves.py`) writes the scalars into the row of the iteration, rows in increasing iteration order, the per-class scalars only with `per_class_report`. The trained weights start the row, so that a checkpoint evaluated again after a resume replaces its row, the averaged weights adding their `ema_` columns and `ema_number_updates`, their number of updates restored with the checkpoint (one per training iteration since the average started); a scalar met for the first time adds a column, empty in the earlier rows. The figure, next to `Results.txt`, is drawn again from the whole summary in about 0.1 second: the headline metric (`Accuracy` for CLS, `mAP@0.5/area` for DET, ...) of both weights, the best iteration of each ringed with its value (`Trained best: iteration 112,500, 94.03 %`, `(+2 tied)` when several share it), and, with the moving average on, the window of the averaged weights of the highest evaluated iteration ending at it, whatever the order of the evaluations (`evaluate_checkpoint.py` evaluates `"all"` from the last checkpoint down): 1/(1 − d) iterations, d being the decay of their last update given by the `ema_number_updates` of their row (`compute_update_decay` of `vision_training/trainers/weight_averaging.py`; no window when that row, started from TensorBoard, has none), shaded in orange with the share of the weight of the average it carries once the warm-up is over (63 % for 5,000 iterations at 0.9998), and, during the warm-up, the configured 1/(1 − decay) shaded in grey behind it (after 15,000 updates at 0.9998, d = 0.9994 gives 1,668 iterations against 5,000). Both files are written into a partial file renamed over the previous one, and sent to the MLflow run at its root after every evaluation. A run evaluated before the summary existed gets, at its next evaluation, the earlier rows from its `Tensorboard/Test` and `Test_EMA` folders, whose float32 values are replaced by exact ones only if the checkpoint is evaluated again; reading them takes a few seconds once (5 to 7 seconds for 60 to 80 MB of TensorBoard events holding sample images).
-- **`label_dictionary.json`**: the class index of every category, also stored in every checkpoint. The evaluation, export and model loading tools read it instead of the mapping file, so editing or moving that file never changes the classes of a run.
-- **`data.json`**: written at the start of the run and sent to MLflow (about 1.5 seconds and 70 MB for the 1.3M images of ImageNet-1k). For every split, it holds the data folder, the SHA-256 of `labels.json` and the images in manifest order. Its `classes` are listed in class index order, the background first for DET, INS and SEG, each with its mapped categories, the `keypoints` names of its categories for KPT, and its count in every split (`null` for an SSL dataset without categories).
+The files work as follows:
+- **Checkpoints**: one every `intermediate_weight_saving_iterations` (0 for none), and one evaluated on the test split every `weight_saving_iterations`. `Iteration_<n>` holds n training steps. The evaluation files are listed in [Evaluation Outputs](configuration_reference.md#evaluation-outputs).
+- **`evaluation_summary.csv`**: one row per iteration, written by `update_evaluation_curves` (`vision_training/evaluation/evaluation_curves.py`). A checkpoint evaluated again replaces its row.
+- **`evaluation_curves.png`**: the headline metric (`Accuracy` for CLS, `mAP@0.5/area` for DET, …) of both weights, the best iteration ringed, the averaging window shaded.
+- **`label_dictionary.json`**: the class index of every category, also stored in every checkpoint. Evaluation, export and loading tools read it, so editing the mapping file never changes the classes of a run.
+- **`data.json`**: written at the start and sent to MLflow. It lists the classes in index order (background first for DET, INS and SEG), with their categories, keypoint names for KPT, and counts per split.
+
+The excerpt shows two classes of a `data.json`.
 
 ```json
 "classes": [
   {"class_index": 0, "class_name": "square", "category_ids": [1], "images": {"train": 55540, "validation": 5581, "test": 5543}},
-  {"class_index": 1, "class_name": "circle", "category_ids": [2], "images": {"train": 55373, "validation": 5753, "test": 5533}}
+  …
 ]
 ```
+
+The table gives what is counted per class in each task.
 
 | Task | Counted per class |
 |---|---|
 | CLS, SSL | `images`, a multi-label image counting once per class |
 | DET, INS, KPT | `images` holding the class, and its `annotations` |
-| SEG | `images` whose mask holds the class, from the `category_ids` of `labels.json` |
+| SEG | `images` whose mask holds the class |
 | M2O | `sequences` |
 | M2M, SEL | `frames` |
 | CMP | `pairs` |
 
-So that a run can be checked against what it was fed long after its launch, without a display, `Input_Samples/` is written before the first iteration of every launch that trains (`BaseTrainer.save_input_samples`, `vision_training/trainers/input_samples.py`); the diagnosis modes ending the program and `evaluate_checkpoint.py` write none.
-- **Samples**: the first 10 samples of every split by identifier (`NUMBER_INPUT_SAMPLES`, not configurable), the same at every launch whatever the shuffled order of the loaders. Each is read in the main process and batched alone by the collate function of its loader. A sample that cannot be read is recorded with its error, without image, and the training goes on.
-- **Images**: one window of the input viewer per sample ([Viewing The Input Images](#viewing-the-input-images)), the image fed to the network with its boxes, mask, keypoints or frame grid, next to its panel without the navigation keys. The training samples are augmented on the device of the model as by the training step, and the random states are restored afterwards, so that the training draws the same augmentations as without them; the validation and test samples are not augmented. The SSL training and validation images show their two views side by side, as its validation passes draw them, and its test images are shown whole, as the evaluation encodes them.
-- **`samples.json`**: for every split, its images written and whether they are augmented (and a `note` for a training without validation loader, which has no `Validation/`); for every sample, its split, image file, identifier, `source` in the manifest (image file, sequence or pair name), the `labels` drawn, the `augmentations` of every window as its panel writes them, and the `image_size` fed to the network.
-- **Resume**: a resumed run whose configuration and data are unchanged keeps the folder. When either changed (the conditions keeping `training_configuration_until_iteration_<n>.yaml` or `data_until_iteration_<n>.json`), the folder is kept as `Input_Samples_until_iteration_<n>`, never replaced, and the samples are written again. A run without checkpoint writes them again in place of those of its previous start.
-- **MLflow**: the samples written by a launch are sent under `Input_Samples/` (`Input_Samples_resume_<n>/` for a resume from iteration n), their split folders kept.
-- **Cost**: one console line gives the folder and the time taken, 0.2 to 0.9 seconds for the 30 images of the tiny synthetic runs of every task family (64 to 256 pixel inputs), 1.0 second at 1024 pixels for the object detection.
-
-```text
-- Input Samples           : file:///…/Input_Samples (30 images written in 0.48 seconds)
-```
+So that a run can be checked against what it was fed, `Input_Samples/` is written before the first iteration of every training launch (`BaseTrainer.save_input_samples`, `vision_training/trainers/input_samples.py`).
+- **Samples**: the first 10 of every split by identifier (`NUMBER_INPUT_SAMPLES`), the same at every launch. An unreadable sample is recorded with its error.
+- **Images**: the windows of the [input viewer](#viewing-the-input-images). Training samples are augmented as by the training step, and the random states restored afterwards. SSL training images show their two views.
+- **Resume**: when the configuration or data changed, the folder is kept as `Input_Samples_until_iteration_<n>` and the samples written again.
+- **Cost**: 0.2 to 0.9 seconds for the tiny synthetic runs, 1.0 second at 1024 pixels for detection.
 
 ## Console Output
-- **At launch**: the run name with clickable links to its files, the changes since the last start of a resumed run, the transferred components, the splits and their sizes, the main settings, the model summary, the model size and the size of every exported file (Export Sizes). `diagnosis_modes.compute_receptive_field` adds the receptive field. A transferred component shows its source and learning rate:
+Each time a run starts, the console prints the run name with links to its files, the changes since the last start, the transferred components, the splits, the main settings, the model summary and the Export Sizes. A transferred component shows its source and learning rate:
 
 ```text
 - Pretrained Backbone     : file:///…/experiments/CLS_IN-KAR-256_…_HFLAT.512.256-HLN-CWB_MC1000
@@ -104,15 +98,17 @@ So that a run can be checked against what it was fed long after its launch, with
     - Learning Rate       : 0.0005 (multiplier 0.5 x 0.001)
 ```
 
-- **Every `information_dump` iterations**: the averages of the interval (samples seen, throughput, real frames per second of the sequences, losses, metrics, duration). A run resumed between two summaries has a shorter first interval. The rates are written as percentages, `94.03 %`, their change since the last summary in percentage points, `+0.52 %`: the accuracy of CLS, M2O, M2M, CMP and SEL, the pixel accuracy and mean IoU of SEG and the positive pair accuracy of SimCLR (SSL); the losses, the correlations and standard deviation of Barlow Twins keep 4 decimals, and DET, INS and KPT follow only losses. The decimal points of the values and of the changes and the `Best` markers fall in one column each (`format_metric_line` of `metric_tracking.py`): a percentage with 2 decimals and its sign has as many characters after its decimal point as a 4-decimal value, so that values and changes right-aligned in 10 characters (`METRIC_COLUMN_WIDTH`) share their decimal point column, up to the losses in the thousands of Barlow Twins.
-- **Dropped batches**: a batch that fails to load is skipped. Every distinct error is printed once in yellow, the first with its traceback, and the drops are counted under every summary. More than 20 dropped batches among the last 200 fetches of a split (`MAXIMUM_DROPPED_BATCHES_IN_WINDOW`, `DROPPED_BATCH_WINDOW`) stop the training:
+- **Every `information_dump` iterations**: the interval averages of samples seen, throughput, losses, metrics and duration. Rates are percentages, `94.03 %`, with their change in points, `+0.52 %`. Values and changes are aligned on their decimal point (`format_metric_line` of `metric_tracking.py`).
+- **Dropped batches**: a batch that fails to load is skipped, each distinct error printed once. More than 20 drops among the last 200 fetches of a split (`MAXIMUM_DROPPED_BATCHES_IN_WINDOW`, `DROPPED_BATCH_WINDOW`) stop the training.
 
 ```text
 Training Batch Dropped : The image cannot be read : <file>
 - Dropped Batches Since The Last Summary : Training 2, Validation 1 (their loading failed, see the errors printed above)
 ```
 
-- **Every `weight_saving_iterations` iterations**: the evaluation report, also appended to `Results.txt`, then the `EMA Weights` report when the moving average is on. The reports of every task write their rates as percentages, the thresholds, ranks, pixel errors, effective rank and standard deviations keeping 4 decimals and the counts their whole numbers; `class_metrics.csv`, TensorBoard and MLflow keep every rate between 0 and 1.
+- **Every `weight_saving_iterations` iterations**: the evaluation report, appended to `Results.txt`, then the `EMA Weights` report.
+
+The two figures show the launch information and an interval summary.
 
 <p align="center">
   <img src="../../README/experiment_launch_information.png" width="100%" />
@@ -123,18 +119,19 @@ Training Batch Dropped : The image cannot be read : <file>
 </p>
 
 ## Stopping And Resuming
+In case a run has to stop, the rules below say what is saved.
 
 **Stopping**
-- Ctrl+C saves a checkpoint of the last step. A `weight_saving_iterations` checkpoint left unevaluated is announced (`The Checkpoint Of Iteration <n> Was Not Evaluated`), to evaluate with [evaluate_checkpoint.py](tools_reference.md#evaluating-checkpoints).
-- A failing iteration is reported in yellow and the training goes on; an iteration fails after 10 failed batch fetches in a row. A batch whose total loss is NaN or infinite is reported in red (`The loss of the batch of iteration <n> is not finite (...)`) and skipped without backward pass nor optimizer step, a failing iteration too. More than 5 failing iterations in a row stop the training, with a checkpoint.
-- A failed save (a full disk, or weights holding NaN or infinite values, which `save_checkpoint` refuses), a failed test evaluation (an unreadable test image) or a split dropping too many batches stop the training at once, with status FAILED: `Critical Error At Iteration <n>, Exiting: <error>` in red, then its traceback. The steps not saved yet are saved once more, a save failing again raising its error; a checkpoint whose evaluation failed is announced as not evaluated.
-- A split giving no batch (empty, or emptied by the label mapping) is refused at launch.
+- Ctrl+C saves a checkpoint of the last step. An unevaluated checkpoint is announced, to evaluate with [evaluate_checkpoint.py](tools_reference.md#evaluating-checkpoints).
+- An iteration fails after 10 failed batch fetches in a row. A batch with a NaN or infinite loss is skipped without optimizer step. More than 5 failing iterations in a row stop the training, with a checkpoint.
+- A failed save, a failed test evaluation or a split dropping too many batches stop the training at once: `Critical Error At Iteration <n>, Exiting: <error>`.
+- A split giving no batch is refused at launch.
 
 **Resuming**
-- A run always resumes: launching the same configuration again continues from the last checkpoint of its run folder, with its optimizer state. `number_iterations` is the total of the run: from 5000 with 8000, it trains iterations 5001 to 8000.
-- Only the settings without a [run name](configuration_reference.md#run-names) token may change; any other change starts a new run folder. A `run_name_suffix` starts a separate run of the same settings.
-- The run keeps the classes of its `label_dictionary.json`, warning `The Label Mapping Changed Since The Run Started, The Run Keeps Its Own Classes` when the mapping file now gives others.
-- The changed settings are printed, and the previous configuration is kept as `training_configuration_until_iteration_<n>.yaml`, never overwritten:
+- Launching the same configuration again continues from the last checkpoint, with its optimizer state. `number_iterations` is the run total: from 5000 with 8000, it trains iterations 5001 to 8000.
+- Only settings without a [run name](configuration_reference.md#run-names) token may change; any other change starts a new run folder.
+- The run keeps the classes of its `label_dictionary.json`, with a warning when the mapping file now gives others.
+- The changed settings are printed, and the previous configuration kept:
 
 ```text
 - Previous Configuration  : file:///…/training_configuration_until_iteration_72500.yaml
@@ -143,62 +140,62 @@ Training Batch Dropped : The image cannot be read : <file>
     - Backbone.pretrained.learning_rate_multiplier : 0.5 -> 1.0
 ```
 
-- A `labels.json` whose SHA-256 differs from `data.json` stops the resume, unless `ExperimentConfiguration.allow_data_change_on_resume: true`. The previous record is then kept as `data_until_iteration_<n>.json`, as when only the data folder moved.
-- Either change also keeps the input samples as `Input_Samples_until_iteration_<n>/` and writes them again; a resume changing nothing keeps `Input_Samples/` as it is ([Run Folder](#run-folder)).
+- A `labels.json` whose SHA-256 differs from `data.json` stops the resume, unless `ExperimentConfiguration.allow_data_change_on_resume: true`. The previous record is kept as `data_until_iteration_<n>.json`.
 
-**Restarting**: to train the same settings from scratch, set another `run_name_suffix` or `experiment_folder`, or move the run folder away. The new run folder starts a new MLflow run.
+**Restarting**: to train the same settings from scratch, set another `run_name_suffix` or `experiment_folder`, or move the run folder away.
 
 ## Data Augmentation
-- `Data.data_augmentation.activated` turns it on, `probability` is the share of training images augmented, and every type has its own `activated` and `probability`.
-- It runs on the device before the forward pass, in the order of the table. When several histogram equalizations are drawn for an image, one is kept.
-- The geometric types move the boxes, masks and keypoints. `random_perspective` and `random_jigsaw` move the image only, and are refused for DET, INS, SEG and KPT. The photometric types keep the targets, so `random_black_out` and `random_erasing` can hide a labelled object.
-- A sequence gets the same draws on all its frames, unless `independent_frames` draws the photometric types per frame ([Sequence Tasks](tasks_reference.md#sequence-tasks-m2o-m2m-cmp-sel)).
-- The strengths are fixed in `SUPERVISED_AUGMENTATION_STRENGTHS` and in `SELF_SUPERVISED_AUGMENTATION_STRENGTHS` for the [SSL views](tasks_reference.md#self-supervised-learning-ssl). Intensities are levels of [0, 255] images.
+If one wishes to augment the training images, set `Data.data_augmentation.activated`. `probability` is the share of images augmented, and every type has its own `activated` and `probability`.
+- It runs on the device before the forward pass (`vision_training/data/device_image_operations.py`).
+- Geometric types move the boxes, masks and keypoints. `random_perspective` and `random_jigsaw` move the image only and are refused for DET, INS, SEG and KPT.
+- Photometric types keep the targets, so `random_black_out` and `random_erasing` can hide an object.
+- A sequence gets the same draws on all frames, unless `independent_frames` is on ([Sequence Tasks](tasks_reference.md#sequence-tasks-m2o-m2m-cmp-sel)).
+- Strengths are fixed in `SUPERVISED_AUGMENTATION_STRENGTHS` and `SELF_SUPERVISED_AUGMENTATION_STRENGTHS` ([SSL views](tasks_reference.md#self-supervised-learning-ssl)). Intensities are levels of [0, 255] images.
+
+The table gives the types whose strength differs between the supervised and self-supervised tasks.
 
 | Type | Supervised tasks | Self-supervised task |
 |---|---|---|
-| `random_crop` | 75 % to 100 % of each side, same aspect ratio, resized back to the input size | 20 % to 100 % of the area, aspect ratio x1/2 to x2 |
-| `random_aspect_crop` | 75 % to 100 % of the width and, drawn on its own, of the height | same |
-| `random_zoom_out` | image shrunk to 50 % to 100 % of each side on a black canvas | same |
-| `random_translation` | shift of up to 25 % of the width, of the height or of both | same |
-| `random_left_right_flip`, `random_up_down_flip` | mirror | same |
+| `random_crop` | 75 % to 100 % of each side, same aspect ratio | 20 % to 100 % of the area, aspect ratio x1/2 to x2 |
 | `random_rotation` | -5 to 5 degrees | -10 to 10 degrees |
-| `random_90_rotation` | -90 or 90 degrees, square images only | same |
-| `random_perspective` | every corner moved inwards by up to 5 % of half the image side | same |
-| `random_jigsaw` | 2x2 pieces in a random order; `Data.image_settings.size` must be a multiple of 2 | same |
-| `brightness_contrast_saturation` | brightness +-40 levels, contrast and saturation x0.7 to x1.0 | brightness, contrast and saturation x0.6 to x1.2 |
-| `random_hue` | hue turned by up to 18 degrees | up to 36 degrees |
-| `clahe_augment` | CLAHE, clip limit 2.0 on 4x4 tiles | same |
-| `sharp_augment` | Laplacian of Gaussian unsharp mask, sigma 1.5, strength 3 | same |
-| `equalize_histogram_augment` | equalization of the luminance | same |
-| `equalize_bgr_histogram_augment` | equalization of one channel or of all three | same |
-| `random_noise` | Gaussian noise, standard deviation 20 levels | 30 levels |
-| `gray_scale_augment` | grayscale on three channels | same |
-| `random_colour_augmentation` | blue and red channels swapped | same |
-| `random_gamma` | gamma 0.8 to 1.25 | same |
-| `random_linear_illumination` | ramp of 12.75 to 38.25 levels growing towards one side | same |
-| `random_plasma_shadow` | pixels of a fractal map (roughness 0.1 to 0.7) below a quantity of 0 to 0.5 darkened by up to 76.5 levels | quantity of 0 to 0.3, up to 51 levels |
-| `random_blur` | 9x9 Gaussian kernel, sigma 2.5 | same |
-| `random_motion_blur` | odd line of 5 to 15 pixels, angle 0 to 180 degrees, direction -1 to 1 | same |
-| `random_haze` | airlight of 180 to 255 levels taking 20 % to 60 % of every pixel | 160 to 255 levels taking 20 % to 70 % |
-| `random_solarize` | pixels at or above 127.5 levels inverted | pixels at or above 191.25 levels, second view only |
-| `random_black_out` | every cell of a `grid_size` x `grid_size` grid blacked out with a probability of 0.2 | probability of 0.35, second view only |
-| `random_erasing` | black rectangle of 2 % to 15 % of the area, height / width 0.3 to 3.3 | same |
+| `brightness_contrast_saturation` | brightness +-40 levels, contrast and saturation x0.7 to x1.0 | all three x0.6 to x1.2 |
+| `random_hue` | up to 18 degrees | up to 36 degrees |
+| `random_noise` | Gaussian, standard deviation 20 levels | 30 levels |
+| `random_plasma_shadow` | fractal shadow, quantity 0 to 0.5, up to 76.5 levels | quantity 0 to 0.3, up to 51 levels |
+| `random_haze` | airlight 180 to 255 levels, 20 % to 60 % | 160 to 255 levels, 20 % to 70 % |
+| `random_solarize` | pixels at or above 127.5 inverted | at or above 191.25, second view only |
+| `random_black_out` | grid cells blacked out with probability 0.2 | 0.35, second view only |
 
-Every type is computed on the device (`vision_training/data/device_image_operations.py`), so the host only waits for the GPU to update the boxes of DET, INS and KPT.
+The other types have the same strength in both:
+- `random_aspect_crop`: 75 % to 100 % of width and height, drawn apart.
+- `random_zoom_out`: image shrunk to 50 % to 100 % on a black canvas.
+- `random_translation`: up to 25 % of the width, height or both.
+- `random_left_right_flip`, `random_up_down_flip`: mirror.
+- `random_90_rotation`: -90 or 90 degrees, square images only.
+- `random_perspective`: corners moved inwards by up to 5 % of half the side.
+- `random_jigsaw`: 2x2 pieces shuffled; size a multiple of 2.
+- `clahe_augment`: clip limit 2.0 on 4x4 tiles. `sharp_augment`: unsharp mask, sigma 1.5, strength 3.
+- `equalize_histogram_augment`: luminance. `equalize_bgr_histogram_augment`: one channel or all three.
+- `gray_scale_augment`: grayscale on three channels. `random_colour_augmentation`: blue and red swapped.
+- `random_gamma`: 0.8 to 1.25. `random_linear_illumination`: ramp of 12.75 to 38.25 levels.
+- `random_blur`: 9x9 Gaussian, sigma 2.5. `random_motion_blur`: line of 5 to 15 pixels, angle 0 to 180 degrees.
+- `random_erasing`: black rectangle of 2 % to 15 % of the area.
 
-Should you need to review these strengths by eye before a training, `scripts/data/visualize_augmentation_strengths.py` writes one figure per type, `<type>.png`: a few images of a split with the type applied alone at both strengths, the drawn values written under every image. `random_crop_aspect_ratio_explained.png` and `random_noise_levels_explained.png` explain the crop aspect ratios and the noise levels. The split and the output folder are required. The configuration defaults to the synthetic shapes classifier, with 4 images and the seed 0. Run it without arguments for its help.
+Should you need to see a type at both strengths, `scripts/data/visualize_augmentation_strengths.py` writes one `<type>.png` per type. `--split_folder` and `--output_folder` are required; the configuration defaults to the synthetic shapes classifier, with 4 images and the seed 0.
 
 ```bash
-# Figures of 4 validation images, resized to the input of the synthetic shapes classifier
-uv run python -m scripts.data.visualize_augmentation_strengths --split_folder="$HOME/Data/classifier_data/synthetic_shapes/validation" --output_folder="$HOME/Data/augmentation_examples/synthetic_shapes"
+# Draw every augmentation type at both strengths on 4 validation images
+uv run python -m scripts.data.visualize_augmentation_strengths \
+    --split_folder ~/Data/classifier_data/synthetic_shapes/validation --output_folder ~/Data/augmentation_examples
 ```
 
 ## Viewing The Input Images
-`ExperimentConfiguration.diagnosis_modes.view_input_images: True` opens a Training and a Validation window. Every image comes with a panel listing its targets and, for a training sample, the augmentations drawn with their values, the objects they removed and the frame order.
-- The SSL runs show the two views of every image. With `Data.grouped_batches` on, every training batch is first shown whole, cut into its blocks.
+Before a long training, `ExperimentConfiguration.diagnosis_modes.view_input_images: True` shows what the network receives. It opens a Training and a Validation window, each image with a panel of its targets and drawn augmentations.
+- SSL runs show the two views. With `Data.grouped_batches` on, every training batch is first shown whole.
 - SPACE shows the next samples, ENTER exits without training.
-- It needs a display and creates no run folder. Without a display, the `Input_Samples/` folder of a training run holds the same windows for the first 10 samples of every split ([Run Folder](#run-folder)).
+- It needs a display and creates no run folder. Without a display, use the `Input_Samples/` of a run ([Run Folder](#run-folder)).
+
+The figure shows the viewer; the animation shows boxes following the flips, rotations and zoom-outs.
 
 <p align="center">
   <img src="../../README/input_viewer.png" width="100%" />
@@ -207,108 +204,101 @@ uv run python -m scripts.data.visualize_augmentation_strengths --split_folder="$
 <p align="center">
   <img src="../../README/augmented_detection_samples.gif" width="100%" />
 </p>
-<p align="center"><em>Draws of the augmentation of <code>object_detection/configuration_example.yaml</code> on one image, as the input viewer draws them: the boxes follow the flips, rotations and zoom-outs (unchanged draws skipped).</em></p>
+<p align="center"><em>Augmentation draws of <code>object_detection/configuration_example.yaml</code> on one image.</em></p>
 
 ## Checking The Anchor Coverage
-`ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage: { activated: True, iou_threshold: 0.5 }` (object detection and instance segmentation) prints, for the training, validation and test splits, the share of the objects whose best anchor overlaps them by at least `iou_threshold`, per detection level and object size, then exits without training.
-- Every split is read from its annotations with a progress bar, no image being loaded.
-- The best anchor of every object is the grid anchor nearest its centre for every anchor shape, on the cell corners, exact and computed on the CPU.
-- It creates no run folder and writes no file; the training launches measure the training split alone at `RegionProposal.foreground_iou_threshold.min` (`anchor_recall.csv`).
+Suppose a detector misses objects of one size: `ExperimentConfiguration.diagnosis_modes.compute_anchor_coverage: { activated: True, iou_threshold: 0.5 }` (DET, INS) prints, per split, level and object size, the share of objects whose best anchor overlaps them by at least `iou_threshold`, then exits.
+- Splits are read from their annotations, no image loaded.
+- The best anchor is the grid anchor nearest the object centre for every shape, computed exactly on the CPU.
+- It writes no file. Training launches measure the training split alone into `anchor_recall.csv`.
+
+The figure shows the console on the synthetic shapes.
 
 <p align="center">
   <img src="../../README/anchor_coverage.png" width="100%" />
 </p>
-<p align="center"><em>The console of <code>vision_training.main</code> on a copy of <code>object_detection/configuration_synthetic_shapes.yaml</code> with the mode activated, on its synthetic shapes (512 pixels, shapes of 16 pixels to 80 % of the side, boxes of their visible parts): the anchors of blocks 5, 6 and 7 (strides 32, 64 and 64, scales 32 to 256) cover 64.04 % of the training objects, but 8.11 % of the small ones.</em></p>
+<p align="center"><em>On <code>object_detection/configuration_synthetic_shapes.yaml</code>, the anchors of blocks 5, 6 and 7 cover 64.04 % of the training objects, but 8.11 % of the small ones.</em></p>
 
-Read the `All Levels` column size by size: the region proposal network makes an anchor foreground from `RegionProposal.foreground_iou_threshold.min`, and an object under it in every level only gets its single best anchor as foreground, so a size with a low share is learnt from few anchors. Small objects ask for smaller scales on a finer level (a lower block, of smaller stride), large ones for a larger scale on the last level, elongated ones for other `aspect_ratios`. The three splits should give close shares; a split covered differently holds objects of other sizes or shapes.
+Read the `All Levels` column size by size. An object under `RegionProposal.foreground_iou_threshold.min` in every level gets only its single best anchor as foreground. Small objects ask for smaller scales on a finer level, large ones for a larger scale, elongated ones for other `aspect_ratios`. The three splits should give close shares.
 
 ## Benchmarking The Speed
-Before training an architecture, `ExperimentConfiguration.diagnosis_modes.benchmark_speed: True` measures how fast it trains and infers when the data never waits, then exits without training (`BaseTrainer.benchmark_speed`, helpers in `vision_training/trainers/speed_benchmark.py`). It is the only setting: the timing, the batch sizes and the memory margin are fixed in the code.
-- **Batch**: one batch of the training loader, its loader workers stopped at once; `resize_batch` repeats its samples in their order to any batch size, indexing every tensor and list whose first dimension is the batch (images, labels, boxes, masks, sequence masks). The batch stays where the loader hands it over: pinned host memory for a discrete GPU, the GPU for an integrated one, whose memory is the host memory.
-- **Memory**: `limit_process_memory` caps the allocator of PyTorch (`torch.cuda.set_per_process_memory_fraction`) at what the process holds plus the free memory minus a margin, 40 GB on an integrated GPU (`INTEGRATED_GPU_MEMORY_MARGIN_BYTES`, the other trainings of the GB10 slowing down once little memory is free) and 2 GB on a discrete one (`DISCRETE_GPU_MEMORY_MARGIN_BYTES`). With less free memory than the margin it stops before anything runs. ONNX Runtime gets the budget PyTorch leaves (`gpu_mem_limit`, TensorRT workspace).
-- **Largest batch size**: `find_largest_batch_size` doubles from the configured batch size while two probe passes fit (halving while they do not), then bisects until the gap is at most 1/16 of the batch size found, up to `MAXIMUM_BENCHMARK_BATCH_SIZE` (2048). Only an out of memory error of PyTorch or ONNX Runtime ends a size; any other error is raised.
-- **Inference**, first: the weights of the last checkpoint of the run folder are loaded when there is one (read only, the optimizer state left out), since the post-processing of the detection tasks depends on the detections. The largest batch size of the test evaluation is searched, then every format is timed at a batch of 1, at the configured batch size and at the largest one, on inputs already on the GPU: `PyTorch Evaluation` (`predict_batch` within `evaluation_context`, float32, as the test evaluation runs it), `PyTorch Inference Model` (the network every export traces), `TorchScript` (`export_torchscript`, loaded by `torch.jit.load`) and the ONNX file (`export_onnx`) in ONNX Runtime CUDA and ONNX Runtime TensorRT FP32 and FP16, its inputs and outputs bound on the GPU. The ONNX formats need `onnxruntime-gpu`; a format that cannot open or fails is reported with its reason. The sequence comparison gives both members of its pairs (`build_inference_inputs`).
-- **Training**: the largest training batch size is searched, then `run_training_step`, the step of the training loop (batch moved, augmented, bfloat16 forward pass, backward pass, optimizer step with the moving average), is timed at the configured batch size and at the largest one, with the trackers of the training loop. The training time of `number_iterations` at the configured batch size is a lower bound: the loading, validation passes, checkpoints and test evaluations are left out.
-- **Timing**: `measure_iteration_time` runs at least 2 seconds and 3 iterations untimed, then 5 windows lasting 5 seconds in all, timed between two synchronisations of the device; a row gives the median window in milliseconds, the samples (and real frames) per second, the window spread (slowest minus fastest, over the median) and the peak memory reserved by PyTorch (not measured for ONNX Runtime).
-- **Report**: the GPU, the memory budget, the batch, the weights and the other processes on the GPU (from nvidia-smi, the daemon of the Multi-Process Service left out), then the inference and training tables with their notes. Nothing is written to the run folder.
+Before training an architecture, `ExperimentConfiguration.diagnosis_modes.benchmark_speed: True` measures how fast it trains and infers when the data never waits, then exits (`BaseTrainer.benchmark_speed`, `vision_training/trainers/speed_benchmark.py`). It writes nothing to the run folder.
+- **Memory**: `limit_process_memory` caps PyTorch at the free memory minus a margin: 40 GB on an integrated GPU (`INTEGRATED_GPU_MEMORY_MARGIN_BYTES`), 2 GB on a discrete one (`DISCRETE_GPU_MEMORY_MARGIN_BYTES`).
+- **Largest batch size**: `find_largest_batch_size` doubles, then bisects to within 1/16, up to `MAXIMUM_BENCHMARK_BATCH_SIZE` (2048).
+- **Inference**: the last checkpoint is loaded when there is one. Each format is timed at batch 1, the configured batch and the largest: `PyTorch Evaluation`, `PyTorch Inference Model`, `TorchScript`, and ONNX Runtime CUDA and TensorRT FP32 and FP16. The ONNX formats need `onnxruntime-gpu`.
+- **Training**: `run_training_step` is timed at the configured and largest batch sizes. The training time of `number_iterations` is a lower bound (loading, validation and evaluations left out).
+- **Timing**: `measure_iteration_time` warms up 2 seconds, then times 5 windows over 5 seconds. Each row gives the median window, samples per second, spread and peak memory.
 
 ## TensorBoard Monitoring
+To follow a run live, open TensorBoard on its folders, listed below.
 
 | Folder | Written | Content |
 |---|---|---|
 | `Train`, `Validation` | every iteration | losses and metrics |
-| `Test` | every evaluation | test scalars, and the sample images `Samples/<sample>` with a slider over the evaluations |
-| `Test_EMA` | every evaluation, with the moving average on | the `Test` tags of the averaged weights, drawn on the same charts |
+| `Test` | every evaluation | test scalars and sample images `Samples/<sample>` |
+| `Test_EMA` | every evaluation, moving average on | the `Test` tags of the averaged weights |
 
 ## Moving Average Of The Weights
 Should you need a model smoothed over its last iterations, `Optimization.exponential_moving_average` keeps an average of the weights next to the trained ones (`ExponentialMovingAverage` of `vision_training/trainers/weight_averaging.py`).
-- After every optimizer step: `ema_weights = decay × ema_weights + (1 − decay) × current_weights`, the batch normalization statistics included.
-- It looks back about 1 / (1 − decay) iterations, which carry about 63 % of its weight, the weights of k iterations ago counting with a factor decay^k: about 100 at 0.99, 1,000 at 0.999, 5,000 at 0.9998 and 10,000 at 0.9999.
-- The n-th update uses min(decay, (1 + n) / (10 + n)), so the random starting weights fade quickly. Until the decay is reached, after about 9 / (1 − decay) updates (9,000 at 0.999, 45,000 at 0.9998), the average looks back about (10 + n) / 9 iterations: a run of 15,000 iterations at 0.9998 ends on a decay of 0.9994, about 1,670 iterations.
-- It costs the memory of one more model, and a small fraction of a training step.
-- It is saved in every checkpoint and restored on resume. It gives no run name token: turned on mid-run, it starts from the weights of the checkpoint.
-- The validation curves and the [export](tools_reference.md#export) use the trained weights, the export taking the averaged ones with `use_averaged_weights`.
+- After every optimizer step: `ema_weights = decay × ema_weights + (1 − decay) × current_weights`, batch normalization statistics included.
+- It looks back about 1 / (1 − decay) iterations: about 100 at 0.99, 1,000 at 0.999, 5,000 at 0.9998.
+- The n-th update uses min(decay, (1 + n) / (10 + n)), so the random starting weights fade quickly. A run of 15,000 iterations at 0.9998 ends on a decay of 0.9994, about 1,670 iterations.
+- It costs the memory of one more model. It is saved in every checkpoint and gives no run name token.
+- Validation curves use the trained weights. The [export](tools_reference.md#export) takes the averaged ones with `use_averaged_weights`.
 
-Every test evaluation scores the trained weights, then the averaged weights of the same checkpoint:
+Every test evaluation scores the trained weights, then the averaged ones. The averaged results go to `EMA/` subfolders, `Test_EMA` in TensorBoard, `test_ema/` in MLflow, `ema_` columns of `evaluation_summary.csv`, and the orange curve of `evaluation_curves.png`.
 
-| Output | Trained weights | Averaged weights |
-|---|---|---|
-| Console and `Results.txt` header | `Iteration <n> · <evaluated samples> · <date and time>` | `Iteration <n> · <evaluated samples> · EMA Weights · <date and time>` |
-| Evaluation files | `Evaluation/Iteration_<n>/` (`Checkpoint_Evaluation/Iteration_<n>/` for `evaluate_checkpoint.py`) | `Evaluation/Iteration_<n>/EMA/` (`Checkpoint_Evaluation/Iteration_<n>/EMA/`) |
-| TensorBoard | `Test` | `Test_EMA` |
-| MLflow | `test/`, `test_class/`, `test/best_<headline metric>` (tag `best_iteration`) | `test_ema/`, `test_ema_class/`, `test_ema/best_<headline metric>` (tag `best_iteration_test_ema`) |
-| `evaluation_summary.csv` (`Evaluation/`, `Checkpoint_Evaluation/`) | one column per scalar | the same columns prefixed by `ema_`, and `ema_number_updates` |
-| `evaluation_curves.png` | blue curve | orange curve, with the window of the averaged weights of the highest evaluated iteration |
+The figure shows how many trained weights one averaged model mixes.
 
 <p align="center">
   <img src="../../README/moving_average_window.png" width="100%" />
 </p>
-<p align="center"><em>How many trained weights one averaged model mixes, for the decay 0.9998 of the object detection benchmark launches. Left: the share of their averaged weights of iteration 15,000 held by every 100 iterations of the training. The warm-up lowered the decay of the last update to 0.9994, so the last 1,668 iterations carry 65 % of the average and the last 5,000 iterations 97 %; the same decay used from the first update would give the last 5,000 iterations 63 % and leave 5.0 % to the random starting weights. Right: the window 1 / (1 − decay) of the update of every iteration, which the warm-up grows by one iteration every 9 iterations until the configured window. Drawn by <code>documentation/presentation/figures/plot_moving_average_window.py</code>.</em></p>
+<p align="center"><em>Decay 0.9998, iteration 15,000. Left: share of the average held by every 100 iterations; the warm-up lowered the last decay to 0.9994, so the last 1,668 iterations carry 65 %. Right: the window 1 / (1 − decay) of every update. Drawn by <code>documentation/presentation/figures/plot_moving_average_window.py</code>.</em></p>
 
 ## Transfer Between Runs
-The `pretrained` block of a section initialises its component from a trained run, of the same task or of another one:
+If one wishes to start a component from a trained run, set the `pretrained` block of its section. The table lists the sections that accept one.
 
 | Section | Component | From the tasks |
 |---|---|---|
 | `Backbone` | backbone | any task |
 | `TemporalModel` | temporal module | M2O, M2M, CMP, SEL |
-| `ClassificationHead` | classification head, with its class layer when `class_layer` is True | CLS, M2O, M2M, CMP, SEL |
-| `SegmentationDecoder` | U-Net decoder, with its class layers when `class_layers` is True | SEG |
-| `RegionProposal` | region proposal heads of every detection level | DET, INS |
-| `Detector` | detection heads of every detection level, with their class layers when `class_layers` is True | DET, INS |
-| `MaskHead` | mask heads of every detection level, with their class layers when `class_layers` is True | INS |
+| `ClassificationHead` | classification head, class layer with `class_layer: True` | CLS, M2O, M2M, CMP, SEL |
+| `SegmentationDecoder` | U-Net decoder, class layers with `class_layers: True` | SEG |
+| `RegionProposal` | region proposal heads | DET, INS |
+| `Detector` | detection heads, class layers with `class_layers: True` | DET, INS |
+| `MaskHead` | mask heads, class layers with `class_layers: True` | INS |
 | `HRNet` | high resolution network | KPT |
-| `KeypointHead` | heatmap and tag head, with its higher resolution branch, and its keypoint channel layers when `class_layers` is True | KPT |
+| `KeypointHead` | heatmap and tag head, keypoint channel layers with `class_layers: True` | KPT |
 
-The settings defining the layers must match, which is checked at launch. The image size may differ, and so may the `batch_normalization_momentum` of a source run written before the momentum was fixed.
+The settings defining the layers must match, which is checked at launch. The image size may differ. The table lists what must match per component.
 
 | Component | Settings that must match |
 |---|---|
-| Backbone | `input_channels`, `convolutions`, `modules`, `normalization`, `last_max_pooling`; when one backbone's `convolutions` are the first blocks of the other's (a shorter stem of a keypoint detector, or a deeper backbone), the shared blocks are loaded and `last_max_pooling` is free |
-| Classification head | `fully_connected`, `fully_connected_normalization`, and the image size after a `flatten` pooling |
+| Backbone | `input_channels`, `convolutions`, `modules`, `normalization`, `last_max_pooling`; when one backbone's blocks start the other's, the shared blocks are loaded |
+| Classification head | `fully_connected`, `fully_connected_normalization`, the image size after `flatten` |
 | Transformer with positional embedding | `maximum_sequence_length` |
-| Region proposal heads | detection levels, `region_proposal` and anchors per position of every level, normalization, `Neck.type` `none` in both runs |
-| Detection heads | detection levels, `detector` of every level, normalization, modules, `Neck.type` `none` in both runs |
-| Mask heads | detection levels, `mask_head` of every level, `shared` (heads per level and a shared head refusing each other, a source run written before it counting as one head per level), `mask_resolution`, `upsampling`, `skip_blocks_at_pool_size`, `image_branch_convolutions`, `skip_blocks_at_mask_resolution`, `fusion_convolutions` (a source run written before them counting as without), normalization, modules, `Neck.type` `none` in both runs; the image branch is not transferred, so the run receiving the heads keeps it `[0, 0]` |
-| High resolution network | `base_width`, `modules_per_stage`, `blocks_per_branch`, `modules`, `normalization`, and the channels of the last stem block |
-| Keypoint head | `KeypointHead.higher_resolution` and `hidden_width`, the `HRNet.base_width`, and with the higher resolution branch its `blocks_per_branch`, `modules` and `normalization` (the normalization also with a hidden width above 0); with `class_layers: True`, every heatmap and tag channel must predict the same keypoint of the same class, `class.keypoint` read from the `keypoints` of the `data.json` classes of the source run, a source run started before 2026-11-20 without them being refused |
+| Region proposal, detection and mask heads | detection levels and their head settings, anchors per position, normalization, modules, `Neck.type` `none` in both runs; the mask image branch is not transferred and stays `[0, 0]` |
+| High resolution network | `base_width`, `modules_per_stage`, `blocks_per_branch`, `modules`, `normalization`, channels of the last stem block |
+| Keypoint head | `higher_resolution`, `hidden_width`, `HRNet.base_width`; with `class_layers: True`, every channel must predict the same keypoint of the same class |
 
-- An object detection run can thus initialise an instance segmentation run, whose mask heads train alone with the other components frozen.
-- A backbone deeper than its source backbone starts with the source blocks; its next blocks keep their random weights and learn at the learning rate of the run, in the parameter group of the new layers. `freeze` (with the batch statistics), `freeze_normalization_parameters` and `learning_rate_multiplier` apply to the loaded blocks only. The console prints `Starts With The <n> Blocks Of The Pretrained Backbone` and a `Loaded Blocks` line, and every checkpoint stores the number of loaded blocks (`pretrained_backbone_blocks`), so that a resumed run freezes and groups the same blocks even once its source run is gone.
+The transfer follows these rules:
+- A detection run can initialise an instance segmentation run, whose mask heads train alone with the rest frozen.
+- A deeper backbone starts with the source blocks; its next blocks stay random. `freeze`, `freeze_normalization_parameters` and `learning_rate_multiplier` apply to the loaded blocks only, stored as `pretrained_backbone_blocks` in every checkpoint.
 - A resumed run does not load the pretrained component again.
-- The averaged weights of the source are loaded when the source kept a [moving average](#moving-average-of-the-weights) and the new run has one on. The console says which weights were loaded.
-- A classification head with `class_layer: False` (the default) loads its hidden layers only, whatever the classes of both runs: its class layer keeps its random weights and learns at the learning rate of the run, in the parameter group of the new layers, `freeze` and `learning_rate_multiplier` applying to the hidden layers only. The console prints `Loaded Without Its Class Layer` and a `Class Layer Loaded` line. A head without hidden layer (`fully_connected: []`) needs `class_layer: True`, and `class_layer: True` needs `experiment_folder`.
-- The detection heads, the mask heads and the keypoint head do the same with `class_layers: False` (the default), so that a detector trained on other classes still gives its convolutions and fully connected layers: the class layers of the table below keep their random weights and learn in the parameter group of the new layers, whatever the classes (or keypoints) of both runs, and the console prints `Loaded Without Their Class Layers` (`Loaded Without Its Keypoint Channel Layers`) and a `Class Layers Loaded` line. The keypoint head leaves out the last convolutions of both heads; the transposed convolution of its higher resolution branch, reading the features then the predictions, takes the source rows of the features and keeps random rows of the predictions. A keypoint head without hidden width nor higher resolution branch needs `class_layers: True`, and `class_layers: True` needs `experiment_folder`.
-- In the run name, `PT` marks a pretrained component and `FRZ` a frozen one, prefixed by the letter of the section (`RPT`, `RFRZ`); the `class_layers` of the decoder adds `DCL`, and heads loaded without their class layers add `HRCL`, `DRCL`, `MRCL` or `KHRCL` (heads loaded with them keep the name of the runs written before `class_layer` and `class_layers` existed). The `learning_rate_multiplier` gives no token.
+- The averaged weights of the source are loaded when it kept a [moving average](#moving-average-of-the-weights) and the new run has one on.
+- With `class_layer: False` (the default), a classification head loads its hidden layers only; its class layer stays random. A head without hidden layer needs `class_layer: True`.
+- Detection, mask and keypoint heads do the same with `class_layers: False`, so a detector trained on other classes still gives its convolutions.
+- The run name tokens are in [Run Names](configuration_reference.md#run-names).
 
 ### Adding Classes
-Should a new run need more classes than its source, or hold the same classes in another order, a component loaded with its class layers can still initialise it:
-- Every source class must be a class of the new run. The class names are compared from the `data.json` of both runs ([Run Folder](#run-folder)).
-- When the source classes come first in the same order (the background first for DET, INS and SEG), their rows keep their indices: append the new classes at the end of the label mapping file.
-- Otherwise every source class is found by its name, which must name one class in each run, and its rows go to the index of that name, e.g. the 1,000 ImageNet-1k classes of a source run among the 21,842 merged ImageNet classes sorted by WordNet identifier. A missing source class stops the run, the console naming the first five and counting the others.
-- The rows of the other classes keep their random initialisation, which may disturb the source classes for the first iterations. The console prints the kept and added classes.
-- A source run without class names in its `data.json` (written before they were recorded) gives its classes as the first classes of the new run, with a warning.
-- With the `class_layers` of the decoder, a deep supervision level missing from the source keeps random weights, with a warning.
+Should a new run need more classes than its source, or the same classes in another order, a component loaded with its class layers can still initialise it.
+- Every source class must be a class of the new run, compared by name from the `data.json` of both runs.
+- When the source classes come first in the same order, append the new classes at the end of the label mapping file.
+- Otherwise each source class is found by name, e.g. the 1,000 ImageNet-1k classes among the 21,842 merged ImageNet classes. A missing source class stops the run.
+- The other classes keep random rows, which may disturb the source classes at first. The console prints the kept and added classes.
+- A source run without class names gives its classes as the first classes of the new run, with a warning.
+
+The table lists the layers moved by class.
 
 | Layer | Section |
 |---|---|
@@ -316,6 +306,6 @@ Should a new run need more classes than its source, or hold the same classes in 
 | Classification and box regression layers of the detection heads | `Detector` with `class_layers` |
 | Mask prediction layer of the mask heads | `MaskHead` with `class_layers` |
 | Final class layer and deep supervision layers of the decoder | `SegmentationDecoder` with `class_layers` |
-| Last heatmap and tag convolutions of the keypoint head (same keypoints required, never moved by name) | `KeypointHead` with `class_layers` |
+| Last heatmap and tag convolutions (same keypoints required, never moved by name) | `KeypointHead` with `class_layers` |
 
-On the synthetic shapes (9 classes extended to 20, stage 14 of `documentation/architecture_benchmarking/experiment_plan.md`), the new classes reached an accuracy of 75.13 % at iteration 250 (trained weights), and the source classes kept 99.86 % (averaged weights).
+On the synthetic shapes (9 classes extended to 20, stage 14 of `documentation/architecture_benchmarking/experiment_plan.md`), the new classes reached 75.13 % accuracy at iteration 250, and the source classes kept 99.86 %.
