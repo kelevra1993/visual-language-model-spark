@@ -125,6 +125,8 @@ Once a dataset is ready, start from the example configuration of its task:
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/classification/my_configuration.yaml"
 ```
 
+The figure below numbers the steps of a launch, from the configuration file to the training loop:
+
 <p align="center">
   <img src="README/launch_flow.png" width="100%" />
 </p>
