@@ -114,7 +114,7 @@ scenes:
     narration:
       - "The table is filled with minus one, then every key point of every class takes the next free channel."
       - "Its names are also written in the data json file of the run: a key point head transferred with its last heatmap and tag layers must give every channel the same class and key point name."
-      - "The export writes no channel names either, so keep the categories of the training labels with the model."
+      - "The export writes them next to the model too, in keypoint channels json, so a client groups the candidates without the training labels."
 
   - kind: yaml
     title: "Augmentations move key points, never rename them"

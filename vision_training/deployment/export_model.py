@@ -3,10 +3,11 @@ Exports a trained experiment of any task to the Triton model repository as Torch
 and ONNX (optionally run with TensorRT), writes the Triton configurations and checks every export against the eager
 inference model, in a staging folder moved into the repository only when every format matches, adding for the frame
 selection the decoder and the ensembles returning the chosen frames, for the classification the logit temperature and
-the class thresholds saved from the temperature explorer of the exported checkpoint, and for the object detection and
+the class thresholds saved from the temperature explorer of the exported checkpoint, for the object detection and
 instance segmentation the score threshold of every class found by the evaluation of the exported checkpoint (built into
-the model and recorded in 'detection_score_thresholds.json'). Every exported model carries the input contract of the
-run (deployment/input_contract.py), in the metadata of the ONNX file and in 'preprocessing.json' next to it, so that a
+the model and recorded in 'detection_score_thresholds.json'), and for the keypoint detection the class, keypoint and
+skeleton of every heatmap channel ('keypoint_channels.json'). Every exported model carries the input contract of the run
+(deployment/input_contract.py), in the metadata of the ONNX file and in 'preprocessing.json' next to it, so that a
 server builds the input from a photo as the training did. An ONNX model served with TensorRT is also checked as Triton
 will run it (deployment/tensorrt_check.py): in FP16, a CPU scan of its graph for values above the largest FP16 value,
 then, unless skip_tensorrt_check, its engine built and run by a temporary Triton container on the check batches,
@@ -43,6 +44,7 @@ from vision_training.deployment.frame_selection_deployment import (build_decodin
                                                                    export_frame_selection_decoding)
 from vision_training.deployment.input_contract import (build_input_contract, write_onnx_input_contract,
                                                        write_preprocessing_file)
+from vision_training.deployment.keypoint_deployment import write_keypoint_channels_file
 from vision_training.deployment.tensorrt_check import (HALF_PRECISION_LARGEST_VALUE, check_tensorrt_engine,
                                                        describe_half_precision_overflows,
                                                        find_half_precision_overflows)
@@ -384,8 +386,9 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
     the score threshold of the class in the 'class_thresholds.json' of the evaluation of the exported checkpoint and
     weights, or from 'Detector.inference.score_threshold' when the class never reached the target precision or the
     checkpoint was never evaluated (apply_class_score_thresholds), set before the reference outputs so that every check
-    covers them, printed and recorded in 'detection_score_thresholds.json' next to the model of every format. Every
-    exported model carries the input contract of the run
+    covers them, printed and recorded in 'detection_score_thresholds.json' next to the model of every format. A keypoint
+    detector gets 'keypoint_channels.json' next to the model of every format, so that its clients group and name the
+    candidates without the training labels. Every exported model carries the input contract of the run
     (build_input_contract), written into the 'metadata_props' of the ONNX file and as 'preprocessing.json' next to the
     model of every format, the export stopping before any file is written when the contract cannot describe the input
     of the run. Every format is exported and checked in a staging folder next to the repository, and the models
@@ -583,9 +586,12 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
                 # Input contract next to the model of every format, with the values of the metadata of the ONNX file
                 write_preprocessing_file(model_folder=model_path.parent, input_contract=input_contract)
 
-                # Score thresholds built into a detector or instance segmenter, next to the model
+                # Score thresholds built into a detector, and channels of a keypoint detector, next to the model
                 if deployed_score_thresholds is not None:
                     write_deployed_thresholds_file(model_folder=model_path.parent, record=deployed_score_thresholds)
+                if experiment_configuration["task"] == "keypoint_detection":
+                    write_keypoint_channels_file(model_folder=model_path.parent,
+                                                 keypoint_categories=model_configuration["Data"]["keypoint_categories"])
 
                 # Class thresholds of the classifier next to the model, found at the temperature built into it; without
                 # them the installed version folder holds none, so that no thresholds of another temperature stay there

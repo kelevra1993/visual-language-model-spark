@@ -294,6 +294,7 @@ Each time `vision_training/deployment/export_model.py` runs, it first checks the
 - **Averaged weights**: `use_averaged_weights` exports the moving average, an error without one.
 - **Temperature**: for a classifier, `use_saved_temperature` builds the temperature of `saved_temperature_thresholds.json` ([Logit Temperature](#logit-temperature)) into the graphs and copies the file to `<model>/<version>/class_thresholds.json`. The file is searched in `Evaluation/` and `Checkpoint_Evaluation/` of the iteration; the export stops when it is in neither or both. `saved_thresholds_path` names it instead.
 - **Class score thresholds**: for DET and INS, `apply_class_score_thresholds` (`vision_training/deployment/detection_deployment.py`) builds the threshold of every class into the model, a buffer and not an input. It reads `class_thresholds.json` of the exported iteration in `Evaluation/` or `Checkpoint_Evaluation/`, in its `EMA/` folder for the averaged weights (`find_class_thresholds_path`); the export stops when both folders hold one. A class that never reaches the target precision, or a checkpoint never evaluated (a yellow line), keeps `Detector.inference.score_threshold`. INS takes the mask thresholds, those of its file. The console prints how many classes take their threshold, and `<model>/<version>/detection_score_thresholds.json` records the threshold and source of every class.
+- **Keypoint channels**: for KPT, `<model>/<version>/keypoint_channels.json` gives the class, keypoint and skeleton of every heatmap channel (`write_keypoint_channels_file`, `vision_training/deployment/keypoint_deployment.py`).
 - **ONNX metadata**: `strip_exporter_metadata` removes the debugging metadata of the exporter, so `model.onnx` holds no local path and is 8 to 17 times smaller.
 - **Input contract**: written into every model ([Input Contract](#input-contract)).
 
@@ -305,7 +306,7 @@ The inputs and outputs of every model are listed in the [README](../../README.md
 
 **Keypoint detection (KPT).** The model gives keypoint candidates per channel, which the client groups:
 1. Preprocess the image with `preprocess_image` and send it.
-2. Build the channel table with `build_keypoint_channel_table` (`vision_training/models/keypoints/keypoint_detector.py`) from `Data.keypoint_categories`.
+2. Read the channel table and the channel names from `keypoint_channels.json` with `read_keypoint_channels` (`vision_training/deployment/keypoint_deployment.py`), without the training labels.
 3. Group the candidates with `group_keypoint_candidates` (`vision_training/models/keypoints/keypoint_grouping.py`) and the `KeypointHead.inference` settings.
 4. Restore the keypoints with `restore_boxes_to_original_image`, as boxes of zero size.
 
