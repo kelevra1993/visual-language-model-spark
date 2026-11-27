@@ -88,8 +88,8 @@ uv run python -m vision_training.main --configuration_path="vision_training/conf
 # Evaluate every checkpoint into <run>/Checkpoint_Evaluation/, error images off since the task draws none (Step 5.1)
 uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder <run folder> --iteration all --maximum_error_images_per_class_pair None
 
-# Export on CUDA only (Step 6.1); --tensorrt_precision None, since Triton crashes on the default FP32 TensorRT configuration (Step 6.5)
-uv run python -m vision_training.deployment.export_model --experiment_folder <run folder> --iteration <iteration> --tensorrt_precision None
+# Export on CUDA only (Step 6.1), TensorRT in FP16, since the check refuses the default FP32 engine (Step 6.5)
+uv run python -m vision_training.deployment.export_model --experiment_folder <run folder> --iteration <iteration> --tensorrt_precision FP16
 ```
 
 ### Configuration Keys To Know First
@@ -131,7 +131,7 @@ In case a result surprises you, check these first.
 - **A keypoint head transferred with its channel layers** (`KeypointHead.pretrained.class_layers: True`) is checked on the class and keypoint name of every channel, which the source `data.json` records since 2026-11-20 (`compare_keypoint_channels()` of `model_transfer.py`). An older keypoint run can only initialise a head without them. The export writes no channel names: a client rebuilds the channel table from the training `labels.json`.
 - **`Matched Objects` and `Mean Keypoint Error (pixels)` need an OKS of at least 0.5** (`MINIMUM_MATCH_SIMILARITY`). Before 2026-10-25 any OKS above 0 matched, so older evaluations can give more matches and larger errors.
 - **The export needs a GPU**: `export_experiment()` loads the checkpoint on CUDA (Step 6.1).
-- **Triton crashes at the first request** with the default TensorRT `config.pbtxt`, while ONNX Runtime without TensorRT serves the model: export with `--tensorrt_precision None` (Step 6.5).
+- **The export check refuses the default TensorRT FP32 engine**: its TF32 roundings move the candidate scores beyond `score_tolerance`. Export with `--tensorrt_precision FP16` (Step 6.5).
 
 ## Table of Contents
 - [Read This First](#read-this-first)
@@ -505,7 +505,7 @@ Colours : left blue, right orange, others yellow, rings occluded, skeleton in th
 ### Step 3.10 — `extract_keypoint_candidates()` and `group_keypoint_candidates()` (evaluation and deployment only)
 Used by the test evaluation (Step 4.3) and the client (Step 6.6). `extract_keypoint_candidates()` runs in the model:
 1. With the branch, the 1/4 heatmaps and tags are upsampled by 2 (bilinear) and the heatmaps averaged with the 1/2 ones.
-2. Candidates are the 3x3 local maxima of each channel; the 30 best are kept, padded with zero-score cells.
+2. Candidates are the 3x3 local maxima of each channel; the 30 best are kept, padded with zero-score cells. Their scores are read back at the kept cells and their cells divided in integers, for TensorRT (Step 6.5).
 3. Each moves within its cell to the vertex of the parabola through the log-heatmap and its two neighbours (`compute_peak_offsets()`, DARK): with a and b the drops to the next and previous neighbours, offset (b − a) / (2 (a + b)), within half a cell, none on the border.
 4. Back to pixels: x = (column + offset + 0.5) × stride; the tag is read at the cell.
 
@@ -828,7 +828,14 @@ optimization { execution_accelerators { gpu_execution_accelerator: [ {
 ```
 The TorchScript configuration uses `platform: "pytorch_libtorch"`, outputs suffixed `__0`, `__1`, `__2`, and no optimization block. `<hash>` comes from the SHA-256 of `model.onnx` and `model.onnx.data`, so other weights never load old engines.
 
-Do not serve this configuration yet. On 2026-11-22, the tutorial `model.onnx` served by Triton 26.01 on this machine with the TensorRT block above, in FP32 or FP16, crashed the server (signal 11 in `libonnxruntime`) at its first request, about 19 seconds after building its engine. The same model served by ONNX Runtime without TensorRT answered at batch 1 and 16. Until this is fixed, export with `--tensorrt_precision None`, which writes no `optimization` block. Since 2026-11-27 the [TensorRT check](../reference/tools_reference.md#tensorrt-check) of the export refuses the TensorRT configurations of iteration 6000. In FP32 the engine check fails with the crash (`Signal (11) received`). In FP16 the overflow scan fails first: `node_Cast_1446` (Cast) reaches 65,535, above the largest FP16 value.
+Serve this run in FP16: export it with `--tensorrt_precision FP16`. On 2026-11-27, with Triton 26.01 on this machine, the [TensorRT check](../reference/tools_reference.md#tensorrt-check) of iteration 6000 gave:
+```text
+TensorRT FP16 Overflow Scan : none of the 953 floating point node outputs above 65,504 on 3 samples (ONNX Runtime CPU, 6.6 seconds)
+TensorRT FP16 Engine Matches The Eager FP16 Model : 3 samples served by Triton, engine built and checked in 96.9 seconds, Triton started in 4.6 seconds
+```
+The FP16 engine then answered batches of 1 and 16. In FP32 the engine answers too, but the check refuses it: `candidate scores differ by up to 4.52e-04`, `candidate positions and tags agree on 81.8% of the candidates only`. These are TF32 roundings: the eager model with TF32 on differs from itself with TF32 off by as much (scores up to 6.3e-04, 84 to 89 % of the candidates agreeing).
+
+Before 2026-11-27, Triton crashed at the first request (signal 11 in `libonnxruntime`). The ONNX Runtime TensorRT provider (1.20 to 1.23) left `candidate_scores`, the values output of the top-k, out of its engine, its indices feeding three nodes. The scores are now read back at the kept cells. The FP16 scan also stopped on the cell indices divided in float32 (65,535 for the 256 x 256 heatmaps), now divided in integers.
 
 ### Step 6.6 — the client: `load_inference_inputs()` → the exported model → `group_keypoint_candidates()`
 A client preprocesses every image as the input contract says (`load_inference_inputs()`, `preprocess_image()`), sends it, and groups the candidates with `group_keypoint_candidates()` (Step 3.10), the channel table of the run (`build_keypoint_channel_table()`, Step 1.5) and the `KeypointHead.inference` thresholds. Positions are in network input pixels; for another image size, undo the resize and padding, for example with `restore_boxes_to_original_image()` on every point as the box [x, y, x, y]. `vision_training/deployment/run_inference.py` only measures throughput, without grouping.

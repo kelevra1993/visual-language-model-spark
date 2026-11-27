@@ -667,8 +667,8 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
 def read_tensorrt_precision_argument(value: str) -> Optional[str]:
     """
     Converts the --tensorrt_precision argument of the export script into a value of TENSORRT_PRECISIONS, 'None'
-    giving the ONNX model to ONNX Runtime CUDA without TensorRT (needed for a keypoint detector, whose TensorRT engine
-    crashes Triton), so that the command line reaches every TensorRT setting of export_experiment.
+    giving the ONNX model to ONNX Runtime CUDA without TensorRT, so that the command line reaches every TensorRT
+    setting of export_experiment.
 
     Args:
         value (str): The text given on the command line.
@@ -728,8 +728,8 @@ def parse_export_arguments(arguments: List[str]) -> argparse.Namespace:
     # The precisions of the served models, their inputs and outputs staying FP32
     parser.add_argument("--tensorrt_precision", type=read_tensorrt_precision_argument, choices=TENSORRT_PRECISIONS,
                         default=DEFAULT_EXPORT_SETTINGS["tensorrt_precision"],
-                        help="TensorRT precision of the ONNX model, None for ONNX Runtime CUDA without TensorRT, "
-                             "needed for a keypoint detector (default: %(default)s).")
+                        help="TensorRT precision of the ONNX model, None for ONNX Runtime CUDA "
+                             "without TensorRT (default: %(default)s).")
     parser.add_argument("--torchscript_precision", choices=TORCHSCRIPT_PRECISIONS,
                         default=DEFAULT_EXPORT_SETTINGS["torchscript_precision"],
                         help="Precision of the traced network: FP32 writes 'model.pt', FP16 'model_fp16.pt', about "

@@ -164,7 +164,7 @@ scenes:
     source:
       file: vision_training/deployment/export_model.py
       start: "^    # The run and the checkpoint to export"
-      end: "needed for a keypoint detector"
+      end: 'without TensorRT \(default'
     highlights:
       - {match: 'add_argument\("--formats"|add_argument\("--repository"', sentences: [0]}
       - {match: 'add_argument\("--experiment_folder"|add_argument\("--iteration"|add_argument\("--use_averaged_weights"|add_argument\("--maximum_batch_size"|add_argument\("--tensorrt_precision"', sentences: [1]}
