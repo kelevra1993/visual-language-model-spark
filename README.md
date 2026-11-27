@@ -271,11 +271,7 @@ The table gives what `labels.json` holds for every task. Its reference shows an 
 | SSL | the layout of CLS | [reference](documentation/reference/tasks_reference.md#self-supervised-learning-ssl) · [workflow](documentation/task%20workflows/self_supervised_workflow.md) |
 
 ### Label Files
-Before a first launch on your own data, read the label file examples of your task in its reference.
-
-Two converters write the label files from layouts you may already have, linking the images instead of copying them:
-- `vision_training/data/classification/class_folder_manifests.py`: images sorted into one folder per class (CLS, SSL), such as ImageNet;
-- `vision_training/data/sequence/pair_list_manifests.py`: a list of before and after sequences per split (CMP).
+Before a first launch on your own data, write its label files as the examples of your task in its reference show.
 
 ## Evaluating Checkpoints
 Each time the checkpoints of a run must be scored again (another split, batch size or NMS), set the main block of `scripts/evaluation/evaluate_checkpoint.py` ([details](documentation/reference/tools_reference.md#evaluating-checkpoints)):

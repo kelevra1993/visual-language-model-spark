@@ -2,7 +2,8 @@
 Tests of vision_training/data/classification/imagenet_download.py on small files written by the tests, without
 network: the Hugging Face client settings, the retried shard download, a fake ImageNet-22k shard written with its
 original bytes into the train split, the free space stop, the split rule, the split moving the images from wherever they
-sit, and the checks, manifests (validation equal to test) and summary built from the stored images.
+sit, the checks, manifests (validation equal to test) and summary built from the stored images, and the class folder
+manifests read by the classification dataset.
 """
 
 import io
@@ -20,10 +21,11 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from vision_training.data.classification import imagenet_download
+from vision_training.data.classification.classification_dataset import ClassificationDataset
 from vision_training.data.classification.imagenet_download import (
     build_imagenet_22k_splits, choose_held_out_file_names, compute_file_name_hash, configure_hugging_face_downloads,
     download_shard, is_transient_download_error, process_imagenet_22k_shard, run_tasks_with_free_space_check,
-    split_imagenet_22k_images, write_records)
+    split_imagenet_22k_images, write_class_folder_manifests, write_records)
 
 
 class ScriptedDownload:
@@ -351,3 +353,53 @@ def test_build_imagenet_22k_splits(tmp_path: Path) -> None:
     next((images_folder / "train" / "n01443537").iterdir()).unlink()
     with pytest.raises(expected_exception=RuntimeError, match="The train split holds 5 images instead of 6"):
         build_imagenet_22k_splits(dataset_path=tmp_path, held_out_images_per_class=2, minimum_held_out_class_size=5)
+
+
+def test_write_class_folder_manifests(tmp_path: Path) -> None:
+    """
+    Verifies the conversion of a dataset stored as one folder per class: every split gets a 'data' link to its class
+    folders and a manifest of its images, the categories (the class folders of all the splits, in alphabetical order)
+    are the same for every split even when a split lacks a class, the label mapping gives the classes 0 to K-1, and
+    the classification dataset reads the converted split.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    # Training split with two classes, validation split without circles
+    for split_name, class_images in [("training_data", {"squares": 2, "circles": 1}),
+                                     ("validation_data", {"squares": 1})]:
+        for class_name, number_images in class_images.items():
+            class_folder = tmp_path / split_name / class_name
+            class_folder.mkdir(parents=True)
+            for image_index in range(number_images):
+                cv2.imwrite(filename=str(class_folder / f"image_{image_index}.png"),
+                            img=np.zeros(shape=(16, 16, 3), dtype=np.uint8))
+            (class_folder / "notes.txt").write_text(data="not an image")
+
+    # Convert both splits, the files that are not images being left out of the manifests
+    output_folder = tmp_path / "manifests"
+    write_class_folder_manifests(split_folders={"train": str(tmp_path / "training_data"),
+                                                "validation": str(tmp_path / "validation_data")},
+                                 output_folder=str(output_folder))
+
+    # Both splits share the categories of every class folder in alphabetical order, mapped to the classes 0 and 1
+    train_labels = json.loads((output_folder / "train" / "labels.json").read_text())
+    validation_labels = json.loads((output_folder / "validation" / "labels.json").read_text())
+    assert train_labels["categories"] == validation_labels["categories"] == [{"id": 1, "name": "circles"},
+                                                                             {"id": 2, "name": "squares"}]
+    assert [sample["file_name"] for sample in train_labels["samples"]] == ["circles/image_0.png",
+                                                                           "squares/image_0.png",
+                                                                           "squares/image_1.png"]
+    assert [sample["category_id"] for sample in validation_labels["samples"]] == [2]
+    assert (output_folder / "train" / "data").is_symlink()
+    assert json.loads((output_folder / "label_mapping.json").read_text()) == {"1": 0, "2": 1}
+
+    # A second conversion replaces the links and manifests
+    write_class_folder_manifests(split_folders={"train": str(tmp_path / "training_data")},
+                                 output_folder=str(output_folder))
+
+    dataset = ClassificationDataset(data_directory=str(output_folder / "train" / "data"),
+                                    labels_file=str(output_folder / "train" / "labels.json"), image_size=16,
+                                    keep_ratio=True, label_dictionary={1: 0, 2: 1}, output_mode="multi_class",
+                                    shuffle=False)
+    assert [int(dataset[sample_index]["labels"]) for sample_index in range(len(dataset))] == [0, 1, 1]

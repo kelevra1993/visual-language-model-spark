@@ -16,7 +16,6 @@ references:
   - "vision_training/trainers/sequence_comparison_trainer.py · SequenceComparisonTrainer"
   - "vision_training/data/sequence/sequence_pair_dataset.py · SequencePairDataset"
   - "vision_training/data/sequence/sequence_pair_dataset.py · split_pair_members"
-  - "vision_training/data/sequence/pair_list_manifests.py"
   - "vision_training/data/synthetic/create_synthetic_dataset.py · generate_object_loss_pair"
   - "documentation/task workflows/sequence_comparison_workflow.md"
 scenes:
@@ -87,18 +86,16 @@ scenes:
       - "The data set has {{sequence_comparison.dataset.train_pairs:,}} training, {{sequence_comparison.dataset.validation_pairs}} validation and {{sequence_comparison.dataset.test_pairs}} test pairs, with members of {{sequence_comparison.lengths.minimum_member_words}} to {{sequence_comparison.lengths.maximum_member_words}} frames, and {{sequence_comparison.dataset.test.loss_of_object}} loss pairs against {{sequence_comparison.dataset.test.same_number_of_objects}} in its test split."
 
   - kind: terminal
-    title: "Generate, convert, train"
-    code_reference: "vision_training/data/sequence/pair_list_manifests.py · create_pair_list_manifests"
+    title: "Generate and train"
+    code_reference: "vision_training/data/synthetic/create_synthetic_dataset.py · generate_object_loss_pair"
     lines:
       - {role: comment, text: "# Synthetic pairs: task sequence_comparison and output folder as arguments"}
       - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=sequence_comparison --output_folder=~/Data/sequence_data/synthetic_object_loss_pairs"}
-      - {role: comment, text: "# Real pairs: one pair list file per split, converted to labels.json manifests"}
-      - {role: command, text: "uv run python -m vision_training.data.sequence.pair_list_manifests"}
       - {role: comment, text: "# The training"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/sequence_comparison/configuration_synthetic_pairs.yaml\""}
     narration:
       - "The generator writes such pairs given the comparison task as an argument, with members of {{sequence_comparison.generator.minimum_frames_words}} to {{sequence_comparison.generator.maximum_frames_words}} frames of {{sequence_comparison.generator.image_size}} pixels set in its main block."
-      - "Real pairs described by pair list files are converted by the pair list manifests script, its data folder a link to the source frames, and the training takes the synthetic pairs configuration."
+      - "The training then takes the synthetic pairs configuration."
 
   - kind: yaml
     title: "The keys of the task"

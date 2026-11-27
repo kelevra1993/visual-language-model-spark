@@ -58,7 +58,6 @@ Should you need to change one part of the task, this table gives the file holdin
 | Configuration checks | `vision_training/configuration_processing/sequence_checks.py` | `check_sequence_comparison_configuration`, `check_fusion_configuration`, `check_sequence_settings`, `check_temporal_model_configuration` |
 | Run name | `vision_training/configuration_processing/run_name.py` | `build_sequence_comparison_sections`, `build_fusion_tokens` |
 | Synthetic data generator | `vision_training/data/synthetic/create_synthetic_dataset.py` | `create_synthetic_dataset`, `generate_object_loss_pair`, `draw_shapes_frame` |
-| Real dataset converter | `vision_training/data/sequence/pair_list_manifests.py` | `create_pair_list_manifests` (one pair list file per split, `data/` linked to the source folder) |
 | Export | `vision_training/models/sequence/inference_sequence_comparator.py`, `vision_training/deployment/export_specifications.py`, `export_model.py`, `input_contract.py` | `InferenceSequenceComparator` (model name `sequence_comparator`, inputs `before_images` and `after_images`); `build_input_contract`, the input contract of the run written as `preprocessing.json` next to the model and into the metadata of `model.onnx`, its layout `NTCHW` for both inputs |
 | Export sizes at launch | `vision_training/deployment/export_size_estimates.py` | `estimate_export_sizes`, `probe_inference_graph`, `print_export_size_summary` |
 | Standalone evaluation | `scripts/evaluation/evaluate_checkpoint.py`, `vision_training/evaluation/checkpoint_evaluation.py` | `evaluate_checkpoints`, `summarise_checkpoint_evaluations` |
@@ -81,8 +80,6 @@ uv run python -m vision_training.main --configuration_path="vision_training/conf
 #    <run>/Checkpoint_Evaluation/
 uv run python -m scripts.evaluation.evaluate_checkpoint
 ```
-
-In case your pairs are described by one pair list file per split, they are converted to the `pairs` manifests by `vision_training/data/sequence/pair_list_manifests.py` (set `pair_list_files` and `output_folder` in its main block, then `uv run python -m vision_training.data.sequence.pair_list_manifests`).
 
 ### Configuration Keys To Know First
 

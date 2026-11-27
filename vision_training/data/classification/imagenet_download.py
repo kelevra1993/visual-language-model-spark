@@ -8,7 +8,7 @@ published validation shards included, goes to training; one image per class of a
 the test split, which is also the validation split: 'manifests/validation' and 'manifests/test' describe the same
 images. The split is redone from wherever the images sit, so a run on a folder split another way moves the images
 instead of downloading them again. The class folder manifests and label mapping written at the end are read by the
-classification configurations. Run as a script with the settings of its main block.
+classification configurations (write_class_folder_manifests). Run as a script with the settings of its main block.
 """
 
 import hashlib
@@ -31,8 +31,8 @@ from huggingface_hub import HfApi, constants as hugging_face_constants, hf_hub_d
 from huggingface_hub.errors import GatedRepoError, HfHubHTTPError, LocalEntryNotFoundError
 from tqdm import tqdm
 
-from vision_training.data.classification.class_folder_manifests import create_class_folder_manifests
-from vision_training.utilities.os_utilities import format_path_link, print_color
+from vision_training.data.label_mapping import write_label_mapping
+from vision_training.utilities.os_utilities import format_path_link, get_image_paths, link_folder, print_color
 
 # Gated Hugging Face dataset holding the full ImageNet fall11 release (21,841 classes) as webdataset tar shards of
 # about 0.29 GB, whose sample keys are the original file names (e.g. 'n04310904_8388'), the shorter side of the images
@@ -474,6 +474,55 @@ def check_split_sizes(images_folder: Path, expected_split_sizes: Dict[str, int])
                     indent=1)
 
 
+def write_class_folder_manifests(split_folders: Dict[str, str], output_folder: str) -> None:
+    """
+    Writes the manifests of the ImageNet-22k splits, whose images sit in one folder per class, in the split layout read
+    by the classification loader, without copying any image: '<output_folder>/<split>/data' is a symbolic link to the
+    class folders of the split, '<output_folder>/<split>/labels.json' lists every image with its category, and
+    '<output_folder>/label_mapping.json' maps every category to its class index (0 to K-1). The categories are the
+    class folders found in any split, numbered from 1 in alphabetical order, so that every split uses the same category
+    identifiers.
+
+    Args:
+        split_folders (Dict[str, str]): For every split name (e.g. 'train', 'validation'), the folder holding one
+            subfolder of images per class.
+        output_folder (str): The root folder of the created splits.
+
+    Raises:
+        FileExistsError: If the 'data' path of a created split exists and is not a symbolic link.
+    """
+    # Categories shared by every split: the class folders of all the splits, numbered from 1 in alphabetical order
+    class_names = sorted({path.name for split_folder in split_folders.values() for path in Path(split_folder).iterdir()
+                          if path.is_dir()})
+    categories = [{"id": category_index + 1, "name": class_name} for category_index, class_name in
+                  enumerate(class_names)]
+
+    for split_name, split_folder in split_folders.items():
+        output_split_folder = Path(output_folder).absolute() / split_name
+        output_split_folder.mkdir(parents=True, exist_ok=True)
+
+        # Link the class folders of the split, so that the images are read where they are
+        link_folder(link_path=output_split_folder / "data", target_folder=Path(split_folder))
+
+        # One sample per image of every class folder, named relative to the data folder
+        samples = []
+        for category in categories:
+            class_folder = Path(split_folder) / category["name"]
+            if not class_folder.is_dir():
+                continue
+            for image_path in get_image_paths(folder=class_folder):
+                samples.append({"id": len(samples) + 1, "file_name": f"{category['name']}/{image_path.name}",
+                                "category_id": category["id"]})
+
+        labels_path = output_split_folder / "labels.json"
+        labels_path.write_text(data=json.dumps(obj={"categories": categories, "samples": samples}))
+        print_color(color="green", output=f"{split_name} split : {len(samples)} images : "
+                                          f"{format_path_link(path=labels_path)}")
+
+    # Class index of every category, from 0 since the classifiers predict no background class
+    write_label_mapping(categories=categories, output_folder=output_folder)
+
+
 def build_imagenet_22k_splits(dataset_path: Path, held_out_images_per_class: int,
                               minimum_held_out_class_size: int) -> None:
     """
@@ -505,9 +554,9 @@ def build_imagenet_22k_splits(dataset_path: Path, held_out_images_per_class: int
     check_split_sizes(images_folder=images_folder,
                       expected_split_sizes={TRAIN_SPLIT: shard_counts["stored"] - number_held_out_images,
                                             HELD_OUT_SPLIT: number_held_out_images})
-    create_class_folder_manifests(split_folders={split_name: str(images_folder / folder_name)
-                                                 for split_name, folder_name in MANIFEST_SPLIT_FOLDERS.items()},
-                                  output_folder=str(dataset_path / "manifests"), excluded_file_names=None)
+    write_class_folder_manifests(split_folders={split_name: str(images_folder / folder_name)
+                                                for split_name, folder_name in MANIFEST_SPLIT_FOLDERS.items()},
+                                 output_folder=str(dataset_path / "manifests"))
 
     # Counts of every step, for the record of the dataset
     summary_path = dataset_path / "reports" / "summary.json"
