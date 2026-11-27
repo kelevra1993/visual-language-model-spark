@@ -86,43 +86,16 @@ When this README, which gives the commands and the settings that matter most, is
 ## Prerequisites
 
 ### Package Requirements
-Before running any script, the machine needs uv, the Python 3.13 it installs, and an NVIDIA GPU with CUDA (the CPU fallback is much slower). Docker with the NVIDIA container runtime is only needed to serve the exported models with Triton and to train in the [Docker image](#docker-image).
-
-On a machine without uv, install it with its standalone installer, then open a new shell so that `uv` is on the `PATH`:
+To start on a new machine, install uv (then open a new shell), the Python 3.13 pinned by `.python-version`, and the packages locked in `uv.lock`:
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
-uv --version
-```
-
-So that the repository runs on the Python it is developed and tested with, its tracked `.python-version` file pins Python 3.13, which `uv sync` and `uv run` read; without it, uv would take the first Python it finds that satisfies `requires-python = ">=3.13"`, which may be a 3.14. From the repository root, `uv python install` downloads the pinned Python into uv's own folder, leaving the system Python untouched, and `uv python pin` prints the pinned version (given another version, it rewrites `.python-version`):
-
-```bash
 uv python install
-uv python pin
-```
-
-Once Python is installed, `uv sync` creates `.venv` with the pinned Python and installs the versions locked in `uv.lock`, then `uv run python --version` should print 3.13:
-
-```bash
 uv sync
-uv run python --version
 ```
-
-Besides the dependencies, `uv sync` installs the `dev` group (pytest) and the `datasets` group (FiftyOne, for `data_retriever.py`), both left out of the Docker image.
-
-Every script runs as a module from the repository root. The training and the [configuration check](#configurations) (`vision_training.check_configuration`) take `--configuration_path`, the task being read from the file, and the [synthetic dataset script](#quick-start-with-synthetic-data) takes the `--task` and the `--output_folder` of the dataset; most other scripts take no arguments, their settings being the variables of their `if __name__ == "__main__":` block.
-
-<p align="center">
-  <img src="README/scripts_and_requirements.png" width="100%" />
-</p>
 
 ### Data Requirements
 For a task to train, it needs a train, a validation and a test split folder, each holding its images in `data/` and a `labels.json` manifest, and a `label_mapping.json` file giving the class of every category ([Label Files](#label-files)). The [synthetic datasets](#quick-start-with-synthetic-data) need none of this.
-
-<p align="center">
-  <img src="README/data_folder_layout.png" width="100%" />
-</p>
 
 Should the backbones of classification, object detection or segmentation start from pre-trained weights, the [pretraining reference](documentation/reference/pretraining_reference.md) describes the download of ImageNet-22k, on which the classification configurations train the backbones the other tasks load.
 
