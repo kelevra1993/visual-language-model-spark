@@ -339,9 +339,9 @@ If words such as eager, ONNX or TensorRT stop you, this part follows one run to 
 <p align="center"><em>The four ways to run the checkpoint of the README classifier, with the sizes of model.pt, model.onnx and the TensorRT engines built from model.onnx in the Triton image (TensorRT 10.14.1, GB10).</em></p>
 
 #### Triton Inference Server
-When other programs must query the model over the network, Triton holds it, a Docker container started from `vision_training/deployment/triton/docker-compose.yml` ([Triton Server](#triton-server)). It loads `served_models/` (one folder per model with its `config.pbtxt`), takes HTTP (port 8000) or gRPC (port 8001) requests, batches those arriving within 1 millisecond, and runs each file with its backend (libtorch or ONNX Runtime). "In the process" is the opposite: the model inside your own program, no network.
+So that other programs can query the model over the network, Triton serves `served_models/` from a Docker container ([Triton Server](#triton-server)), on HTTP port 8000 and gRPC port 8001.
 
-In order to query Triton, a client needs `tritonclient` and numpy, not PyTorch (OpenCV reads the image of [One Image Through Every Path](#one-image-through-every-path)); `run_triton_inference` in `deployment_utilities.py` makes the same calls:
+A client only needs `tritonclient` and numpy:
 
 ```python
 import cv2
@@ -357,12 +357,8 @@ result = client.infer(model_name="image_classifier_onnx", inputs=[inference_inpu
 print(result.as_numpy(name="class_probabilities").max())
 ```
 
-It printed 0.96520966 (TensorRT FP32, the default), and 0.9652039 after a restart rebuilt the engine.
-
 #### One Image Through Every Path
-Say you want to see the export check on one image: take `test_000012.png`, a 512 x 512 hexagon of the CLS synthetic shapes test split (`<synthetic_shapes_folder>`, see [Quick Start With Synthetic Data](#quick-start-with-synthetic-data)).
-
-If one wishes to run it through the three in-process paths, run this from the repository root after `export_model.py`, `<experiment_folder>` holding the run:
+Say you want to see the export check on one image: this script runs `test_000012.png`, a hexagon of the CLS synthetic test split, through the eager model, `model.pt` and `model.onnx` after `export_model.py`.
 
 ```python
 import cv2
@@ -402,32 +398,16 @@ print(eager_probabilities.max(), np.abs(torchscript_probabilities - eager_probab
       np.abs(onnx_probabilities - eager_probabilities).max())
 ```
 
-It printed `0.96520376 0.0 2.7418137e-06`: the eager hexagon probability, then the largest difference over the 35 probabilities for TorchScript and ONNX Runtime. With the Triton paths added:
+The serving paths, timed by the [serving benchmark](documentation/architecture_benchmarking/serving_benchmark_plan.md) on the 9-class version of this classifier:
 
-| Path | hexagon | hollow_hexagon | pentagon | Largest difference from the eager model, over the 35 probabilities |
-|---|---|---|---|---|
-| Eager, TF32 off (reference of the export check) | 0.965204 | 0.013958 | 0.006539 | reference |
-| Eager, PyTorch defaults (TF32 convolutions) | 0.965195 | 0.013976 | 0.006531 | 1.85e-05 |
-| TorchScript, `torch.jit.load` on the GPU | 0.965204 | 0.013958 | 0.006539 | 0 |
-| ONNX, ONNX Runtime on the CPU | 0.965207 | 0.013957 | 0.006538 | 2.74e-06 |
-| Triton, TorchScript | 0.965204 | 0.013958 | 0.006539 | 1.25e-07 |
-| Triton, ONNX Runtime CUDA | 0.965241 | 0.013953 | 0.006515 | 3.72e-05 |
-| Triton, ONNX with TensorRT FP32 | 0.965210 | 0.013936 | 0.006542 | 2.16e-05 |
-| Triton, ONNX with TensorRT FP32, container started again | 0.965204 | 0.013946 | 0.006541 | 1.22e-05 |
-| Triton, ONNX with TensorRT FP16 | 0.965332 | 0.013985 | 0.006657 | 1.28e-04 |
-
-Every path keeps the class order. Only TensorRT FP16, never checked by the export, goes beyond the 1e-4 tolerance. TensorRT digits also change with each engine build; other paths repeat theirs.
-
-Where latency or throughput decides, the [serving benchmark](documentation/architecture_benchmarking/serving_benchmark_plan.md) measured these paths on the idle GPU with the 9-class version of this classifier (Triton over shared memory, one client). The "needed" columns apply to the program running the model, not to a Triton client:
-
-| Path | File | Python needed | PyTorch needed | Repository code needed | Tied to one GPU model and TensorRT version | Checked by the export | Batch 1 p50 (milliseconds) | Batch 16 (images per second) |
-|---|---|---|---|---|---|---|---|---|
-| In the process, eager | checkpoint | yes | yes | yes | no | reference | 2.2 | 349 |
-| In the process, TorchScript | `model.pt` | no, C++ loads it too | libtorch | no | no | yes, on the GPU | 3.3 | 355 |
-| Triton, TorchScript | `model.pt` | no | libtorch, inside the container | no | no | yes, on the GPU | 4.5 | 320 |
-| Triton, ONNX Runtime CUDA | `model.onnx` | no | no | no | no | yes, on the CPU | 3.6 | 435 |
-| Triton, ONNX with TensorRT FP32 | `model.onnx`, engine built at the first requests | no | no | no | yes, the engine | the ONNX graph, not the engine | 3.0 | 646 |
-| Triton, ONNX with TensorRT FP16 | the same | no | no | no | yes, the engine | no | 2.5 | 1,215 |
+| Path | File | Runs with | Checked by the export | Batch 1 (milliseconds) | Batch 16 (images per second) |
+|---|---|---|---|---|---|
+| In the process, eager | checkpoint | Python, PyTorch, this repository | reference | 2.2 | 349 |
+| In the process, TorchScript | `model.pt` | PyTorch or libtorch | yes | 3.3 | 355 |
+| Triton, TorchScript | `model.pt` | Triton | yes | 4.5 | 320 |
+| Triton, ONNX Runtime CUDA | `model.onnx` | Triton | yes | 3.6 | 435 |
+| Triton, ONNX with TensorRT FP32 | `model.onnx` | Triton, engine tied to one GPU model | the ONNX graph, not the engine | 3.0 | 646 |
+| Triton, ONNX with TensorRT FP16 | `model.onnx` | Triton, engine tied to one GPU model | no | 2.5 | 1,215 |
 
 #### Which One When
 To find your way among these paths, start from your situation:
