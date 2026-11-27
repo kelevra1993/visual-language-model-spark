@@ -590,6 +590,14 @@ Whenever you want to compare in-process and Triton speed, `run_inference.py` sen
 uv run python -m vision_training.deployment.run_inference --experiment_folder <run folder>
 ```
 
+For the README classifier, exported with the defaults and timed while two trainings shared the GPU, the last line of each progress bar reads (`local` is the eager model in the process, the ONNX model runs with TensorRT FP32):
+
+```text
+local: 100%|██████████| 1000/1000 [00:22<00:00, 44.15sample/s]
+image_classifier_torchscript: 100%|██████████| 1000/1000 [00:15<00:00, 65.23sample/s]
+image_classifier_onnx: 100%|██████████| 1000/1000 [00:10<00:00, 93.65sample/s]
+```
+
 ### Serving Formats And Precision
 Before a model goes to production, its serving path and [number format](documentation/reference/tools_reference.md#the-same-values-in-every-format) set its speed, memory and drift from the FP32 model. The numbers come from the [serving benchmark](documentation/architecture_benchmarking/serving_benchmark_plan.md) on the DGX Spark, Triton 26.01.
 
