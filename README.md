@@ -8,8 +8,6 @@
 ## Table Of Content
 - [Description](#description)
 - [Prerequisites](#prerequisites)
-  - [Package Requirements](#package-requirements)
-  - [Data Requirements](#data-requirements)
 - [Quick Start With Synthetic Data](#quick-start-with-synthetic-data)
 - [Training](#training)
   - [Launching A Run](#launching-a-run)
@@ -71,11 +69,9 @@ If this README is not enough, see `documentation/`:
 | set a configuration key or read an output | [Configuration reference](documentation/reference/configuration_reference.md) |
 | evaluate, compare, export or serve a model | [Tools reference](documentation/reference/tools_reference.md) |
 | pre-train backbones on ImageNet-22k and Open Images V7 | [Pretraining reference](documentation/reference/pretraining_reference.md) |
-| follow one run of a task function by function | its workflow, linked in the Details column of the [Tasks](#tasks) table |
+| understand a metric of the evaluation reports | [Metrics reference](documentation/reference/metrics_reference.md) |
 
 ## Prerequisites
-
-### Package Requirements
 To start on a new machine:
 
 ```bash
@@ -88,11 +84,6 @@ uv python install
 # Install the packages of uv.lock
 uv sync
 ```
-
-### Data Requirements
-For a task to train, it needs train, validation and test folders, each with its images in `data/` and a `labels.json`, plus a `label_mapping.json` ([Label Files](#label-files)). The [synthetic datasets](#quick-start-with-synthetic-data) need none of this.
-
-Should a backbone start from pre-trained weights, see the [pretraining reference](documentation/reference/pretraining_reference.md).
 
 ## Quick Start With Synthetic Data
 In order to check the installation or a configuration within minutes, every task has a synthetic shapes dataset:
@@ -278,7 +269,11 @@ The table gives what `labels.json` holds for every task. Its reference shows an 
 | SSL | the layout of CLS | [reference](documentation/reference/tasks_reference.md#self-supervised-learning-ssl) · [workflow](documentation/task%20workflows/self_supervised_workflow.md) |
 
 ### Label Files
-Before a first launch on your own data, read the label file examples of your task in its reference. `class_folder_manifests.py` (one folder per class) and `pair_list_manifests.py` (CMP pair lists) write them for you.
+Before a first launch on your own data, read the label file examples of your task in its reference.
+
+Two converters write the label files from layouts you may already have, linking the images instead of copying them:
+- `vision_training/data/classification/class_folder_manifests.py`: images sorted into one folder per class (CLS, SSL), such as ImageNet;
+- `vision_training/data/sequence/pair_list_manifests.py`: a list of before and after sequences per split (CMP).
 
 ## Evaluating Checkpoints
 Each time the checkpoints of a run must be scored again (another split, batch size or NMS), set the main block of `scripts/evaluation/evaluate_checkpoint.py` ([details](documentation/reference/tools_reference.md#evaluating-checkpoints)):
