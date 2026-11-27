@@ -9,13 +9,16 @@ FP32), traced to '<run>/Half_Precision_Parity/Iteration_<n>[_EMA]/model_fp16.pt'
 model on the whole test split of the run by the test evaluation of its trainer (evaluate_parity_row of
 deployment/export_parity.py). The summary gives the metrics of both rows, the predicted classes and the deployed
 threshold decisions that moved, and the sizes of the files, so that the worth of an FP16 TorchScript export of a
-classifier can be judged before it is deployed. Run as a script with the run, iteration and weights set in its main
-block.
+classifier can be judged before it is deployed. Run as a script with the run folder and the settings of the trial
+given as arguments (parse_half_precision_parity_arguments), named as those of export_model.py, its help printed when
+none is given.
 """
 
+import argparse
 import functools
 import json
 import shutil
+import sys
 import numpy as np
 import torch
 
@@ -27,7 +30,8 @@ from vision_training.configuration_processing.configuration_loader import load_e
 from vision_training.deployment.deployment_utilities import run_local_inference
 from vision_training.deployment.export_formats import (convert_to_half_precision, export_torchscript,
                                                        hide_known_export_warnings)
-from vision_training.deployment.export_model import find_saved_thresholds_path, read_saved_temperature
+from vision_training.deployment.export_model import (DEFAULT_EXPORT_SETTINGS, find_saved_thresholds_path,
+                                                     read_saved_temperature)
 from vision_training.deployment.export_parity import (ROW_EVALUATIONS_FOLDER_NAME, build_evaluation_trainer,
                                                       create_output_comparison, evaluate_parity_row,
                                                       summarise_sample_agreement)
@@ -323,24 +327,74 @@ def check_half_precision_parity(experiment_folder: Path, iteration: Optional[int
                                                                                    previous_matmul_tf32)
 
 
-if __name__ == "__main__":
-    # Classification run whose checkpoint is traced in FP16 (the 35-class synthetic shapes classifier of the README,
-    # kept with the tutorial runs)
-    run_name = "CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128-PT_HFLAT.128-HLN-CWB_MC35"
-    experiment_folder = Path.home() / "Data" / "tutorial_runs" / "readme_screenshots" / run_name
-    # Iteration of the checkpoint, None for the last one, and True for its moving average of the weights (EMA)
-    iteration = 2000
-    use_averaged_weights = False
-    # True traces the temperature saved from the temperature explorer of the checkpoint and compares the decisions at
-    # its thresholds, as an export with use_saved_temperature; False traces a temperature of 1 without thresholds
-    use_saved_temperature = False
-    # With use_saved_temperature, the saved_temperature_thresholds.json to use, None to look for it in the evaluation
-    # folders of the checkpoint as the export does
-    saved_thresholds_path = None
-    # Largest batch size of a request, that of the export
-    maximum_batch_size = 16
+def parse_half_precision_parity_arguments(arguments: List[str]) -> argparse.Namespace:
+    """
+    Reads the settings of the trial from the command line of the script, named and defaulting as the arguments of
+    export_model.py, so that the trial judges the FP16 file the export would write: the run folder is required, the
+    largest request defaults to the maximum batch size of DEFAULT_EXPORT_SETTINGS. Launched without any argument, the
+    script prints the help of every argument and stops. A '~' left by the shell at the start of a path
+    ('--experiment_folder=~/Data/...') is expanded to the home folder.
 
+    Args:
+        arguments (List[str]): The command line arguments, without the script name.
+
+    Returns:
+        argparse.Namespace: The arguments of check_half_precision_parity.
+
+    Raises:
+        SystemExit: After printing the help when no argument is given, or the usage and the error when the run folder
+            is missing or a value is not a number.
+    """
+    # The description and the example keep their line breaks, argparse wrapping the help of every argument
+    parser = argparse.ArgumentParser(
+        prog="uv run python -m scripts.deployment.check_half_precision_parity",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Traces the classifier of a run in FP16 as the export does and scores it with the eager FP32\n"
+                    "model on the whole test split of the run, without Triton.",
+        epilog="Example, iteration 2000 of a classifier with the temperature saved from its explorer:\n"
+               "  uv run python -m scripts.deployment.check_half_precision_parity \\\n"
+               "      --experiment_folder ~/Data/<run> --iteration 2000 --use_saved_temperature")
+    # The run, the checkpoint and the weights traced
+    parser.add_argument("--experiment_folder", type=Path, required=True,
+                        help="Classification run folder holding 'Weights' and 'training_configuration.yaml' "
+                             "(required).")
+    parser.add_argument("--iteration", type=int, default=None,
+                        help="Iteration of the traced checkpoint (default: the last saved one).")
+    parser.add_argument("--use_averaged_weights", action="store_true",
+                        help="Trace the moving average of the weights saved in the checkpoint instead of the trained "
+                             "weights.")
+    # The temperature and thresholds deployed with the classifier, and the largest request
+    parser.add_argument("--use_saved_temperature", action="store_true",
+                        help="Trace the temperature saved from the temperature explorer of the checkpoint and compare "
+                             "the decisions at its thresholds (default: a temperature of 1, without thresholds).")
+    parser.add_argument("--saved_thresholds_path", type=Path, default=None,
+                        help="With --use_saved_temperature, the saved_temperature_thresholds.json to use (default: the "
+                             "one in the evaluation folders of the checkpoint, looked for as the export does).")
+    parser.add_argument("--maximum_batch_size", type=int, default=DEFAULT_EXPORT_SETTINGS["maximum_batch_size"],
+                        help="Largest batch of a request, that of the export (default: %(default)s).")
+
+    # Without any argument, the script describes its arguments instead of failing on the missing run folder
+    if not arguments:
+        parser.print_help()
+        parser.exit(status=0)
+    parsed_arguments = parser.parse_args(args=arguments)
+
+    # A '~' the shell leaves after '=' points to the home folder, as in the other scripts of the repository
+    for path_name in ["experiment_folder", "saved_thresholds_path"]:
+        if getattr(parsed_arguments, path_name) is not None:
+            setattr(parsed_arguments, path_name, getattr(parsed_arguments, path_name).expanduser())
+    return parsed_arguments
+
+
+if __name__ == "__main__":
+    # Run folder and settings of the trial read from the command line, the help printed when none is given
+    parity_arguments = parse_half_precision_parity_arguments(arguments=sys.argv[1:])
+
+    # The harmless library warnings printed while tracing are always hidden
     hide_known_export_warnings()
-    check_half_precision_parity(experiment_folder=experiment_folder, iteration=iteration,
-                                use_averaged_weights=use_averaged_weights, use_saved_temperature=use_saved_temperature,
-                                saved_thresholds_path=saved_thresholds_path, maximum_batch_size=maximum_batch_size)
+    check_half_precision_parity(experiment_folder=parity_arguments.experiment_folder,
+                                iteration=parity_arguments.iteration,
+                                use_averaged_weights=parity_arguments.use_averaged_weights,
+                                use_saved_temperature=parity_arguments.use_saved_temperature,
+                                saved_thresholds_path=parity_arguments.saved_thresholds_path,
+                                maximum_batch_size=parity_arguments.maximum_batch_size)
