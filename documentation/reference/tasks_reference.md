@@ -65,8 +65,25 @@ Details of every task, completing the [Tasks](../../README.md#tasks) section of 
 - `labels.json` names the images relative to `data/`, and its categories have integer identifiers.
 - `label_mapping.json` (`Data.label_mapping.mapping_file_path`, `mode: "multi_class"`) maps every category identifier, as a string, to a class index. The converters and the synthetic generator write it next to the splits.
 
-```json
-{"1": 0, "2": 1, "3": 1}
+The `//` comments of the examples of this reference only explain them: the JSON files take none.
+
+```jsonc
+{                 // CLS, M2O, M2M, CMP, SEL: classes from 0
+  "1": 0,         // circle    -> class 0
+  "2": 1,         // square    -> class 1
+  "4": 1,         // rectangle -> class 1 too: merged with the
+                  //   squares, the class named square+rectangle
+  "5": 2          // triangle  -> class 2
+}                 // star (3), not written, is left out
+```
+
+```jsonc
+{                 // DET, INS, KPT, SEG: classes from 1,
+                  //   class 0 being the background
+  "1": 1,         // circle -> class 1
+  "2": 2,         // square -> class 2
+  "3": 0          // star   -> 0: left out like a category
+}                 //   not written
 ```
 
 - CLS, M2O, M2M, CMP and SEL predict the classes 0 to K-1. DET, INS, KPT and SEG predict 1 to K, 0 being the `background`. The class indices must have no gaps (checked for every task).
@@ -90,11 +107,53 @@ Predicts the class of an image (`ClassificationHead.output_mode: "multi_class"`,
 
 **Data.** Every sample gives its `category_id`, or its `category_ids` when multi-label:
 
-```json
+```jsonc
 {
-  "categories": [{"id": 1, "name": "circle"}, {"id": 2, "name": "square"}],
-  "samples": [{"id": 1, "file_name": "circle/image_0001.png", "category_id": 1}]
+  "categories": [                     // every category,
+    {"id": 1, "name": "circle"},      //   with an integer identifier
+    {"id": 2, "name": "square"},
+    {"id": 3, "name": "star"}
+  ],
+  "samples": [                        // one entry per image
+    {
+      "id": 1,
+      "file_name": "image_0001.png",  // data/image_0001.png
+      "category_id": 2                // shows a square
+    },
+    {
+      "id": 2,
+      "file_name": "image_0002.png",
+      "category_id": 1
+    },
+    {
+      "id": 3,
+      "file_name": "night/image_0003.png",  // a subfolder of data/
+      "category_id": 3                      //   stays in the name
+    }
+  ]
 }
+```
+
+With `ClassificationHead.output_mode: "multi_label"`, every sample lists all its classes:
+
+```jsonc
+  "samples": [
+    {
+      "id": 1,
+      "file_name": "image_0001.png",
+      "category_ids": [1, 3]          // a circle and a star
+    },
+    {
+      "id": 2,
+      "file_name": "image_0002.png",
+      "category_ids": [2]             // a square only
+    },
+    {
+      "id": 3,
+      "file_name": "image_0003.png",
+      "category_ids": [1, 2, 3]
+    }
+  ]
 ```
 
 **Converting a dataset**
@@ -126,11 +185,48 @@ A two-stage detector. Every entry of `DetectionLevels` is a backbone level with 
 
 **Data.** A COCO `labels.json`, the boxes being `[x, y, width, height]` in pixels of the original image. The other keys of a COCO export, such as `area` and `iscrowd`, are not read.
 
-```json
+```jsonc
 {
-  "images": [{"id": 1, "file_name": "000001.png", "width": 1024, "height": 1024}],
-  "annotations": [{"id": 1, "image_id": 1, "category_id": 5, "bbox": [120, 340, 64, 48]}],
-  "categories": [{"id": 5, "name": "triangle"}]
+  "images": [                         // one entry per image
+    {
+      "id": 1,
+      "file_name": "image_0001.png",
+      "width": 512,
+      "height": 512
+    },
+    {
+      "id": 2,
+      "file_name": "image_0002.png",
+      "width": 640,
+      "height": 480
+    }
+  ],
+  "annotations": [                    // one entry per object
+    {
+      "id": 1,
+      "image_id": 1,
+      "category_id": 2,
+      "bbox": [120, 340, 64, 48]      // [x, y, width, height]
+    },                                //   in pixels
+    {
+      "id": 2,
+      "image_id": 1,                  // a second object of image 1
+      "category_id": 1,
+      "bbox": [300, 80, 90, 90]
+    },
+    {
+      "id": 3,
+      "image_id": 2,
+      "category_id": 3,
+      "bbox": [10, 200, 150, 120]
+    }
+  ],
+  "categories": [                     // identifiers may have gaps
+    {"id": 1, "name": "circle"},
+    {"id": 2, "name": "square"},
+    {"id": 3, "name": "star"},
+    {"id": 5, "name": "triangle"}
+  ]
 }
 ```
 
@@ -185,8 +281,26 @@ The detector of DET with one mask head per detection level, as in Mask R-CNN ([H
 
 **Data.** The COCO `labels.json` of DET, every object having a `segmentation`: polygons (flat `[x1, y1, x2, y2, ...]` lists in pixels of the original image) or a run length encoding `{"size": [height, width], "counts": ...}`, compressed or not.
 
-```json
-{"id": 1, "image_id": 1, "category_id": 5, "segmentation": [[120, 388, 152, 340, 184, 388]]}
+```jsonc
+  "annotations": [
+    {
+      "id": 1,
+      "image_id": 1,
+      "category_id": 5,               // a triangle
+      "segmentation": [               // polygons, each a flat
+        [120, 388, 152, 340, 184, 388]  // [x1, y1, x2, y2, ...]
+      ]                               //   list in pixels
+    },
+    {
+      "id": 2,
+      "image_id": 1,
+      "category_id": 2,
+      "segmentation": {               // or a run length encoding,
+        "size": [512, 512],           //   compressed or not
+        "counts": "f\\i01o?1O001..."
+      }
+    }
+  ]
 ```
 
 - The masks are built at the network resolution. The box of every object is the tight box of its mask, so no `bbox` is needed.
@@ -230,12 +344,68 @@ A bottom-up keypoint detector, as in HigherHRNet ([Cheng et al., 2020](https://a
 
 **Data.** The COCO `labels.json` of DET. Every object has its `keypoints`, a flat `[x1, y1, v1, ...]` list in pixels of the original image, v being 0 (not labelled), 1 (hidden) or 2 (visible). Every category has its `keypoints` names and its `skeleton`, the 1-based keypoint pairs linked in the drawings.
 
-```json
-{
-  "annotations": [{"id": 1, "image_id": 1, "category_id": 1, "bbox": [120, 40, 80, 200],
-                   "keypoints": [160, 60, 2, 140, 120, 2, 180, 120, 1], "num_keypoints": 3}],
-  "categories": [{"id": 1, "name": "person", "keypoints": ["head", "left_hand", "right_hand"], "skeleton": [[1, 2], [1, 3]]}]
-}
+- 2, visible: the point is seen in the image.
+- 1, hidden: the point is in the image but covered, by another object for instance, and its position is still known; it is learned and scored like a visible point.
+- 0, not labelled: the position is unknown (outside the image, or never annotated); the triple stays, written `0, 0, 0`, so that the next points keep their places, and the point is neither learned nor scored.
+
+```jsonc
+  "annotations": [
+    {
+      "id": 1,
+      "image_id": 1,
+      "category_id": 2,               // a square: 4 named points
+      "bbox": [65, 228, 206, 206],
+      "keypoints": [                  // x, y, v of every name
+        65, 228, 2,                   // top_left: visible
+        271, 228, 2,                  // top_right: visible
+        271, 434, 2,                  // bottom_right: visible
+        65, 434, 1                    // bottom_left: hidden under
+      ]                               //   another object, still learned
+    },
+    {
+      "id": 2,
+      "image_id": 1,
+      "category_id": 5,               // a triangle: 3 named points
+      "bbox": [300, 40, 120, 100],
+      "keypoints": [
+        360, 40, 2,                   // top: visible
+        420, 140, 2,                  // bottom_right: visible
+        0, 0, 0                       // bottom_left: not labelled,
+      ]                               //   0, 0, 0 keeps its place
+    }
+  ],
+  "categories": [
+    {
+      "id": 2,
+      "name": "square",
+      "keypoints": [                  // the names, in triple order
+        "top_left",                   // 1
+        "top_right",                  // 2
+        "bottom_right",               // 3
+        "bottom_left"                 // 4
+      ],
+      "skeleton": [                   // lines drawn between points:
+        [1, 2],                       //   top_left to top_right
+        [2, 3],                       //   top_right to bottom_right
+        [3, 4],                       //   bottom_right to bottom_left
+        [4, 1]                        //   bottom_left to top_left
+      ]
+    },
+    {
+      "id": 5,
+      "name": "triangle",
+      "keypoints": [
+        "top",                        // 1
+        "bottom_right",               // 2
+        "bottom_left"                 // 3
+      ],
+      "skeleton": [
+        [1, 2],                       // top to bottom_right
+        [2, 3],                       // bottom_right to bottom_left
+        [3, 1]                        // bottom_left to top
+      ]
+    }
+  ]
 ```
 
 - The objects without any labelled keypoint are left out of the labels. With `ignore_unlabelled_objects`, each of them needs its `segmentation`, as in INS. Those of the test split, whose category has keypoints, are kept apart with their box, class and `iscrowd` flag, so that the evaluation ignores the objects found on them.
@@ -286,10 +456,27 @@ A U-Net whose encoder is the backbone, the decoder merging the skip connection o
 
 **Data.** Every split holds its images in `data/` and their masks in `masks/`. A mask is a single-channel uint8 PNG of the size of its image holding the category of every pixel, 0 for the background and 255 for the unlabelled pixels, which are ignored. The optional `category_ids` of a sample list its mask categories for the class counts of `data.json`.
 
-```json
+```jsonc
 {
-  "categories": [{"id": 1, "name": "car"}, {"id": 2, "name": "road"}],
-  "samples": [{"id": 1, "file_name": "image_001.png", "mask_file_name": "image_001.png", "category_ids": [1, 2]}]
+  "categories": [
+    {"id": 1, "name": "circle"},
+    {"id": 2, "name": "square"},
+    {"id": 3, "name": "star"}
+  ],
+  "samples": [
+    {
+      "id": 1,
+      "file_name": "image_0001.png",
+      "mask_file_name": "image_0001.png",  // masks/image_0001.png
+      "category_ids": [1, 3]               // optional, for the
+    },                                     //   class counts
+    {
+      "id": 2,
+      "file_name": "image_0002.png",
+      "mask_file_name": "image_0002.png",
+      "category_ids": [2]
+    }
+  ]
 }
 ```
 
@@ -323,13 +510,55 @@ A U-Net whose encoder is the backbone, the decoder merging the skip connection o
 - `Data.data_augmentation.independent_frames` draws the photometric augmentations frame by frame. `shuffle_frames` shuffles the frames of sequences whose order carries no information, with `TemporalModel.positional_embedding: False` for the transformer to treat them as sets.
 - `Backbone.normalization.feature_map_normalization: "sequence"` normalizes over the real frames of every sequence.
 
+<p align="center">
+  <img src="../../README/sequence_padded_batch.gif" width="100%" />
+</p>
+<p align="center"><em>Four synthetic moving-shape sequences padded to the longest one by <code>collate_padded_sequences</code>, and the <code>sequence_mask</code> of their real frames.</em></p>
+
+To see why a class given by a motion needs flatten, follow one frame through the network. The backbone turns it into a feature map of C channels on an H × W grid, each cell describing the region of the frame under it, and `ClassificationHead.global_pooling` turns that map into the frame vector the temporal model reads:
+- `average` keeps one mean per channel, which is the same wherever the shape is: the frames of a moving shape become the same vector, so the temporal model cannot tell a move to the left from a move to the right and stays at chance. `max` keeps one maximum per channel and loses the position the same way.
+- `flatten` keeps the C × H × W values in their order, so the cells lit by the shape move from frame to frame and the vectors of frames far apart differ.
+
+<p align="center">
+  <img src="../../README/sequence_pooling_mechanism.gif" width="100%" />
+</p>
+<p align="center"><em>A triangle moving right over 8 frames of 128 pixels, turned into an 8 × 8 feature map by four fixed edge filters, a ReLU and a 16 × 16 average, as a backbone downsampling 16 times would. Average pooling hands the temporal model the same 4 values in every frame, every similarity being 1.00; flatten hands it 256 values whose lit cells follow the shape, the similarity being 0.42 to 0.57 between neighbouring frames and 0.00 between frames far apart. Drawn by <code>documentation/presentation/figures/draw_pooling_similarity_animation.py</code>.</em></p>
+
+<p align="center">
+  <img src="../../README/sequence_pooling_similarity.png" width="100%" />
+</p>
+<p align="center"><em>The same on two trained M2O runs of the sequence classification tutorial, on the 8 frames of one test sequence: with average pooling (512 pixels, 64 features) every pair of frames scores 1.00, the frames being indistinguishable; with flatten (256 pixels, 16,384 features) the similarity is 0.79 to 0.91 between neighbouring frames and falls to 0.00 between the first and the last, the frame vector following the shape.</em></p>
+
 ## Sequence Classification (M2O)
 Predicts one class per sequence (many to one).
 
-```json
+```jsonc
 {
-  "categories": [{"id": 1, "name": "moving_left"}, {"id": 2, "name": "moving_right"}],
-  "sequences": [{"id": 1, "name": "sequence_0001", "category_id": 1, "frames": ["sequence_0001/000000.png", "sequence_0001/000001.png"]}]
+  "categories": [
+    {"id": 1, "name": "moving_left"},
+    {"id": 2, "name": "moving_right"}
+  ],
+  "sequences": [                      // one entry per sequence
+    {
+      "id": 1,
+      "name": "sequence_0001",
+      "category_id": 1,
+      "frames": [                     // in order
+        "sequence_0001/000000.png",
+        "sequence_0001/000001.png",
+        "sequence_0001/000002.png"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "sequence_0002",
+      "category_id": 2,
+      "frames": [                     // another length
+        "sequence_0002/000000.png",
+        "sequence_0002/000001.png"
+      ]
+    }
+  ]
 }
 ```
 
@@ -339,8 +568,35 @@ Predicts one class per sequence (many to one).
 ## Sequence Labelling (M2M)
 Predicts one class per frame (many to many). With `TemporalModel.causal: True` (transformer, temporal convolution), every frame only sees the frames before it, as in a live stream; the sequence normalization of the backbone, whose statistics come from the whole sequence, is then refused.
 
-```json
-{"id": 1, "name": "sequence_0001", "frame_category_ids": [1, 1, 2], "frames": ["sequence_0001/000000.png", "sequence_0001/000001.png", "sequence_0001/000002.png"]}
+```jsonc
+{
+  "categories": [
+    {"id": 1, "name": "no_change"},
+    {"id": 2, "name": "appearing_circle"},
+    {"id": 3, "name": "disappearing_circle"}
+  ],
+  "sequences": [
+    {
+      "id": 1,
+      "name": "sequence_0001",
+      "frame_category_ids": [1, 2, 1],  // a circle appears
+      "frames": [                       //   on the second frame
+        "sequence_0001/000000.png",
+        "sequence_0001/000001.png",
+        "sequence_0001/000002.png"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "sequence_0002",
+      "frame_category_ids": [1, 3],
+      "frames": [
+        "sequence_0002/000000.png",
+        "sequence_0002/000001.png"
+      ]
+    }
+  ]
+}
 ```
 
 - **Data**: `frame_category_ids` gives one category per frame; a split holding sequences whose `frame_category_ids` and `frames` differ in length stops the launch, listing them.
@@ -354,11 +610,38 @@ For example, true `A A A A A B B B B B` predicted `A A B A A B B A B B` has 80.0
 ## Sequence Comparison (CMP)
 Predicts one class per pair of a before and an after sequence, e.g. whether an object was lost between two visits. Both members go through the same backbone and temporal module, combined by `Fusion.type`: `concatenation`, `difference` or `cross_attention`.
 
-```json
+```jsonc
 {
-  "categories": [{"id": 1, "name": "loss_of_object"}, {"id": 2, "name": "same_number_of_objects"}],
-  "pairs": [{"id": 1, "name": "pair_0001", "category_id": 1,
-             "before": ["pair_0001/before/000000.png", "pair_0001/before/000001.png"], "after": ["pair_0001/after/000000.png"]}]
+  "categories": [
+    {"id": 1, "name": "loss_of_object"},
+    {"id": 2, "name": "same_number_of_objects"}
+  ],
+  "pairs": [                          // one entry per pair
+    {
+      "id": 1,
+      "name": "pair_0001",
+      "category_id": 1,
+      "before": [
+        "pair_0001/before/000000.png",
+        "pair_0001/before/000001.png"
+      ],
+      "after": [                      // may differ in length
+        "pair_0001/after/000000.png"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "pair_0002",
+      "category_id": 2,
+      "before": [
+        "pair_0002/before/000000.png"
+      ],
+      "after": [
+        "pair_0002/after/000000.png",
+        "pair_0002/after/000001.png"
+      ]
+    }
+  ]
 }
 ```
 
@@ -378,6 +661,39 @@ Chooses in every sequence the `Selection.frames_per_class` frames of every wante
 For example, with classes A and B and three frames of probabilities (A, B, unselected) (0.50, 0.45, 0.05), (0.45, 0.05, 0.50) and (0.02, 0.08, 0.90), the greedy rule gives A to frame 1 and B to frame 3, while the Hungarian assignment gives B to frame 1 and A to frame 2, a labelling about nine times more probable. Both are scored at every evaluation; `Selection.decoding` is the one drawn, thresholded and deployed.
 
 **Data.** The layout of M2M, `frame_category_ids` giving the unselected or a wanted category for every frame. The mapping must map the unselected category, and a sequence without exactly `frames_per_class` frames of every wanted class stops the training at startup.
+
+```jsonc
+{
+  "categories": [
+    {"id": 1, "name": "circle"},
+    {"id": 3, "name": "star"},
+    {"id": 6, "name": "unselected"}
+  ],
+  "sequences": [
+    {
+      "id": 1,
+      "name": "sequence_0001",
+      "frame_category_ids": [6, 3, 6, 1],  // frames_per_class 1:
+      "frames": [                          //   the star, then
+        "sequence_0001/000000.png",        //   the circle
+        "sequence_0001/000001.png",
+        "sequence_0001/000002.png",
+        "sequence_0001/000003.png"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "sequence_0002",
+      "frame_category_ids": [1, 3, 6],
+      "frames": [
+        "sequence_0002/000000.png",
+        "sequence_0002/000001.png",
+        "sequence_0002/000002.png"
+      ]
+    }
+  ]
+}
+```
 
 **Configuration.** The keys of M2M and `Selection` (`unselected_category`, `decoding`, `frames_per_class`, `selection_loss_weight`). A bidirectional or non-causal temporal module compares every frame with the whole sequence.
 
