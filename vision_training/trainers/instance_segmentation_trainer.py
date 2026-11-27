@@ -152,7 +152,8 @@ class InstanceSegmentationTrainer(DetectionTrainer):
 
     def forward_pass(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Runs the instance segmenter with the ground truth boxes, labels and masks of the batch, giving its five losses.
+        Runs the instance segmenter with the ground truth boxes, labels and masks of the batch, giving its five losses,
+        with the windows of the images, to which the detections of the validation are clipped.
 
         Args:
             batch (Dict[str, Any]): The prepared batch.
@@ -160,8 +161,9 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         Returns:
             Dict[str, Any]: The outputs of the instance segmenter, with its five losses.
         """
-        return self.model(input_tensor=batch["images"], ground_truth_bounding_boxes=batch["bounding_boxes"],
-                          ground_truth_labels=batch["labels"], ground_truth_masks=batch["instance_masks"])
+        return self.model(input_tensor=batch["images"], image_windows=batch["image_windows"],
+                          ground_truth_bounding_boxes=batch["bounding_boxes"], ground_truth_labels=batch["labels"],
+                          ground_truth_masks=batch["instance_masks"])
 
     def gather_image_detections(self, batch: Dict[str, Any], predictions: Dict[str, Any],
                                 image_index: int) -> Dict[str, torch.Tensor]:
@@ -171,9 +173,9 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         device of the model from the detection masks pasted into the image, for the mask average precision (the areas
         sizing the detections) and the matching of the confusion matrix. The masks themselves are not kept, since
         those of a whole test split would not fit in memory. With 'evaluation.original_resolution', the detection
-        boxes are restored to the original image (clipped to it for the box average precision, whole for pasting the
-        masks, which cover the box they were predicted in) and the masks are compared with the original ground truth
-        masks; otherwise everything stays at the network resolution.
+        boxes are restored to the original image, both for the box average precision and for pasting the masks, the
+        detector having clipped every box to the window of its image before predicting its mask, and the masks are
+        compared with the original ground truth masks; otherwise everything stays at the network resolution.
 
         Args:
             batch (Dict[str, Any]): The prepared test batch.
@@ -193,10 +195,9 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         if self.original_resolution:
             ground_truth_masks = batch["original_instance_masks"][image_index].to(device=self.device)
             image_height, image_width = ground_truth_masks.shape[-2], ground_truth_masks.shape[-1]
-            detection["boxes"] = self.restore_detection_boxes(boxes=network_boxes, image_height=image_height,
-                                                              image_width=image_width, clip=True).cpu()
             paste_boxes = self.restore_detection_boxes(boxes=network_boxes, image_height=image_height,
-                                                       image_width=image_width, clip=False)
+                                                       image_width=image_width)
+            detection["boxes"] = paste_boxes.cpu()
         else:
             ground_truth_masks = batch["instance_masks"][image_index]
             paste_boxes = network_boxes
@@ -234,19 +235,17 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         ground_truth["mask_areas"] = (ground_truth_masks > 0).flatten(start_dim=1).sum(dim=1).cpu()
         return ground_truth
 
-    def restore_detection_boxes(self, boxes: torch.Tensor, image_height: int, image_width: int,
-                                clip: bool) -> torch.Tensor:
+    def restore_detection_boxes(self, boxes: torch.Tensor, image_height: int, image_width: int) -> torch.Tensor:
         """
         Maps the detection boxes of the network input back to the original test image for the evaluation at the
         original resolution, undoing the resizing and the padding of the preprocessing (Data.image_settings) as a
-        client of the exported model would.
+        client of the exported model would, the boxes clipped to the image.
 
         Args:
-            boxes (torch.Tensor): The [D, 4] [x1, y1, x2, y2] detection boxes in network input pixels.
+            boxes (torch.Tensor): The [D, 4] [x1, y1, x2, y2] detection boxes in network input pixels, inside the window
+                of their image.
             image_height (int): The height of the original image.
             image_width (int): The width of the original image.
-            clip (bool): Whether the boxes stop at the image border, for the box average precision, or are kept whole,
-                for pasting the masks.
 
         Returns:
             torch.Tensor: The [D, 4] float32 boxes in original image pixels, on the device of the given boxes.
@@ -254,8 +253,7 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         image_settings = self.model_configuration["Data"]["image_settings"]
         restored_boxes = restore_boxes_to_original_image(
             bounding_boxes=boxes.detach().to(dtype=torch.float32).cpu().numpy(), image_width=image_width,
-            image_height=image_height, image_size=image_settings["size"], keep_ratio=image_settings["keep_ratio"],
-            clip=clip)
+            image_height=image_height, image_size=image_settings["size"], keep_ratio=image_settings["keep_ratio"])
         return torch.from_numpy(restored_boxes).to(device=boxes.device, dtype=torch.float32)
 
     def compute_mask_overlaps(self, predictions: Dict[str, Any], detection_boxes: torch.Tensor,

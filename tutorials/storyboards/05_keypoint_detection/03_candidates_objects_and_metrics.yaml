@@ -214,12 +214,12 @@ scenes:
       - {type: arrow, points: [[800, 190], [860, 190]], colour: violet}
       - {type: text, position: [875, 140], text: "candidate_positions  [B, {{keypoint_detection.channels_total}}, {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#KeypointHead.inference.maximum_candidates}}, 2]\ncandidate_scores     [B, {{keypoint_detection.channels_total}}, {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#KeypointHead.inference.maximum_candidates}}]\ncandidate_tags       [B, {{keypoint_detection.channels_total}}, {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#KeypointHead.inference.maximum_candidates}}]", font: diagram_monospace}
       - {type: arrow, points: [[1200, 270], [1200, 350]], colour: aqua, appear: 1}
-      - {type: box, box: [660, 360, 1740, 510], text: "client: group_keypoint_candidates (NumPy, SciPy)\nwith the channel table rebuilt from the training labels.json", font: diagram_text, outline: aqua, appear: 1, highlight: [1]}
+      - {type: box, box: [660, 360, 1740, 510], text: "client: group_keypoint_candidates (NumPy, SciPy)\nwith the channel table of keypoint_channels.json", font: diagram_text, outline: aqua, appear: 1, highlight: [1]}
       - {type: box, box: [40, 360, 610, 510], text: "preprocessing.json and ONNX metadata:\ncolour order, resize, size, padding,\nlayout and value range of the run", font: diagram_small, outline: violet, appear: 2, highlight: [2]}
       - {type: box, box: [40, 560, 1740, 700], text: "export check: compare_keypoints pairs the candidates by position, not by rank\n(a cell tied with its neighbour can become a local maximum in one runtime only)", font: diagram_text, outline: yellow, appear: 3, highlight: [3]}
     narration:
       - "The exported network stops at the candidates: the positions, scores and tags of {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#KeypointHead.inference.maximum_candidates}} candidates per channel, served by Triton as Torch Script or ONNX."
-      - "Imagine a client receiving these outputs: it groups them with the same function, rebuilding the channel table from the categories of the training labels, since the export writes no channel names."
+      - "Imagine a client receiving these outputs: it groups them with the same function, reading the channel table from keypoint channels json, which the export writes next to the model."
       - "So that the client resizes and pads its photos as the data loaders did, the export writes the colour order, resize, size, padding, layout and value range of the run in a preprocessing file next to the model and in the ONNX metadata."
       - "The export check pairs the candidates by position rather than by rank: a cell tied with its neighbour can become a local maximum in one runtime only and shift the ranks."
 
@@ -239,6 +239,6 @@ scenes:
       - "The grouping runs on the CPU key point by key point, by tag distance rounded to whole units, then by score: objects of one class with close tags can exchange key points."
       - "The object key point similarity replaces the box IOU, with a default sigma of {{config:vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.evaluation.default_keypoint_sigma}}; a labelled key point not found counts for nothing, so half of them missing caps it at one half."
       - "The OKS mAP at 0.5 compares the checkpoints, and Matched Objects counts a ground truth only from an OKS of {{constant:vision_training/evaluation/keypoints/object_keypoint_similarity.py#MINIMUM_MATCH_SIMILARITY}}, the mean error coming from these matches only."
-      - "The exported network stops at the candidates, and the client groups them with the same function, rebuilding the channel table from the training labels."
+      - "The exported network stops at the candidates, and the client groups them with the same function and the channel table written next to the model."
       - "The evaluation script saves no error images for this task, so it skips their limit with a warning."
       - "The next series, semantic segmentation, keeps the shared backbone and puts a decoder on it to give a class to every pixel."

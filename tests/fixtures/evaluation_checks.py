@@ -225,9 +225,11 @@ def check_detection_error_analysis(evaluation_folder: Path, results: Dict[str, A
     Verifies the error analysis of a detection evaluation, shared by the object detection and instance segmentation
     smoke tests: confusion_matrix.csv with its background row and column, every object of the test images counted
     once (found or missed) and its background cell empty, the note counting the outcomes, class_thresholds.json with a
-    threshold and recall within [0, 1] or None for every foreground class, and the error images, one folder per
-    non-empty error cell of the matrix ('FALSE-POSITIVE/<class>', 'MISSED/<class>', '<TRUE>-TO-<PREDICTED>'), each
-    holding at most the errors of its cell and the maximum per folder, the total in the notes.
+    threshold and recall within [0, 1] or None for every foreground class, and the error images, one folder per error
+    cell ('FALSE-POSITIVE/<class>', 'MISSED/<class>', '<TRUE>-TO-<PREDICTED>') holding at most the maximum per folder,
+    the total in the notes. The error images keep 'Detector.inference.score_threshold' while the matrix takes the class
+    thresholds, so the folders are those of the non-empty error cells of the matrix, each holding at most the errors of
+    its cell, only when no class reaches the target precision.
 
     Args:
         evaluation_folder (Path): The evaluation folder of the checkpoint.
@@ -265,11 +267,20 @@ def check_detection_error_analysis(evaluation_folder: Path, results: Dict[str, A
                 expected_folders[f"{class_name}-TO-{predicted_name}"] = int(counts[class_index, predicted_index])
     errors_folder = evaluation_folder / "Errors"
     error_folders = {str(image_path.parent.relative_to(errors_folder)) for image_path in errors_folder.rglob("*.png")}
-    assert error_folders == {folder_name for folder_name, number_errors in expected_folders.items() if number_errors}
+    assert error_folders <= set(expected_folders)
+
+    # The error images keep the configured threshold for every class, so they follow the cells of the matrix only
+    # when no class reaches the target precision, the matrix then built at that threshold too
+    matrix_at_configured_threshold = all(class_threshold is None
+                                         for class_threshold in class_thresholds["classes"].values())
+    if matrix_at_configured_threshold:
+        assert error_folders == {folder_name for folder_name, number_errors in expected_folders.items()
+                                 if number_errors}
     number_images = 0
     for folder_name in error_folders:
         image_paths = list((errors_folder / folder_name).glob("*.png"))
-        assert 1 <= len(image_paths) <= min(expected_folders[folder_name], maximum_per_class_pair)
+        assert 1 <= len(image_paths) <= maximum_per_class_pair
+        assert not matrix_at_configured_threshold or len(image_paths) <= expected_folders[folder_name]
         number_images += len(image_paths)
-    assert (f"Error Images : {number_images} in {len(error_folders)} folders, at most {maximum_per_class_pair} per "
-            f"folder") in results["notes"]
+    assert any(note.startswith(f"Error Images : {number_images} in {len(error_folders)} folders, at most "
+                               f"{maximum_per_class_pair} per folder, score >= ") for note in results["notes"])

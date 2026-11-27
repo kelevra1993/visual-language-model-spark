@@ -1,8 +1,9 @@
 """
 Tests of the detection inference path of vision_training/models/detection: postprocess_detections (threshold, NMS and
 padding, the NMS run on the candidates reaching the score threshold only and giving the detections of the NMS on every
-pair run by the exports, with the greedy NMS and with DIoU-NMS), InferenceDetector matching the eager detector with
-either criterion, and its TorchScript round trip.
+pair run by the exports, with the greedy NMS and with DIoU-NMS, the boxes clipped to the window of their image, one
+score threshold per class), InferenceDetector matching the eager detector with either criterion, its class score
+thresholds, and its TorchScript round trip with the image windows as a second input.
 """
 
 import pytest
@@ -16,7 +17,7 @@ from torchvision.ops import batched_nms
 from vision_training.deployment.export_specifications import compare_detections
 from vision_training.models.detection import postprocessing
 from vision_training.models.detection.inference_detector import InferenceDetector
-from tests.testing_utilities import build_test_model
+from tests.testing_utilities import build_test_model, build_whole_input_windows
 from vision_training.models.detection.postprocessing import postprocess_detections
 
 
@@ -39,6 +40,7 @@ def test_postprocess_detections_threshold_nms_and_padding(suppress_candidates_on
 
     detections = postprocess_detections(classification_scores=torch.log(input=probabilities), detection_boxes=boxes,
                                         valid_proposal_mask=torch.tensor(data=[[True, True, True, False]]),
+                                        image_windows=torch.tensor(data=[[0.0, 0.0, 128.0, 128.0]]),
                                         score_threshold=0.5, nms_iou_threshold=0.5, nms_criterion="iou",
                                         nms_distance_exponent=1.0, maximum_detections=4, input_image_size=128,
                                         suppress_candidates_only=suppress_candidates_only)
@@ -64,7 +66,8 @@ def test_postprocess_detections_with_distance_nms_in_both_paths() -> None:
     first_box, wider_box, far_box = [10.0, 10.0, 20.0, 20.0], [1.0, 10.0, 20.0, 20.0], [60.0, 60.0, 90.0, 90.0]
     boxes = torch.tensor(data=[[[box] * 3 for box in [first_box, wider_box, far_box]]])
     settings = {"classification_scores": torch.log(input=probabilities), "detection_boxes": boxes,
-                "valid_proposal_mask": torch.ones(size=(1, 3), dtype=torch.bool), "score_threshold": 0.5,
+                "valid_proposal_mask": torch.ones(size=(1, 3), dtype=torch.bool),
+                "image_windows": torch.tensor(data=[[0.0, 0.0, 128.0, 128.0]]), "score_threshold": 0.5,
                 "nms_iou_threshold": 0.5, "nms_distance_exponent": 1.0, "maximum_detections": 4,
                 "input_image_size": 128}
 
@@ -101,7 +104,8 @@ def test_distance_nms_paths_agree_at_the_threshold_and_on_equal_scores() -> None
     boxes = [[10.0, 10.0, 14.0, 14.0], [11.0, 10.0, 13.0, 14.0], [40.0, 40.0, 60.0, 60.0], [41.0, 40.0, 61.0, 60.0]]
     settings = {"classification_scores": torch.log(input=probabilities),
                 "detection_boxes": torch.tensor(data=[[[box] * 2 for box in boxes]]),
-                "valid_proposal_mask": torch.ones(size=(1, 4), dtype=torch.bool), "score_threshold": 0.3,
+                "valid_proposal_mask": torch.ones(size=(1, 4), dtype=torch.bool),
+                "image_windows": torch.tensor(data=[[0.0, 0.0, 128.0, 128.0]]), "score_threshold": 0.3,
                 "nms_iou_threshold": 0.5, "nms_criterion": "distance_iou", "nms_distance_exponent": 0.6,
                 "maximum_detections": 4, "input_image_size": 128}
 
@@ -140,8 +144,8 @@ def test_inference_detector_matches_the_eager_model(neck_type: str, nms_criterio
     images = torch.rand(size=(2, 3, 512, 512)) * 255.0
 
     with torch.no_grad():
-        eager_outputs = model(input_tensor=images)
-        inference_outputs = detector(images=images)
+        eager_outputs = model(input_tensor=images, image_windows=build_whole_input_windows(images=images))
+        inference_outputs = detector(images=images, image_windows=build_whole_input_windows(images=images))
 
     # Same numbers of detections, scores sorted alike, and every detection paired with one of the same label, score
     # and box
@@ -164,10 +168,11 @@ def test_inference_detector_matches_the_eager_model(neck_type: str, nms_criterio
 def test_torchscript_round_trip(tmp_path: Path, neck_type: str, nms_criterion: str, proposal_selection: str) -> None:
     """
     Verifies that the traced TorchScript detector, saved and reloaded like the Triton PyTorch backend does,
-    reproduces the eager inference detector, including for a batch size different from the traced one, without neck
-    and with the neck whose level sizes are fixed numbers in the trace, with the greedy NMS and with DIoU-NMS, whose
-    scan of the proposal ranks the trace unrolls, and with the proposals selected level by level, whose loop over the
-    levels the trace unrolls too.
+    reproduces the eager inference detector, including for a batch size different from the traced one and windows
+    other than the traced ones (the windows being an input of the graph, every box staying inside the window of its
+    image), without neck and with the neck whose level sizes are fixed numbers in the trace, with the greedy NMS and
+    with DIoU-NMS, whose scan of the proposal ranks the trace unrolls, and with the proposals selected level by level,
+    whose loop over the levels the trace unrolls too.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -180,15 +185,28 @@ def test_torchscript_round_trip(tmp_path: Path, neck_type: str, nms_criterion: s
                                                         proposal_selection=proposal_selection)).eval()
     model_path = tmp_path / "model.pt"
 
+    # Traced with the whole input as window, then checked on a letterboxed landscape, a portrait and a whole image
     with torch.no_grad():
-        torch.jit.trace(detector, example_inputs=(torch.rand(size=(2, 3, 512, 512)) * 255.0,),
+        traced_images = torch.rand(size=(2, 3, 512, 512)) * 255.0
+        torch.jit.trace(detector, example_inputs=(traced_images, build_whole_input_windows(images=traced_images)),
                         check_trace=False).save(str(model_path))
         images = torch.rand(size=(3, 3, 512, 512)) * 255.0
-        reference_outputs = detector(images=images)
-        traced_outputs = torch.jit.load(str(model_path))(images)
+        image_windows = torch.tensor(data=[[0.0, 128.0, 512.0, 384.0], [192.0, 0.0, 320.0, 512.0],
+                                           [0.0, 0.0, 512.0, 512.0]])
+        reference_outputs = detector(images=images, image_windows=image_windows)
+        traced_outputs = torch.jit.load(str(model_path))(images, image_windows)
 
     for reference, traced in zip(reference_outputs, traced_outputs):
         assert torch.allclose(input=traced.to(dtype=reference.dtype), other=reference)
+
+    # Every valid detection inside the window of its image
+    valid_detections = torch.arange(end=reference_outputs[0].shape[1]).unsqueeze(dim=0) < \
+        reference_outputs[3].unsqueeze(dim=1)
+    boxes = reference_outputs[0]
+    assert bool(valid_detections[:2].any())
+    assert bool(((boxes[..., 0] >= image_windows[:, None, 0]) & (boxes[..., 1] >= image_windows[:, None, 1]) &
+                 (boxes[..., 2] <= image_windows[:, None, 2]) & (boxes[..., 3] <= image_windows[:, None, 3]))[
+        valid_detections].all())
 
 
 def record_batched_nms(boxes: torch.Tensor, scores: torch.Tensor, idxs: torch.Tensor, iou_threshold: float,
@@ -260,7 +278,9 @@ def test_postprocess_detections_runs_the_nms_on_the_candidates_only(monkeypatch:
     monkeypatch.setattr(target=postprocessing, name="batched_nms",
                         value=partial(record_batched_nms, recorded_box_counts=recorded_box_counts))
     postprocess_detections(classification_scores=classification_scores, detection_boxes=detection_boxes,
-                           valid_proposal_mask=valid_proposal_mask, score_threshold=0.3, nms_iou_threshold=0.5,
+                           valid_proposal_mask=valid_proposal_mask,
+                           image_windows=torch.tensor(data=[[0.0, 0.0, 128.0, 128.0]]).expand(3, -1),
+                           score_threshold=0.3, nms_iou_threshold=0.5,
                            nms_criterion="iou", nms_distance_exponent=1.0, maximum_detections=20, input_image_size=128,
                            suppress_candidates_only=True)
 
@@ -289,7 +309,9 @@ def test_postprocess_detections_match_the_nms_on_every_pair(nms_criterion: str, 
         for score_threshold in [0.05, 0.5, 1.5]:
             classification_scores, detection_boxes, valid_proposal_mask = build_random_head_outputs(seed=seed)
             settings = {"classification_scores": classification_scores, "detection_boxes": detection_boxes,
-                        "valid_proposal_mask": valid_proposal_mask, "score_threshold": score_threshold,
+                        "valid_proposal_mask": valid_proposal_mask,
+                        "image_windows": torch.tensor(data=[[0.0, 0.0, 128.0, 128.0]]).expand(3, -1),
+                        "score_threshold": score_threshold,
                         "nms_iou_threshold": 0.5, "nms_distance_exponent": nms_distance_exponent,
                         "maximum_detections": 100, "input_image_size": 128}
 
@@ -309,3 +331,88 @@ def test_postprocess_detections_match_the_nms_on_every_pair(nms_criterion: str, 
             number_more_detections += int(detections["number_detections"].sum() -
                                           greedy_detections["number_detections"].sum())
     assert (number_more_detections > 0) == (nms_criterion == "distance_iou")
+
+
+def test_postprocess_detections_clips_the_boxes_to_the_window_of_their_image() -> None:
+    """
+    Verifies that postprocess_detections clips every box to the window of its image, the part of the input holding
+    the resized image, in both NMS paths: a box reaching into the padding of a letterboxed image stops at the window,
+    a box inside it is unchanged, and the image filling the input keeps the clamp to the input.
+    """
+    # Two images of one proposal each, classes (background, A): a box reaching above and right of its window
+    probabilities = torch.tensor(data=[[[0.1, 0.9]], [[0.1, 0.9]]])
+    boxes = torch.tensor(data=[[[[20.0, 10.0, 140.0, 60.0]] * 2], [[[20.0, 10.0, 140.0, 60.0]] * 2]])
+    image_windows = torch.tensor(data=[[0.0, 32.0, 128.0, 96.0], [0.0, 0.0, 128.0, 128.0]])
+    for suppress_candidates_only in [True, False]:
+        detections = postprocess_detections(classification_scores=torch.log(input=probabilities), detection_boxes=boxes,
+                                            valid_proposal_mask=torch.ones(size=(2, 1), dtype=torch.bool),
+                                            image_windows=image_windows, score_threshold=0.5, nms_iou_threshold=0.5,
+                                            nms_criterion="iou", nms_distance_exponent=1.0, maximum_detections=2,
+                                            input_image_size=128, suppress_candidates_only=suppress_candidates_only)
+        assert detections["final_detection_boxes"][:, 0].tolist() == [[20.0, 32.0, 128.0, 60.0],
+                                                                      [20.0, 10.0, 128.0, 60.0]]
+
+
+def test_postprocess_detections_keeps_the_threshold_of_every_class() -> None:
+    """
+    Verifies that postprocess_detections takes one score threshold per foreground class: of two detections of 0.6,
+    the one of the class of threshold 0.5 is kept and the one of the class of threshold 0.7 is dropped, in both NMS
+    paths, and a single threshold of 0.5 keeps both.
+    """
+    # One image, two proposals far apart, classes (background, A, B)
+    probabilities = torch.tensor(data=[[[0.4, 0.6, 0.0], [0.4, 0.0, 0.6]]])
+    boxes = torch.tensor(data=[[[[10.0, 10.0, 30.0, 30.0]] * 3, [[80.0, 80.0, 110.0, 110.0]] * 3]])
+    settings = {"classification_scores": torch.log(input=probabilities.clamp(min=1e-6)), "detection_boxes": boxes,
+                "valid_proposal_mask": torch.ones(size=(1, 2), dtype=torch.bool),
+                "image_windows": torch.tensor(data=[[0.0, 0.0, 128.0, 128.0]]), "nms_iou_threshold": 0.5,
+                "nms_criterion": "iou", "nms_distance_exponent": 1.0, "maximum_detections": 4, "input_image_size": 128}
+    for suppress_candidates_only in [True, False]:
+        class_detections = postprocess_detections(**settings, score_threshold=torch.tensor(data=[0.5, 0.7]),
+                                                  suppress_candidates_only=suppress_candidates_only)
+        assert class_detections["number_detections"].tolist() == [1]
+        assert class_detections["final_detection_labels"][0, 0].item() == 1
+        single_detections = postprocess_detections(**settings, score_threshold=0.5,
+                                                   suppress_candidates_only=suppress_candidates_only)
+        assert single_detections["number_detections"].tolist() == [2]
+
+
+def test_inference_detector_keeps_the_detections_of_every_class_from_its_threshold() -> None:
+    """
+    Verifies the class score thresholds of InferenceDetector: they start at 'Detector.inference.score_threshold' for
+    every class, set_class_score_thresholds refuses a wrong number of thresholds or a threshold outside [0, 1], and a
+    detector given one threshold per class returns exactly the detections of the detector of threshold 0 whose score
+    reaches the threshold of their class, the detections per image being enough for every detection of the detector
+    of threshold 0.
+    """
+    model = build_test_model(dtype=torch.float32)
+    model.maximum_detections = 5000
+    detector = InferenceDetector(model=model).eval()
+    number_foreground_classes = model.number_classes - 1
+    assert detector.class_score_thresholds.tolist() == [model.detection_score_threshold] * number_foreground_classes
+    with pytest.raises(expected_exception=ValueError, match="one score threshold per foreground class"):
+        detector.set_class_score_thresholds(class_score_thresholds=[0.5])
+    with pytest.raises(expected_exception=ValueError, match="between 0 and 1"):
+        detector.set_class_score_thresholds(class_score_thresholds=[1.5] * number_foreground_classes)
+
+    # Detections of every class of the detector of threshold 0, then those of the thresholded detector
+    images = torch.rand(size=(2, 3, 512, 512), generator=torch.Generator().manual_seed(0)) * 255.0
+    image_windows = build_whole_input_windows(images=images)
+    with torch.no_grad():
+        boxes, scores, labels, numbers = detector(images=images, image_windows=image_windows)
+        class_score_thresholds = [float(scores[0, :numbers[0]].median())] + [0.0] * (number_foreground_classes - 1)
+        class_score_thresholds[0] = max(class_score_thresholds[0], 1e-6)
+        detector.set_class_score_thresholds(class_score_thresholds=class_score_thresholds)
+        _, kept_scores, kept_labels, kept_numbers = detector(images=images, image_windows=image_windows)
+
+    # Same detections, those of the first class below its threshold left out
+    thresholds = torch.tensor(data=[0.0] + class_score_thresholds)
+    for image_index in range(images.shape[0]):
+        valid_scores = scores[image_index, :numbers[image_index]]
+        valid_labels = labels[image_index, :numbers[image_index]]
+        expected_kept = valid_scores >= thresholds[valid_labels]
+        assert int(kept_numbers[image_index]) == int(expected_kept.sum())
+        assert torch.equal(input=kept_scores[image_index, :kept_numbers[image_index]],
+                           other=valid_scores[expected_kept])
+        assert torch.equal(input=kept_labels[image_index, :kept_numbers[image_index]],
+                           other=valid_labels[expected_kept])
+    assert int(kept_numbers.sum()) < int(numbers.sum()) and int(numbers.max()) < model.maximum_detections

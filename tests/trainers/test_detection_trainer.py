@@ -275,3 +275,33 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     console_output = first_run_output + resumed_output + capsys.readouterr().out
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output
+
+
+def test_confusion_matrix_keeps_the_detections_reaching_their_class_threshold() -> None:
+    """
+    Verifies that the confusion matrix of an evaluation counts the detections the exported detector returns, every
+    detection kept when its score reaches the threshold of its class in class_thresholds.json, or the configured
+    deployment threshold for a class that never reaches the target precision: a square at 0.3 kept by the threshold of
+    its class (0.25), a circle at 0.4 dropped by the configured one (0.5), and a triangle at 0.6 dropped by the
+    threshold of its class (0.7), although it reaches the configured one.
+    """
+    # Only the attributes read by the confusion matrix, without building the model
+    trainer = DetectionTrainer.__new__(DetectionTrainer)
+    trainer.class_names = {0: "background", 1: "square", 2: "circle", 3: "triangle"}
+    trainer.deployment_score_threshold = 0.5
+
+    # One image of three objects, each found by a detection of its class
+    object_boxes = torch.tensor(data=[[0.0, 0.0, 10.0, 10.0], [20.0, 20.0, 30.0, 30.0], [40.0, 40.0, 50.0, 50.0]])
+    accumulator = {"detections": [{"boxes": object_boxes.clone(), "scores": torch.tensor(data=[0.3, 0.4, 0.6]),
+                                   "labels": torch.tensor(data=[1, 2, 3])}],
+                   "ground_truths": [{"boxes": object_boxes, "labels": torch.tensor(data=[1, 2, 3])}]}
+    confusion_matrix = trainer.build_deployed_confusion_matrix(
+        accumulator=accumulator, class_score_thresholds={1: (0.25, 0.9), 2: None, 3: (0.7, 0.8)})
+
+    # The square found, the circle and the triangle missed
+    assert confusion_matrix.tolist() == [[0, 0, 0, 0], [0, 1, 0, 0], [1, 0, 0, 0], [1, 0, 0, 0]]
+
+    # Without class thresholds, every class at the configured threshold: only the triangle found
+    confusion_matrix = trainer.build_deployed_confusion_matrix(
+        accumulator=accumulator, class_score_thresholds={1: None, 2: None, 3: None})
+    assert confusion_matrix.tolist() == [[0, 0, 0, 0], [1, 0, 0, 0], [1, 0, 0, 0], [0, 0, 0, 1]]

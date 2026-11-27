@@ -201,7 +201,7 @@ scenes:
           - {match: "input_contract_version", sentences: [4]}
           - {match: "input_color_order|input_value_range|input_layout", sentences: [1]}
           - {match: "input_resize|input_size|input_interpolation|input_padding", sentences: [2]}
-          - {match: "input_tile", sentences: [3]}
+          - {match: "input_tile|input_image_windows", sentences: [3]}
       - {type: box, box: [960, 50, 1740, 200], text: "Data.image_settings, Data.tiling\nthe defaults of preprocess_image\nread_image, compute_letterbox_region", font: diagram_small, outline: blue, appear: 2, highlight: [2]}
       - {type: box, box: [960, 240, 1740, 400], text: "ONNX: metadata_props of model.onnx\nTorchScript: no metadata,\npreprocessing.json next to the model", font: diagram_small, outline: violet, appear: 0, highlight: [0]}
       - {type: box, box: [20, 450, 1740, 600], text: "a server: session.get_modelmeta().custom_metadata_map, then check_input_contract\nrefuses a missing or unknown key, a value outside the allowed ones, or another contract version", font: diagram_small, outline: aqua, appear: 4, highlight: [4, 5]}
@@ -209,7 +209,7 @@ scenes:
       - "So that a server never guesses how the training prepared its images, every export writes {{deployment.contract.key_count:words}} keys into the metadata of the ONNX file, and the same keys in preprocessing json next to the model of both formats."
       - "The photo is BGR as OpenCV decodes it, its pixels from zero to the top of the eight-bit range as float32, in the NCHW layout, frames after the batch for the sequences."
       - "This classifier is resized with its aspect ratio kept to {{deployment.contract.input_size}} pixels, bilinear, then centred on a black square; each value is read from the settings of the run or probed from the preprocessing code, never copied by hand."
-      - "A segmenter trained on tiles writes its tile scale and overlap instead; for the other models these keys hold none."
+      - "A segmenter trained on tiles writes its tile scale and overlap instead, and a detector says that it takes the window of every photo; for the other models these keys hold none."
       - "The contract version, {{constant:vision_training/deployment/input_contract.py#INPUT_CONTRACT_VERSION}}, rises whenever a key or a value changes meaning, and check input contract lets a server refuse a model whose contract it does not know."
       - "Faced with a run the contract cannot describe, say another interpolation, the export stops before writing anything, naming the setting the value came from."
     # Eight-bit pixels, the range the contract writes as 0-255

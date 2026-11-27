@@ -36,14 +36,18 @@ class InferenceInstanceSegmenter(InferenceDetector):
         # Side of the exported masks, stored as a plain number for the export specification
         self.mask_size = model.mask_size
 
-    def forward(self, images: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor,
-                                                     torch.Tensor]:
+    def forward(self, images: torch.Tensor, image_windows: torch.Tensor) -> Tuple[
+            torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        Detects the objects of a batch of preprocessed images and predicts the mask of every detection.
+        Detects the objects of a batch of preprocessed images and predicts the mask of every detection inside its box,
+        clipped to the window of its image.
 
         Args:
             images (torch.Tensor): Float BGR images in [0, 255] of shape [B, 3, H, W], resized and padded to the network
                 input size.
+            image_windows (torch.Tensor): The float [B, 4] [x1, y1, x2, y2] window of every image in network input
+                pixels (data/preprocessing.py:compute_image_window), to which the boxes are clipped before their masks
+                are predicted.
 
         Returns:
             Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: The detection boxes [B, K, 4]
@@ -51,7 +55,7 @@ class InferenceInstanceSegmenter(InferenceDetector):
                 number of valid detections per image [B], and the mask probabilities [B, K, M, M] of the detected
                 class inside every box (0 for padding).
         """
-        detected_objects = self.detect_objects(images=images)
+        detected_objects = self.detect_objects(images=images, image_windows=image_windows)
         detections = detected_objects["detections"]
 
         # Level of every detection, read at its proposal

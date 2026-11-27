@@ -31,9 +31,11 @@ from scripts.deployment.benchmark_serving_formats import (BENCHMARK_SERVER, MAXI
                                                           add_benchmark_folder_arguments, build_benchmarked_models,
                                                           get_repository_formats, get_row_name,
                                                           read_served_model_name, wait_for_idle_machine)
-from vision_training.deployment.deployment_utilities import (get_triton_output_names, load_local_inference_model,
-                                                             run_local_inference, run_triton_inference)
+from vision_training.deployment.deployment_utilities import (check_served_input_names, get_triton_output_names,
+                                                             load_local_inference_model, run_local_inference,
+                                                             run_triton_inference)
 from vision_training.deployment.export_parity import build_evaluation_trainer, evaluate_parity_row
+from vision_training.deployment.export_specifications import TASK_INPUT_NAMES
 from vision_training.deployment.triton_server import (load_served_model, start_triton_server, stop_triton_server,
                                                       unload_served_model)
 from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
@@ -187,6 +189,9 @@ def run_served_evaluations(models: List[Dict[str, Any]], benchmark_folder: Path,
                         continue
                     model_name = f"{served_model_name}_{export_format}"
                     load_served_model(server=BENCHMARK_SERVER, model_name=model_name, configuration=None)
+                    # A model exported before an input of its task (the image windows of the detectors) is refused
+                    check_served_input_names(client=client, model_name=model_name,
+                                             input_names=TASK_INPUT_NAMES[trainer.TASK_NAME])
                     # Served names of the outputs ('<name>__<index>' for TorchScript), in the order of output_names
                     served_output_names = get_triton_output_names(client=client, model_name=model_name,
                                                                   output_names=output_names)
