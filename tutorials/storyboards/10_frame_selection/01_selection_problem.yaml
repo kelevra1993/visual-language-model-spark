@@ -198,7 +198,7 @@ scenes:
       - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=frame_selection --output_folder=~/Data/sequence_data/synthetic_selected_shapes"}
       - {role: comment, text: "# Training: its only argument is the configuration"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml\""}
-      - {role: comment, text: "# Any checkpoint again, both decodings scored: run folder and iteration as arguments"}
+      - {role: comment, text: "# Any checkpoint again, both decodings scored: --iteration, the last one by default"}
       - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder=<run folder>"}
       - {role: comment, text: "# The network, the decoder and the ensembles into the Triton repository"}
       - {role: command, text: "uv run python -m vision_training.deployment.export_model --experiment_folder=<run folder>"}
