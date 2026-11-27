@@ -683,7 +683,7 @@ Every path is a terminal link showing the name of its file or folder (`format_pa
 ```
 
 ### Step 2.23 — `print_summary()` / `print_receptive_field_summary()` / `print_model_size_summary()`
-The backbone and decoder panels are shown in Steps 2.14 and 2.17. The size panel lists the decoder and the head on their own lines. The trainer then prints the Export Sizes panel: the parameters the forward pass of the inference model reads, then the size of the PyTorch weights, the TorchScript file, the ONNX files and the TensorRT engines the model is turned into and of the training checkpoint ([Export Sizes](../../README.md#export-sizes)).
+The backbone and decoder panels are shown in Steps 2.14 and 2.17. The size panel lists the decoder and the head on their own lines. The trainer then prints the Export Sizes panel: the parameters the forward pass of the inference model reads, then the size of the PyTorch weights, the TorchScript file, the ONNX files and the TensorRT engines the model is turned into and of the training checkpoint (Export Sizes).
 
 **Example output: the size panel**
 ```text

@@ -30,7 +30,6 @@
   - [From A Checkpoint To A Served Model](#from-a-checkpoint-to-a-served-model)
   - [The Same Values In Every Format](#the-same-values-in-every-format)
   - [Export](#export)
-  - [Export Sizes](#export-sizes)
   - [Input Contract](#input-contract)
   - [Triton Server](#triton-server)
   - [Serving Formats And Precision](#serving-formats-and-precision)
@@ -38,7 +37,6 @@
 - [Docker Image](#docker-image)
   - [Building The Image](#building-the-image)
   - [Running A Training](#running-a-training)
-  - [Kubernetes Pods](#kubernetes-pods)
 - [Repository Structure](#repository-structure)
 - [Metrics Explained](#metrics-explained)
 
@@ -524,27 +522,6 @@ Suppose a classifier reaches its target precision only above a threshold such as
 
 The export goes to its own Triton model repository, `<run>/Exports/Iteration_<n>[_EMA]_T<temperature>/`. From the script, `use_saved_temperature` builds the saved temperature and thresholds into the model. Details: [tools reference](documentation/reference/tools_reference.md#logit-temperature).
 
-### Export Sizes
-In order to know before hours of training whether a model fits its server, device or disk, every launch prints the size of each file the model will become. Here a small detector:
-
-```text
-╭────────────────────── Export Sizes ──────────────────────╮
-│ Exported Parameters : 845,544 of 845,544                 │
-│                                                          │
-│    Format                           Size  Method         │
-│    PyTorch FP32 Weights          3.55 MB  ± 1 %          │
-│    PyTorch FP16 Weights          1.85 MB  ± 1 %          │
-│    TorchScript FP32              4.61 MB  traced         │
-│    TorchScript FP16              2.92 MB  ± 2 %          │
-│    ONNX                          4.20 MB  ± 3 %          │
-│    TensorRT FP32 Engine  5.59 - 10.92 MB  range          │
-│    TensorRT FP16 Engine   3.58 - 8.91 MB  range          │
-│    Training Checkpoint          14.05 MB  ± 1 %          │
-╰────────────────────── 1.8 seconds ───────────────────────╯
-```
-
-The sizes are estimated by `vision_training/deployment/export_size_estimates.py` in a few seconds, against up to 43 minutes to build a real TensorRT engine. If an estimate fails, its rows show `failed` in red and the training goes on.
-
 ### Input Contract
 If a server has to turn a photo into a model input, it reads the input contract written with the model instead of guessing the resize or the channel order.
 
@@ -580,23 +557,35 @@ check_input_contract(input_contract=input_contract)
 Every key is in the [tools reference](documentation/reference/tools_reference.md#input-contract). `build_input_from_contract` in `tests/deployment/test_input_contract.py` builds the input from the contract alone, matching `preprocess_image` pixel for pixel.
 
 ### Triton Server
-To serve every model of `served_models/`, start Triton and keep it running. It listens on ports 8000 (HTTP, `curl localhost:8000/v2/health/ready`), 8001 (gRPC) and 8002 (metrics):
+To serve every model of `served_models/`, start Triton and keep it running:
 
 ```bash
+# Go to the Triton folder
 cd vision_training/deployment/triton
+
+# Start Triton on ports 8000 (HTTP), 8001 (gRPC) and 8002 (metrics)
 docker compose up
 ```
+
+The figure below shows the path of one request through Triton:
 
 <p align="center">
   <img src="README/triton_request_flow.png" width="100%" />
 </p>
 
-Whenever you want to compare in-process and Triton speed, `uv run python -m vision_training.deployment.run_inference` sends the images of `vision_training/deployment/inference_data/` both ways and prints the throughput of each. It sends one image per request, so Triton never batches, and its in-process reference is the eager model on the GPU. SEG runs trained on tiles are refused.
+Whenever you want to compare in-process and Triton speed, `run_inference.py` sends the images of `vision_training/deployment/inference_data/` both ways, one image per request:
+
+```bash
+# Print the throughput in the process and through Triton
+uv run python -m vision_training.deployment.run_inference
+```
+
+The figure below shows its output for the README classifier:
 
 <p align="center">
   <img src="README/run_inference_output.png" width="100%" />
 </p>
-<p align="center"><em>The default run of <code>run_inference.py</code>: the 35-class README classifier (512 pixels) with TensorRT FP32. With one image per request, Triton pays a gRPC call per image.</em></p>
+<p align="center"><em>The 35-class README classifier (512 pixels) with TensorRT FP32. With one image per request, Triton pays a gRPC call per image.</em></p>
 
 ### Serving Formats And Precision
 Before a model goes to production, its serving path and [number format](#the-same-values-in-every-format) set its speed, its memory and its drift from the evaluated FP32 model. The numbers come from the [serving benchmark](documentation/architecture_benchmarking/serving_benchmark_plan.md) on the idle GPU of the DGX Spark, with Triton 26.01 (TensorRT 10.14.1).
@@ -621,23 +610,25 @@ The figure below follows each file from its Triton configuration to what runs on
 </p>
 
 #### Triton Or The Model In The Process
-Suppose several cameras or services query the same model at once: in the process each call runs alone, while Triton queues requests, batches them and spreads them over its instances.
+Suppose several cameras or services query the same model at once: in the process each call runs alone, while Triton queues the requests, batches them and spreads them over its instances.
 
-| Triton gives | Set by the export | It costs |
-|---|---|---|
-| [Dynamic batching](https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/user_guide/batcher.html): requests arriving within the queue delay run as one batch | `dynamic_batching { max_queue_delay_microseconds: 1000 }`, `max_batch_size` 16 | up to 1 millisecond of queue time; a batch forms only when requests overlap |
-| Several [instances](https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/user_guide/model_configuration.html) of a model in parallel on the GPU | `instance_group [ { kind: KIND_GPU count: 1 } ]` | weights and workspace once per instance |
-| Every model of `served_models/` behind one endpoint, the frame selector chaining its GPU network and CPU decoder in an ensemble | one folder per model | GPU memory of every loaded model at once |
-| HTTP and gRPC for any language: the client needs `tritonclient` and numpy, not PyTorch or CUDA | ports 8000 and 8001 | a container to run and upgrade (`nvcr.io/nvidia/tritonserver:26.01-py3`, NVIDIA container runtime) |
-| Versions side by side, the served one chosen by `version_policy` | `version_policy: { specific: { versions: [ 1 ] } }` | no model control mode, so a new export loads at the next start |
-| [Metrics](https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/user_guide/metrics.html) per model on port 8002: requests, queue time, compute time, GPU use | on by default | |
-| The client prepares the photo, the server runs the network | the input contract, `preprocessing.json` | each request carries a float32 tensor over gRPC (3.1 MB at 512 x 512, 12.6 MB at 1024) unless `use_shared_memory` passes it through `/dev/shm` |
+The table lists what Triton gives and what it costs:
+
+| Triton gives | It costs |
+|---|---|
+| Dynamic batching: requests arriving within 1 millisecond run as one batch of up to 16 | up to 1 millisecond of queue time |
+| Several instances of a model on the GPU (one exported) | weights and workspace once per instance |
+| Every model of `served_models/` behind one endpoint | GPU memory of every loaded model |
+| HTTP and gRPC clients in any language, without PyTorch | a container to run and upgrade |
+| Metrics per model on port 8002 | nothing |
+
+The figure below shows how the dynamic batcher groups requests over time:
 
 <p align="center">
   <img src="README/dynamic_batching_timeline.png" width="100%" />
 </p>
 
-One request at a time, Triton adds latency: a 512-pixel CLS image takes 4.5 milliseconds with TorchScript and 2.5 with TensorRT FP16 over shared memory (6.5 and 3.9 over gRPC), against 2.2 eager, about 1.2 of it being queue delay. Dynamic batching helps none of these models: at 16 concurrent requests with TensorRT FP16, turning it off with two instances serves more (CLS 1,747 against 1,168 images per second, M2M 6,594 against 5,436 frames per second, DET 166 against 153). See [Serving Benchmark Results](#serving-benchmark-results).
+One request at a time, Triton adds latency: a 512-pixel CLS image takes 2.5 milliseconds with TensorRT FP16 against 2.2 eager. Dynamic batching helps none of the benchmark models: with it off and two instances, TensorRT FP16 serves more (CLS 1,747 against 1,168 images per second).
 
 #### TensorRT Or TorchScript And ONNX Runtime CUDA
 Whenever latency matters more than a portable file, TensorRT compiles the ONNX graph into an engine for this GPU:
@@ -693,41 +684,34 @@ In case you changed a single folder, run its mirror alone, e.g. `uv run pytest t
 </p>
 
 ## Docker Image
-Should a training run on the GPU pods of a cloud Kubernetes cluster, or in a container on a development machine, the `Dockerfile` of the repository root builds the trainer for `linux/amd64` (cloud nodes) and `linux/arm64` (DGX Spark). The CUDA 13 libraries come with the torch wheels of `uv.lock` and the GPU driver from the machine, so the image starts from Ubuntu 24.04, not from a CUDA image. `.dockerignore` sends only `pyproject.toml`, `uv.lock`, `vision_training/`, `scripts/` and `tests/` to the build.
-
-| Stage | Holds | Built by |
-|---|---|---|
-| `uv` | the uv binary | the builder |
-| `base` | Ubuntu 24.04, the architecture check, the libraries OpenCV loads at import, tini, the user 10001 | every stage |
-| `builder` | Python 3.13 in `/opt/python`, the environment of `uv.lock` without its default groups in `/opt/venv`, the code in `/app` | the test and runtime stages |
-| `test` | the builder with the `dev` group and `tests/`, running `pytest tests` | `--target test` |
-| `runtime` | base with the interpreter, the environment and the code of the builder | default |
+Should a training run in a container, the `Dockerfile` builds the trainer for `linux/amd64` (cloud machines) and `linux/arm64` (DGX Spark). The CUDA libraries come with the torch wheels, so the image starts from Ubuntu 24.04.
 
 ### Building The Image
-Each time the image is built, the machine builds its own architecture natively: the Spark for its local trainings, an amd64 machine for the cloud.
+Each time the image is built, the machine builds its own architecture:
 
 ```bash
+# Build the training image
 docker buildx build --platform linux/arm64 --tag vision-trainer:local --load .
+
+# Build the test stage, which runs the tests in the image
 docker buildx build --platform linux/arm64 --target test --tag vision-trainer:test --load .
 ```
 
-So that the cloud nodes and the Spark pull the same tag, each architecture is pushed under its own tag and the two are joined, the registry being `<region>-docker.pkg.dev/<project>/<repository>` (`gcloud auth configure-docker <region>-docker.pkg.dev` once per machine):
+So that the cloud machines and the Spark pull the same tag, each architecture is pushed under its own tag, then both are joined:
 
 ```bash
-# On the Spark, then the same with linux/amd64 and <tag>-amd64 on an amd64 machine (e.g. Cloud Build)
-docker buildx build --platform linux/arm64 --build-arg GIT_COMMIT="$(git rev-parse HEAD)" \
-    --tag <registry>/vision-trainer:<tag>-arm64 --push .
-# One tag for both: each machine pulls its architecture
-docker buildx imagetools create --tag <registry>/vision-trainer:<tag> \
-    <registry>/vision-trainer:<tag>-amd64 <registry>/vision-trainer:<tag>-arm64
+# Push the image of this machine, labelled with its commit (on an amd64 machine: linux/amd64 and <tag>-amd64)
+docker buildx build --platform linux/arm64 --build-arg GIT_COMMIT="$(git rev-parse HEAD)" --tag <registry>/vision-trainer:<tag>-arm64 --push .
+
+# Join both architectures under one tag
+docker buildx imagetools create --tag <registry>/vision-trainer:<tag> <registry>/vision-trainer:<tag>-amd64 <registry>/vision-trainer:<tag>-arm64
 ```
 
-A builder with QEMU registered for the other architecture builds both in one command (`--platform linux/amd64,linux/arm64 --push`), the emulated one being several times slower. `GIT_COMMIT` becomes the `org.opencontainers.image.revision` and `org.opencontainers.image.version` labels: the image holds no git history, so the MLflow runs of a container carry no commit tag.
-
 ### Running A Training
-Before a training starts in a container, it needs the GPU, the shared memory of its loader workers (64 MB by default in Docker) and the folders its configuration names, mounted at the same absolute paths. `--user` makes the run folders yours instead of the user 10001 of the image, and the mounted configurations replace those of the image, so that an edit needs no rebuild:
+Before a training starts in a container, it needs the GPU, shared memory for its loader workers, and the data and run folders mounted at the paths of its configuration:
 
 ```bash
+# Train with the GPU, the data and run folders mounted, and the configurations of the checkout
 docker run --rm --gpus all --ipc=host --user "$(id -u):$(id -g)" \
     -v "$HOME/Data:$HOME/Data" -v "$PWD/experiments:$PWD/experiments" \
     -v "$PWD/vision_training/configurations:/app/vision_training/configurations:ro" \
@@ -735,17 +719,7 @@ docker run --rm --gpus all --ipc=host --user "$(id -u):$(id -g)" \
     --configuration_path=vision_training/configurations/classification/configuration_synthetic_shapes.yaml
 ```
 
-In case a pipeline checks the configuration before the training starts, the same image and mounts run `python -m vision_training.check_configuration --configuration_path=<file> --check_paths` in place of `python -m vision_training.main`, without `--gpus`, its exit code 1 stopping the pipeline ([Configurations](#configurations)).
-
-The image stops with SIGINT, which the trainer handles as Ctrl+C: it saves the checkpoint of its last steps and closes its MLflow run, so give it the time with `docker stop --timeout 120 <container>`. The pre-trained ImageNet backbones are not in the image yet: a configuration loading one mounts its run folder.
-
-### Kubernetes Pods
-For a pod to train as the Spark does, its specification sets:
-- `args`, not `command`, for the training command: `command` would replace tini, which forwards the stop signal and reaps the loader workers.
-- `resources.limits` with `nvidia.com/gpu: 1`, on nodes whose driver runs CUDA 13 (R580 or newer) and whose GPU is a Turing or newer one (T4, L4, A100, H100); the image puts `/usr/local/nvidia`, where GKE mounts the driver, on its paths.
-- An `emptyDir` volume with `medium: Memory` mounted at `/dev/shm`, the loader workers passing their batches through it.
-- `terminationGracePeriodSeconds` long enough for the final checkpoint, the stop of the pod sending SIGINT.
-- `securityContext` with `runAsNonRoot: true`, `runAsUser: 10001` and `fsGroup: 10001`, so that the user of the image writes into the mounted volumes of the datasets and run folders, at the paths of the configuration (given by a `ConfigMap`).
+Stop it with `docker stop --timeout 120 <container>`, so that the trainer saves its last checkpoint.
 
 ## Repository Structure
 To find your way in the code, the diagram follows the packages along the path of a training and the tools reading its run folder, and the tree lists where each part lives:
