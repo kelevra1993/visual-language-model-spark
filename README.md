@@ -28,7 +28,7 @@
 - [Tutorials](#tutorials)
 - [Deployment](#deployment)
   - [From A Checkpoint To A Served Model](#from-a-checkpoint-to-a-served-model)
-  - [Number Formats](#number-formats)
+  - [The Same Values In Every Format](#the-same-values-in-every-format)
   - [Export](#export)
   - [Export Sizes](#export-sizes)
   - [Input Contract](#input-contract)
@@ -317,7 +317,7 @@ If you would rather watch than read, narrated videos cover every task; `tutorial
 </p>
 
 ## Deployment
-In order to serve a trained run to other programs, read these parts in order: [From A Checkpoint To A Served Model](#from-a-checkpoint-to-a-served-model) (the words of deployment on one run), [Number Formats](#number-formats), then [Export](#export), [Input Contract](#input-contract), [Triton Server](#triton-server) and [Serving Formats](#serving-formats-and-precision).
+In order to serve a trained run to other programs, read these parts in order: [From A Checkpoint To A Served Model](#from-a-checkpoint-to-a-served-model) (the words of deployment on one run), [The Same Values In Every Format](#the-same-values-in-every-format), then [Export](#export), [Input Contract](#input-contract), [Triton Server](#triton-server) and [Serving Formats](#serving-formats-and-precision).
 
 ### From A Checkpoint To A Served Model
 If words such as eager, ONNX or TensorRT stop you, this part follows one run to a served model: the 35-class synthetic shapes classifier of the README screenshots (512 pixels, iteration 2000). All files, outputs and timings below come from it unless the serving benchmark is named; the [glossary](#glossary) defines other terms.
@@ -460,15 +460,13 @@ If you are looking for one word of the Deployment section:
 | Warm-up | first requests, not timed, while CUDA initializes and TensorRT builds its engines | 20 in `run_inference.py` |
 | Shared memory | memory both client and server map, so an image is written once instead of sent in the request | `use_shared_memory`, `/dev/shm` |
 | Input contract | the preprocessing a client must apply, written with the model | `preprocessing.json`, the ONNX metadata |
-| FP32 | 32-bit floating point: 8 exponent and 23 mantissa bits ([Number Formats](#number-formats)) | every export and evaluation |
-| TF32 | Tensor Core mode with the range of FP32 and 10 mantissa bits ([Number Formats](#number-formats)) | eager PyTorch convolutions, TensorRT "FP32" |
-| BF16 | 16 bits: the range of FP32 with 7 mantissa bits ([Number Formats](#number-formats)) | the forward passes of the training |
-| FP16 | 16 bits: 5 exponent bits, largest value 65,504, and 10 mantissa bits ([Number Formats](#number-formats)) | `tensorrt_precision = "FP16"`, `torchscript_precision = "FP16"` |
+| FP32 | 32-bit floating point: 8 exponent and 23 mantissa bits | every export and evaluation |
+| TF32 | Tensor Core mode with the range of FP32 and 10 mantissa bits | eager PyTorch convolutions, TensorRT "FP32" |
+| BF16 | 16 bits: the range of FP32 with 7 mantissa bits | the forward passes of the training |
+| FP16 | 16 bits: 5 exponent bits, largest value 65,504, and 10 mantissa bits | `tensorrt_precision = "FP16"`, `torchscript_precision = "FP16"` |
 
-### Number Formats
-Before you pick the precision of a served model ([export](#export)), see how FP32, TF32, BF16 and FP16 store typical values of the repository. A format rounds every number to the nearest value it holds: fewer bits mean less memory and faster arithmetic, but coarser rounding or a smaller range.
-
-The table gives the value each format stores (PyTorch 2.14, up to 6 significant digits; TF32 rounds the FP32 mantissa to 10 bits, ties to even):
+### The Same Values In Every Format
+Before you pick the precision of a served model ([export](#export)), see what FP32, TF32, BF16 and FP16 store for typical values of the repository (PyTorch 2.14, up to 6 significant digits; TF32 rounds the FP32 mantissa to 10 bits, ties to even):
 
 | Value of the repository | FP32 | TF32 | BF16 | FP16 |
 |---|---|---|---|---|
@@ -616,7 +614,7 @@ Whenever you want to compare in-process and Triton speed, `uv run python -m visi
 <p align="center"><em>The default run of <code>run_inference.py</code>: the 35-class README classifier (512 pixels) with TensorRT FP32. With one image per request, Triton pays a gRPC call per image.</em></p>
 
 ### Serving Formats And Precision
-Before a model goes to production, its serving path and [number format](#number-formats) set its latency, throughput, memory and drift from the evaluated FP32 model. Numbers below come from the [serving benchmark](documentation/architecture_benchmarking/serving_benchmark_plan.md) on the idle GB10 GPU of the DGX Spark, Triton image `26.01-py3` (Triton 2.65.0, CUDA 13.1.1, TensorRT 10.14.1, [release notes](https://docs.nvidia.com/deeplearning/triton-inference-server/archives/triton-inference-server-2670/release-notes/rel-26-01.html)).
+Before a model goes to production, its serving path and [number format](#the-same-values-in-every-format) set its latency, throughput, memory and drift from the evaluated FP32 model. Numbers below come from the [serving benchmark](documentation/architecture_benchmarking/serving_benchmark_plan.md) on the idle GB10 GPU of the DGX Spark, Triton image `26.01-py3` (Triton 2.65.0, CUDA 13.1.1, TensorRT 10.14.1, [release notes](https://docs.nvidia.com/deeplearning/triton-inference-server/archives/triton-inference-server-2670/release-notes/rel-26-01.html)).
 
 #### What Is Exported Today
 If you are looking for what deploys without new code, here is what `export_model.py` and `triton_configuration.py` write. Inputs and outputs stay float32 (`TYPE_FP32`, labels and counts `TYPE_INT64`) whatever the precision, which only changes the computation inside.
