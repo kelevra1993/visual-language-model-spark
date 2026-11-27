@@ -57,10 +57,9 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=
 # Training, after setting experiment_folder, the three data folders and Data.label_mapping.mapping_file_path
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/sequence_labelling/configuration_synthetic_sequences.yaml"
 
-# Evaluation of the checkpoints of a run: set run_name, experiment_folder, iteration (None, a number or "all"),
-# test_data_folder, batch_size, track_evaluation, save_predictions, maximum_error_images_per_class_pair and
-# target_precisions in its main block; it writes in <run>/Checkpoint_Evaluation/
-uv run python -m scripts.evaluation.evaluate_checkpoint
+# Evaluation of every checkpoint of a run into <run>/Checkpoint_Evaluation/: the split, batch size, tracking,
+# predictions, error images and target precisions are arguments too (run it without any for its help)
+uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder <run folder> --iteration all
 ```
 `scripts/data/create_sequence_split_subset.py` writes a fixed random subset of a split (`test_10000`, 10,000 of the 50,000 test sequences, seed 0), the test split of the launches of `documentation/architecture_benchmarking/sequence_labelling_experiment_plan.md`.
 

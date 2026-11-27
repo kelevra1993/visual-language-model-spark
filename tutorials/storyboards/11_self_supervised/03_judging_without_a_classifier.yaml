@@ -171,19 +171,19 @@ scenes:
 
   - kind: code
     title: "Evaluating checkpoints again"
-    code_reference: "scripts/evaluation/evaluate_checkpoint.py"
+    code_reference: "scripts/evaluation/evaluate_checkpoint.py · parse_evaluation_arguments"
     source:
       file: scripts/evaluation/evaluate_checkpoint.py
-      start: "# Largest number of error images saved"
-      end: "^    nms_distance_exponent = "
+      start: "^    # The error images and the class thresholds"
+      end: "Detector.nms_distance_exponent of the run"
     highlights:
-      - {match: "maximum_error_images_per_class_pair = ", sentences: [0, 1]}
+      - {match: 'add_argument\("--maximum_error_images_per_class_pair"', sentences: [0, 1]}
       - {match: "error_dumps", sentences: [1]}
-      - {match: "^    target_precisions = |^    nms_criterion = |^    nms_distance_exponent = ", sentences: [2]}
+      - {match: 'add_argument\("--target_precisions"|add_argument\("--nms_criterion"|add_argument\("--nms_distance_exponent"', sentences: [2]}
     narration:
-      - "The evaluate checkpoint script scores the checkpoints of a run again, its settings in its main block, as the foundations series showed."
+      - "The evaluate checkpoint script scores the checkpoints of a run again, its settings given as arguments, as the foundations series showed."
       - "Say you leave the maximum number of error images per pair of classes as it is: a self-supervised configuration has no error dumps section, so the script skips that limit with a yellow warning and evaluates the run without error images."
-      - "Target precisions and the non-maximum suppression settings, when set, are skipped the same way, a self-supervised run having neither class thresholds nor a detector."
+      - "Target precisions and the non-maximum suppression settings, when given, are skipped the same way, a self-supervised run having neither class thresholds nor a detector."
 
   - kind: html
     page: diagram

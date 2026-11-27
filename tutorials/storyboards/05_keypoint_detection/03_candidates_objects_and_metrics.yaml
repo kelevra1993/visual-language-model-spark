@@ -190,8 +190,8 @@ scenes:
       - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=keypoint_detection --output_folder=~/Data/keypoint_data/synthetic_shapes"}
       - {role: comment, text: "# Training, its data folders and label mapping set in the configuration"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml\""}
-      - {role: comment, text: "# Evaluation of checkpoints: run and iteration set in its main block"}
-      - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
+      - {role: comment, text: "# Evaluation of checkpoints: the run folder and the iteration as arguments"}
+      - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder=<run folder>"}
       - {role: comment, text: "# Export to Torch Script and ONNX: needs CUDA, and --tensorrt_precision=None for this detector"}
       - {role: command, text: "uv run python -m vision_training.deployment.export_model --experiment_folder=<run folder>"}
     narration:

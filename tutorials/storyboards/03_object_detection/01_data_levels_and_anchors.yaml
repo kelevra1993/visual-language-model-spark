@@ -489,13 +489,13 @@ scenes:
       - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=instance_segmentation --output_folder=~/Data/instance_segmentation_data/synthetic_shapes"}
       - {role: comment, text: "# {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.number_iterations}} iterations as shipped; run shown: block {{object_detection.run.added_level}} added, anchors {{object_detection.run.smallest_anchor}} to {{object_detection.run.largest_anchor}}"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml\""}
-      - {role: comment, text: "# A checkpoint evaluated again: run_name, iteration ... in the main block"}
-      - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
+      - {role: comment, text: "# A checkpoint evaluated again: the run folder and the iteration as arguments"}
+      - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder=<run folder>"}
     narration:
       - "Assuming you would like to reproduce the run, generate the data set of the instance masks with the synthetic data set script, given the instance segmentation task as an argument."
       - "The training takes the synthetic detection configuration, which stops at {{config:vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml#ExperimentConfiguration.number_iterations:words}} iterations; the run shown adds block {{object_detection.run.added_level}} and the {{object_detection.run.added_scale}} pixel scale to it."
       - "Planned for {{object_detection.run.planned_iterations:words}} iterations, it was stopped after its evaluation at {{object_detection.run.checkpoint_iteration:words}}."
-      - "The evaluation script evaluates any checkpoint again, set in its main block like most scripts."
+      - "The evaluation script evaluates any checkpoint again, given the run folder and the iteration as arguments."
 
   - kind: summary
     title: "Recap"

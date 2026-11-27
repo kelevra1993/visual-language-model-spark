@@ -13,7 +13,7 @@ pace: 1.0
 voice: {name: af_heart, language: en-us}
 figures: [foundations]
 references:
-  - "scripts/evaluation/evaluate_checkpoint.py"
+  - "scripts/evaluation/evaluate_checkpoint.py · parse_evaluation_arguments"
   - "vision_training/evaluation/checkpoint_evaluation.py · evaluate_checkpoints"
   - "vision_training/evaluation/evaluation_curves.py · draw_summary_curves"
   - "scripts/evaluation/collect_experiment_results.py"
@@ -38,31 +38,31 @@ scenes:
 
   - kind: code
     title: "Evaluating checkpoints"
-    code_reference: "scripts/evaluation/evaluate_checkpoint.py"
+    code_reference: "scripts/evaluation/evaluate_checkpoint.py · parse_evaluation_arguments"
     source:
       file: scripts/evaluation/evaluate_checkpoint.py
-      start: "^if __name__ == \"__main__\":"
-      end: "^    track_evaluation = "
+      start: "^    # The run and the checkpoints to evaluate"
+      end: "its training run \\(default: the tracking.activated"
     highlights:
-      - {match: "^    run_name = |^    experiment_folder = ", sentences: [0]}
-      - {match: "^    iteration = |^    test_data_folder = |^    batch_size = |^    track_evaluation = ", sentences: [1]}
+      - {match: 'add_argument\("--experiment_folder"', sentences: [0]}
+      - {match: 'add_argument\("--iteration"|add_argument\("--test_data_folder"|add_argument\("--batch_size"|add_argument\("--track_evaluation"', sentences: [1]}
     narration:
-      - "Imagine you want to evaluate a trained run again, on another labelled split or with a larger batch: set the run name and its folder in the main block of the evaluate checkpoint script; the files of the run are only read."
-      - "The iteration is None for the last checkpoint, a number, or all for every checkpoint, and the evaluation can be tracked in an MLflow run of its own, tagged with its training run."
+      - "Imagine you want to evaluate a trained run again, on another labelled split or with a larger batch: give its folder as the argument of the evaluate checkpoint script; the files of the run are only read."
+      - "Without an iteration the last checkpoint is evaluated, a number picks another one and all evaluates every checkpoint, and the evaluation can be tracked in an MLflow run of its own, tagged with its training run."
 
   - kind: code
     title: "Error images and thresholds"
-    code_reference: "scripts/evaluation/evaluate_checkpoint.py · apply_target_precisions"
+    code_reference: "scripts/evaluation/evaluate_checkpoint.py · parse_evaluation_arguments"
     source:
       file: scripts/evaluation/evaluate_checkpoint.py
-      start: "^    # Largest number of error images saved"
-      end: "^    target_precisions = "
+      start: "^    # The error images and the class thresholds"
+      end: "evaluation.target_precision of the run"
     highlights:
-      - {match: "^    maximum_error_images_per_class_pair = ", sentences: [0]}
-      - {match: "^    target_precisions = ", sentences: [1]}
+      - {match: 'add_argument\("--maximum_error_images_per_class_pair"', sentences: [0]}
+      - {match: 'add_argument\("--target_precisions"', sentences: [1]}
     narration:
       - "The maximum number of error images per pair of classes turns the error images on, and the tasks without error images skip it with a yellow warning."
-      - "Target precisions replaces the precision of the class thresholds, a list giving the classifiers the threshold of every class at each precision; then run the script as a module with uv."
+      - "Target precisions replaces the precision of the class thresholds, several values giving the classifiers the threshold of every class at each precision; launched without any argument, the script prints this help."
 
   - kind: html
     page: diagram

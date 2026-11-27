@@ -75,10 +75,9 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=
 #    2026-10-21); Ctrl+C saves a checkpoint
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/semantic_segmentation/configuration_synthetic_shapes.yaml"
 
-# 3. Evaluation of checkpoints: set run_name, experiment_folder, iteration (None, an integer or "all"),
-#    test_data_folder, batch_size, track_evaluation and maximum_error_images_per_class_pair = None (Step 5.1) in the
-#    main block of scripts/evaluation/evaluate_checkpoint.py, which writes in <run>/Checkpoint_Evaluation/
-uv run python -m scripts.evaluation.evaluate_checkpoint
+# 3. Evaluation of every checkpoint into <run>/Checkpoint_Evaluation/ (run it without arguments for its help), the
+#    error images off since the task draws none (Step 5.1)
+uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder <run folder> --iteration all --maximum_error_images_per_class_pair None
 
 # 4. Export (CUDA only): the run folder, iteration and formats are arguments (run it without any for its help);
 #    every model gets the input contract of the run in <model>/<version>/preprocessing.json and, for ONNX, in the
@@ -1134,7 +1133,7 @@ The checkpoint of iteration 6 predicted `square` almost everywhere (pixel accura
 > The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 40 images of the test split (its `labels.json` reduced, its `data/` and `masks/` folders linked). They were also captured before the per-class recall intervals (2026-11-01, Stage 4).
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` and `experiment_folder` to the segmentation run, `test_data_folder` to another labelled split (holding `labels.json`, `data/` and `masks/`) if needed. The segmentation configurations have no `evaluation.error_dumps` section, so `maximum_error_images_per_class_pair` is skipped with a yellow warning: the segmentation evaluation saves no error image. `save_predictions`, `target_precisions`, `nms_criterion` and `nms_distance_exponent`, None in the main block, would be skipped the same way when set, the task having no predictions file (`evaluation.save_predictions`), no class thresholds (`evaluation.target_precision`) and no `Detector` section. The evaluation is written in the `Checkpoint_Evaluation/` folder of the run, next to the `Evaluation/` folder of the training (`Checkpoint_Evaluation_split_<parent folder>_<split folder>/` for another labelled split).
+The same script for every task (see `classification_workflow.md`, Stage 5): give the segmentation run as `--experiment_folder`, and another labelled split (holding `labels.json`, `data/` and `masks/`) as `--test_data_folder` if needed. The segmentation configurations have no `evaluation.error_dumps` section, so `--maximum_error_images_per_class_pair` is skipped with a yellow warning unless it is `None`: the segmentation evaluation saves no error image. `--save_predictions`, `--target_precisions`, `--nms_criterion` and `--nms_distance_exponent`, not given by default, would be skipped the same way when given, the task having no predictions file (`evaluation.save_predictions`), no class thresholds (`evaluation.target_precision`) and no `Detector` section. The evaluation is written in the `Checkpoint_Evaluation/` folder of the run, next to the `Evaluation/` folder of the training (`Checkpoint_Evaluation_split_<parent folder>_<split folder>/` for another labelled split).
 
 ### Step 5.2 — trainer construction
 The script loads `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it, points it to the `Checkpoint_Evaluation/` folder of the run, the reduced split and the batch size, and builds a `SegmentationTrainer`. With `class_weighting: "balanced"` it would count the pixels of the training masks again in the `Checkpoint_Evaluation/` folder, since the counts are cached in the folder of the trainer.

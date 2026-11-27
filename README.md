@@ -274,11 +274,14 @@ The table gives what `labels.json` holds for every task. Its reference shows an 
 Before a first launch on your own data, write its label files as the examples of your task in its reference show.
 
 ## Evaluating Checkpoints
-Each time the checkpoints of a run must be scored again (another split, batch size or NMS), set the main block of `scripts/evaluation/evaluate_checkpoint.py` ([details](documentation/reference/tools_reference.md#evaluating-checkpoints)):
+Each time the checkpoints of a run must be scored again (another split, batch size or NMS), run `scripts/evaluation/evaluate_checkpoint.py`. It writes into `<run>/Checkpoint_Evaluation/` and leaves the training files untouched ([details](documentation/reference/tools_reference.md#evaluating-checkpoints)).
 
 ```bash
-# Writes into <run>/Checkpoint_Evaluation/, the training files left untouched
+# List every argument with its default
 uv run python -m scripts.evaluation.evaluate_checkpoint
+
+# Evaluate every checkpoint of a run with the class thresholds at three precisions
+uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder ~/Data/<run> --iteration all --target_precisions 0.99 0.95 0.90
 ```
 
 <p align="center">
