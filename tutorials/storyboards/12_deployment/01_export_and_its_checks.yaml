@@ -135,6 +135,7 @@ scenes:
       - "An instance segmenter adds its masks, compared within {{deployment.tolerances.instance_segmentation.mask_tolerance}}."
       - "Classifiers and sequence models compare probabilities within {{deployment.tolerances.classification.tolerance}}, and a segmenter must agree on a share of {{deployment.tolerances.semantic_segmentation.minimum_equal_share}} of its pixels, a keypoint detector on {{deployment.tolerances.keypoint_detection.minimum_equal_share}} of its candidates."
       - "The ONNX check runs on the CPU, so with a TensorRT precision the export also runs the engine in a temporary Triton and, in FP16, first scans the graph for overflows."
+      - "TensorRT runs an FP32 engine with TF32, so an engine missing these tolerances still passes within {{constant:vision_training/deployment/tensorrt_check.py#TF32_DIFFERENCE_FACTOR:words}} times the difference TF32 makes in the eager model on the same batch."
       - "That engine check came after a detector lost points of mAP in FP16 without the export noticing, the story of the third chapter."
 
   - kind: code

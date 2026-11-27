@@ -107,6 +107,7 @@ In case the chosen frames or the scores look wrong, these behaviours of the task
 - **The export needs the thresholds of an evaluation.** It reads `class_thresholds.json` of the exported iteration (`find_class_thresholds_path()`) after installing the networks, so a failure there leaves new networks next to an older decoder. A checkpoint never evaluated gets thresholds of 0: run `evaluate_checkpoint.py` first. Averaged weights use the thresholds of the trained weights.
 - **A threshold flags the choices below it, right or wrong, and lets confident wrong choices through.** In the run of the frame selection tutorials (`~/Data/tutorial_runs`, 200 test sequences), at iteration 1000 (95.83 % Hungarian selection accuracy) the thresholds flag 21 of the 25 wrong choices and 148 of the 575 right ones.
 - **The exported network has no sequence mask**: the sequences of one request must have the same number of frames, from 1 to `maximum_sequence_length`. The decoding runs in the Python backend on the CPU.
+- **The TensorRT FP32 engine misses the tolerance of the export check**: TensorRT runs it with TF32. On the tutorial run, it differed by 3.66e-04 against 1e-4, and TF32 moves the eager model by 5.84 times the tolerance. The check accepts it within 4 times that ([TensorRT check](../reference/tools_reference.md#tensorrt-check)).
 
 ## Table of Contents
 - [Read This First](#read-this-first)

@@ -88,8 +88,8 @@ uv run python -m vision_training.main --configuration_path="vision_training/conf
 # Evaluate every checkpoint into <run>/Checkpoint_Evaluation/, error images off since the task draws none (Step 5.1)
 uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder <run folder> --iteration all --maximum_error_images_per_class_pair None
 
-# Export on CUDA only (Step 6.1), TensorRT in FP16, since the check refuses the default FP32 engine (Step 6.5)
-uv run python -m vision_training.deployment.export_model --experiment_folder <run folder> --iteration <iteration> --tensorrt_precision FP16
+# Export on CUDA only (Step 6.1), TensorRT FP32 by default, checked within its TF32 roundings (Step 6.5)
+uv run python -m vision_training.deployment.export_model --experiment_folder <run folder> --iteration <iteration>
 ```
 
 ### Configuration Keys To Know First
@@ -131,7 +131,7 @@ In case a result surprises you, check these first.
 - **A keypoint head transferred with its channel layers** (`KeypointHead.pretrained.class_layers: True`) is checked on the class and keypoint name of every channel, which the source `data.json` records since 2026-11-20 (`compare_keypoint_channels()` of `model_transfer.py`). An older keypoint run can only initialise a head without them. The export names every channel in `keypoint_channels.json` (Step 6.6), so a client needs no training labels.
 - **`Matched Objects` and `Mean Keypoint Error (pixels)` need an OKS of at least 0.5** (`MINIMUM_MATCH_SIMILARITY`). Before 2026-10-25 any OKS above 0 matched, so older evaluations can give more matches and larger errors.
 - **The export needs a GPU**: `export_experiment()` loads the checkpoint on CUDA (Step 6.1).
-- **The export check refuses the default TensorRT FP32 engine**: its TF32 roundings move the candidate scores beyond `score_tolerance`. Export with `--tensorrt_precision FP16` (Step 6.5).
+- **The TensorRT FP32 engine misses the tolerances of the export check**: TensorRT runs it with TF32, which moves the candidate scores beyond `score_tolerance`. The check accepts it within its TF32 roundings, its green line naming what the tolerances missed (Step 6.5).
 
 ## Table of Contents
 - [Read This First](#read-this-first)
@@ -828,12 +828,18 @@ optimization { execution_accelerators { gpu_execution_accelerator: [ {
 ```
 The TorchScript configuration uses `platform: "pytorch_libtorch"`, outputs suffixed `__0`, `__1`, `__2`, and no optimization block. `<hash>` comes from the SHA-256 of `model.onnx` and `model.onnx.data`, so other weights never load old engines.
 
-Serve this run in FP16: export it with `--tensorrt_precision FP16`. On 2026-11-27, with Triton 26.01 on this machine, the [TensorRT check](../reference/tools_reference.md#tensorrt-check) of iteration 6000 gave:
+This configuration serves in FP32 and FP16. On 2026-11-27, with Triton 26.01 on this machine, the [TensorRT check](../reference/tools_reference.md#tensorrt-check) of iteration 6000 gave in FP32 (the default):
+```text
+TensorRT FP32 Engine Matches The Eager Model Within Its TF32 Roundings : 3 samples served by Triton, engine built and checked in 105.6 seconds, Triton started in 4.4 seconds
+tolerances of the specification missed: candidate scores differ by up to 5.26e-04; candidate positions and tags agree on 81.5% of the candidates only
+eager TF32 on vs off within 3.76 x the tolerances, compared at 4 x that and 2 x its disagreement: position_tolerance 1.50e-01, score_tolerance 1.50e-03, tag_tolerance 1.50e-02, minimum_equal_share 9.50e-01 (eager TF32 on vs off 0.991)
+```
+TensorRT runs the FP32 engine with TF32, which moves the scores, positions and tags by about 4 times the tolerances in the eager model too; within 4 times that, the engine agrees. In FP16 (`--tensorrt_precision FP16`) it gave:
 ```text
 TensorRT FP16 Overflow Scan : none of the 953 floating point node outputs above 65,504 on 3 samples (ONNX Runtime CPU, 6.6 seconds)
 TensorRT FP16 Engine Matches The Eager FP16 Model : 3 samples served by Triton, engine built and checked in 96.9 seconds, Triton started in 4.6 seconds
 ```
-The FP16 engine then answered batches of 1 and 16. In FP32 the engine answers too, but the check refuses it: `candidate scores differ by up to 4.52e-04`, `candidate positions and tags agree on 81.8% of the candidates only`. These are TF32 roundings: the eager model with TF32 on differs from itself with TF32 off by as much (scores up to 6.3e-04, 84 to 89 % of the candidates agreeing).
+Both engines answered batches of 1 and 16.
 
 Before 2026-11-27, Triton crashed at the first request (signal 11 in `libonnxruntime`). The ONNX Runtime TensorRT provider (1.20 to 1.23) left `candidate_scores`, the values output of the top-k, out of its engine, its indices feeding three nodes. The scores are now read back at the kept cells. The FP16 scan also stopped on the cell indices divided in float32 (65,535 for the 256 x 256 heatmaps), now divided in integers.
 
