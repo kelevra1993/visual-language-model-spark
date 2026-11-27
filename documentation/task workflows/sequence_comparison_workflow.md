@@ -82,7 +82,7 @@ uv run python -m vision_training.main --configuration_path="vision_training/conf
 uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder <run folder> --iteration all
 ```
 
-`evaluate_checkpoint.py` takes `--experiment_folder` (the run folder, required), `--iteration` (an integer or `all`, the last checkpoint by default), `--test_data_folder`, `--batch_size`, `--track_evaluation`, `--save_predictions` (the setting of the run by default), `--maximum_error_images_per_class_pair` (turns error images on) and `--target_precisions` (several such as `0.99 0.95`, the first one the main one).
+`evaluate_checkpoint.py` takes `--experiment_folder` (the run folder, required), `--iteration` (an integer or `all`, the last checkpoint by default), `--test_data_folder`, `--batch_size` (`128` by default), `--track_evaluation`, `--save_predictions` (the setting of the run by default), `--maximum_error_images_per_class_pair` (turns error images on, `100000` per class pair by default; `None` keeps the run's `evaluation.error_dumps`) and `--target_precisions` (several such as `0.99 0.95`, the first one the main one).
 
 ### Configuration Keys To Know First
 
@@ -109,7 +109,7 @@ Whenever a run is launched, or saves and evaluates a checkpoint, its run folder 
 | `Evaluation/Iteration_<n>/` | The files of CLS (Steps 4.8 to 4.10), without `temperature_explorer.html` nor `class_logits.npz`, which only the image classification writes (`saves_temperature_explorer()` of `classification_trainer.py`). `predictions.csv` has one row per test pair. `Samples/<pair>.png` and `Errors/<TRUE>-TO-<PREDICTED>/<pair>_<score>.png` show the before grid above the after grid, 4 columns (Steps 4.5 and 4.6). |
 | `data.json` | The `pairs` of every class in every split, and the frames of both members of every pair. |
 | `Evaluation/evaluation_summary.csv`, `evaluation_curves.png` | One row per evaluated iteration; the accuracy curve with the best iteration ringed (`update_evaluation_curves()` of `base_trainer.py`, Step 4.11). |
-| `Input_Samples/` | At every launch, the first 10 pairs of every split drawn as in Step 2.22 into `Training/`, `Validation/` and `Test/`, with `samples.json` (`{"pair": "train_000000"}`). |
+| `Input_Samples/` | Before the first iteration (a resume with unchanged configuration and data keeps the folder), the first 10 pairs of every split drawn as in Step 2.22 into `Training/`, `Validation/` and `Test/`, with `samples.json` (`{"pair": "train_000000"}`). |
 | `Tensorboard/Test` | 16 scalars and 12 images (Step 4.11); `Train` and `Validation` as in M2O. |
 
 The console summary gives the `Pairs Per Second` and the real `Frames Per Second` of both members, sent to MLflow as `train/throughput` and `train/frame_throughput`.
@@ -119,7 +119,7 @@ The console summary gives the `Pairs Per Second` and the real `Frames Per Second
 Suppose a comparison run behaves unexpectedly: these behaviours are the first to check.
 
 - Training and evaluation encode both members as one padded batch; the export encodes every member on its own (Step 3.10). In evaluation mode both paths agree: four test pairs padded to 6 frames per member, or alone without masks, differ by 6e-08 (random weights, 128 pixels, CPU).
-- The synthetic configuration keeps the left-right flip as its only geometric augmentation. A crop, zoom, shift or rotation can cut an object or push it out, changing the count of a pair (comment of `Data.data_augmentation.types` in `configuration_synthetic_pairs.yaml`). Grayscale stays off too: an object matching the luminance of the background would vanish.
+- The synthetic configuration keeps the left-right flip as its only geometric augmentation. A crop, shift or rotation can cut an object or push it out, changing the count of a pair (comment of `Data.data_augmentation.types` in `configuration_synthetic_pairs.yaml`). Grayscale stays off too: an object matching the luminance of the background would vanish.
 - Every `Fusion` setting is required and checked for every fusion type, even when unused (`check_fusion_configuration()` of `sequence_checks.py`).
 - Blocks 2 and 4 of the synthetic backbone change the channel count in their first layer and add no residual shortcut; only blocks 3 and 5 add one (`count_residual_additions()` of `convolution_block.py`).
 - `Iterations Per Epoch` and the split descriptions count the pairs before the label mapping. A pair of an unmapped category is left out by the dataset only (`count_split_pairs()` of `split_description.py`, left as it is).
@@ -314,7 +314,7 @@ sample_image_identifiers  -> [0, 3, 65, 68, 123, 137, 198, 199]
 ```
 
 ### Step 2.12 — `build_model()`
-The classification hook creates the `SequenceComparator` from `TASK_MODEL_CLASSES["sequence_comparison"]` (Step 2.13) and sets its class weights (`get_class_counts()`, with `class_weighting: "balanced"`).
+The classification hook creates the `SequenceComparator` from `TASK_MODEL_CLASSES["sequence_comparison"]` (Step 2.13) and, only with `class_weighting: "balanced"`, sets its class weights from `get_class_counts()`. This configuration keeps `"none"`, so they stay 1.
 
 **Example: the components of the model**
 ```text
@@ -672,7 +672,7 @@ After the tracking, `update_evaluation_curves()` writes the row of the iteration
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> The examples below are real outputs of `scripts/evaluation/evaluate_checkpoint.py` on the Stage 3 run (checkpoints 3, 6, 9 and 12) with `iteration = "all"`, `batch_size = 16` and a test folder of the first 40 test pairs.
+> The examples below are real outputs of `scripts/evaluation/evaluate_checkpoint.py` on the Stage 3 run (checkpoints 3, 6, 9 and 12) with `--iteration all`, `--batch_size 16` and `--test_data_folder` set to a folder of the first 40 test pairs. They predate the folder per split (2026-11-20): the current code writes the evaluations of this folder to `Checkpoint_Evaluation_split_<parent folder>_test_reduced/`, not `Checkpoint_Evaluation/`.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
 The same script for every task, with the arguments of [Run It](#run-it) (`classification_workflow.md`, Stage 5). `--test_data_folder` may point to another labelled split (a pairs `labels.json` and `data/`). The output goes to `Checkpoint_Evaluation/` of the run, or `Checkpoint_Evaluation_split_<parent folder>_<split folder>/` for another split. A pair with a member over the `maximum_sequence_length` of the run is left out, with the red warnings of Step 2.9.

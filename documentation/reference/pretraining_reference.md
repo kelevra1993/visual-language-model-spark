@@ -69,7 +69,7 @@ Whenever a size has its pretrained backbone, the detector loads it into its 7-bl
 
 1. Convert Open Images V7 (1.74 million training images, 601 classes, boxes in `detections.csv`) into COCO `labels.json` ([Open Images V7 Splits](#open-images-v7-splits)).
 2. Pretrain the detector of each size on Open Images ([Detection Configurations](#detection-configurations)).
-3. Fine-tune it on COCO 2017 (80 classes) and compare its validation box mAP with published results.
+3. Fine-tune it on COCO 2017 (80 classes) and compare its validation box mAP with published results. The backbone, neck and heads load from the Open Images run, the heads with `class_layers: False`.
 4. Keep the Open Images detector as the start of projects whose classes are not in COCO.
 
 #### Open Images V7 Splits
@@ -81,7 +81,7 @@ In case you rebuild the detection data, note that the splits were converted once
 - 29 % of validation boxes share their object with another class (Man, Person; Tire, Wheel), so detecting one leaves the others missed.
 
 #### Detection Configurations
-Should you launch the Open Images pretraining of a size, use the `configuration_<size>_model.yaml` files of `vision_training/configurations/object_detection/`. Each takes the classification backbone of its size with a block 7 equal to block 6, and neck channels of 32, 64 or 128. They have 4.5 M, 16.8 M and 65.2 M parameters. They share these settings:
+Should you launch the Open Images pretraining of a size, use the `configuration_<size>_model.yaml` files of `vision_training/configurations/object_detection/`. Each takes the classification backbone of its size with a block 7 equal to block 6, and a path aggregation neck of 32, 64 or 128 channels. They have 4.5 M, 17.1 M and 66.4 M parameters. Path aggregation tied with the feature pyramid in stage 4 of the detection benchmark; it is kept here for the context its bottom-up path brings to a large dataset. They share these settings:
 - 1024 pixel images, aspect ratio kept, batch size 16, GPU memory about 12, 22 and 42 GB for S, M and L.
 - Levels 3 to 7 (strides 8, 16, 32, 64, 64), 3 anchor scales and 5 ratios (0.25 to 4) per level.
 - Adam at 1e-3, constant until stopped (`number_iterations: 1e10`), moving average 0.9998.
@@ -91,7 +91,7 @@ Should you launch the Open Images pretraining of a size, use the `configuration_
 Before choosing the anchors, the `compute_anchor_coverage` diagnosis measured the share of objects with an anchor at IoU 0.5 or more. The kept anchors cover 90.7 % of the objects and 71.9 % of those under 32 pixels a side, against 79.8 % and 40.7 % for the detection benchmark anchors. Level 3 brings most of the small-object gain, for +20 % GPU memory (S) and about 14 % fewer images per second.
 
 ### Instance Segmentation
-So that the backbone, pyramid and proposal network are not trained twice, each model starts from the COCO detector of its size. Only the mask head starts random.
+So that the backbone, pyramid and proposal network are not trained twice, each model starts from the COCO detector of its size. The `pretrained` blocks of `Backbone`, `Neck`, `RegionProposal` and `Detector` name that run. Only the mask head starts random.
 
 1. Fine-tune on the COCO masks, with the mask head kept by the instance segmentation benchmark.
 2. Record the mask and box mAP on the COCO validation set.

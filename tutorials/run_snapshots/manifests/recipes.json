@@ -4,57 +4,57 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 21927,
+      "snapshot_bytes": 22594,
       "snapshot_path": "hyperparameter_experiments/object_detection/run_10/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35/training_configuration.yaml",
-      "snapshot_sha256": "e76c61edffc64b55e6bbcad5325433147e794537d7f5d46c13dd0538c07612f5",
-      "source_bytes": 21927,
+      "snapshot_sha256": "e00077b1d5c86eaa089171cfd54e374373104ca830c232c7da4758f4e8abe3df",
+      "source_bytes": 22594,
       "source_kind": "run",
       "source_path": "hyperparameter_experiments/object_detection/run_10/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35/training_configuration.yaml",
-      "source_sha256": "e76c61edffc64b55e6bbcad5325433147e794537d7f5d46c13dd0538c07612f5"
+      "source_sha256": "e00077b1d5c86eaa089171cfd54e374373104ca830c232c7da4758f4e8abe3df"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 22053,
+      "snapshot_bytes": 22720,
       "snapshot_path": "hyperparameter_experiments/object_detection/run_21/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/training_configuration.yaml",
-      "snapshot_sha256": "28740fa22c337f1d81498002a22f1c9f1a447289e1267e07d468327ce991d39d",
-      "source_bytes": 22053,
+      "snapshot_sha256": "44f78765d3a3cead254757879d35ca40e978d65f2b2d6044aa748b488af4f5c3",
+      "source_bytes": 22720,
       "source_kind": "run",
       "source_path": "hyperparameter_experiments/object_detection/run_21/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/training_configuration.yaml",
-      "source_sha256": "28740fa22c337f1d81498002a22f1c9f1a447289e1267e07d468327ce991d39d"
+      "source_sha256": "44f78765d3a3cead254757879d35ca40e978d65f2b2d6044aa748b488af4f5c3"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 22053,
+      "snapshot_bytes": 22720,
       "snapshot_path": "hyperparameter_experiments/object_detection/run_22/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/training_configuration.yaml",
-      "snapshot_sha256": "eee52869863404ede49843644654ed5465ffa6065946dacc2e21a74e4d986d25",
-      "source_bytes": 22053,
+      "snapshot_sha256": "a5dc75e676d23973e959bad3526895f0a5f1482c57a74145313e2e507d0f0a18",
+      "source_bytes": 22720,
       "source_kind": "run",
       "source_path": "hyperparameter_experiments/object_detection/run_22/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/training_configuration.yaml",
-      "source_sha256": "eee52869863404ede49843644654ed5465ffa6065946dacc2e21a74e4d986d25"
+      "source_sha256": "a5dc75e676d23973e959bad3526895f0a5f1482c57a74145313e2e507d0f0a18"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 21925,
+      "snapshot_bytes": 22592,
       "snapshot_path": "hyperparameter_experiments/object_detection/run_9/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35/training_configuration.yaml",
-      "snapshot_sha256": "3acdd250f6a8e70549688cc18dea179cf82e2dce41ffbd6090716f0e907c276d",
-      "source_bytes": 21925,
+      "snapshot_sha256": "ef48323ef001e747f4c7bfb3a9a64e86861df64729229d842670ff69ae269472",
+      "source_bytes": 22592,
       "source_kind": "run",
       "source_path": "hyperparameter_experiments/object_detection/run_9/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35/training_configuration.yaml",
-      "source_sha256": "3acdd250f6a8e70549688cc18dea179cf82e2dce41ffbd6090716f0e907c276d"
+      "source_sha256": "ef48323ef001e747f4c7bfb3a9a64e86861df64729229d842670ff69ae269472"
     },
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 21929,
+      "snapshot_bytes": 22596,
       "snapshot_path": "hyperparameter_experiments/object_detection/run_9/evaluations/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35_proposal_selection_per_level/training_configuration.yaml",
-      "snapshot_sha256": "c81ee0d33a5af04835b645b99f303c571823da860706a92c8e38b05757f6d65e",
-      "source_bytes": 21929,
+      "snapshot_sha256": "9eb1485b5fccd0f175b396789af5d5ddd9d94e63a7c6811a069f510880e6cec0",
+      "source_bytes": 22596,
       "source_kind": "run",
       "source_path": "hyperparameter_experiments/object_detection/run_9/evaluations/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35_proposal_selection_per_level/training_configuration.yaml",
-      "source_sha256": "c81ee0d33a5af04835b645b99f303c571823da860706a92c8e38b05757f6d65e"
+      "source_sha256": "9eb1485b5fccd0f175b396789af5d5ddd9d94e63a7c6811a069f510880e6cec0"
     },
     {
       "options": {},
@@ -147,13 +147,13 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 26724,
+      "snapshot_bytes": 27391,
       "snapshot_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/training_configuration.yaml",
-      "snapshot_sha256": "44102e50d5636e8d7a53a723c8aca144b5397fb7385299174bd550b1026c8e34",
-      "source_bytes": 26724,
+      "snapshot_sha256": "8f14ee3850a1289457187d134e8ddff1a45945a42a96aedf02bcf670cfdfa5ac",
+      "source_bytes": 27391,
       "source_kind": "run",
       "source_path": "readme_screenshots/INS_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MRES-MBN-MUTC-M14.4x64-MR28_MC35/training_configuration.yaml",
-      "source_sha256": "44102e50d5636e8d7a53a723c8aca144b5397fb7385299174bd550b1026c8e34"
+      "source_sha256": "8f14ee3850a1289457187d134e8ddff1a45945a42a96aedf02bcf670cfdfa5ac"
     },
     {
       "options": {},
@@ -213,13 +213,13 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 22534,
+      "snapshot_bytes": 23201,
       "snapshot_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/training_configuration.yaml",
-      "snapshot_sha256": "5040f5bc4b23b97788a78259af26c7ce570aee470cfc80775abab3f76d28579e",
-      "source_bytes": 22534,
+      "snapshot_sha256": "c73e73ad83f0ff118344a2517e3ab7d584c8b56f50c70c6e8bd968e8a379f595",
+      "source_bytes": 23201,
       "source_kind": "run",
       "source_path": "tutorials/DET_IN-KAR-512_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6+6+6+9.16-384.986117_RBN-R2x32-RPL_DSE-DRES-DBN-D7.2x32.64.32_MC35/training_configuration.yaml",
-      "source_sha256": "5040f5bc4b23b97788a78259af26c7ce570aee470cfc80775abab3f76d28579e"
+      "source_sha256": "c73e73ad83f0ff118344a2517e3ab7d584c8b56f50c70c6e8bd968e8a379f595"
     },
     {
       "options": {},
@@ -267,5 +267,5 @@
     }
   ],
   "series": "recipes",
-  "snapshot_bytes": 404409
+  "snapshot_bytes": 408366
 }

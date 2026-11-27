@@ -39,7 +39,7 @@ every weight_saving_iterations (1000): the whole test split ─► accuracy, bal
    macro ROC AUC, macro average precision, per-class metrics (recall with its 95 % interval) and thresholds at
    precision 0.99
    ─► Results.txt, Tensorboard/Test, Evaluation/Iteration_<n>/ (confusion matrix, class_metrics.csv, curves,
-      class_thresholds.json, predictions.csv, Samples/ and Errors/ as grids of the real frames, 4 columns)
+      class_thresholds.json, predictions.csv, Samples/ as grids of the real frames, 4 columns; Errors/ off here)
 export: InferenceSequenceModel, images [B, T, 3, 128, 128] float32 BGR, every frame real ─► class_probabilities [B, 4]
    with the input contract of the run in preprocessing.json and the ONNX metadata (keep_ratio, 128, BGR, NTCHW, 0-255)
 ```
@@ -53,7 +53,7 @@ Should you need to change one step of the task, this table names the file and th
 | Trainer | `vision_training/trainers/sequence_classification_trainer.py` | `SequenceClassificationTrainer`: `prepare_batch`, `forward_pass`, `augment_batch`, `describe_split`, `build_input_image` |
 | Loss, batch metric, evaluation | `vision_training/trainers/classification_trainer.py` | `ClassificationTrainer` (inherited) |
 | Dataset and loaders | `vision_training/data/sequence/sequence_dataset.py`, `vision_training/data/loaders.py` | `SequenceDataset`, `read_sequence_frames`, `collate_padded_sequences`, `get_sequence_dataloaders` |
-| Model | `vision_training/models/sequence/sequence_classifier.py`, `frame_encoder.py`, `temporal_modules.py` | `SequenceClassifier`, `encode_frames`, `build_temporal_module`, `RecurrentTemporalModule` and the other modules |
+| Model | `vision_training/models/sequence/sequence_classifier.py`, `sequence_model.py`, `frame_encoder.py`, `temporal_modules.py` | `SequenceClassifier`, `SequenceFrameModel` (its base, building the components), `encode_frames`, `build_temporal_module`, `RecurrentTemporalModule` and the other modules |
 | Frame pooling and head | `vision_training/models/classification/classification_head.py` | `build_global_pooling`, `compute_pooled_features`, `ClassificationHead` |
 | Sequence augmentation | `vision_training/data/augmentations.py` | `DataAugmenter.augment_batch`, `DataAugmenter.shuffle_frames` |
 | Checks, run name | `vision_training/configuration_processing/sequence_checks.py`, `run_name.py` | `check_sequence_classification_configuration`, `build_sequence_sections` |
@@ -254,7 +254,7 @@ M2O_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4
 
 ### Step 2.5 — `DataAugmenter()`
 
-The augmenter of the classification. Every sample is a sequence `[T, 3, H, W]`, augmented as a whole (Step 3.12). With `SEQUENCE_AUGMENTATION`, it reads `independent_frames` (photometric types drawn frame by frame) and `shuffle_frames`. The configuration activates 5 of the 28 types (`random_crop`, `random_rotation`, `brightness_contrast_saturation`, `random_noise`, `random_haze`) at probability 0.4, with both sequence settings off.
+The augmenter of the classification. Every sample is a sequence `[T, 3, H, W]`, augmented as a whole (Step 3.12). With `SEQUENCE_AUGMENTATION`, it reads `independent_frames` (photometric types drawn frame by frame) and `shuffle_frames`. The configuration activates 5 of the 28 types (`random_crop`, `random_rotation`, `brightness_contrast_saturation`, `random_noise`, `random_haze`, each at probability 0.25), a sequence being augmented with probability 0.4, with both sequence settings off.
 
 ### Step 2.6 — `setup_training_paths()`
 As for every task (`classification_workflow.md`, Step 2.6): `restore_run_label_dictionary()` and `check_resumed_data()` handle a resumed run. The folder holds the configuration copy and `label_dictionary.json`. `data.json` (the classes with their sequences in every split, the folder, `labels.json` hash and frames of every split) is written once the loaders are checked (`save_data_record()`).
@@ -427,7 +427,7 @@ Model Size: Backbone 183,648 (0.74 MB), Temporal Module 3,245,568 (12.98 MB), Cl
 ```
 
 ### Step 2.22 — `view_input_batches()` → `show_input_samples()`
-With `diagnosis_modes.view_input_images`, the real frames of an augmented training sequence and of a validation sequence are laid out on numbered grids of 4 columns (`build_sample_frame_grid()` → `build_frame_grid()`). Each grid has a panel with the class (`Class : moving_up`), the real frames (`Real frames : 7`), the augmentations drawn (one line per frame with `independent_frames`) and, with `shuffle_frames`, the frame order (`describe_frame_order()`). The validation panel reads `Augmentations : none (validation sample)`. It needs a display; the same grids are written to `Input_Samples/` at every launch (Step 3.1).
+With `diagnosis_modes.view_input_images`, the real frames of an augmented training sequence and of a validation sequence are laid out on numbered grids of 4 columns (`build_sample_frame_grid()` → `build_frame_grid()`). Each grid has a panel with the class (`Class : moving_up`), the real frames (`Real frames : 7`), the augmentations drawn (one line per frame with `independent_frames`) and, with `shuffle_frames`, the frame order (`describe_frame_order()`). The validation panel reads `Augmentations : none (validation sample)`. It needs a display; the same grids are written to `Input_Samples/` by a new run, and by a resumed run whose configuration or data changed (Step 3.1).
 
 ### Step 2.23 — `restore_last_model()` → `get_last_checkpoint_iteration()` / `load_model()`
 The restoration of every task (`classification_workflow.md`, Steps 2.26 to 2.28).
@@ -524,7 +524,7 @@ The classification hook moves the frames (`float32`, still [0, 255] BGR) and lab
 
 
 ### Step 3.12 — `augment_batch()` → `DataAugmenter.augment_batch()` + `shuffle_frames()`
-The augmenter decides for every sequence whether it is augmented (`probability: 0.4`), then applies every activated type to the whole sequence, so all frames share the same crop, rotation and colour change and the motion stays coherent. With `independent_frames`, the photometric types are drawn again per frame. Then `shuffle_frames()` permutes the real frames when activated (off here), the padding staying last. The frame block length is that of the batch (`get_member_length()`).
+The augmenter decides for every sequence whether it is augmented (`probability: 0.4`), then draws every activated type with its own probability (0.25 here) for the whole sequence, so all frames share the same crop, rotation and colour change and the motion stays coherent. With `independent_frames`, the photometric types are drawn again per frame. Then `shuffle_frames()` permutes the real frames when activated (off here), the padding staying last. The frame block length is that of the batch (`get_member_length()`).
 
 **Example: which sequences of the first batch were changed**
 ```text
@@ -533,7 +533,7 @@ sequence_mask: changed per sample [False, False, False, False]
 ```
 
 ### Step 3.13 — `forward_pass()` → `SequenceClassifier.forward(sequence_mask=..., labels=...)`
-The trainer passes the frames, the mask and the labels, so the model returns its loss with its logits. This run was in float32; since 2026-10-29 the forward passes run in bfloat16 autocast, giving bfloat16 `class_logits` and `class_probabilities` and a float32 loss.
+The trainer passes the frames, the mask and the labels, so the model returns its loss with its logits. This run was in float32; since 2026-10-29 the forward passes run in bfloat16 autocast, giving bfloat16 `class_logits` (and `class_probabilities` on the CPU) and a float32 loss.
 
 **Example: the dictionary returned in training mode**
 ```text
@@ -791,13 +791,13 @@ The short run of Stage 3 gives at iteration 12 `Accuracy 23.50 %`, `Top-2 Accura
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> The examples below are real outputs of `scripts/evaluation/evaluate_checkpoint.py` on the Stage 3 run (checkpoints 3, 6, 9 and 12), with `iteration = "all"`, `batch_size = 16` and the first 40 test sequences (`labels.json` reduced, `data/` linked). They were recorded on 2026-10-18 with `top_k: 2`, before the curves and the recall intervals. Paths and rates are shown as the current code writes them, in `<run>/Checkpoint_Evaluation/`.
+> The examples below are real outputs of `scripts/evaluation/evaluate_checkpoint.py` on the Stage 3 run (checkpoints 3, 6, 9 and 12), with `--iteration all`, `--batch_size 16` and the first 40 test sequences (`labels.json` reduced, `data/` linked). They were recorded on 2026-10-18 with `top_k: 2`, before the curves and the recall intervals. Paths and rates are shown as the current code writes them, except the folder: `Checkpoint_Evaluation/` of the examples is now `Checkpoint_Evaluation_split_<parent folder>_test_reduced/`, the folder of another split (Step 5.1).
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-The script of every task (`classification_workflow.md`, Stage 5). Give the run as `--experiment_folder` and, if needed, another labelled split as `--test_data_folder` (with `labels.json` and `data/`). `--maximum_error_images_per_class_pair` turns the error images on; `--target_precisions` (several such as `0.99 0.95 0.90`) replaces the target precision of the run; the NMS settings are for detection only. The evaluation is written in `Checkpoint_Evaluation/` (`Checkpoint_Evaluation_split_<parent folder>_<split folder>/` for another split). Sequences longer than the run's `maximum_sequence_length` are left out with the red warnings of Step 2.9.
+The script of every task (`classification_workflow.md`, Stage 5). Give the run as `--experiment_folder` and, if needed, another labelled split as `--test_data_folder` (with `labels.json` and `data/`). `--maximum_error_images_per_class_pair` turns the error images on (default 100000 per pair, `None` keeping the setting of the run); `--target_precisions` (several such as `0.99 0.95 0.90`) replaces the target precision of the run; the NMS settings are for detection only. The evaluation is written in `Checkpoint_Evaluation/` (`Checkpoint_Evaluation_split_<parent folder>_<split folder>/` for another split). Sequences longer than the run's `maximum_sequence_length` are left out with the red warnings of Step 2.9.
 
 ### Step 5.2 — trainer construction
-The script loads the run's `training_configuration.yaml` with the classes of its `label_dictionary.json`, points it to `Checkpoint_Evaluation/`, the reduced split and the batch size, keeps `run_name`, calls `disable_pretrained_settings()` and builds a `SequenceClassificationTrainer`.
+The script loads the run's `training_configuration.yaml` with the classes of its `label_dictionary.json`, points it to the reduced split, the evaluation folder of that split (Step 5.1) and the batch size, keeps `run_name`, calls `disable_pretrained_settings()` and builds a `SequenceClassificationTrainer`.
 
 **Example: the split line of the launch information**
 ```text

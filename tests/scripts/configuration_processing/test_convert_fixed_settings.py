@@ -25,7 +25,8 @@ from pathlib import Path
 from typing import List
 
 from scripts.configuration_processing import convert_fixed_settings as conversion_script
-from scripts.configuration_processing.convert_fixed_settings import (DEFAULT_BACKUP_SUFFIX, NECK_SECTION_TEXT,
+from scripts.configuration_processing.convert_fixed_settings import (DEFAULT_BACKUP_SUFFIX, NECK_PRETRAINED_LINES,
+                                                                      NECK_SECTION_TEXT,
                                                                       add_required_sections, add_required_settings,
                                                                       check_conversion, convert_fixed_settings,
                                                                       parse_conversion_arguments,
@@ -1075,12 +1076,11 @@ def test_conversion_adds_the_class_layer_flag_to_the_classification_heads(tmp_pa
 
 
 # Transferable heads of the detection tasks and of the keypoint detection written before their class layer flag, with
-# the settings and the neck added before it, the detection and keypoint heads trained from random weights or
-# transferred (placeholder), the mask heads transferred, then the texts of the flags the conversion adds after 'freeze'
+# the settings and the neck (with its transfer, last) added before it, the detection and keypoint heads trained from
+# random weights or transferred (placeholder), the mask heads transferred, then the texts of the flags the conversion
+# adds after 'freeze'
 HEADS_TEXT = """ExperimentConfiguration:
   task: {task}
-Neck:
-  type: "none"
 Detector:
   total_training_samples: 256
   box_loss: "smooth_l1"
@@ -1107,6 +1107,13 @@ MaskHead:
 KeypointHead:
   pretrained:
     experiment_folder: {experiment_folder}
+    iteration: null
+    freeze: False
+    learning_rate_multiplier: 1.0
+Neck:
+  type: "none"
+  pretrained:
+    experiment_folder: null
     iteration: null
     freeze: False
     learning_rate_multiplier: 1.0
@@ -1171,6 +1178,81 @@ def test_conversion_adds_the_class_layers_flag_to_the_detection_mask_and_keypoin
                        match=r"than the fixed ones: Detector\.pretrained\.class_layers\.$"):
         check_conversion(original_text=transferred_text, converted_text=written_false_text, task="object_detection",
                          configuration_path=configuration_path)
+
+
+# Lines the conversion writes after the normalization of the neck section, its 'pretrained' block without source run,
+# the normalization of the neck section the detection texts hold, and the detection sections of the files converted
+# between the neck and its transfer, holding every other added setting
+NECK_PRETRAINED_TEXT = "".join(f"  {line}\n" for line in NECK_PRETRAINED_LINES)
+NECK_NORMALIZATION_TEXT = ('  normalization:\n    # "batch", "layer" (over channels) or "none"\n'
+                           '    feature_map_normalization: "batch"\n')
+DETECTION_TEXT_WITHOUT_NECK_TRANSFER = CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace(NECK_PRETRAINED_TEXT, "")
+
+
+def test_conversion_adds_the_neck_transfer_to_the_detection_files(tmp_path: Path) -> None:
+    """
+    Verifies that the conversion writes the 'pretrained' block of the neck without source run, with its comment lines,
+    right after the normalization of the neck section of the detection and instance segmentation files written between
+    the neck and its transfer, whose necks started from random weights, and only there: a classification file and a
+    file holding the block, a loaded neck included, are left as they are, a neck section without normalization is
+    refused, the check refuses a converted file lacking the block or loading a neck, which would change its runs, and
+    convert_fixed_settings converts a launch file with a backup of the latest suffix.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = tmp_path / "configuration.yaml"
+    assert CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.count(NECK_PRETRAINED_TEXT) == 1
+    assert DETECTION_TEXT_WITHOUT_NECK_TRANSFER.count(NECK_NORMALIZATION_TEXT) == 1
+    for task in ["object_detection", "instance_segmentation"]:
+        original_text = write_task_text(configuration_text=DETECTION_TEXT_WITHOUT_NECK_TRANSFER, task=task)
+        converted_text = add_required_settings(configuration_text=original_text, task=task,
+                                               configuration_path=configuration_path)
+        assert converted_text == write_task_text(configuration_text=CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS,
+                                                 task=task)
+        assert check_conversion(original_text=original_text, converted_text=converted_text, task=task,
+                                configuration_path=configuration_path) == []
+
+    # Files of another task or already holding the block, a neck loaded from another run included, left as they are
+    assert add_required_settings(configuration_text=CONVERTED_CLASSIFICATION_TEXT, task="classification",
+                                 configuration_path=configuration_path) == CONVERTED_CLASSIFICATION_TEXT
+    loaded_neck_text = CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace(
+        'type: "none"', 'type: "feature_pyramid"').replace("    experiment_folder: null\n",
+                                                          '    experiment_folder: "/runs/source"\n')
+    assert add_required_settings(configuration_text=loaded_neck_text, task="object_detection",
+                                 configuration_path=configuration_path) == loaded_neck_text
+    assert check_conversion(original_text=loaded_neck_text, converted_text=loaded_neck_text, task="object_detection",
+                            configuration_path=configuration_path) == []
+
+    # A neck section without normalization, and conversions without the block or loading a neck
+    with pytest.raises(expected_exception=ValueError, match="has no 'Neck.normalization' setting"):
+        add_required_settings(configuration_text=DETECTION_TEXT_WITHOUT_NECK_TRANSFER.replace(
+            NECK_NORMALIZATION_TEXT, ""), task="object_detection", configuration_path=configuration_path)
+    with pytest.raises(expected_exception=ValueError,
+                       match=r"than the fixed ones: Neck\.pretrained\.experiment_folder, Neck\.pretrained\.freeze, "
+                             r"Neck\.pretrained\.iteration, Neck\.pretrained\.learning_rate_multiplier\.$"):
+        check_conversion(original_text=DETECTION_TEXT_WITHOUT_NECK_TRANSFER,
+                         converted_text=DETECTION_TEXT_WITHOUT_NECK_TRANSFER, task="object_detection",
+                         configuration_path=configuration_path)
+    with pytest.raises(expected_exception=ValueError,
+                       match=r"than the fixed ones: Neck\.pretrained\.experiment_folder\.$"):
+        check_conversion(original_text=DETECTION_TEXT_WITHOUT_NECK_TRANSFER,
+                         converted_text=CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace(
+                             "    experiment_folder: null\n", '    experiment_folder: "/runs/source"\n'),
+                         task="object_detection", configuration_path=configuration_path)
+
+    # A launch file converted with its backup, the original kept in it
+    configuration_folder = tmp_path / "launch_files"
+    configuration_folder.mkdir()
+    (configuration_folder / "run-1.yaml").write_text(data=DETECTION_TEXT_WITHOUT_NECK_TRANSFER, encoding="utf-8")
+    converted_paths = convert_fixed_settings(run_roots=[], configuration_folders=[configuration_folder],
+                                             write_files=True, backup_suffix=DEFAULT_BACKUP_SUFFIX)
+    assert DEFAULT_BACKUP_SUFFIX == "_before_neck_pretrained"
+    assert converted_paths == [configuration_folder / "run-1.yaml"]
+    assert (configuration_folder / "run-1.yaml").read_text(encoding="utf-8") == \
+        CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS
+    assert (configuration_folder / "previous_configurations" / f"run-1{DEFAULT_BACKUP_SUFFIX}.yaml").read_text(
+        encoding="utf-8") == DETECTION_TEXT_WITHOUT_NECK_TRANSFER
 
 
 # Segmentation decoder written before the renaming of its class layer flag, its section comment naming it

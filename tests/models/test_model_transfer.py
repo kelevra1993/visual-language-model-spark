@@ -1,7 +1,9 @@
 """
-Tests of vision_training/models/model_transfer.py: backbones, temporal modules, heads, segmentation decoders and region
-proposal, detection and mask heads of a saved run initialising other models and tasks, backbones of other architectures
-rejected, source runs still holding the fixed settings, frozen backbones and the transfers turned off. The runs adding
+Tests of vision_training/models/model_transfer.py: backbones, temporal modules, heads, segmentation decoders, necks and
+region proposal, detection and mask heads of a saved run initialising other models and tasks, backbones and necks of
+other architectures rejected, source runs still holding the fixed settings, frozen backbones and the transfers turned
+off. The heads of the detection tasks only move between runs of the same neck type and channels, with a warning when
+their neck does not come from their checkpoint. The runs adding
 classes after those of their source run are covered too: the class layers of the classification, detection and mask
 heads and of the semantic segmentation grown to the new classes, which keep the random initialisation of the new run,
 the source runs without class names, and the runs holding the source classes at other indices, whose rows land at the
@@ -20,7 +22,7 @@ import torch
 import yaml
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from vision_training.configuration_processing.common_checks import (CLASS_LAYER_OPTION_SECTIONS,
                                                                    PRETRAINED_CLASS_LAYER_KEYS)
@@ -617,23 +619,24 @@ def test_decoder_initialises_a_segmenter_of_other_classes(tmp_path: Path) -> Non
     assert target_segmenter.segmentation_head[1].out_channels == 5
 
 
-def write_detector_run(run_folder: Path, mask_head: bool = False,
-                       class_names: Optional[List[str]] = None) -> Tuple[Dict[str, Any], TaskModel]:
+def write_detector_run(run_folder: Path, mask_head: bool = False, class_names: Optional[List[str]] = None,
+                       neck_type: str = "none") -> Tuple[Dict[str, Any], TaskModel]:
     """
     Writes a trained object detection run with the small detector configuration of the tests, whose region proposal
-    and detection heads initialise the heads of other detection runs, or an instance segmentation run with mask_head,
-    whose mask heads initialise those of other instance segmentation runs.
+    and detection heads (and neck) initialise those of other detection runs, or an instance segmentation run with
+    mask_head, whose mask heads initialise those of other instance segmentation runs.
 
     Args:
         run_folder (Path): The run folder.
         mask_head (bool): Whether to write an instance segmentation run with mask heads. Defaults to False.
         class_names (Optional[List[str]]): The class names of the run in class index order, the background first,
             None to write no data record. Defaults to None.
+        neck_type (str): The 'Neck.type' of the run. Defaults to "none", the heads reading the backbone blocks.
 
     Returns:
         Tuple[Dict[str, Any], TaskModel]: The configuration and the model of the run.
     """
-    configuration, _, _ = get_detection_model_configuration(mask_head=mask_head)
+    configuration, _, _ = get_detection_model_configuration(mask_head=mask_head, neck_type=neck_type)
     task = "instance_segmentation" if mask_head else "object_detection"
     source_detector = build_task_model(task=task, configuration=configuration, seed=0)
     write_source_run(run_folder=run_folder, configuration=configuration, model=source_detector, class_names=class_names)
@@ -676,38 +679,223 @@ def test_detection_heads_initialise_an_instance_segmenter(tmp_path: Path, capsys
     assert "Detection Heads Initialised From" in console_output
 
 
-@pytest.mark.parametrize(argnames=["source_neck_type", "target_neck_type"],
-                         argvalues=[("feature_pyramid", "none"), ("none", "path_aggregation"),
-                                    ("feature_pyramid", "feature_pyramid")])
-def test_detection_heads_only_move_between_runs_without_neck(source_neck_type: str, target_neck_type: str) -> None:
+@pytest.mark.parametrize(argnames=["source_neck_settings", "target_neck_settings", "refused_setting"], argvalues=[
+    ({"type": "feature_pyramid"}, {"type": "none"}, "'Neck.type'"),
+    ({"type": "none"}, {"type": "path_aggregation"}, "'Neck.type'"),
+    ({"type": "feature_pyramid"}, {"type": "path_aggregation"}, "'Neck.type'"),
+    ({"type": "feature_pyramid"}, {"type": "feature_pyramid", "output_channels": 64}, "'Neck.output_channels'"),
+    ({"type": "path_aggregation"},
+     {"type": "path_aggregation", "normalization": {"feature_map_normalization": "layer"}}, None),
+    ({"type": "feature_pyramid"}, {"type": "feature_pyramid"}, None)])
+def test_detection_heads_move_between_runs_of_the_same_neck(source_neck_settings: Dict[str, Any],
+                                                            target_neck_settings: Dict[str, Any],
+                                                            refused_setting: Optional[str]) -> None:
     """
-    Verifies that the region proposal, detection and mask heads are refused when the source run or the run receiving
-    them has a neck, the neck itself not being transferable, and that a source run written before the neck (without
-    'Neck' section) passes its heads to a run whose neck is 'none'.
+    Verifies that the region proposal, detection and mask heads, which read the levels after the neck, move between
+    runs without neck or with the same type of neck of the same output channels, the normalization of the neck changing
+    no weight of the heads, and are refused when one run has a neck and the other none, when the necks are of other
+    types or when their output channels differ. A source run written before the neck (without 'Neck' section) counts as
+    a run without neck.
 
     Args:
-        source_neck_type (str): The 'Neck.type' of the source run.
-        target_neck_type (str): The 'Neck.type' of the run receiving the heads.
+        source_neck_settings (Dict[str, Any]): The 'Neck' settings of the source run changed from the fixture.
+        target_neck_settings (Dict[str, Any]): The 'Neck' settings of the run receiving the heads changed from the
+            fixture.
+        refused_setting (Optional[str]): The setting named by the refusal of every head, None when the heads move.
     """
     configuration, _, _ = get_detection_model_configuration(mask_head=True)
     source_configuration = copy.deepcopy(configuration)
-    source_configuration["Neck"]["type"] = source_neck_type
+    source_configuration["Neck"].update(source_neck_settings)
     target_configuration = copy.deepcopy(configuration)
-    target_configuration["Neck"]["type"] = target_neck_type
+    target_configuration["Neck"].update(target_neck_settings)
 
-    # Every head is refused with the neck types of both runs
+    # Every head is refused by the neck setting differing between both runs, or accepted
     for section_name in ["RegionProposal", "Detector", "MaskHead"]:
         differences = compare_component_configurations(section_name=section_name,
                                                        source_configuration=source_configuration,
                                                        target_configuration=target_configuration)
-        assert len(differences) == 1 and "'Neck.type'" in differences[0], differences
+        if refused_setting is None:
+            assert differences == [], differences
+        else:
+            assert len(differences) == 1 and refused_setting in differences[0], differences
 
     # A source run written before the neck counts as a run without neck
     source_configuration.pop("Neck")
-    target_configuration["Neck"]["type"] = "none"
     for section_name in ["RegionProposal", "Detector", "MaskHead"]:
-        assert compare_component_configurations(section_name=section_name, source_configuration=source_configuration,
-                                                target_configuration=target_configuration) == []
+        differences = compare_component_configurations(section_name=section_name,
+                                                       source_configuration=source_configuration,
+                                                       target_configuration=target_configuration)
+        assert (differences == []) == (target_configuration["Neck"]["type"] == "none"), differences
+
+
+@pytest.mark.parametrize(argnames="neck_type", argvalues=["feature_pyramid", "path_aggregation"])
+def test_neck_initialises_another_detection_run(tmp_path: Path, capsys: pytest.CaptureFixture, neck_type: str) -> None:
+    """
+    Verifies the transfer of the neck of an object detection run to an instance segmentation run with the same neck:
+    every tensor of the neck (its convolutions, normalization scales and batch statistics) starts from exactly the
+    weights of the source run, while the backbone and the heads keep their own weights.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the transfer.
+        neck_type (str): The 'Neck.type' of both runs.
+    """
+    _, source_detector = write_detector_run(run_folder=tmp_path / "detection_run", neck_type=neck_type)
+    target_configuration, _, _ = get_detection_model_configuration(mask_head=True, neck_type=neck_type)
+    instance_segmenter = build_task_model(task="instance_segmentation", configuration=target_configuration, seed=1)
+    source_neck_state = source_detector.neck.state_dict()
+    other_states_before = {attribute_name: copy.deepcopy(getattr(instance_segmenter, attribute_name).state_dict())
+                           for attribute_name in ["backbone", "region_proposer_dictionary",
+                                                  "detector_heads_dictionary", "mask_heads_dictionary"]}
+    assert any(not torch.equal(input=tensor_value, other=source_neck_state[tensor_name])
+               for tensor_name, tensor_value in instance_segmenter.neck.state_dict().items()
+               if tensor_value.is_floating_point())
+
+    # The neck of the detection run, then every other component unchanged
+    load_pretrained_component(component=instance_segmenter.neck, section_name="Neck", device=torch.device("cpu"),
+                              model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                      section_name="Neck",
+                                                                      source_folder=tmp_path / "detection_run"))
+    assert sorted(instance_segmenter.neck.state_dict()) == sorted(source_neck_state)
+    for tensor_name, tensor_value in instance_segmenter.neck.state_dict().items():
+        assert torch.equal(input=tensor_value, other=source_neck_state[tensor_name]), tensor_name
+    for attribute_name, state_before in other_states_before.items():
+        for tensor_name, tensor_value in getattr(instance_segmenter, attribute_name).state_dict().items():
+            assert torch.equal(input=tensor_value, other=state_before[tensor_name]), f"{attribute_name}.{tensor_name}"
+    assert "Neck Initialised From The Trained Weights Of" in capsys.readouterr().out
+
+
+def change_neck_and_level_channels(configuration: Dict[str, Any]) -> None:
+    """
+    Gives a detection configuration of the tests other neck output channels, another neck normalization and another
+    width of the backbone block of level 5, read by the lateral of that level.
+
+    Args:
+        configuration (Dict[str, Any]): The detection configuration, modified in place.
+    """
+    configuration["Neck"].update({"output_channels": 16, "normalization": {"feature_map_normalization": "layer"}})
+    configuration["Backbone"]["convolutions"]["5"] = [2, 32]
+
+
+def change_neck_type(configuration: Dict[str, Any]) -> None:
+    """
+    Gives a detection configuration of the tests the path aggregation neck instead of the feature pyramid.
+
+    Args:
+        configuration (Dict[str, Any]): The detection configuration, modified in place.
+    """
+    configuration["Neck"]["type"] = "path_aggregation"
+
+
+def remove_finest_level(configuration: Dict[str, Any]) -> None:
+    """
+    Removes level 5 from a detection configuration of the tests, its neck then having no lateral for it.
+
+    Args:
+        configuration (Dict[str, Any]): The detection configuration, modified in place.
+    """
+    del configuration["DetectionLevels"]["5"]
+
+
+@pytest.mark.parametrize(argnames=["modify_function", "expected_messages"], argvalues=[
+    (change_neck_type, ["'Neck.type' is 'feature_pyramid' in the source run and 'path_aggregation' in this run."]),
+    (change_neck_and_level_channels, ["'Neck.output_channels' is 32 in the source run and 16 in this run.",
+                                      "'Neck.normalization' is {'feature_map_normalization': 'batch'} in the source "
+                                      "run and {'feature_map_normalization': 'layer'} in this run.",
+                                      "The backbone blocks of the levels have {'5': 64, '6': 64, '7': 64} output "
+                                      "channels in the source run and {'5': 32, '6': 64, '7': 64} in this run"]),
+    (remove_finest_level, ["The detection levels are ['5', '6', '7'] in the source run and ['6', '7'] in this run"])])
+def test_different_necks_are_rejected(tmp_path: Path, modify_function: Callable[[Dict[str, Any]], None],
+                                      expected_messages: List[str]) -> None:
+    """
+    Verifies that a neck is refused by a run whose neck has another type, other output channels, another normalization,
+    other detection levels or other channels of the backbone blocks of its levels, the error naming every difference,
+    and by a run whose source run was written before the neck.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        modify_function (Callable[[Dict[str, Any]], None]): Function changing the configuration of the run receiving
+            the neck.
+        expected_messages (List[str]): The differences the refusal names.
+    """
+    source_configuration, _ = write_detector_run(run_folder=tmp_path / "detection_run", neck_type="feature_pyramid")
+    target_configuration = copy.deepcopy(source_configuration)
+    modify_function(configuration=target_configuration)
+    detector = build_task_model(task="object_detection", configuration=target_configuration, seed=1)
+    with pytest.raises(expected_exception=ValueError) as error_information:
+        load_pretrained_component(component=detector.neck, section_name="Neck", device=torch.device("cpu"),
+                                  model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                          section_name="Neck",
+                                                                          source_folder=tmp_path / "detection_run"))
+    assert "The Neck Of The Source Run" in str(error_information.value)
+    for expected_message in expected_messages:
+        assert expected_message in str(error_information.value)
+
+    # A source run written before the neck has none to give
+    old_configuration = copy.deepcopy(source_configuration)
+    old_configuration.pop("Neck")
+    (tmp_path / "detection_run" / "training_configuration.yaml").write_text(data=yaml.safe_dump(data=old_configuration))
+    with pytest.raises(expected_exception=ValueError, match="Has No 'Neck' Section"):
+        load_pretrained_component(component=detector.neck, section_name="Neck", device=torch.device("cpu"),
+                                  model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                          section_name="Neck",
+                                                                          source_folder=tmp_path / "detection_run"))
+
+
+@pytest.mark.parametrize(argnames=["neck_source", "expected_warning"], argvalues=[
+    (None, "But The Neck Of This Run Starts From Random Weights"),
+    ("other_run", "But The Neck Of This Run Comes From Another Run"),
+    ("other_checkpoint", "But The Neck Of This Run Comes From Another Checkpoint Of Their Run"),
+    ("same_checkpoint", None)])
+def test_heads_behind_a_neck_warn_when_the_neck_is_not_theirs(tmp_path: Path, capsys: pytest.CaptureFixture,
+                                                              neck_source: Optional[str],
+                                                              expected_warning: Optional[str]) -> None:
+    """
+    Verifies that region proposal and detection heads trained behind a neck still initialise a run with the same neck
+    when its neck is not loaded from their checkpoint, with a warning that they read other features than those they were
+    trained on: a neck starting from random weights, the neck of another run, or the neck of another checkpoint of their
+    run. The neck of their own checkpoint gives no warning.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the transfer.
+        neck_source (Optional[str]): Where the neck of the run comes from: None (random weights), "other_run",
+            "other_checkpoint" (iteration 2 of the run of the heads) or "same_checkpoint" (its last checkpoint).
+        expected_warning (Optional[str]): The end of the warning naming the neck, None when nothing is printed.
+    """
+    source_configuration, source_detector = write_detector_run(run_folder=tmp_path / "detection_run",
+                                                               neck_type="feature_pyramid")
+    write_detector_run(run_folder=tmp_path / "other_detection_run", neck_type="feature_pyramid")
+    save_checkpoint(weights_directory=tmp_path / "detection_run" / "Weights", iteration=2, model=source_detector,
+                    optimizer=torch.optim.Adam(params=source_detector.parameters()),
+                    metadata={"task": "object_detection"}, exponential_moving_average_state=None)
+
+    # Run reading the heads of the last checkpoint of the source run, its neck from the run asked by the test
+    neck_settings = {None: NO_TRANSFER,
+                     "other_run": {**NO_TRANSFER, "experiment_folder": str(tmp_path / "other_detection_run")},
+                     "other_checkpoint": {**NO_TRANSFER, "experiment_folder": str(tmp_path / "detection_run"),
+                                          "iteration": 2},
+                     "same_checkpoint": {**NO_TRANSFER, "experiment_folder": str(tmp_path / "detection_run"),
+                                         "iteration": 3}}
+    target_configuration = copy.deepcopy(source_configuration)
+    target_configuration["Neck"]["pretrained"] = neck_settings[neck_source]
+    detector = build_task_model(task="object_detection", configuration=target_configuration, seed=1)
+    for section_name in ["RegionProposal", "Detector"]:
+        heads_configuration = point_to_source_run(configuration=target_configuration, section_name=section_name,
+                                                  source_folder=tmp_path / "detection_run")
+        heads_configuration[section_name]["pretrained"]["iteration"] = 3
+        load_pretrained_component(component=getattr(detector, TRANSFERABLE_COMPONENTS[section_name]),
+                                  section_name=section_name, model_configuration=heads_configuration,
+                                  device=torch.device("cpu"))
+
+    # One warning per head section, or none when the neck comes from the checkpoint of the heads
+    console_output = capsys.readouterr().out
+    if expected_warning is None:
+        assert "Were Trained Behind The Neck" not in console_output
+    else:
+        for component_name in ["Region Proposal Heads", "Detection Heads"]:
+            assert (f"The Pretrained {component_name} Were Trained Behind The Neck Of Their Source Run, "
+                    f"{expected_warning}") in console_output
 
 
 def get_class_configuration(task: str, number_classes: int) -> Dict[str, Any]:

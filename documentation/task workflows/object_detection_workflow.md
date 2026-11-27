@@ -106,7 +106,7 @@ If one wishes to change what the detector learns or how it filters its outputs, 
 |---|---|---|
 | `DetectionLevels.<5, 6, 7>.anchors` | scales `[32, 64]`, `[64, 128]`, `[128, 256]`, aspect ratios `[0.5, 1.0, 2.0]` | 6 anchors per cell, 2304 in all at 512 pixels (`A6.32-256.e7b72c`); fit measured by `anchor_recall.csv` |
 | `DetectionLevels.<level>.region_proposal`, `.detector` | `[2, 32]`; RoIAlign 7, `[2, 32]`, fully connected `[64, 32]` | the heads of every level (`RBN-R2x32`, `DSE-DRES-DBN-D7.2x32.64.32`) |
-| `Neck.type`, `output_channels`, `normalization` | `feature_pyramid`, 32, batch | merges the levels into `output_channels` channels (`L567-NFPN32BN`); `none` lets the heads read the blocks, `path_aggregation` adds a bottom-up path (`NPAN`) |
+| `Neck.type`, `output_channels`, `normalization` | `feature_pyramid`, 32, batch | merges the levels into `output_channels` channels (`L567-NFPN32BN`); `none` lets the heads read the blocks, `path_aggregation` adds a bottom-up path (`NPAN`); `pretrained` loads the neck of another run (`NPT`) |
 | `RegionProposal.foreground_iou_threshold.min`, `background_iou_threshold` | 0.5; min 0.1, max 0.3 | anchors positive from 0.5, negative from 0.1 to 0.3, ignored below 0.1 and in between, plus the best anchor of every object |
 | `RegionProposal.training`, `.inference`, `nms_iou_threshold` | 1000 then 500; 500 then 250; 0.7 | proposals given to the detection heads per image |
 | `RegionProposal.proposal_selection` | `per_level` | top-k and NMS per level, then the best over all levels (`RPL`); `joint` ranks all anchors at once, as the run of Stages 3 to 5 (Step 3.13) |
@@ -437,6 +437,8 @@ The backbone, region proposal heads and detection heads can come from other runs
 
 The mask heads of an instance segmentation run do the same with `MaskHead.pretrained.class_layers: True`. With `Optimization.exponential_moving_average.activated`, an `ExponentialMovingAverage` copy is made once the transfers are loaded. The four losses are tracked with their weighted sum.
 
+The current code also transfers the neck (`Neck.pretrained`, last in `TRANSFERABLE_COMPONENTS`), so the dictionary below ends with `'Neck': None`. Heads move only between runs of the same `Neck.type` and `output_channels` (`compare_detection_heads()`). Heads loaded behind a neck that does not come from their checkpoint print a warning (`warn_heads_behind_another_neck()`).
+
 **Example output**
 ```text
 pretrained_checkpoint_paths = {'Backbone': None, 'RegionProposal': None, 'Detector': None}
@@ -533,7 +535,7 @@ Weights/Iteration_250/model_000250.pt ... Weights/Iteration_5000/model_005000.pt
  'exponential_moving_average_state']
 exponential_moving_average_state: {'model_state', 'number_updates'}, number_updates 5000
 ```
-Current checkpoints also hold `pretrained_backbone_blocks` (`classification_workflow.md`, Step 2.19), `None` here.
+Current checkpoints also hold `pretrained_backbone_blocks` (`classification_workflow.md`, Step 2.19) and `pretrained_neck`, both `None` here.
 
 ### Step 3.5 — `run_test_evaluation()`
 At every multiple of 500, last in the iteration (`classification_workflow.md`, Step 3.7), once for the trained weights and once for their moving average. See Stage 4.

@@ -163,7 +163,7 @@ uv run python -m vision_training.data.data_retriever --dataset_name coco-2017 --
 
 **Configuration**
 - `DetectionLevels`: keyed by the quoted number of the backbone block, finest first. Each level holds its `anchors` (scales in input pixels, aspect ratios height / width), `region_proposal` convolutions and `detector` head.
-- `Neck`: `none`, `feature_pyramid` (top-down path) or `path_aggregation` (plus the bottom-up path of PANet), with `output_channels` per level.
+- `Neck`: `none`, `feature_pyramid` (top-down path) or `path_aggregation` (plus the bottom-up path of PANet), with `output_channels` per level. `Neck.pretrained` loads the neck of another DET or INS run, from the run of the heads loaded behind it ([transfer](training_reference.md#transfer-between-runs)).
 - `RegionProposal.background_iou_threshold.min`: above 0.0, only hard negatives touching an object are sampled as background.
 - `RegionProposal.proposal_selection` (`select_best_proposals`): `joint` takes one top-k and one NMS over all levels; `per_level` suppresses each level alone, as torchvision.
 - `Detector.box_loss`: `smooth_l1` on the offsets, or `complete_iou` (1 - CIoU, https://arxiv.org/abs/2005.03572), off in every configuration.
