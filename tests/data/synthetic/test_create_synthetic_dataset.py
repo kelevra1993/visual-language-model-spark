@@ -10,7 +10,9 @@ detection, instance segmentation and keypoint labels. The largest IoU between tw
 object, 0.3 by default. The objects placed next to one of their class for the occlusion test split of stage 5b overlap
 the object placed before them by an IoU from 0.5 to that cap, with its class and a close size, in pairs, and that
 placement is refused where it would have no effect. The shapes stay inside their square, every hollow shape is its
-filled shape with one hole cut inside it, and the regular polygons keep the size at which their sides stay apart.
+filled shape with one hole cut inside it, and the regular polygons keep the size at which their sides stay apart. The
+console describes every split in a panel with its class counts and generation time, and closes with a panel of the
+whole dataset.
 """
 
 import copy
@@ -19,9 +21,11 @@ import json
 import cv2
 import numpy as np
 import pytest
+import re
 
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Tuple
+from rich.console import Console
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from vision_training.data.classification.classification_dataset import ClassificationDataset
 from vision_training.data.detection.coco_dataset import CocoDetectionDataset
@@ -39,9 +43,10 @@ from vision_training.data.synthetic.create_synthetic_dataset import (
     SAME_CLASS_NEIGHBOUR_MINIMUM_INTERSECTION_OVER_UNION, SAME_CLASS_NEIGHBOUR_SIZE_RATIO_RANGE, SELECTION_CATEGORIES,
     SELECTION_LARGEST_MINIMUM_SIZE, SELECTION_SMALLER_AREA_RATIO, SELECTION_SMALLER_SIZE_RATIO, SELECTION_WANTED_SHAPES,
     SHAPE_CATEGORIES, SHAPE_COLOUR_MINIMUM_DIFFERENCE, SHAPE_COUNT_CATEGORIES, SHAPE_DRAWING_FUNCTIONS,
-    SHAPE_MINIMUM_SIZES, SHAPE_MINIMUM_VISIBLE_FRACTION, TEXTURE_AMPLITUDE, create_synthetic_dataset, draw_background,
-    draw_shape_descriptor, draw_shape_descriptors, find_neighbour_centre_distance, generate_counted_shapes_image,
-    generate_image, generate_moving_shape_sequence, generate_object_loss_pair, generate_selection_sequence,
+    SHAPE_MINIMUM_SIZES, SHAPE_MINIMUM_VISIBLE_FRACTION, SUMMARY_PANEL_WIDTH, TEXTURE_AMPLITUDE,
+    build_class_count_table, create_synthetic_dataset, draw_background, draw_shape_descriptor, draw_shape_descriptors,
+    find_neighbour_centre_distance, format_generation_rate, generate_counted_shapes_image, generate_image,
+    generate_moving_shape_sequence, generate_object_loss_pair, generate_selection_sequence,
     generate_shape_change_sequence, get_canvas_windows, get_intersection_over_union, get_mask_bounding_box,
     keep_visible_objects)
 
@@ -738,6 +743,88 @@ def test_created_dataset_is_valid_coco_and_loads(tmp_path: Path) -> None:
         assert sample["bounding_boxes"].shape[0] == sample["labels"].shape[0] > 0
         loaded_labels |= set(sample["labels"].tolist())
     assert loaded_labels <= set(SHAPE_CATEGORIES.values())
+
+
+@pytest.mark.parametrize("task, maximum_objects, maximum_frames, sample_name, count_name",
+                         [("classification", 1, 1, "Images", None), ("object_detection", 4, 1, "Images", "Objects"),
+                          ("sequence_labelling", 5, 4, "Sequences", "Frames")])
+def test_created_dataset_prints_a_panel_per_split_and_the_generation_times(tmp_path: Path,
+                                                                          capsys: pytest.CaptureFixture, task: str,
+                                                                          maximum_objects: int, maximum_frames: int,
+                                                                          sample_name: str,
+                                                                          count_name: Optional[str]) -> None:
+    """
+    Verifies the console of the generator: every split gets its panel with its samples, its labels when they are not
+    the samples (objects, frames), its class range, its generation time and rate, and the count of every class, and
+    the closing panel gives the label mapping file and the samples and generation time of every split and of the whole
+    dataset, instead of the dictionary of class counts printed before.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The captured console output.
+        task (str): The task of the dataset.
+        maximum_objects (int): The largest number of shapes per image or frame.
+        maximum_frames (int): The largest number of frames of a sequence (1 for the image tasks).
+        sample_name (str): The samples named in the panels.
+        count_name (Optional[str]): What the class counts count when it is not the samples, None otherwise.
+    """
+    split_sizes = {"train": 6, "validation": 3, "test": 2}
+    create_synthetic_dataset(output_folder=str(tmp_path), image_size=SAMPLE_IMAGE_SIZE, split_sizes=split_sizes,
+                             maximum_objects=maximum_objects, minimum_frames=min(2, maximum_frames),
+                             maximum_frames=maximum_frames, number_workers=2, task=task)
+    output = capsys.readouterr().out
+
+    # One panel per split, with its samples, generation time and rate, and the classes of the task in its table
+    for split_name, number_samples in split_sizes.items():
+        assert f"{split_name.title()} Split" in output
+        assert re.search(rf"│ {sample_name} +: {number_samples} ", output)
+    assert output.count("Generation Time") == len(split_sizes) + 1
+    assert output.count(f"{sample_name} Per Second") == 2 * len(split_sizes) + 1
+    assert (re.search(rf"Labelled {count_name} +: \d", output) is not None) == (count_name is not None)
+    class_name = list(synthetic_dataset_module.TASK_CATEGORIES[task])[-1]
+    assert output.count(f" {class_name} ") == len(split_sizes)
+    assert "Labels per class" not in output
+
+    # Closing panel: the label mapping file, a row per split and the total, in the HH:MM:SS layout with the seconds
+    assert "Synthetic Dataset" in output and "Label Mapping File : label_mapping.json" in output
+    total_samples = sum(split_sizes.values())
+    assert re.search(rf"│ +Total +{total_samples} .*\d\d:\d\d:\d\d \(\d+\.\d seconds\)", output)
+    assert all(len(line) <= SUMMARY_PANEL_WIDTH for line in output.splitlines() if line.startswith(("│", "╭", "╰")))
+
+
+def test_class_count_table_fits_the_panel_and_marks_the_empty_classes() -> None:
+    """
+    Verifies the class table of a split panel: the classes read column by column in as many class and count columns
+    as fit in the panel (three for the 35 shape classes, two for the 71 longer change classes of the sequence
+    labelling), the counts written with their digits grouped by three, a class without labels in yellow, and that a
+    generation time that is not positive gives no rate.
+    """
+    shape_counts = {class_name: 1000 * index for index, class_name in enumerate(SHAPE_CATEGORIES)}
+    shape_table = build_class_count_table(class_counts=shape_counts, count_name="objects")
+    assert len(shape_table.columns) == 6 and shape_table.row_count == 12
+    assert [column.header for column in shape_table.columns[:2]] == ["Class", "Objects"]
+
+    # Down the first column, then the next one, the empty first class in yellow
+    first_column_cells = list(shape_table.columns[0].cells)
+    assert first_column_cells[0].plain == "square" and first_column_cells[0].style == "yellow"
+    assert first_column_cells[1].plain == "circle" and first_column_cells[1].style == ""
+    assert list(shape_table.columns[2].cells)[0].plain == list(SHAPE_CATEGORIES)[12]
+    assert list(shape_table.columns[1].cells)[11].plain == "11 000"
+
+    # The long change classes take two columns, and the table stays inside the panel
+    change_table = build_class_count_table(class_counts={class_name: 7 for class_name in CHANGE_CATEGORIES},
+                                           count_name="frames")
+    assert len(change_table.columns) == 4 and change_table.row_count == 36
+    console = Console(width=SUMMARY_PANEL_WIDTH)
+    with console.capture() as capture:
+        console.print(change_table)
+    assert max(len(line.rstrip()) for line in capture.get().splitlines()) <= SUMMARY_PANEL_WIDTH - 7
+
+    # A rate needs a positive time
+    assert format_generation_rate(number_samples=3000, duration_seconds=2.0, sample_name="images") == \
+        "1 500.0 Images Per Second"
+    with pytest.raises(ValueError, match="must be positive"):
+        format_generation_rate(number_samples=3, duration_seconds=0.0, sample_name="images")
 
 
 def test_created_classification_dataset_has_one_shape_per_image(tmp_path: Path) -> None:

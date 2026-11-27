@@ -131,7 +131,7 @@ Should the backbones of classification, object detection or segmentation start f
 
 ## Quick Start With Synthetic Data
 In order to check the installation or a configuration within minutes, every task has a synthetic shapes dataset:
-1. Set `task` in the main block of `vision_training/data/synthetic/create_synthetic_dataset.py`, then run it with the root folder of the dataset, which is required and receives the `train`, `validation` and `test` folders and `label_mapping.json` (existing splits of the same names are overwritten).
+1. Set `task` in the main block of `vision_training/data/synthetic/create_synthetic_dataset.py`, then run it with the root folder of the dataset, which is required and receives the `train`, `validation` and `test` folders and `label_mapping.json` (existing splits of the same names are overwritten). A panel describes each split once written (its samples, the count of every class, its generation time) and a closing panel gives the label mapping file and the time of every split.
 2. In the synthetic configuration of the task (table below, in `vision_training/configurations/`), point the three data folders and `Data.label_mapping.mapping_file_path` to the `train`, `validation` and `test` folders and the `label_mapping.json` of the generated dataset, and `experiment_folder` to the folder receiving the runs, all as absolute paths: a configuration expands neither `~` nor `$HOME`.
 3. Train with that configuration.
 
