@@ -56,7 +56,8 @@ objectness [64, 2304] · offsets [64, 2304, 4] ─► RPN losses: BCE + smooth L
    ▼ training: + ground truth boxes, 128 proposals per image sampled, at most 64 positive (IoU >= 0.5)
 DetectionHead of the level of every proposal: RoIAlign 7x7 ─► 2 conv x 32 ─► FC 1568 > 64 > 32 ─► class + box layers
 logits [64, 128, 36] · offsets [64, 128, 36, 4] ─► detection losses: cross entropy + smooth L1 of the true class
-   ▼ evaluation: postprocess_detections: softmax, score >= 0.05 (0.5 deployed), DIoU-NMS 0.5 per class, top 100
+   ▼ evaluation: postprocess_detections: softmax, boxes clipped to the image window, score >= 0.05 (0.5 deployed),
+     DIoU-NMS 0.5 per class, top 100
 final_detection_boxes [B, 100, 4], _scores [B, 100], _labels [B, 100] · number_detections [B]
    ▼
 evaluate_detections ─► mAP@0.5 / 0.75 / 0.95 / [0.5:0.95] x area, 11, 101 point · by size · mAR · AP per class
@@ -77,7 +78,7 @@ Should you need to change one part of the task, this table gives the file holdin
 | Metrics and evaluation | `vision_training/evaluation/detection/mean_average_precision.py`, `average_precision_report.py`, `region_recall.py`, `detection_confusion.py`, `object_sizes.py`, `vision_training/evaluation/recall_intervals.py` | `evaluate_detections`, `summarise_average_precisions`, `summarise_anchor_recall`, `summarise_proposal_recall`, `match_image_detections`, `compute_clopper_pearson_intervals` |
 | Configuration checks and run name | `vision_training/configuration_processing/detection_checks.py`, `run_name.py` | `check_detection_configuration`, `build_detection_sections`, `build_anchors_hash` |
 | Synthetic data | `vision_training/data/synthetic/create_synthetic_dataset.py` | `create_synthetic_dataset` (`--task=instance_segmentation` for the DET configuration) |
-| Export | `vision_training/models/detection/inference_detector.py`, `vision_training/deployment/export_specifications.py` | `InferenceDetector`, `get_export_specification` (inputs `images`, outputs `detection_boxes`, `detection_scores`, `detection_labels`, `number_detections`) |
+| Export | `vision_training/models/detection/inference_detector.py`, `vision_training/deployment/export_specifications.py` | `InferenceDetector`, `get_export_specification` (inputs `images`, `image_windows`, outputs `detection_boxes`, `detection_scores`, `detection_labels`, `number_detections`) |
 | Export sizes at launch | `vision_training/deployment/export_size_estimates.py` | `estimate_export_sizes`, `probe_inference_graph`, `print_export_size_summary` |
 
 ### Run It
@@ -355,7 +356,7 @@ test         20 images -> 1 batch of 40
 ### Step 2.9 — `CocoDetectionDataset.__init__()` (and `__getitem__()`)
 The constructor reads the manifest (`read_manifest()`, parsed once per launch) and shuffles its images once. It packs every image with its annotations into `SerializedRecords` (a read-only NumPy byte buffer, unpacked by `get_image_record()`) and frees the parsed manifest (`release_freed_heap_memory()`), so forked workers copy no Python objects: on 50,000 images, 0.31 GB instead of 0.67 GB, and 0.05 GB copied per worker instead of 0.64 GB. Images sharing an `id` raise a `ValueError`. Categories absent from the label mapping are printed in yellow.
 
-`__getitem__()` reads the image (`read_image()`, OpenCV, BGR, `uint8`), keeps the boxes whose category has a class (`select_image_objects()`), turns COCO `[x, y, width, height]` into `[x_min, y_min, x_max, y_max]` and resizes image and boxes together (`preprocess_image_and_boxes()`, letterbox with `keep_ratio`). Boxes are clipped and filtered only after a geometric augmentation.
+`__getitem__()` reads the image (`read_image()`, OpenCV, BGR, `uint8`), keeps the boxes whose category has a class (`select_image_objects()`), turns COCO `[x, y, width, height]` into `[x_min, y_min, x_max, y_max]` and resizes image and boxes together (`preprocess_image_and_boxes()`, letterbox with `keep_ratio`). Boxes are clipped and filtered only after a geometric augmentation. The sample also holds `image_windows`, the `[x1, y1, x2, y2]` region of the resized image in the input (`compute_image_window()`), to which the evaluation clips the detections (Step 4.4). The example was recorded before that key.
 
 **Example: the first image after shuffling, and its sample**
 ```text
@@ -538,7 +539,7 @@ Current checkpoints also hold `pretrained_backbone_blocks` (`classification_work
 At every multiple of 500, last in the iteration (`classification_workflow.md`, Step 3.7), once for the trained weights and once for their moving average. See Stage 4.
 
 ### Step 3.6 — `get_next_batch()` → `CocoDetectionDataset.__getitem__()` + `collate_function()`
-A batch that fails to load is dropped and the next one taken (`classification_workflow.md`, Step 3.8). Images are stacked; boxes and labels stay lists, one tensor per image.
+A batch that fails to load is dropped and the next one taken (`classification_workflow.md`, Step 3.8). Images and windows are stacked; boxes and labels stay lists, one tensor per image. The example was recorded before the windows.
 
 **Example: the first batch of the CPU run**
 ```text
@@ -549,7 +550,7 @@ labels               list of 2 tensors   [7, 1]   [1, 1, 5, 1]
 ```
 
 ### Step 3.7 — `run_model_iteration()` → `prepare_batch()`
-It turns the images from `uint8` to `float32` and moves boxes (`float32`) and labels (`int64`) to the device.
+It turns the images from `uint8` to `float32` and moves boxes (`float32`), labels (`int64`) and windows (`float32`) to the device.
 
 ### Step 3.8 — `augment_batch()` → `DataAugmenter.augment_batch(bounding_boxes=..., labels=...)`
 Geometric augmentations move the boxes with the image. `clean_bounding_boxes()` clips them and drops, with their labels, boxes narrower or shorter than 1 pixel or with less than 25 % of their moved area inside the image (`MINIMUM_VISIBLE_AREA_FRACTION`). This configuration turns every geometric type off; in the first batch no image was changed.
@@ -734,7 +735,7 @@ first image: best scores [0.1091, 0.1091, 0.1091, 0.1091, 0.1091]   labels [9, 9
 ```
 
 ### Step 4.3 — `prepare_batch()` + `predict_batch()`
-`predict_batch()` runs the detector without ground truth, as in deployment; with it, the detector would only classify proposals sampled around the true boxes, inflating the mAP. In `eval()` mode the filter keeps 250 proposals per image. The outputs go through `postprocess_detections()` (Step 4.4) with the valid proposal mask (`sliced_valid_mask`), so padding copies never become detections, even at an NMS threshold of 1.0 or for empty boxes. The outputs also keep `proposal_boxes`, `proposal_levels` and `valid_proposal_mask` for the proposal recall (Step 4.15).
+`predict_batch()` runs the detector without ground truth, as in deployment; with it, the detector would only classify proposals sampled around the true boxes, inflating the mAP. It gives the detector the window of every image, as a client gives it to the export; without windows, the detector refuses to run in `eval()` mode. In `eval()` mode the filter keeps 250 proposals per image. The outputs go through `postprocess_detections()` (Step 4.4) with the valid proposal mask (`sliced_valid_mask`), so padding copies never become detections, even at an NMS threshold of 1.0 or for empty boxes. The outputs also keep `proposal_boxes`, `proposal_levels` and `valid_proposal_mask` for the proposal recall (Step 4.15).
 
 **Example: a test batch of the CPU run**
 ```text
@@ -745,7 +746,7 @@ final_detection_labels   [2, 100]           number_detections        [2] [100, 1
 
 ### Step 4.4 — `postprocess_detections()`
 These steps turn the head outputs into the final detections:
-1. the softmax of the class logits, background left out, gives one candidate per proposal and foreground class, its box clamped to the image;
+1. the softmax of the class logits, background left out, gives one candidate per proposal and foreground class, its box clipped to the window of its image (`clamp_boxes_to_image_windows()`), so no box reaches the padding of the letterbox;
 2. one `batched_nms()` call suppresses, per image and class, boxes overlapping a better one by more than `Detector.nms_iou_threshold` (0.8 in the CPU run, 0.5 now);
 3. the survivors reaching the score threshold are kept, the `maximum_detections` (100) best per image returned, empty places padded with score 0, label 0 and an empty box.
 

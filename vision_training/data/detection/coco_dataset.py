@@ -23,7 +23,8 @@ from vision_training.data.detection.coco_masks import (MAXIMUM_INDEX_MAP_OBJECTS
                                                        build_instance_mask, compute_mask_bounding_boxes,
                                                        compute_segmentation_bounding_box, find_index_map_objects)
 from vision_training.data.manifest_cache import read_manifest
-from vision_training.data.preprocessing import preprocess_boxes, preprocess_image_and_boxes, read_image
+from vision_training.data.preprocessing import (compute_image_window, preprocess_boxes, preprocess_image_and_boxes,
+                                                read_image)
 from vision_training.data.serialized_records import SerializedRecords
 from vision_training.utilities.os_utilities import format_path_link, print_color, release_freed_heap_memory
 
@@ -37,21 +38,23 @@ def collate_function(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, Any]:
     Collates a list of dataset samples into a batched format dictionary.
 
     This function is used by the PyTorch DataLoader to aggregate individual data samples
-    into mini-batches. It stacks images into a single tensor for efficient GPU processing, and the instance index
-    maps of the instance segmentation, one per image, while preserving bounding boxes, labels, instance masks
-    (instance segmentation only) and keypoints (keypoint detection only) as lists since they vary in quantity per
-    image.
+    into mini-batches. It stacks images into a single tensor for efficient GPU processing, their windows in the network
+    input, and the instance index maps of the instance segmentation, one per image, while preserving bounding boxes,
+    labels, instance masks (instance segmentation only) and keypoints (keypoint detection only) as lists since they
+    vary in quantity per image.
 
     Args:
         batch (List[Dict[str, torch.Tensor]]): A list of dictionaries containing individual (image, boxes, labels).
 
     Returns:
         Dict[str, Any]: A dictionary containing the batched images, list of bounding boxes, list of labels, the
-            tensor of COCO image identifiers ('sample_identifiers'), the list of instance masks when the samples
-            have them, the lists of the original instance masks and boxes when the samples have them, the list of
-            keypoints when the samples have them, the lists of the objects without labelled keypoint of the keypoint
-            test samples (IGNORED_OBJECT_KEYS) when the samples have them, and the [B, S, S] uint8 'ignored_regions' of
-            the keypoint detection and 'instance_index_maps' of the instance segmentation when the samples have them.
+            tensor of COCO image identifiers ('sample_identifiers'), the [B, 4] float32 window of every image in the
+            network input ('image_windows', to which the detectors clip their detections), the list of instance masks
+            when the samples have them, the lists of the original instance masks and boxes when the samples have them,
+            the list of keypoints when the samples have them, the lists of the objects without labelled keypoint of the
+            keypoint test samples (IGNORED_OBJECT_KEYS) when the samples have them, and the [B, S, S] uint8
+            'ignored_regions' of the keypoint detection and 'instance_index_maps' of the instance segmentation when the
+            samples have them.
     """
     images = [item["images"] for item in batch]
     bounding_boxes = [item["bounding_boxes"] for item in batch]
@@ -61,7 +64,8 @@ def collate_function(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, Any]:
     # Consolidate the image tensors into a single unified batch tensor for GPU acceleration
     # Keep bounding boxes and labels as standard lists to accommodate variable object counts per image
     batched_samples = {"images": torch.stack(tensors=images), "bounding_boxes": bounding_boxes, "labels": labels,
-                       "sample_identifiers": sample_identifiers}
+                       "sample_identifiers": sample_identifiers,
+                       "image_windows": torch.stack(tensors=[item["image_windows"] for item in batch])}
 
     # Keep the [N_i, S, S] instance masks of the instance segmentation task as a list, like the boxes, the masks and
     # boxes at the original resolution of every image, whose sizes differ, the [N_i, K, 3] keypoints and the objects
@@ -359,7 +363,8 @@ class CocoDetectionDataset(Dataset):
 
         Returns:
             dict: A dictionary containing the preprocessed image tensor, bounding boxes tensor, labels tensor, the
-                COCO identifier of the image ('sample_identifiers'), with load_instance_masks the [N, S, S] uint8
+                COCO identifier of the image ('sample_identifiers'), the [4] float32 window of the network input holding
+                the resized image ('image_windows', compute_image_window), with load_instance_masks the [N, S, S] uint8
                 instance masks ('instance_masks'), or with load_instance_index_maps the [S, S] uint8 instance index
                 map ('instance_index_maps'), with load_original_instances the [N, H, W] uint8 masks
                 ('original_instance_masks') and [N, 4] boxes ('original_bounding_boxes') at the original resolution,
@@ -399,8 +404,13 @@ class CocoDetectionDataset(Dataset):
         # Keep the [N, 4] layout even for images without boxes, since an empty list would become a [0] tensor
         bounding_boxes_tensor = torch.tensor(data=resized_bounding_boxes, dtype=torch.float32).reshape(-1, 4)
 
+        # Window of the network input holding the resized image, to which the detectors clip their detections
+        image_window = compute_image_window(image_height=image.shape[0], image_width=image.shape[1],
+                                           image_size=self.image_size, keep_ratio=self.keep_ratio)
+
         sample = {"images": image_tensor, "bounding_boxes": bounding_boxes_tensor,
-                  "labels": torch.tensor(data=labels, dtype=torch.int64), "sample_identifiers": image_identifier}
+                  "labels": torch.tensor(data=labels, dtype=torch.int64), "sample_identifiers": image_identifier,
+                  "image_windows": torch.from_numpy(image_window)}
         if self.load_original_instances:
             sample = self.add_original_instances(sample=sample, annotations=kept_annotations,
                                                  image_height=image.shape[0], image_width=image.shape[1])

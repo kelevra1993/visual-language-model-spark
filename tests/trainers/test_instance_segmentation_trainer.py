@@ -294,8 +294,8 @@ def build_original_resolution_test_image() -> Tuple[Dict[str, Any], Dict[str, An
     """
     Builds one test image of 40 x 20 pixels seen by a 10 pixel network keeping the ratio (scale 0.25, two padding rows
     above the image), with two detections and three objects: a square found by the first detection, a band along the
-    top border found by the second detection, whose box starts on the padding, and a one pixel object that vanishes at
-    the network resolution.
+    top border found by the second detection, whose box the detector clipped to the window of the image, and a one
+    pixel object that vanishes at the network resolution.
 
     Returns:
         Tuple[Dict[str, Any], Dict[str, Any]]: The prepared test batch with its objects at both resolutions, and the
@@ -319,13 +319,12 @@ def build_original_resolution_test_image() -> Tuple[Dict[str, Any], Dict[str, An
              "original_bounding_boxes": [torch.tensor(data=[[4.0, 4.0, 12.0, 12.0], [0.0, 0.0, 8.0, 4.0],
                                                             [21.0, 9.0, 22.0, 10.0]])]}
 
-    # Detections of the square (a full mask) and of the band, whose box covers one padding row and whose mask fills
-    # its lower half, the visible part of the box, followed by a padding detection
+    # Detections of the square and of the band, each with a full mask, the box of the band stopping at the top of the
+    # window as the detector clips it, followed by a padding detection
     detection_masks = torch.zeros(size=(1, 3, 4, 4))
-    detection_masks[0, 0] = 1.0
-    detection_masks[0, 1, 2:] = 1.0
+    detection_masks[0, :2] = 1.0
     predictions = {"number_detections": torch.tensor(data=[2]), "final_detection_masks": detection_masks,
-                   "final_detection_boxes": torch.tensor(data=[[[1.0, 3.0, 3.0, 5.0], [0.0, 1.0, 2.0, 3.0],
+                   "final_detection_boxes": torch.tensor(data=[[[1.0, 3.0, 3.0, 5.0], [0.0, 2.0, 2.0, 3.0],
                                                                 [0.0, 0.0, 0.0, 0.0]]]),
                    "final_detection_scores": torch.tensor(data=[[0.9, 0.8, 0.0]]),
                    "final_detection_labels": torch.tensor(data=[[1, 2, 0]])}
@@ -334,10 +333,10 @@ def build_original_resolution_test_image() -> Tuple[Dict[str, Any], Dict[str, An
 
 def test_detections_and_objects_are_gathered_at_the_original_resolution() -> None:
     """
-    Verifies the evaluation at the original resolution of a test image: the detection boxes are restored to the image
-    and clipped to it, the masks are pasted into the whole restored boxes (the band, whose box starts on the padding,
-    then covers exactly its object, where a clipped box would only cover half of it), the overlaps and areas are
-    those of the original masks, and the objects keep the boxes and mask areas of the original annotations, the one
+    Verifies the evaluation at the original resolution of a test image: the detection boxes, clipped by the detector to
+    the window of the image, are restored to the image, the masks are pasted into the restored boxes (the band along
+    the top border then covering exactly its object), the overlaps and areas are those of the original masks, and the
+    objects keep the boxes and mask areas of the original annotations, the one
     pixel object vanishing at the network resolution included, and the image area sizing the objects is that of the
     original image. At the network resolution, the same image keeps its network boxes and areas, and the area of the
     network input.
@@ -349,7 +348,7 @@ def test_detections_and_objects_are_gathered_at_the_original_resolution() -> Non
     trainer.original_resolution, trainer.mask_threshold, trainer.device = True, 0.5, torch.device("cpu")
     trainer.model_configuration = {"Data": {"image_settings": {"size": 10, "keep_ratio": True}}}
 
-    # Detections restored to the original image, the band found by the mask pasted into its whole box
+    # Detections restored to the original image, the band found by the mask pasted into its restored box
     detection = trainer.gather_image_detections(batch=batch, predictions=predictions, image_index=0)
     restored_boxes = torch.tensor(data=[[4.0, 4.0, 12.0, 12.0], [0.0, 0.0, 8.0, 4.0]])
     assert torch.equal(input=detection["boxes"], other=restored_boxes)
@@ -409,7 +408,8 @@ def test_instance_index_maps_are_expanded_into_the_masks() -> None:
              "bounding_boxes": [torch.tensor(data=[[1.0, 1.0, 3.0, 3.0], [0.0, 4.0, 6.0, 6.0]]),
                                 torch.zeros(size=(0, 4))],
              "labels": [torch.tensor(data=[3, 1]), torch.zeros(size=(0,), dtype=torch.int64)],
-             "sample_identifiers": torch.tensor(data=[7, 8]), "instance_index_maps": index_maps}
+             "sample_identifiers": torch.tensor(data=[7, 8]), "instance_index_maps": index_maps,
+             "image_windows": torch.tensor(data=[[0.0, 0.0, 6.0, 6.0]] * 2)}
 
     # Only the attributes read by the preparation, the augmentation and the input viewer, without building the model
     trainer = InstanceSegmentationTrainer.__new__(InstanceSegmentationTrainer)

@@ -1,13 +1,14 @@
 """
 Input contract of the exported models: how a server (such as a Triton deployment querying the exported classifiers)
 builds the network input from a photo, so that it never has to guess the channel order, the resize, the padding, the
-layout or the value range of the training. deployment/export_model.py builds it once per export with
-build_input_contract and writes it into the 'metadata_props' of every ONNX file and into 'preprocessing.json' next to
-every exported model. Every value comes from the training configuration of the run (Data.image_settings, Data.tiling)
-or from the preprocessing code run by the data loaders (data/preprocessing.py: read_image, preprocess_image,
-compute_letterbox_region; for a segmenter trained on tiles, SegmentationDataset.cut_tile and the sliding window of
-models/segmentation/sliding_window.py), never from a copy written by hand, and a run whose input the contract cannot
-describe stops the export with the name of the setting.
+layout, the value range of the training or the image windows a detector takes with its images.
+deployment/export_model.py builds it once per export with build_input_contract and writes it into the 'metadata_props'
+of every ONNX file and into 'preprocessing.json' next to every exported model. Every value comes from the training
+configuration of the run (Data.image_settings, Data.tiling) or from the preprocessing code run by the data loaders
+(data/preprocessing.py: read_image, preprocess_image, compute_letterbox_region, compute_image_window; for a segmenter
+trained on tiles, SegmentationDataset.cut_tile and the sliding window of models/segmentation/sliding_window.py), never
+from a copy written by hand, and a run whose input the contract cannot describe stops the export with the name of the
+setting.
 """
 
 import inspect
@@ -23,13 +24,16 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, Tuple
 
-from vision_training.data.preprocessing import compute_letterbox_region, preprocess_image, read_image
+from vision_training.data.preprocessing import (compute_image_window, compute_letterbox_region, preprocess_image,
+                                                read_image)
 from vision_training.data.segmentation.segmentation_dataset import SegmentationDataset
+from vision_training.deployment.export_specifications import IMAGE_WINDOWS_INPUT_NAME
 from vision_training.models.segmentation.sliding_window import segment_image_by_tiles
 
 # Version of the keys and values below, raised whenever a key is added or a value changes meaning, so that a server
-# refuses a model whose contract it does not know: version 2 describes the segmenters trained on tiles
-INPUT_CONTRACT_VERSION = "2"
+# refuses a model whose contract it does not know: version 2 describes the segmenters trained on tiles, version 3 the
+# image windows of the detectors and instance segmenters
+INPUT_CONTRACT_VERSION = "3"
 
 # File written next to every exported model, holding the same keys and values as the metadata of the ONNX file
 PREPROCESSING_FILE_NAME = "preprocessing.json"
@@ -81,6 +85,13 @@ INPUT_CONTRACT_KEYS = {
     # Pixel values from 0 to 255, the uint8 photo cast to float32 without scaling, the normalization being in the graph
     "input_value_range": {"allowed_values": ["0-255"], "allowed_number": None,
                           "source": "the pixel type of read_image"},
+    # Second input 'image_windows' of the detectors and instance segmenters, which clip their boxes to it: the float32
+    # [B, 4] [left, top, right, bottom] of the resized photo in the input, left and top being the left column and top
+    # row of the keep_ratio placement and right and bottom adding the resized width and height, [0, 0, size, size] for
+    # the stretch; none for the models without that input
+    "input_image_windows": {"allowed_values": ["none", "resized_photo"], "allowed_number": None,
+                            "source": "the 'image_windows' input of the export specification, checked on "
+                                      "compute_image_window"},
 }
 
 # Contract value of the OpenCV interpolations the contract describes
@@ -171,11 +182,46 @@ def find_padding_placement(image_size: int) -> str:
     return "centred"
 
 
+def find_image_window_description(specification: Dict[str, Any], image_size: int, keep_ratio: bool) -> str:
+    """
+    Describes the image windows input of the detectors and instance segmenters for the contract, checking
+    compute_image_window, which gives them to the evaluation and the clients, against the window the contract describes
+    on the probe photo sizes of find_padding_placement: the resized photo placed by compute_letterbox_region with
+    keep_ratio, the whole input for the stretch.
+
+    Args:
+        specification (Dict[str, Any]): The export specification of the task, from get_export_specification.
+        image_size (int): The side of the square network input.
+        keep_ratio (bool): Whether the photos are resized keeping their aspect ratio ('Data.image_settings.keep_ratio').
+
+    Returns:
+        str: 'none' for the models without the input, 'resized_photo', or the description of the first window
+            computed otherwise.
+    """
+    if IMAGE_WINDOWS_INPUT_NAME not in [input_specification["name"] for input_specification in specification["inputs"]]:
+        return "none"
+    probe_shapes = [(image_size - 1, image_size), (image_size, image_size - 1), (1080, 1920), (1920, 1080),
+                    (1, 4 * image_size)]
+    for image_height, image_width in probe_shapes:
+        # Window of the contract: the region of the resized photo, or the whole input for the stretch
+        top, left, resized_height, resized_width = compute_letterbox_region(image_height=image_height,
+                                                                            image_width=image_width,
+                                                                            image_size=image_size)
+        expected_window = ([left, top, left + resized_width, top + resized_height] if keep_ratio else
+                           [0, 0, image_size, image_size])
+        image_window = compute_image_window(image_height=image_height, image_width=image_width, image_size=image_size,
+                                            keep_ratio=keep_ratio).tolist()
+        if image_window != [float(coordinate) for coordinate in expected_window]:
+            return f"window {image_window} of a {image_height} x {image_width} photo instead of {expected_window}"
+    return "resized_photo"
+
+
 def find_input_layout(specification: Dict[str, Any], image_size: int) -> str:
     """
     Finds the layout of the network inputs from the export specification: images of [3, S, S] after the batch
     dimension (NCHW), or sequences of such frames (NTCHW) for the sequence tasks, both inputs of the comparison model
-    sharing it. S must be the configured input size, so that 'input_size' is the side the exported graph accepts.
+    sharing it. S must be the configured input size, so that 'input_size' is the side the exported graph accepts. The
+    image windows of the detectors are described by 'input_image_windows' instead.
 
     Args:
         specification (Dict[str, Any]): The export specification of the task, from get_export_specification.
@@ -186,12 +232,14 @@ def find_input_layout(specification: Dict[str, Any], image_size: int) -> str:
     """
     # Dimensions after the batch one of every layout, the number of frames of a sequence being dynamic (-1)
     layout_dimensions = {"NCHW": [3, image_size, image_size], "NTCHW": [-1, 3, image_size, image_size]}
+    image_inputs = [input_specification for input_specification in specification["inputs"]
+                    if input_specification["name"] != IMAGE_WINDOWS_INPUT_NAME]
     input_layouts = [next((layout for layout, dimensions in layout_dimensions.items()
                            if dimensions == input_specification["dimensions"]), None)
-                     for input_specification in specification["inputs"]]
+                     for input_specification in image_inputs]
     if None in input_layouts or len(set(input_layouts)) != 1:
         return (", ".join(f"input '{input_specification['name']}' of dimensions {input_specification['dimensions']}"
-                          for input_specification in specification["inputs"]) +
+                          for input_specification in image_inputs) +
                 f" for the size {image_size}")
     return input_layouts[0]
 
@@ -375,13 +423,14 @@ def check_input_contract(input_contract: Dict[str, str]) -> None:
 def build_input_contract(task: str, model_configuration: Dict[str, Any],
                          specification: Dict[str, Any]) -> Dict[str, str]:
     """
-    Builds the input contract of the models exported from a run, called by export_experiment before any file is
-    written: the resize and size from the image settings of the run, the interpolation and padding value from the
-    defaults of preprocess_image, the placement checked on compute_letterbox_region, the channel order and value range
-    from read_image, and the layout from the export specification. A segmenter trained on tiles takes its scale and
-    overlap from 'Data.tiling', its interpolation from SegmentationDataset.cut_tile and its padding from
-    segment_image_by_tiles instead. The contract is checked by check_input_contract, so that a run the contract cannot
-    describe stops the export with the name of the setting.
+    Builds the input contract of the models exported from a run, called by export_experiment before any file is written:
+    the resize and size from the image settings of the run, the interpolation and padding value from the defaults of
+    preprocess_image, the placement checked on compute_letterbox_region, the channel order and value range from
+    read_image, and the layout and the image windows of the detectors from the export specification
+    (find_image_window_description). A segmenter trained on tiles takes its scale and overlap from 'Data.tiling', its
+    interpolation from SegmentationDataset.cut_tile and its padding from segment_image_by_tiles instead. The contract is
+    checked by check_input_contract, so that a run the contract cannot describe stops the export with the name of the
+    setting.
 
     Args:
         task (str): The task of the run.
@@ -425,6 +474,9 @@ def build_input_contract(task: str, model_configuration: Dict[str, Any],
     contract_values = {"input_contract_version": INPUT_CONTRACT_VERSION, "input_color_order": color_order,
                        "input_size": str(image_size), "input_value_range": value_range,
                        "input_layout": find_input_layout(specification=specification, image_size=image_size),
+                       "input_image_windows": find_image_window_description(
+                           specification=specification, image_size=image_size,
+                           keep_ratio=image_settings["keep_ratio"]),
                        **resize_values}
     input_contract = {key: contract_values[key] for key in INPUT_CONTRACT_KEYS}
     check_input_contract(input_contract=input_contract)

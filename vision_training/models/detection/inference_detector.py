@@ -1,7 +1,7 @@
 """
 Inference-only version of the trained TwoStageDetector with batched, fixed-shape proposal filtering and detection,
-returning a fixed number of detections per image. Built by vision_training/deployment/export_specifications.py for
-the TorchScript and ONNX exports served by Triton.
+returning a fixed number of detections per image, clipped to the window of their image (its second input). Built by
+vision_training/deployment/export_specifications.py for the TorchScript and ONNX exports served by Triton.
 """
 
 import torch
@@ -23,8 +23,9 @@ class InferenceDetector(nn.Module):
     It reuses the submodules of the trained TwoStageDetector (no weight is duplicated) but replaces the
     data-dependent parts of its forward pass by batched, fixed-shape operations: proposals are filtered for the whole
     batch at once, padding proposals are masked instead of randomly duplicated, and no ground truth, target or loss
-    code is involved. It returns a fixed number of detections per image, suppressed by the final NMS of the
-    configuration of the detector, greedy or DIoU-NMS ('Detector.nms_criterion'), as in its evaluation.
+    code is involved. It returns a fixed number of detections per image, clipped to the window of their image (the
+    'image_windows' input, the part of the square input holding the resized image) and suppressed by the final NMS of
+    the configuration of the detector, greedy or DIoU-NMS ('Detector.nms_criterion'), as in its evaluation.
     """
 
     def __init__(self, model: TwoStageDetector) -> None:
@@ -60,24 +61,28 @@ class InferenceDetector(nn.Module):
         self.detection_nms_distance_exponent = model.detection_nms_distance_exponent
         self.maximum_detections = model.maximum_detections
 
-    def forward(self, images: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def forward(self, images: torch.Tensor, image_windows: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor,
+                                                                                    torch.Tensor, torch.Tensor]:
         """
         Detects the objects of a batch of preprocessed images.
 
         Args:
             images (torch.Tensor): Float BGR images in [0, 255] of shape [B, 3, H, W], resized and padded to the network
                 input size.
+            image_windows (torch.Tensor): The float [B, 4] [x1, y1, x2, y2] window of every image in network input
+                pixels, the part holding the resized image (data/preprocessing.py:compute_image_window), [0, 0, S, S]
+                for an image filling the input.
 
         Returns:
             Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: The detection boxes [B, K, 4] in network
-                input pixels, their scores [B, K], their int64 labels [B, K] (0 for padding) and the int64 number of
-                valid detections per image [B].
+                input pixels inside the window of their image, their scores [B, K], their int64 labels [B, K] (0 for
+                padding) and the int64 number of valid detections per image [B].
         """
-        detections = self.detect_objects(images=images)["detections"]
+        detections = self.detect_objects(images=images, image_windows=image_windows)["detections"]
         return (detections["final_detection_boxes"], detections["final_detection_scores"],
                 detections["final_detection_labels"], detections["number_detections"])
 
-    def detect_objects(self, images: torch.Tensor) -> Dict[str, Any]:
+    def detect_objects(self, images: torch.Tensor, image_windows: torch.Tensor) -> Dict[str, Any]:
         """
         Runs every detection step on a batch of preprocessed images (backbone, neck, region proposals, batched
         proposal filter, detection heads and postprocessing), keeping the intermediate results that the inference
@@ -86,6 +91,7 @@ class InferenceDetector(nn.Module):
         Args:
             images (torch.Tensor): Float BGR images in [0, 255] of shape [B, 3, H, W], resized and padded to the network
                 input size.
+            image_windows (torch.Tensor): The [B, 4] window of every image, to which the detections are clipped.
 
         Returns:
             Dict[str, Any]: The 'feature_maps' after the neck keyed by level name (read by the mask heads too), the
@@ -117,11 +123,11 @@ class InferenceDetector(nn.Module):
         classification_scores, detection_boxes = self.detect(feature_maps=feature_maps, proposal_boxes=filtered_boxes,
                                                              proposal_levels=filtered_levels)
 
-        # Final detections with the NMS of 'Detector.nms_criterion' on every pair, greedy or DIoU-NMS, the form the
-        # TorchScript and ONNX exports keep
+        # Final detections clipped to the windows, with the NMS of 'Detector.nms_criterion' on every pair, greedy or
+        # DIoU-NMS, the form the TorchScript and ONNX exports keep
         detections = postprocess_detections(classification_scores=classification_scores,
                                             detection_boxes=detection_boxes, valid_proposal_mask=valid_proposal_mask,
-                                            score_threshold=self.score_threshold,
+                                            image_windows=image_windows, score_threshold=self.score_threshold,
                                             nms_iou_threshold=self.detection_nms_iou_threshold,
                                             nms_criterion=self.detection_nms_criterion,
                                             nms_distance_exponent=self.detection_nms_distance_exponent,

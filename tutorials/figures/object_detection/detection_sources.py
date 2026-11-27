@@ -27,7 +27,7 @@ from typing import Any, Dict, List, Tuple
 
 from tutorial_builder.layout import MONOSPACE_FONT_PATH, SANS_SEMIBOLD_FONT_PATH
 from tutorial_builder.figure_context import read_thread_count
-from vision_training.data.preprocessing import read_image
+from vision_training.data.preprocessing import compute_image_window, read_image
 from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
 from vision_training.evaluation.report_formatting import PERCENT_SIGN
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
@@ -207,6 +207,23 @@ def read_network_image(test_folder: Path, image_name: str) -> Tuple[numpy.ndarra
     """
     image = read_image(image_path=test_folder / "data" / image_name)
     return image, torch.from_numpy(image).permute(2, 0, 1).float().unsqueeze(dim=0)
+
+
+def compute_network_image_window(input_tensor: torch.Tensor) -> torch.Tensor:
+    """
+    Gives the window of a test image read by read_network_image in its network input, the [x1, y1, x2, y2] region
+    holding the image (compute_image_window), given to the detectors with the image, which clip their detections to
+    it: the whole input, the synthetic test images being at the size of the network input already.
+
+    Args:
+        input_tensor (torch.Tensor): The [1, 3, H, W] input tensor of the image.
+
+    Returns:
+        torch.Tensor: The [1, 4] float32 window.
+    """
+    image_height, image_width = input_tensor.shape[-2:]
+    return torch.from_numpy(compute_image_window(image_height=image_height, image_width=image_width,
+                                                 image_size=max(image_height, image_width), keep_ratio=True))[None]
 
 
 def load_run_model(run_folder: Path, iteration: int) -> TaskModel:

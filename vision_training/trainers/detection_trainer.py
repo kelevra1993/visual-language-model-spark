@@ -336,8 +336,8 @@ class DetectionTrainer(CocoSplitTrainer):
 
     def prepare_batch(self, batch: Dict[str, Any]) -> DetectionBatch:
         """
-        Moves the images and the per-image ground truth boxes and labels of a detection batch to the device, in the
-        precision of the model (labels as int64 class indices).
+        Moves the images, the per-image ground truth boxes and labels and the window of every image of a detection batch
+        to the device, in the precision of the model (labels as int64 class indices).
 
         Args:
             batch (Dict[str, Any]): The batch dictionary yielded by a COCO loader.
@@ -349,7 +349,8 @@ class DetectionTrainer(CocoSplitTrainer):
                 "bounding_boxes": [box_tensor.to(device=self.device, dtype=self.dtype)
                                    for box_tensor in batch["bounding_boxes"]],
                 "labels": [label_tensor.to(device=self.device, dtype=torch.int64) for label_tensor in batch["labels"]],
-                "sample_identifiers": batch["sample_identifiers"]}
+                "sample_identifiers": batch["sample_identifiers"],
+                "image_windows": batch["image_windows"].to(device=self.device, dtype=torch.float32)}
 
     def augment_batch(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -371,7 +372,7 @@ class DetectionTrainer(CocoSplitTrainer):
     def forward_pass(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
         Runs the detector with the ground truth of the batch, so that it samples its training targets and returns its
-        four losses.
+        four losses, with the windows of the images, to which the detections of the validation are clipped.
 
         Args:
             batch (Dict[str, Any]): The prepared batch.
@@ -379,8 +380,8 @@ class DetectionTrainer(CocoSplitTrainer):
         Returns:
             Dict[str, Any]: The detector outputs, with its four losses.
         """
-        return self.model(input_tensor=batch["images"], ground_truth_bounding_boxes=batch["bounding_boxes"],
-                          ground_truth_labels=batch["labels"])
+        return self.model(input_tensor=batch["images"], image_windows=batch["image_windows"],
+                          ground_truth_bounding_boxes=batch["bounding_boxes"], ground_truth_labels=batch["labels"])
 
     @contextmanager
     def evaluation_context(self) -> Iterator[None]:
@@ -402,7 +403,8 @@ class DetectionTrainer(CocoSplitTrainer):
     def predict_batch(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
         Runs the detector without ground truth, as in deployment: given ground truth, the detector would only classify
-        the proposals sampled around it for training, which would inflate the mAP.
+        the proposals sampled around it for training, which would inflate the mAP. The detections are clipped to the
+        window of their image, as the exported detector clips them.
 
         Args:
             batch (Dict[str, Any]): The prepared test batch.
@@ -410,7 +412,21 @@ class DetectionTrainer(CocoSplitTrainer):
         Returns:
             Dict[str, Any]: The detector outputs, with the final detections of every image.
         """
-        return self.model(input_tensor=batch["images"])
+        return self.model(input_tensor=batch["images"], image_windows=batch["image_windows"])
+
+    def build_inference_inputs(self, batch: Dict[str, Any]) -> Dict[str, torch.Tensor]:
+        """
+        Gives the inputs of the inference detector (and instance segmenter) from a prepared batch for the speed
+        benchmark: the float32 BGR images in [0, 255] and the window of every image in the network input, the two
+        inputs of the exports (TASK_INPUT_NAMES).
+
+        Args:
+            batch (Dict[str, Any]): The prepared batch.
+
+        Returns:
+            Dict[str, torch.Tensor]: The 'images' and the [B, 4] float32 'image_windows'.
+        """
+        return {"images": batch["images"], "image_windows": batch["image_windows"]}
 
     def create_evaluation_accumulator(self, iteration: int) -> Dict[str, Any]:
         """

@@ -32,11 +32,11 @@ from tutorials.figures.figure_utilities import (SERIES_COLOURS, compute_file_fin
                                                 read_run_configuration, restore_committed_figures, round_fact,
                                                 write_reused_facts)
 from tutorials.figures.object_detection.detection_sources import (BOX_OUTLINE_WIDTH, DETECTION_SAMPLE_ITERATIONS,
-                                                                  SAMPLE_IMAGE_NAME, describe_class_name, draw_box,
-                                                                  find_test_folder, hexadecimal_to_rgb, join_words,
-                                                                  load_caption_fonts, load_run_model,
-                                                                  read_category_names, read_image_annotations,
-                                                                  read_network_image)
+                                                                  SAMPLE_IMAGE_NAME, compute_network_image_window,
+                                                                  describe_class_name, draw_box, find_test_folder,
+                                                                  hexadecimal_to_rgb, join_words, load_caption_fonts,
+                                                                  load_run_model, read_category_names,
+                                                                  read_image_annotations, read_network_image)
 from tutorial_builder.layout import BACKGROUND_COLOUR as FRAME_BACKGROUND_COLOUR
 from tutorial_builder.layout import CARD_COLOUR, DIM_TEXT_COLOUR, TEXT_COLOUR
 from vision_training.evaluation.detection.detection_confusion import MATCHING_INTERSECTION_OVER_UNION_THRESHOLD
@@ -266,7 +266,8 @@ def run_detections(model: TwoStageDetector, input_tensor: torch.Tensor) -> Tuple
         Tuple[Dict[str, Any], int]: The stages of forward_detection_stages and the number of detections.
     """
     with torch.no_grad():
-        stages = model.forward_detection_stages(input_tensor=input_tensor)
+        stages = model.forward_detection_stages(input_tensor=input_tensor,
+                                                image_windows=compute_network_image_window(input_tensor=input_tensor))
     return stages, int(stages["model_output_dictionary"]["number_detections"][0])
 
 

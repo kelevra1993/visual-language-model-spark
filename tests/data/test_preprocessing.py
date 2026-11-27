@@ -1,8 +1,9 @@
 """
 Tests of vision_training/data/preprocessing.py: read_image reads the files of more than 8 bits per channel as before
 with one warning, restore_boxes_to_original_image inverts preprocess_boxes, bringing the detected boxes back to the
-original image coordinates, clipped to the image or kept whole for the pasting of the instance masks, a very elongated
-image keeps a short side of one pixel in the letterbox, preprocess_boxes moves polygons like boxes, and
+original image coordinates, clipped to the image, compute_image_window gives the part of the network input holding the
+resized image, which restores to the whole image, a very elongated image keeps a short side of one pixel in the
+letterbox, preprocess_boxes moves polygons like boxes, and
 restore_prediction_to_original_image brings segmentation class maps and probabilities back to their original images,
 the class maps on the pixel centres of the probabilities.
 """
@@ -15,8 +16,8 @@ import pytest
 import torch
 
 from vision_training.data import preprocessing
-from vision_training.data.preprocessing import (compute_letterbox_region, preprocess_boxes, preprocess_image,
-                                                read_image, restore_boxes_to_original_image,
+from vision_training.data.preprocessing import (compute_image_window, compute_letterbox_region, preprocess_boxes,
+                                                preprocess_image, read_image, restore_boxes_to_original_image,
                                                 restore_prediction_to_original_image)
 from tests.testing_utilities import compute_weighted_centroid
 
@@ -98,21 +99,45 @@ def test_restored_boxes_invert_the_preprocessing(image_width: int, image_height:
     assert np.allclose(restored_boxes, np.array(boxes))
 
 
-def test_restored_boxes_are_clipped_unless_kept_whole() -> None:
+def test_restored_boxes_are_clipped_to_the_image() -> None:
     """
-    Verifies that a box predicted partly on the padding of a letterboxed image is clipped to the original image by
-    default, and kept whole without clipping, as the instance segmentation evaluated at the original resolution needs
-    to paste the mask of a detection into the whole box it was predicted in.
+    Verifies that a box predicted partly on the padding of a letterboxed image is clipped to the original image.
     """
     # A 200 x 100 image letterboxed into 400 pixels is scaled twice and moved down by 100 rows of padding
     network_box = np.array(object=[[-20.0, 60.0, 120.0, 140.0]])
     clipped_box = restore_boxes_to_original_image(bounding_boxes=network_box, image_width=200, image_height=100,
                                                   image_size=400, keep_ratio=True)
-    whole_box = restore_boxes_to_original_image(bounding_boxes=network_box, image_width=200, image_height=100,
-                                                image_size=400, keep_ratio=True, clip=False)
 
     assert np.allclose(clipped_box, [[0.0, 0.0, 60.0, 20.0]])
-    assert np.allclose(whole_box, [[-10.0, -20.0, 60.0, 20.0]])
+
+
+@pytest.mark.parametrize(argnames=("image_height", "image_width", "keep_ratio", "expected_window"),
+                         argvalues=[(100, 200, True, [0.0, 100.0, 400.0, 300.0]),
+                                    (300, 100, True, [133.0, 0.0, 266.0, 400.0]),
+                                    (100, 200, False, [0.0, 0.0, 400.0, 400.0]),
+                                    (400, 400, True, [0.0, 0.0, 400.0, 400.0])])
+def test_image_window_is_the_resized_image_in_the_input(image_height: int, image_width: int, keep_ratio: bool,
+                                                        expected_window: list) -> None:
+    """
+    Verifies that compute_image_window gives the [x1, y1, x2, y2] network pixels of the resized image in a 400 pixel
+    input: between the centred padding of a landscape and of a portrait image (the odd padding pixel at the right),
+    the whole input for a stretched image and for a square one, and that the window of a letterboxed image is restored
+    to the whole original image, so that a box clipped to the window never leaves the image.
+
+    Args:
+        image_height (int): The height of the original image.
+        image_width (int): The width of the original image.
+        keep_ratio (bool): Whether the image is letterboxed or stretched.
+        expected_window (list): The expected window in network pixels.
+    """
+    image_window = compute_image_window(image_height=image_height, image_width=image_width, image_size=400,
+                                        keep_ratio=keep_ratio)
+
+    assert image_window.dtype == np.float32 and image_window.tolist() == expected_window
+    restored_window = restore_boxes_to_original_image(bounding_boxes=image_window[None], image_width=image_width,
+                                                      image_height=image_height, image_size=400,
+                                                      keep_ratio=keep_ratio)
+    assert np.allclose(restored_window, [[0.0, 0.0, image_width, image_height]], atol=0.5)
 
 
 @pytest.mark.parametrize(argnames="keep_ratio", argvalues=[True])

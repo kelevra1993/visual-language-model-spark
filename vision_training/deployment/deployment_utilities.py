@@ -1,12 +1,13 @@
 """
 Inference helpers of the deployment stage: preprocessing the images of the inference folder into the requests of the
-model of any task, a semantic segmentation run trained on tiles excepted (a client of the exported models restoring a
-predicted segmentation to its original image with data/preprocessing.py:restore_prediction_to_original_image, and
-grouping the keypoint candidates into objects with models/keypoints/keypoint_grouping.py:group_keypoint_candidates,
-neither being called here, the throughput measures reading no prediction), loading the local inference model of a
-run (with the decoding settings of a frame selector, decoded after it like in the Triton ensembles), sending requests
-to Triton over gRPC (optionally through shared memory), and measuring the throughput of the local and served models.
-Used by deployment/run_inference.py.
+model of any task (with the window of every image for the detectors and instance segmenters), a semantic segmentation
+run trained on tiles excepted (a client of the exported models restoring a predicted segmentation to its original image
+with data/preprocessing.py:restore_prediction_to_original_image, and grouping the keypoint candidates into objects with
+models/keypoints/keypoint_grouping.py:group_keypoint_candidates, neither being called here, the throughput measures
+reading no prediction), loading the local inference model of a run (with the decoding settings of a frame selector,
+decoded after it like in the Triton ensembles), sending requests to Triton over gRPC (optionally through shared memory)
+after checking that the served model takes the inputs of the requests, and measuring the throughput of the local and
+served models. Used by deployment/run_inference.py.
 """
 
 import os
@@ -20,15 +21,15 @@ from torch import nn
 from tqdm import tqdm
 from typing import Any, Dict, List, Optional, Tuple
 
-from vision_training.deployment.export_specifications import (SEQUENCE_TASKS, TASK_INPUT_NAMES,
-                                                              build_inference_model, convert_outputs_to_numpy,
-                                                              get_export_specification)
+from vision_training.deployment.export_specifications import (IMAGE_WINDOWS_INPUT_NAME, SEQUENCE_TASKS,
+                                                              TASK_INPUT_NAMES, build_inference_model,
+                                                              convert_outputs_to_numpy, get_export_specification)
 from vision_training.deployment.frame_selection_deployment import (DECODER_OUTPUT_TYPES, ENSEMBLE_MODEL_SUFFIX,
                                                                    build_decoding_settings)
 from vision_training.models.sequence.frame_selection_decoding import run_frame_selection
 from vision_training.trainers.checkpointing import get_checkpoint_path
 from vision_training.models.model_loading import load_trained_model
-from vision_training.data.preprocessing import preprocess_image, read_image
+from vision_training.data.preprocessing import compute_image_window, preprocess_image, read_image
 from vision_training.utilities.os_utilities import get_image_paths
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 
@@ -37,12 +38,13 @@ def load_inference_inputs(image_folder: Path, experiment_folder: Path) -> List[D
     """
     Reads and preprocesses the images of the inference folder like the data loaders of a run trained on whole images
     (preprocess_image: resize and centred padding to the square network input), so that the throughput of
-    run_inference.py is measured on the input the deployed model receives, and turns them into the requests sent to
-    the models of the run, keyed by input name: one image, or for the sequence tasks the whole folder as one sequence,
-    in the order of the image names. For the comparison, the first half of the images is the before member and the
-    second half the after member. A semantic segmentation run trained on tiles (Data.tiling) is refused: its loaders
-    scale the image and cut tiles of the network size, a photo needing many requests of one tile, while this function
-    would squeeze the whole image into a single tile and overstate the Images Per Second.
+    run_inference.py is measured on the input the deployed model receives, and turns them into the requests sent to the
+    models of the run, keyed by input name: one image (with its window in the network input for the detectors and
+    instance segmenters, compute_image_window), or for the sequence tasks the whole folder as one sequence, in the order
+    of the image names. For the comparison, the first half of the images is the before member and the second half the
+    after member. A semantic segmentation run trained on tiles (Data.tiling) is refused: its loaders scale the image and
+    cut tiles of the network size, a photo needing many requests of one tile, while this function would squeeze the
+    whole image into a single tile and overstate the Images Per Second.
 
     Args:
         image_folder (Path): The folder holding the images.
@@ -51,9 +53,10 @@ def load_inference_inputs(image_folder: Path, experiment_folder: Path) -> List[D
 
     Returns:
         List[Dict[str, np.ndarray]]: One request per image of the folder, the float32 BGR batch in [0, 255] of every
-            input of the task: {'images': [1, 3, image_size, image_size]}, or a single request {'images': [1, T, 3,
-            image_size, image_size]} for the sequence classification, labelling and frame selection, and the
-            'before_images' and 'after_images' members for the comparison.
+            input of the task: {'images': [1, 3, image_size, image_size]}, with the float32 'image_windows' [1, 4] of
+            the detectors and instance segmenters, or a single request {'images': [1, T, 3, image_size, image_size]}
+            for the sequence classification, labelling and frame selection, and the 'before_images' and
+            'after_images' members for the comparison.
 
     Raises:
         ValueError: If the run is a semantic segmentation trained on tiles, if a sequence or a member is longer than
@@ -73,14 +76,21 @@ def load_inference_inputs(image_folder: Path, experiment_folder: Path) -> List[D
     image_size = model_configuration["Data"]["image_settings"]["size"]
     keep_ratio = model_configuration["Data"]["image_settings"]["keep_ratio"]
 
-    # Every image in the channels first layout of the network
-    images = []
+    # Every image in the channels first layout of the network, with its window in the network input
+    images, image_windows = [], []
     for image_path in get_image_paths(folder=image_folder):
-        image = preprocess_image(image=read_image(image_path=image_path), image_size=image_size, keep_ratio=keep_ratio)
+        original_image = read_image(image_path=image_path)
+        image = preprocess_image(image=original_image, image_size=image_size, keep_ratio=keep_ratio)
         images.append(image.transpose(2, 0, 1).astype(np.float32))
+        image_windows.append(compute_image_window(image_height=original_image.shape[0],
+                                                  image_width=original_image.shape[1], image_size=image_size,
+                                                  keep_ratio=keep_ratio))
 
-    # Every image becomes a batch of one element for the image tasks
+    # Every image becomes a batch of one element for the image tasks, with its window for the detectors
     if task not in SEQUENCE_TASKS:
+        if IMAGE_WINDOWS_INPUT_NAME in TASK_INPUT_NAMES[task]:
+            return [{"images": image[None], IMAGE_WINDOWS_INPUT_NAME: image_window[None]}
+                    for image, image_window in zip(images, image_windows)]
         return [{"images": image[None]} for image in images]
 
     # The folder is one sequence, or split in two halves, the before and after members of the comparison
@@ -171,6 +181,29 @@ def get_served_model(specification: Dict[str, Any], export_format: str,
     return f"{model_name}{ENSEMBLE_MODEL_SUFFIX}", list(DECODER_OUTPUT_TYPES)
 
 
+def check_served_input_names(client: triton_client.InferenceServerClient, model_name: str,
+                             input_names: List[str]) -> None:
+    """
+    Checks that a model served by Triton takes the inputs of the requests of this client, before any request is sent,
+    so that a model exported before an input was added (a detector or instance segmenter exported before its
+    'image_windows' input) stops the client with the remedy rather than with the error of the first request.
+
+    Args:
+        client (triton_client.InferenceServerClient): The gRPC client of the Triton server.
+        model_name (str): The Triton model name.
+        input_names (List[str]): The input names of the requests, those of the export specification of the run.
+
+    Raises:
+        ValueError: If the served model takes other inputs.
+    """
+    served_input_names = [served_input.name for served_input in client.get_model_metadata(model_name=model_name).inputs]
+    if sorted(served_input_names) != sorted(input_names):
+        raise ValueError(f"The served model {model_name} takes the inputs {served_input_names}, the requests of this "
+                         f"client hold {input_names}: the model was exported by another version of the repository "
+                         f"(the detectors and instance segmenters take '{IMAGE_WINDOWS_INPUT_NAME}' since 2026-11-27). "
+                         f"Export the run again with vision_training/deployment/export_model.py.")
+
+
 def get_triton_output_names(client: triton_client.InferenceServerClient, model_name: str,
                             output_names: List[str]) -> List[str]:
     """
@@ -237,8 +270,8 @@ def run_triton_inference(inputs: Dict[str, np.ndarray], client: triton_client.In
     to read each of them.
 
     Args:
-        inputs (Dict[str, np.ndarray]): The float32 [B, 3, H, W] (or [B, T, 3, H, W]) batch of every input, keyed by
-            the input name of the served model.
+        inputs (Dict[str, np.ndarray]): The float32 [B, 3, H, W] (or [B, T, 3, H, W], or the [B, 4] image windows of
+            the detectors) batch of every input, keyed by the input name of the served model.
         client (triton_client.InferenceServerClient): The gRPC client of the Triton server.
         model_name (str): The Triton model name.
         output_names (List[str]): The served output names, from get_triton_output_names.
@@ -330,8 +363,8 @@ def measure_triton_throughput(inputs: List[Dict[str, np.ndarray]], model_name: s
                               use_shared_memory: bool, number_iterations: int, number_warmup_iterations: int) -> None:
     """
     Measures the raw throughput of a model served by Triton, one image (or sequence, or pair of sequences) per request,
-    the tqdm bar showing the requests per second. The first requests are left out, while TensorRT and CUDA are still
-    initialising.
+    the tqdm bar showing the requests per second, once the served model is checked to take the inputs of the requests
+    (check_served_input_names). The first requests are left out, while TensorRT and CUDA are still initialising.
 
     Args:
         inputs (List[Dict[str, np.ndarray]]): The requests, from load_inference_inputs, sent in turn.
@@ -345,6 +378,7 @@ def measure_triton_throughput(inputs: List[Dict[str, np.ndarray]], model_name: s
         number_warmup_iterations (int): The number of untimed requests made first.
     """
     client = triton_client.InferenceServerClient(url=url)
+    check_served_input_names(client=client, model_name=model_name, input_names=list(inputs[0]))
     served_output_names = get_triton_output_names(client=client, model_name=model_name, output_names=output_names)
 
     # One shared memory region sized for all the inputs of one request serves every request, when shared memory is

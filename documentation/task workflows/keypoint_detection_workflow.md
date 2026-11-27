@@ -803,7 +803,7 @@ triton_repository/
 └── keypoint_detector_torchscript/1/preprocessing.json      346 bytes
 ```
 
-**Example: `preprocessing.json`**, also the custom metadata of `model.onnx`
+**Example: `preprocessing.json`**, also the custom metadata of `model.onnx` (2026-11-12; version 3 adds `"input_image_windows": "none"`)
 ```text
 {"input_contract_version": "2", "input_color_order": "BGR", "input_resize": "keep_ratio", "input_size": "512",
  "input_interpolation": "linear", "input_padding_value": "0", "input_padding_placement": "centred",

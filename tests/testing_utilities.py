@@ -202,3 +202,20 @@ def build_test_model(dtype: torch.dtype, instance_segmentation: bool = False,
     model_class = InstanceSegmenter if instance_segmentation else TwoStageDetector
     model = model_class(configuration=configuration, device=device, dtype=dtype)
     return model.to(device=device, dtype=dtype).eval()
+
+
+def build_whole_input_windows(images: torch.Tensor) -> torch.Tensor:
+    """
+    Gives the image windows of a batch of square images filling the whole network input, [0, 0, S, S] for every image,
+    the windows the detector tests give with their random images (which have no padding), so that the detections are
+    clipped to the input as before the windows existed.
+
+    Args:
+        images (torch.Tensor): The [B, 3, S, S] images.
+
+    Returns:
+        torch.Tensor: The [B, 4] float32 windows, on the device of the images.
+    """
+    image_size = images.shape[-1]
+    return torch.tensor(data=[[0.0, 0.0, image_size, image_size]], dtype=torch.float32,
+                        device=images.device).expand(images.shape[0], -1).contiguous()

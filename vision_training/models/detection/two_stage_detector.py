@@ -648,13 +648,17 @@ class TwoStageDetector(TaskModel):
 
         return detection_output_dictionary
 
-    def forward(self, input_tensor: torch.Tensor, ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
+    def forward(self, input_tensor: torch.Tensor, image_windows: Optional[torch.Tensor] = None,
+                ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
                 ground_truth_labels: Optional[List[torch.Tensor]] = None) -> Dict[str, Any]:
         """
         Executes the forward pass of the TwoStageDetector, whose stages are run by forward_detection_stages.
 
         Args:
             input_tensor (torch.Tensor): The raw input image tensor of shape [Batch, Channels, Height, Width].
+            image_windows (Optional[torch.Tensor]): The [Batch, 4] [x1, y1, x2, y2] window of every image in the
+                network input (data/preprocessing.py:compute_image_window), to which the final detections are clipped,
+                needed in evaluation mode only.
             ground_truth_bounding_boxes (Optional[List[torch.Tensor]]): The ground truth boxes of every image, each of
                 shape [Num_GT, 4].
             ground_truth_labels (Optional[List[torch.Tensor]]): The ground truth labels of every image, each of shape
@@ -663,7 +667,7 @@ class TwoStageDetector(TaskModel):
         Returns:
             Dict[str, Any]: The model output dictionary described in forward_detection_stages.
         """
-        return self.forward_detection_stages(input_tensor=input_tensor,
+        return self.forward_detection_stages(input_tensor=input_tensor, image_windows=image_windows,
                                              ground_truth_bounding_boxes=ground_truth_bounding_boxes,
                                              ground_truth_labels=ground_truth_labels)["model_output_dictionary"]
 
@@ -681,7 +685,7 @@ class TwoStageDetector(TaskModel):
         """
         return []
 
-    def forward_detection_stages(self, input_tensor: torch.Tensor,
+    def forward_detection_stages(self, input_tensor: torch.Tensor, image_windows: Optional[torch.Tensor] = None,
                                  ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
                                  ground_truth_labels: Optional[List[torch.Tensor]] = None) -> Dict[str, Any]:
         """
@@ -693,6 +697,9 @@ class TwoStageDetector(TaskModel):
 
         Args:
             input_tensor (torch.Tensor): The raw input image tensor of shape [Batch, Channels, Height, Width].
+            image_windows (Optional[torch.Tensor]): The [Batch, 4] [x1, y1, x2, y2] window of every image in the
+                network input (data/preprocessing.py:compute_image_window), to which postprocess_detections clips the
+                final detections; needed in evaluation mode, unused in training mode.
             ground_truth_bounding_boxes (Optional[List[torch.Tensor]]): List containing ground truth boxes per image,
                 each of shape [Num_GT, 4].
             ground_truth_labels (Optional[List[torch.Tensor]]): List containing ground truth labels per image, each
@@ -711,7 +718,7 @@ class TwoStageDetector(TaskModel):
                 - "sliced_valid_mask" (torch.Tensor): Shape [Batch, Post_NMS_Proposals], False for the padding copies
                   of the region proposal filter, in the order of the head outputs.
                 - the final detections of postprocess_detections, in evaluation mode only, the padding copies giving
-                  none, as in the deployed InferenceDetector.
+                  none and the boxes clipped to the window of their image, as in the deployed InferenceDetector.
                 - "proposal_boxes", "proposal_levels" and "valid_proposal_mask" (torch.Tensor): The [Batch,
                   Post_NMS_Proposals, 4] filtered proposals, their level and the mask of the survivors of the
                   suppression, in evaluation mode only, Post_NMS_Proposals being capped by the pre-NMS count and the
@@ -720,7 +727,15 @@ class TwoStageDetector(TaskModel):
                 - "region_proposal_localisation_loss" (Optional[torch.Tensor]): Scalar loss (if training).
                 - "detection_classification_loss" (Optional[torch.Tensor]): Scalar loss (if training).
                 - "detection_regression_loss" (Optional[torch.Tensor]): Scalar loss (if training).
+
+        Raises:
+            ValueError: If the image windows are missing in evaluation mode.
         """
+        # The final detections of the evaluation mode are clipped to the windows, which must then be given
+        if not self.training and image_windows is None:
+            raise ValueError("The detector needs the image_windows of its images in evaluation mode, the [B, 4] window "
+                             "of every image in the network input (compute_image_window), to clip its detections.")
+
         # Pass the raw image through the backbone to extract the multiscale feature maps, the skip outputs of the mask
         # heads kept apart from the detection levels
         final_backbone_tensor, backbone_output_tensor_dictionary = self.backbone(input_tensor=input_tensor)
@@ -777,14 +792,15 @@ class TwoStageDetector(TaskModel):
             detection_batch_indices=aggregated_detections_dictionary["sliced_batch_indices"],
             prediction_tensors_dictionary=aggregated_detections_dictionary)
 
-        # At inference, turn the raw head outputs into the final thresholded, per-class NMS filtered detections, with
-        # the greedy NMS or DIoU-NMS of 'Detector.nms_criterion', the padding copies of the proposal filter masked as
-        # in the deployed detector, since the NMS cannot remove identical boxes at a threshold of 1.0 nor empty boxes
+        # At inference, turn the raw head outputs into the final thresholded, per-class NMS filtered detections clipped
+        # to the window of their image, with the greedy NMS or DIoU-NMS of 'Detector.nms_criterion', the padding copies
+        # of the proposal filter masked as in the deployed detector, since the NMS cannot remove identical boxes at a
+        # threshold of 1.0 nor empty boxes
         if not self.training:
             model_output_dictionary.update(postprocess_detections(
                 classification_scores=model_output_dictionary["classification_scores"],
                 detection_boxes=model_output_dictionary["detection_boxes"],
-                valid_proposal_mask=model_output_dictionary["sliced_valid_mask"],
+                valid_proposal_mask=model_output_dictionary["sliced_valid_mask"], image_windows=image_windows,
                 score_threshold=self.detection_score_threshold, nms_iou_threshold=self.detection_nms_iou_threshold,
                 nms_criterion=self.detection_nms_criterion, nms_distance_exponent=self.detection_nms_distance_exponent,
                 maximum_detections=self.maximum_detections, input_image_size=self.input_image_size,

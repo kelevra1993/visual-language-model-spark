@@ -300,7 +300,7 @@ The inputs and outputs of every model are listed in the [README](../../README.md
 
 **Semantic segmentation (SEG).** `restore_prediction_to_original_image` (`vision_training/data/preprocessing.py`) brings outputs back to the original image. A run trained on tiles takes one tile: the client scales the image and calls `segment_image_by_tiles` (`vision_training/models/segmentation/sliding_window.py`).
 
-**Instance segmentation (INS).** The client restores the boxes with `restore_boxes_to_original_image(..., clip=False)`, pastes the masks with `paste_instance_masks` (`vision_training/models/instance_segmentation/mask_operations.py`), and keeps pixels at or above `MaskHead.inference.mask_threshold`.
+**Object detection (DET) and instance segmentation (INS).** The client sends every image with its window, `compute_image_window` (`vision_training/data/preprocessing.py`), and the model clips its boxes to it. It restores the boxes with `restore_boxes_to_original_image`. For INS, it pastes the masks into the restored boxes with `paste_instance_masks` (`vision_training/models/instance_segmentation/mask_operations.py`) and keeps pixels at or above `MaskHead.inference.mask_threshold`. A model exported before the windows takes `images` only: `check_served_input_names` (`vision_training/deployment/deployment_utilities.py`) refuses it and asks for a new export.
 
 **Keypoint detection (KPT).** The model gives keypoint candidates per channel, which the client groups:
 1. Preprocess the image with `preprocess_image` and send it.
@@ -360,7 +360,7 @@ Should a server need to build the input of an exported model from a photo, it re
 
 | Key | Values | Meaning |
 |---|---|---|
-| `input_contract_version` | `2` | A server refuses a version it does not know. |
+| `input_contract_version` | `3` | A server refuses a version it does not know. |
 | `input_color_order` | `BGR` | As `cv2.imread` decodes it, 8 bits, rotated by its EXIF orientation; 16 bit files are divided by 256. |
 | `input_resize` | `stretch`, `keep_ratio`, `tiles` | `stretch`: both sides to the input size. `keep_ratio`: longest side to the input size, the other to `max(1, round(side * size / longest side))`, then padded. `tiles` (SEG with tiling): scaled, padded, cut into overlapping tiles. |
 | `input_size` | a positive integer | Side of the square input or tile, `Data.image_settings.size`. |
@@ -371,6 +371,7 @@ Should a server need to build the input of an exported model from a photo, it re
 | `input_tile_overlap` | a non-negative integer, `none` | `Data.tiling.overlap`, pixels shared by two tiles (`tiles` only). |
 | `input_layout` | `NCHW`, `NTCHW` | Frames after the batch for M2O, M2M, CMP, SEL; tiles form the batch. |
 | `input_value_range` | `0-255` | uint8 pixels cast to float32 without scaling. |
+| `input_image_windows` | `resized_photo`, `none` | `resized_photo` (DET, INS): the second input `image_windows`, [B, 4] float32 [x1, y1, x2, y2] of the resized photo in the input, the whole input for `stretch`. `none`: no such input. |
 
 Every value is read from the run configuration or the preprocessing code, never by hand. When a run uses an input the contract cannot describe, the export stops before writing any file and names the setting.
 
@@ -388,7 +389,7 @@ If you are looking for a server-side implementation, `build_input_from_contract`
 Should you need to know what an export costs in test metrics before it is served, `--test_split_parity` of `export_model.py` scores every exported format on the whole test split (`run_test_split_parity` of `vision_training/deployment/export_parity.py`). The usual export check uses random inputs, the [TensorRT check](#tensorrt-check) running the engine on them only.
 - **Before**: the export stops when no Triton container can start (`check_triton_available`).
 - **Rows**: the eager inference model first, as reference, then every format served by its own container on free ports (`export-parity-triton-<process>`). Every row runs even when a format failed the random check.
-- **Requests**: the task's test evaluation with `predict_batch` replaced by `predict_exported_batch`, in batches of `maximum_batch_size`. Detectors are scored at `Detector.inference.score_threshold`, the deployment threshold.
+- **Requests**: the task's test evaluation with `predict_batch` replaced by `predict_exported_batch`, in batches of `maximum_batch_size`, with the window of every image for DET and INS. Detectors are scored at `Detector.inference.score_threshold`, the deployment threshold.
 - **Samples**: each request also goes through the eager model, and each sample is compared with the tolerances of the random check (`compare_request_outputs`).
 - **Stored evaluation**: the `evaluation_summary.csv` row of the iteration is shown next to the rows, except for DET, INS, and a classifier exported at a temperature other than 1.
 - **Failed rows**: a model Triton cannot load or run is recorded with its error and server log, and the server restarts for the other rows.
