@@ -292,7 +292,7 @@ DetectionLevels:
 Neck:
   # "none" (heads read the blocks), "feature_pyramid" (top-down path from the coarse levels, kept by the detection
   # benchmark) or "path_aggregation" (the feature pyramid, then a bottom-up path from the fine levels).
-  type: "feature_pyramid"
+  type: "path_aggregation"
   # Channels of every level after the neck, read by the heads (unused with "none").
   output_channels: 32
   normalization:

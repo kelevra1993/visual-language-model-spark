@@ -81,7 +81,7 @@ In case you rebuild the detection data, note that the splits were converted once
 - 29 % of validation boxes share their object with another class (Man, Person; Tire, Wheel), so detecting one leaves the others missed.
 
 #### Detection Configurations
-Should you launch the Open Images pretraining of a size, use the `configuration_<size>_model.yaml` files of `vision_training/configurations/object_detection/`. Each takes the classification backbone of its size with a block 7 equal to block 6, and neck channels of 32, 64 or 128. They have 4.5 M, 16.8 M and 65.2 M parameters. They share these settings:
+Should you launch the Open Images pretraining of a size, use the `configuration_<size>_model.yaml` files of `vision_training/configurations/object_detection/`. Each takes the classification backbone of its size with a block 7 equal to block 6, and a path aggregation neck of 32, 64 or 128 channels. They have 4.5 M, 17.1 M and 66.4 M parameters. Path aggregation tied with the feature pyramid in stage 4 of the detection benchmark; it is kept here for the context its bottom-up path brings to a large dataset. They share these settings:
 - 1024 pixel images, aspect ratio kept, batch size 16, GPU memory about 12, 22 and 42 GB for S, M and L.
 - Levels 3 to 7 (strides 8, 16, 32, 64, 64), 3 anchor scales and 5 ratios (0.25 to 4) per level.
 - Adam at 1e-3, constant until stopped (`number_iterations: 1e10`), moving average 0.9998.
