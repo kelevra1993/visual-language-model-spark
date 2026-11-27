@@ -444,6 +444,22 @@ uv run python -m vision_training.deployment.export_model
 
 # Export iteration 2000 of a run with its averaged weights, TensorRT in FP16
 uv run python -m vision_training.deployment.export_model --experiment_folder ~/Data/<run> --iteration 2000 --use_averaged_weights --tensorrt_precision FP16
+
+# Every argument and the values it takes, the default in brackets
+#   --experiment_folder <run folder>          the run, with Weights and training_configuration.yaml (required)
+#   --iteration <n>                           checkpoint to export (the last saved one)
+#   --use_averaged_weights                    export the averaged weights instead of the trained ones
+#   --formats torchscript onnx                one or both (both)
+#   --repository <folder>                     Triton model repository (vision_training/deployment/triton/served_models)
+#   --model_version <n>                       version folder of the models (1)
+#   --maximum_batch_size <n>                  largest batch Triton sends (16)
+#   --tensorrt_precision FP32 | FP16 | None   TensorRT engine of model.onnx, None for ONNX Runtime CUDA (FP32)
+#   --torchscript_precision FP32 | FP16       model.pt, or model_fp16.pt at half the size (FP32)
+#   --use_saved_temperature                   classifier: build in the temperature and thresholds saved in the explorer
+#   --saved_thresholds_path <json file>       with --use_saved_temperature, another saved thresholds file
+#   --test_split_parity                       also score every format, served by Triton, on the whole test split
+#   --skip_tensorrt_check                     install without running the TensorRT engine (no Docker or GPU needed)
+#   --show_warnings                           show the harmless library warnings
 ```
 
 With a TensorRT precision, the export also builds and runs the engine in a temporary Triton container, so Docker and a GPU are needed; `--skip_tensorrt_check` skips it. The export refuses a keypoint detector with TensorRT (an FP16 overflow, a crash in FP32): use `--tensorrt_precision None`. The TensorRT FP32 engines of the tutorial sequence models do not build beyond batch 1 (item 41 of `documentation/suggestions.md`).
