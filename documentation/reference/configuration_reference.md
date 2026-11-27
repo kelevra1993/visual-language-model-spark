@@ -93,6 +93,10 @@ The sections `Data.view_augmentation` and `ClassificationHead.view_losses`, remo
 - A file holding another value than the fixed one of a setting the code no longer trains (`RECORD_ONLY_SETTINGS`: `RegionProposal.box_loss` `"complete_iou"`, run_13 to run_16 of the detection benchmark, an `Optimization.gradient_clipping_norm` other than `null`, held by no saved run, `RegionProposal.anchor_centres` `"cell_centres"`, run_23 and run_24, and `MaskHead.mask_scoring.activated` `True`, held by no saved run) is reported and left as it is, its runs staying as records, the other files being converted.
 - `write_files = False` only lists the files to convert.
 
+<p align="center">
+  <img src="../../README/configuration_rejected.png" width="100%" />
+</p>
+
 ### Checking Without Training
 Whenever a pipeline has to decide whether a configuration file can start a training, `vision_training/check_configuration.py` runs the loading and the checks of a training (`prepare_experiment_configuration` of `vision_training/configuration_processing/configuration_loader.py`) on every file given, without building a model or a loader:
 
@@ -293,3 +297,10 @@ With `ExperimentConfiguration.tracking.activated: True`, every run is recorded i
 - The `test_class/` metrics, the macro ROC AUC and average precision, and the curve and confusion images need `evaluation.per_class_report: True`. The files are always sent.
 - MLflow writes `@` as `_at_` and `[0.5:0.95]` as `0.5-0.95` in the metric names.
 - `scripts/evaluation/evaluate_checkpoint.py` logs its evaluations in a run of their own, `<run name>-evaluation`.
+
+Whenever a result needs explaining, open its run: the page keeps the last value of every metric and the tags of the run, among them its folder, its transferred components, the git commit, whether the tree held uncommitted changes and the best iteration.
+
+<p align="center">
+  <img src="../../README/mlflow_run_page.png" width="100%" />
+</p>
+<p align="center"><em>The page of the best of the four, at the learning rate 0.0002.</em></p>

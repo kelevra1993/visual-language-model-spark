@@ -108,6 +108,12 @@ fingerprint changed: a changed configuration value or sentence costs one scene, 
 did not change is kept with its narration check, and a full build of unchanged storyboards takes seconds. The first
 build on a new machine, or after a change of the drawing code, fonts, libraries or Chrome, draws every scene once.
 
+Each time a build ends, it writes `index.html` next to the series folders: one player per series, with its chapters and their scenes as links to their start.
+
+<p align="center">
+  <img src="../README/tutorial_index_page.png" width="100%" />
+</p>
+
 ## Updating The Tutorials
 Every two to four weeks, or after a change of the code they show:
 1. `tutorials/build_tutorials.sh --check-references`: every key, function, file and command the storyboards quote that no longer exists is listed, with every number typed by hand. Update the storyboards (their excerpts, configuration values and constants follow the files by themselves, only renamed keys and functions need an edit).

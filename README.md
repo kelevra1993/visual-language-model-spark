@@ -13,20 +13,18 @@
 - [Quick Start With Synthetic Data](#quick-start-with-synthetic-data)
 - [Training](#training)
   - [Launching A Run](#launching-a-run)
+  - [Configurations](#configurations)
   - [Run Folder](#run-folder)
+  - [Run Names](#run-names)
   - [Stopping And Resuming](#stopping-and-resuming)
   - [Console And TensorBoard](#console-and-tensorboard)
+  - [MLflow Tracking](#mlflow-tracking)
   - [Augmentation And Diagnosis Modes](#augmentation-and-diagnosis-modes)
   - [Moving Average Of The Weights](#moving-average-of-the-weights)
+  - [Transfer Between Runs](#transfer-between-runs)
 - [Tasks](#tasks)
   - [Label Files](#label-files)
-- [Transfer Between Runs](#transfer-between-runs)
 - [Evaluating Checkpoints](#evaluating-checkpoints)
-- [Comparing Launches](#comparing-launches)
-- [Clustering Image Embeddings](#clustering-image-embeddings)
-- [Configurations](#configurations)
-- [Run Names](#run-names)
-- [MLflow Tracking](#mlflow-tracking)
 - [Tutorials](#tutorials)
 - [Deployment](#deployment)
   - [From A Checkpoint To A Served Model](#from-a-checkpoint-to-a-served-model)
@@ -149,6 +147,18 @@ uv run python -m vision_training.main --configuration_path="vision_training/conf
 </p>
 <p align="center"><em>The run name decides the folder, and the last checkpoint of that folder decides between a new run and a resume.</em></p>
 
+### Configurations
+Every task has a `configuration_example.yaml` and a `configuration_synthetic_*.yaml`, each key explained by its comment ([every key](documentation/reference/configuration_reference.md#configurations)). Four sections are shared by every task:
+
+<p align="center">
+  <img src="README/configuration_sections.png" width="100%" />
+</p>
+
+```bash
+# Check configurations without training, e.g. in a pipeline (exit code 1 when one is invalid)
+uv run python -m vision_training.check_configuration --configuration_path="vision_training/configurations/classification/configuration_synthetic_shapes.yaml" --check_paths
+```
+
 ### Run Folder
 Whenever a training starts, it writes to `<experiment_folder>/<run name>/` ([every file](documentation/reference/training_reference.md#run-folder)):
 
@@ -164,6 +174,13 @@ Whenever a training starts, it writes to `<experiment_folder>/<run name>/` ([eve
 
 <p align="center">
   <img src="README/run_folder_schedule.png" width="100%" />
+</p>
+
+### Run Names
+To keep runs of different settings apart, the run name is built from the configuration: the same settings resume in the same folder, changed ones start a new one ([every token](documentation/reference/configuration_reference.md#run-names)).
+
+<p align="center">
+  <img src="README/run_name_decoded.png" width="100%" />
 </p>
 
 ### Stopping And Resuming
@@ -189,6 +206,18 @@ uv run tensorboard --logdir <experiment_folder>/<run name>/Tensorboard
   <img src="README/tensorboard.png" width="100%" />
 </p>
 
+### MLflow Tracking
+If you are looking for one table of every run, set `ExperimentConfiguration.tracking.activated` ([metrics and tags](documentation/reference/configuration_reference.md#mlflow-tracking)):
+
+```bash
+# Runs of the experiment folder, on http://localhost:5000
+uv run mlflow ui --backend-store-uri sqlite:///<experiment_folder>/mlflow.db
+```
+
+<p align="center">
+  <img src="README/mlflow_runs.png" width="100%" />
+</p>
+
 ### Augmentation And Diagnosis Modes
 Suppose a run learns nothing: first look at what the network receives. `Data.data_augmentation` sets the types below ([strengths](documentation/reference/training_reference.md#data-augmentation)).
 
@@ -211,6 +240,28 @@ If one wishes to score a smoothed model, `Optimization.exponential_moving_averag
   <img src="README/moving_average_of_the_weights.png" width="100%" />
 </p>
 <p align="center"><em>The reference pair of the object detection benchmark: the averaged weights lead the trained ones at every evaluation.</em></p>
+
+### Transfer Between Runs
+To start from a trained component, such as an ImageNet backbone for a detector, give its run in the `pretrained` block of the section ([components and rules](documentation/reference/training_reference.md#transfer-between-runs)):
+
+```yaml
+Backbone:
+  pretrained:
+    # Run folder whose trained backbone initialises this run
+    experiment_folder: "/path/to/experiments/CLS_IN-KAR-256_SE-RES-BN-B1x64.2x64.2x64.4x64.5x64.5x64_HFLAT.512.256-HLN-CWB_MC1000"
+    # Checkpoint iteration of that run, null for its last saved checkpoint
+    iteration: null
+    # Keeps the loaded backbone fixed, only the other components learn
+    freeze: False
+    # Keeps the scale and shift of its normalization layers fixed while its convolutions learn
+    freeze_normalization_parameters: False
+    # Fine-tunes the loaded backbone ten times slower than the new layers
+    learning_rate_multiplier: 0.1
+```
+
+<p align="center">
+  <img src="README/transfer_between_runs.png" width="100%" />
+</p>
 
 ## Tasks
 Say you bring your own data: start from the `configuration_example.yaml` of the task.
@@ -235,209 +286,32 @@ Say you bring your own data: start from the `configuration_example.yaml` of the 
 ### Label Files
 Before a first launch on your own data, read the label file examples of your task in its reference. `class_folder_manifests.py` (one folder per class) and `pair_list_manifests.py` (CMP pair lists) write them for you.
 
-## Transfer Between Runs
-To be able to start from a trained component, such as a backbone trained on ImageNet for a detector, give its run in the `pretrained` block of the section, the source run being of the same task or of another one:
-
-| Section | Component | From the tasks |
-|---|---|---|
-| `Backbone` | backbone | any task |
-| `TemporalModel` | temporal module | M2O, M2M, CMP, SEL |
-| `ClassificationHead` | classification head, with its class layer when `class_layer` is True | CLS, M2O, M2M, CMP, SEL |
-| `SegmentationDecoder` | U-Net decoder, with its class layers when `class_layers` is True | SEG |
-| `RegionProposal` | region proposal heads of every detection level | DET, INS |
-| `Detector` | detection heads of every detection level, with their classification and box regression layers when `class_layers` is True | DET, INS |
-| `MaskHead` | mask heads of every detection level, with their mask prediction layers when `class_layers` is True | INS |
-| `HRNet`, `KeypointHead` | high resolution network, heatmap and tag head, with its last heatmap and tag convolutions when `class_layers` is True | KPT |
-
-<p align="center">
-  <img src="README/transfer_between_runs.png" width="100%" />
-</p>
-
-```yaml
-Backbone:
-  pretrained:
-    # Run folder whose trained backbone initialises this run
-    experiment_folder: "/path/to/experiments/CLS_IN-KAR-256_SE-RES-BN-B1x64.2x64.2x64.4x64.5x64.5x64_HFLAT.512.256-HLN-CWB_MC1000"
-    # Checkpoint iteration of that run, null for its last saved checkpoint
-    iteration: null
-    # Keeps the loaded backbone fixed, only the other components learn
-    freeze: False
-    # Keeps the scale and shift of its normalization layers fixed while its convolutions learn
-    freeze_normalization_parameters: False
-    # Fine-tunes the loaded backbone ten times slower than the new layers
-    learning_rate_multiplier: 0.1
-```
-
-The settings defining the layers of the component must be identical in both runs (checked before the training; the image size may differ), and the averaged weights of the source are loaded when both runs keep a moving average. A backbone may also be shorter than its source backbone, loading its first blocks (the stem of a keypoint detector), or deeper, its first blocks loaded from a shorter source backbone of the same blocks: the blocks after them start random and learn at the learning rate of the run, `freeze`, `freeze_normalization_parameters` and `learning_rate_multiplier` applying to the loaded blocks only. A component with class layers can initialise a run with more classes: every source class must be a class of the new run, either first in the same order or anywhere under the same name, its rows moving to the index of that name. A classification head with `class_layer: False` (the default) loads its hidden layers only, its class layer starting random, so that the hidden layers of an ImageNet head serve a run of unrelated classes; `freeze` and `learning_rate_multiplier` then apply to the hidden layers only. The detection, mask and keypoint heads do the same with `class_layers: False` (the default), their class layers (keypoint channel layers) starting random, so that heads trained on other classes or keypoints serve any run of the task. The detection heads read the levels after the neck, which is not transferable, so they only move between runs whose `Neck.type` is `none`. Details: [training reference](documentation/reference/training_reference.md#transfer-between-runs).
-
 ## Evaluating Checkpoints
-Each time the checkpoints of a trained run must be scored again (another labelled split, another batch size, or for DET and INS another final NMS), set the variables of the main block of `scripts/evaluation/evaluate_checkpoint.py` (`run_name`, `experiment_folder`, `iteration` as `None` for the last checkpoint, a number or `"all"`, `test_data_folder`, ...), then run:
+Each time the checkpoints of a run must be scored again (another split, batch size or NMS), set the main block of `scripts/evaluation/evaluate_checkpoint.py` ([details](documentation/reference/tools_reference.md#evaluating-checkpoints)):
 
 ```bash
+# Writes into <run>/Checkpoint_Evaluation/, the training files left untouched
 uv run python -m scripts.evaluation.evaluate_checkpoint
 ```
-
-It writes into `<run>/Checkpoint_Evaluation/` (`Checkpoint_Evaluation_split_<parent folder>_<split folder>/` for another split, such as `Checkpoint_Evaluation_split_synthetic_shapes_validation`, and `Checkpoint_Evaluation_nms_<criterion>[_<exponent>]/` for another NMS, so that two evaluations never mix), leaving the files of the training untouched: every evaluated checkpoint adds its row to `evaluation_summary.csv` and draws `evaluation_curves.png` again, as during the training, the rows of the earlier launches into the same folder being kept, and the best of the evaluated checkpoints is printed, `"all"` evaluating every checkpoint. A run without checkpoint, or an `iteration` without one, stops the script with a `FileNotFoundError` before it writes anything. A classifier evaluation also keeps `class_logits.npz` for its temperature explorer ([Export](#export)), and `save_predictions = True` writes the `predictions.csv` of every evaluated sample. Details: [tools reference](documentation/reference/tools_reference.md#evaluating-checkpoints).
 
 <p align="center">
   <img src="README/checkpoint_evaluation_folder.png" width="100%" />
 </p>
 
-To find where a classifier fails, read its confusion matrix (counts coloured by their share of the true class, precision and recall in the margins; above 1,000 classes no image is drawn, and `confusion_cells.csv` lists the non-zero cells as `true_class,predicted_class,count` in place of `confusion_matrix.csv`), then the misclassified images saved in `Errors/<true>-TO-<predicted>/` (at most `maximum_error_images_per_class_pair` per pair), named after the sample and the probability of the predicted class.
+Other tools read a run folder:
 
-<p align="center">
-  <img src="README/confusion_matrix.png" width="80%" />
-</p>
-
-<p align="center">
-  <img src="README/evaluation_error_images.png" width="100%" />
-</p>
-<p align="center"><em>The confusion matrix of the 35 classes of the synthetic shapes classifier of the README screenshots, evaluated at iteration 2000 (accuracy 81.76 %), and the error folders of its three largest confusions: hollow parallelograms read as hollow trapezoids, trapezoids as parallelograms and rectangles as squares.</em></p>
-
-Should a research report need the figures of its kept classifier again, set the run, iteration and weights of the main block of `scripts/evaluation/draw_report_figures.py`, then run the command below. It writes into `Checkpoint_Evaluation/Iteration_<n>[/EMA]/Report_Figures/` the confusion matrix, the precision-recall curves at the temperature saved from the temperature explorer with the threshold of every target precision, the training curves with the kept checkpoint and, given a manifest of the group of every image (such as the camera or vehicle it comes from) and the `predictions.csv` of the evaluation, the balanced accuracy on the groups seen and never seen in training, with `report_values.json`, the numbers they show. Details: [tools reference](documentation/reference/tools_reference.md#drawing-the-figures-of-a-research-report).
-
-```bash
-uv run python -m scripts.evaluation.draw_report_figures
-```
-
-<p align="center">
-  <img src="README/report_precision_recall_curves.png" width="90%" />
-</p>
-
-<p align="center">
-  <img src="README/report_training_curves.png" width="80%" />
-</p>
-<p align="center"><em>The precision-recall curves and the training curves drawn for the classifier above at iteration 2000 (test balanced accuracy 81.65 %), the curves shown for the first nine of its 35 classes (the script draws one panel per class): a dot marks the threshold reaching 99 % precision, reached by these nine and never by trapezoid, hollow parallelogram and hollow kite, at a logit temperature of 1 since no temperature was saved. The confusion matrix of the report is the one shown above; the chart of the groups needs a group manifest, which the synthetic shapes do not have.</em></p>
-
-Suppose a kept classifier must find a rare class among a million unlabelled images: `scripts/evaluation/score_image_split.py` runs only the forward pass of one checkpoint over every image of a split, decoded by many loader workers through the test dataset of the run, and writes the probability of every class to a predictions file with the columns of `predictions.csv`. It scores the images in the order of the `labels.json` of the split, stops before the next batch once `--time_budget_hours` has passed, and a new launch on the same file scores only the images it does not hold yet. Details: [tools reference](documentation/reference/tools_reference.md#scoring-a-large-split).
-
-```bash
-uv run python -m scripts.evaluation.score_image_split --experiment_folder <run> --iteration 2000 \
-    --test_data_folder <split> --output_path <predictions.csv> --precision bfloat16 --time_budget_hours 3
-```
-
-## Comparing Launches
-After the launches of a hyperparameter stage have trained, three scripts of `scripts/evaluation/` compare them:
-- `collect_experiment_results.py` gathers the test curve and the swept settings of the `run_<n>` launches into one CSV file, with a `mean` row per setting.
-- `compare_best_evaluations.py` prints Markdown tables of the best test evaluation of runs, over the trained and the averaged weights.
-- `plot_experiment_comparisons.py` draws one figure per stage of the plans of `documentation/architecture_benchmarking`, from the stages of `experiment_comparisons.yaml`.
-
-<p align="center">
-  <img src="README/comparing_launches_flow.png" width="100%" />
-</p>
-
-```bash
-uv run python -m scripts.evaluation.collect_experiment_results
-uv run python -m scripts.evaluation.compare_best_evaluations
-uv run python -m scripts.evaluation.plot_experiment_comparisons
-```
-
-Before trusting a gap between two settings, compare it with the spread of the launches of each: in the repeated squeeze-and-excitation stage below, six launches per setting overlap, and the means differ by 0.21 points for a standard error of 1.11 points.
-
-<p align="center">
-  <img src="README/launch_comparison_stage_figure.png" width="80%" />
-</p>
-
-Their settings: [tools reference](documentation/reference/tools_reference.md#comparing-launches).
-
-## Clustering Image Embeddings
-Faced with a dataset of video frames, many of them nearly identical, `scripts/embedding/cluster_image_embeddings.py` embeds the images with a trained run and clusters them (HDBSCAN, DBSCAN or k-means after a PCA). For every asked layer it writes the clusters, their mosaics and three folders of kept images to compare (chosen by the clustering, drawn at random, spread over the groups of `group_pattern`); the stored features are reused by a relaunch.
-
-```bash
-uv run python -m scripts.embedding.cluster_image_embeddings
-```
-
-<p align="center">
-  <img src="README/embedding_clusters.png" width="100%" />
-</p>
-<p align="center"><em>A run on 720 synthetic shapes, one folder for each of nine of the 35 classes: the clusters follow what the layer of the classifier separates, one cluster for each of six shapes, the stars split in two and the rectangles shared between a cluster of their own and the cluster of the squares.</em></p>
-
-Its settings and outputs: [tools reference](documentation/reference/tools_reference.md#clustering-image-embeddings).
-
-## Configurations
-Before writing a configuration of your own, start from a copy of the files of its task: every task has a `configuration_example.yaml` and a `configuration_synthetic_*.yaml` in `vision_training/configurations/<task>/`, holding only, and all, the keys the task reads, each explained by its comment. Four sections are shared by every task, the others belong to the task:
-
-<p align="center">
-  <img src="README/configuration_sections.png" width="100%" />
-</p>
-
-`Data.image_settings.size` must be even and a multiple of 2 to the power of the number of max poolings of `Backbone`, so that no pooling drops a row or a column: with 5 poolings, 96, 224, 384 and 512 are accepted. Should a file break such a rule, the launch prints every problem at once and stops, here for a negative learning rate and a size of 500:
-
-<p align="center">
-  <img src="README/configuration_rejected.png" width="100%" />
-</p>
-
-For a pipeline to refuse a file before it launches a training, `vision_training/check_configuration.py` loads and checks one or several files as a training does, without training: an invalid file prints the list above, a valid one a green line with its run name, and the command exits with 0 when every file is valid, 1 otherwise. `--check_paths` also requires the data folders, the label mapping file and the pretrained runs a new training reads, not `experiment_folder`, which the training creates:
-
-```bash
-uv run python -m vision_training.check_configuration --configuration_path="vision_training/configurations/classification/configuration_synthetic_shapes.yaml" --check_paths
-```
-
-The keys and values of every task, and what the check reads, are in the [configuration reference](documentation/reference/configuration_reference.md#configurations).
-
-## Run Names
-To keep runs of different settings apart, `vision_training/configuration_processing/run_name.py` builds the run name from the configuration, so that the same settings resume in the same folder and changed settings start a new one. Sections are joined with `_` and their tokens with `-`; `ExperimentConfiguration.run_name_suffix` accepts letters, digits, `-` and `.`.
-
-<p align="center">
-  <img src="README/run_name_decoded.png" width="100%" />
-</p>
-<p align="center"><em>A classification run whose backbone starts from another run, decoded token by token with the setting each token comes from.</em></p>
-
-Each name below is the one `build_run_name()` gives the configuration of its row (in `vision_training/configurations/`), the class count of a synthetic file being that of the label mapping `create_synthetic_dataset.py` writes:
-
-| Task | Configuration | Run name |
+| To ... | Script | Details |
 |---|---|---|
-| CLS | `classification/configuration_synthetic_shapes.yaml` | `CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HFLAT.128-HLN-CWB_MC35` |
-| DET | `object_detection/configuration_example.yaml` | `DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567-NFPN64BN_A9.32-512.598295_RBN-R2x64-RPL_DSE-DRES-DBN-D7.2x64.256.128_BIN` |
-| M2O | `sequence_classification/configuration_synthetic_sequences.yaml` | `M2O_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4` |
-
-Every token and an example of every task are in the [configuration reference](documentation/reference/configuration_reference.md#run-names).
-
-## MLflow Tracking
-If you are looking for one table of every run, sorted and filtered by any setting, turn on `ExperimentConfiguration.tracking.activated`: each training is recorded in `<experiment_folder>/mlflow.db`, its files in `<experiment_folder>/mlartifacts/`, with its configuration, git commit, curves averaged every `information_dump` iterations and test metrics, a resumed training continuing its MLflow run. Open http://localhost:5000 after:
-
-```bash
-uv run mlflow ui --backend-store-uri sqlite:///<experiment_folder>/mlflow.db
-```
-
-<p align="center">
-  <img src="README/mlflow_runs.png" width="100%" />
-</p>
-<p align="center"><em>The four learning rates of the 9-class synthetic shapes classifier of the README screenshots, sorted by test accuracy.</em></p>
-
-Whenever a result needs explaining, open its run: the page keeps the last value of every metric and the tags of the run, among them its folder, its transferred components, the git commit, whether the tree held uncommitted changes and the best iteration.
-
-<p align="center">
-  <img src="README/mlflow_run_page.png" width="100%" />
-</p>
-<p align="center"><em>The page of the best of the four, at the learning rate 0.0002.</em></p>
-
-The per-iteration curves stay in TensorBoard, and the checkpoints and the sample and error images of the evaluations are not sent, unlike the input samples of a launch. The metrics and files of every task are in the [configuration reference](documentation/reference/configuration_reference.md#mlflow-tracking).
+| draw the figures of a research report | `scripts/evaluation/draw_report_figures.py` | [tools reference](documentation/reference/tools_reference.md#drawing-the-figures-of-a-research-report) |
+| score a large unlabelled split | `scripts/evaluation/score_image_split.py` | [tools reference](documentation/reference/tools_reference.md#scoring-a-large-split) |
+| compare the launches of a hyperparameter stage | `scripts/evaluation/collect_experiment_results.py`, `compare_best_evaluations.py`, `plot_experiment_comparisons.py` | [tools reference](documentation/reference/tools_reference.md#comparing-launches) |
+| cluster near-identical images | `scripts/embedding/cluster_image_embeddings.py` | [tools reference](documentation/reference/tools_reference.md#clustering-image-embeddings) |
 
 ## Tutorials
-If you would rather watch than read, narrated tutorial videos (the 13 series of `tutorials/storyboards/series.yaml`: an overview, a foundations series, one series per task and a deployment series) are rebuilt from the storyboards, figure scripts and builder of `tutorials/`, the videos being written outside the repository (`~/Data/tutorial_videos` by default).
+If you would rather watch than read, narrated videos cover every task; `tutorials/README.md` explains how to rebuild them.
 
 <p align="center">
   <img src="README/tutorial_scenes.gif" width="100%" />
-</p>
-<p align="center"><em>Three scenes of the built videos: the receptive field of the backbone (Foundations), the anchors of block 5 then of blocks 6 and 7 (Object Detection) and the Hungarian decoding (Frame Selection), each naming the file and function it shows.</em></p>
-
-To be able to rebuild the videos, `tutorials/README.md` describes the build and how to write a chapter:
-
-```bash
-# Rebuild every series, or one, or only check the storyboards against the repository
-tutorials/build_tutorials.sh
-tutorials/build_tutorials.sh --series object_detection
-tutorials/build_tutorials.sh --check-references
-
-# On a machine without the runs: build from their committed snapshots
-tutorials/build_tutorials.sh --experiments-folder tutorials/run_snapshots
-```
-
-Each time a build ends, it writes `index.html` next to the series folders: one player per series, with its chapters and their scenes as links to their start.
-
-<p align="center">
-  <img src="README/tutorial_index_page.png" width="100%" />
 </p>
 
 ## Deployment
