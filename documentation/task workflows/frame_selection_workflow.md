@@ -58,10 +58,10 @@ Whenever a part of the task has to change, this table gives the file holding it 
 In order to generate the dataset, then train, evaluate and export the task, run these commands from the root of the repository after setting the values of their main blocks and of the configuration.
 
 ```bash
-# Dataset: set task = "frame_selection" in the main block of vision_training/data/synthetic/create_synthetic_dataset.py,
-# whose image_sizes and split_sizes give 256 pixel frames, 2,000 / 200 / 200 sequences of 4 to 12 frames, one shape
-# per frame, written into the required dataset folder
-uv run python -m vision_training.data.synthetic.create_synthetic_dataset --output_folder="$HOME/Data/sequence_data/synthetic_selected_shapes"
+# Dataset: the frame_selection task of vision_training/data/synthetic/create_synthetic_dataset.py, whose image_sizes and
+# split_sizes give 256 pixel frames, 2,000 / 200 / 200 sequences of 4 to 12 frames, one shape per frame, written into
+# the required dataset folder
+uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=frame_selection --output_folder="$HOME/Data/sequence_data/synthetic_selected_shapes"
 
 # Training, after setting experiment_folder, the three data folders and Data.label_mapping.mapping_file_path
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/frame_selection/configuration_synthetic_sequences.yaml"

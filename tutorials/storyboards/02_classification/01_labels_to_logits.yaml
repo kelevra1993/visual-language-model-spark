@@ -96,17 +96,17 @@ scenes:
     code_reference: "vision_training/data/synthetic/create_synthetic_dataset.py · create_synthetic_dataset"
     # Ten rows at most fit in the terminal window: one comment for the training and the evaluation
     lines:
-      - {role: comment, text: "# One shape per {{classification.generator.image_size}} pixel image: task = \"classification\" in the main block"}
-      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset --output_folder=~/Data/classifier_data/synthetic_shapes"}
+      - {role: comment, text: "# One shape per {{classification.generator.image_size}} pixel image: the classification task, given as an argument"}
+      - {role: command, text: "uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=classification --output_folder=~/Data/classifier_data/synthetic_shapes"}
       - {role: comment, text: "# Training once its folders and mapping file are set, then any checkpoint scored again"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/classification/configuration_synthetic_shapes.yaml\""}
       - {role: command, text: "uv run python -m scripts.evaluation.evaluate_checkpoint"}
-      - {role: comment, text: "# Several shapes per image, multi_label: task = \"multi_label_classification\" in the main block"}
+      - {role: comment, text: "# Several shapes per image, multi_label: generated with --task=multi_label_classification"}
       - {role: command, text: "uv run python -m vision_training.main --configuration_path=\"vision_training/configurations/classification/configuration_synthetic_counted_shapes.yaml\""}
     narration:
-      - "With task set to classification in its main block, the synthetic data set script draws one shape per {{classification.generator.image_size}} pixel image, and this run trains on {{classification.data.train_images:,}} of them, of {{classification.data.class_count:words}} classes, with {{classification.data.validation_images:,}} for validation and {{classification.data.test_images:,}} for test."
+      - "With classification as its task argument, the synthetic data set script draws one shape per {{classification.generator.image_size}} pixel image, and this run trains on {{classification.data.train_images:,}} of them, of {{classification.data.class_count:words}} classes, with {{classification.data.validation_images:,}} for validation and {{classification.data.test_images:,}} for test."
       - "The training takes the synthetic configuration once its folders and mapping file are set, and the evaluate checkpoint script scores any checkpoint again, with the error images when asked."
-      - "To try the multi label mode, the task multi label classification draws {{constant:vision_training/data/synthetic/create_synthetic_dataset.py#LABELLING_MINIMUM_OBJECTS:words}} to {{classification.generator.multi_label_maximum_objects:words}} shapes per image, each labelled with the distinct classes of its shapes, and the counted shapes configuration trains on them."
+      - "To try the multi label mode, the generator given the multi label classification task draws {{constant:vision_training/data/synthetic/create_synthetic_dataset.py#LABELLING_MINIMUM_OBJECTS:words}} to {{classification.generator.multi_label_maximum_objects:words}} shapes per image, each labelled with the distinct classes of its shapes, for the counted shapes configuration."
 
   - kind: html
     page: diagram

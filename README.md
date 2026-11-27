@@ -114,7 +114,7 @@ uv run python --version
 
 Besides the dependencies, `uv sync` installs the `dev` group (pytest) and the `datasets` group (FiftyOne, for `data_retriever.py`), both left out of the Docker image.
 
-Every script runs as a module from the repository root. The training and the [configuration check](#configurations) (`vision_training.check_configuration`) take `--configuration_path`, the task being read from the file, and the [synthetic dataset script](#quick-start-with-synthetic-data) takes the `--output_folder` of the dataset; most other scripts take no arguments, their settings being the variables of their `if __name__ == "__main__":` block.
+Every script runs as a module from the repository root. The training and the [configuration check](#configurations) (`vision_training.check_configuration`) take `--configuration_path`, the task being read from the file, and the [synthetic dataset script](#quick-start-with-synthetic-data) takes the `--task` and the `--output_folder` of the dataset; most other scripts take no arguments, their settings being the variables of their `if __name__ == "__main__":` block.
 
 <p align="center">
   <img src="README/scripts_and_requirements.png" width="100%" />
@@ -131,28 +131,28 @@ Should the backbones of classification, object detection or segmentation start f
 
 ## Quick Start With Synthetic Data
 In order to check the installation or a configuration within minutes, every task has a synthetic shapes dataset:
-1. Set `task` in the main block of `vision_training/data/synthetic/create_synthetic_dataset.py`, then run it with the root folder of the dataset, which is required and receives the `train`, `validation` and `test` folders and `label_mapping.json` (existing splits of the same names are overwritten). A panel describes each split once written (its samples, the count of every class, its generation time) and a closing panel gives the label mapping file and the time of every split.
+1. Run `vision_training/data/synthetic/create_synthetic_dataset.py` with the task of the dataset (`--task`, its value for every configuration in the table below) and its root folder (`--output_folder`), both required; the folder receives the `train`, `validation` and `test` folders and `label_mapping.json` (existing splits of the same names are overwritten), the image size, split sizes and shapes per image of every task staying in its main block. A panel describes each split once written (its samples, the count of every class, its generation time) and a closing panel gives the label mapping file and the time of every split.
 2. In the synthetic configuration of the task (table below, in `vision_training/configurations/`), point the three data folders and `Data.label_mapping.mapping_file_path` to the `train`, `validation` and `test` folders and the `label_mapping.json` of the generated dataset, and `experiment_folder` to the folder receiving the runs, all as absolute paths: a configuration expands neither `~` nor `$HOME`.
 3. Train with that configuration.
 
 ```bash
-uv run python -m vision_training.data.synthetic.create_synthetic_dataset --output_folder="$HOME/Data/classifier_data/synthetic_shapes"
+uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=classification --output_folder="$HOME/Data/classifier_data/synthetic_shapes"
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/classification/configuration_synthetic_shapes.yaml"
 ```
 
-| Task | Synthetic dataset | Configuration |
-|---|---|---|
-| CLS | one of 35 shapes per image | `classification/configuration_synthetic_shapes.yaml` |
-| CLS (multi-label) | 5 to 10 shapes per image labelled with their distinct classes (`task = "multi_label_classification"`) | `classification/configuration_synthetic_counted_shapes.yaml` |
-| DET | the INS images (`task = "object_detection"` generates the 1024 pixel images of 5 to 12 shapes of the detection benchmark) | `object_detection/configuration_synthetic_shapes.yaml` |
-| INS | 5 to 6 shapes per image with their masks | `instance_segmentation/configuration_synthetic_shapes.yaml` |
-| KPT | 2 to 5 objects per image (shapes, stick figure, house) with their keypoints | `keypoint_detection/configuration_synthetic_shapes.yaml` |
-| SEG | 5 to 6 shapes per image with their class mask | `semantic_segmentation/configuration_synthetic_shapes.yaml` |
-| M2O | one shape moving left, right, up or down over 2 to 12 frames | `sequence_classification/configuration_synthetic_sequences.yaml` |
-| M2M | 5 to 10 shapes per frame, at most one appearing or disappearing per frame | `sequence_labelling/configuration_synthetic_sequences.yaml` |
-| CMP | a before and an after member, the after one having lost a shape or not | `sequence_comparison/configuration_synthetic_pairs.yaml` |
-| SEL | one shape per frame, the largest circle, triangle and star to select | `frame_selection/configuration_synthetic_sequences.yaml` |
-| SSL | the CLS dataset, or 5 to 10 counted shapes per image | `self_supervised/configuration_synthetic_shapes.yaml`, `configuration_counted_shapes_simclr.yaml`, `configuration_counted_shapes_barlow_twins.yaml` |
+| Task | `--task` | Synthetic dataset | Configuration |
+|---|---|---|---|
+| CLS | `classification` | one of 35 shapes per image | `classification/configuration_synthetic_shapes.yaml` |
+| CLS (multi-label) | `multi_label_classification` | 5 to 10 shapes per image labelled with their distinct classes | `classification/configuration_synthetic_counted_shapes.yaml` |
+| DET | `instance_segmentation` | the INS images (`--task=object_detection` generates the 1024 pixel images of 5 to 12 shapes of the detection benchmark) | `object_detection/configuration_synthetic_shapes.yaml` |
+| INS | `instance_segmentation` | 5 to 6 shapes per image with their masks | `instance_segmentation/configuration_synthetic_shapes.yaml` |
+| KPT | `keypoint_detection` | 2 to 5 objects per image (shapes, stick figure, house) with their keypoints | `keypoint_detection/configuration_synthetic_shapes.yaml` |
+| SEG | `semantic_segmentation` | 5 to 6 shapes per image with their class mask | `semantic_segmentation/configuration_synthetic_shapes.yaml` |
+| M2O | `sequence_classification` | one shape moving left, right, up or down over 2 to 12 frames | `sequence_classification/configuration_synthetic_sequences.yaml` |
+| M2M | `sequence_labelling` | 5 to 10 shapes per frame, at most one appearing or disappearing per frame | `sequence_labelling/configuration_synthetic_sequences.yaml` |
+| CMP | `sequence_comparison` | a before and an after member, the after one having lost a shape or not | `sequence_comparison/configuration_synthetic_pairs.yaml` |
+| SEL | `frame_selection` | one shape per frame, the largest circle, triangle and star to select | `frame_selection/configuration_synthetic_sequences.yaml` |
+| SSL | `classification`, `self_supervised` | the CLS dataset, or 5 to 10 counted shapes per image | `self_supervised/configuration_synthetic_shapes.yaml`, `configuration_counted_shapes_simclr.yaml`, `configuration_counted_shapes_barlow_twins.yaml` |
 
 Should you need to know what a model of these datasets has to cope with, every task draws its shapes the same way: sizes from 16 pixels up to 80 % of the image side (as many per scale octave; the regular polygons from the size at which they stay distinct from the circle, 21 pixels for the pentagon to 67 for the nonagon, and the keypoint objects from 32 pixels), the small shapes over the large ones, shapes cut by the image border, half of the images and sequences on a textured background, and a fifth of the shapes of a flat background in a colour close to it. The labels follow what the image shows: the DET, INS and KPT labels leave out the shapes mostly hidden, and the other tasks keep 85 % of the pixels of every shape visible ([tasks reference](documentation/reference/tasks_reference.md#synthetic-datasets)).
 

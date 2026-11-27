@@ -66,10 +66,9 @@ If you are looking for the code of a step, these are the files of the task and t
 In order to generate, train, evaluate and export the synthetic shapes segmenter from scratch, run these commands from the root of the repository, after setting the values of their main blocks.
 
 ```bash
-# 1. Synthetic dataset: in the main block of vision_training/data/synthetic/create_synthetic_dataset.py, set
-#    task = "semantic_segmentation" (50,000 / 200 / 200 images of 512 pixels with up to 6 shapes and their class
-#    masks, the 35 shapes and the background), the dataset folder being required
-uv run python -m vision_training.data.synthetic.create_synthetic_dataset --output_folder="$HOME/Data/segmentation_data/synthetic_shapes"
+# 1. Synthetic dataset: the semantic_segmentation task (50,000 / 200 / 200 images of 512 pixels with up to 6 shapes
+#    and their class masks, the 35 shapes and the background), its task and dataset folder being required
+uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=semantic_segmentation --output_folder="$HOME/Data/segmentation_data/synthetic_shapes"
 
 # 2. Training: set experiment_folder, the three data folders and Data.label_mapping.mapping_file_path first, and
 #    number_iterations, 1e10 in this file (2000 for the 9-class run of experiments/readme_screenshots, trained on

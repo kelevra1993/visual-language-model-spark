@@ -10,9 +10,10 @@ what the image shows: the detection labels leave out the shapes mostly hidden, a
 counts, compares or names their shapes are drawn again until every shape is visible enough. The counted shapes images of
 the self-supervised and multi-label configurations are drawn like the sequence labelling frames, so that their backbone
 can initialise the sequence labelling model, and the occlusion test split of the detection benchmark overlaps its
-objects more, partly in overlapping pairs of a class. Run as a script with the task set in its main block and the root
-folder of the dataset given by the required --output_folder argument; the console describes every split in a rich panel
-(its samples, the count of every class, its generation time) and closes with a panel of the whole dataset.
+objects more, partly in overlapping pairs of a class. Run as a script with the required --task and --output_folder
+arguments (the task and the root folder of the dataset), the image size, split sizes and shapes per image of every task
+being set in its main block; the console describes every split in a rich panel (its samples, the count of every class,
+its generation time) and closes with a panel of the whole dataset.
 """
 
 import argparse
@@ -3621,30 +3622,33 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
 
 
 if __name__ == "__main__":
-    # Root folder of the created dataset, required on the command line so that every machine writes where its data
-    # lives: the folder the train, validation and test folders and label_mapping.json go to, which the data folders and
-    # the mapping file of the synthetic configuration of the task then point to. Existing images and labels of the same
-    # splits are overwritten
-    argument_parser = argparse.ArgumentParser(description="Creates the synthetic shapes dataset of the task set in the "
-                                                          "main block.")
-    argument_parser.add_argument("--output_folder", type=str, required=True,
-                                 help="Root folder of the created dataset, e.g. "
-                                      "~/Data/classifier_data/synthetic_shapes for the classification.")
-    arguments = argument_parser.parse_args()
-    output_folder = os.path.abspath(os.path.expanduser(arguments.output_folder))
-
-    # Task of the dataset: "object_detection" (several shapes per image), "instance_segmentation" (several shapes per
-    # image, with the visible part of every shape), "keypoint_detection" (several upright shapes per image, with the
-    # keypoints of every shape), "classification" (one shape per image),
-    # "semantic_segmentation" (several shapes per image, with the class mask of every image),
-    # "sequence_classification" (one shape crossing the frames, labelled with its movement direction),
+    # Task of the dataset, required on the command line so that no file is edited to switch task: "object_detection"
+    # (several shapes per image), "instance_segmentation" (several shapes per image, with the visible part of every
+    # shape), "keypoint_detection" (several upright shapes per image, with the keypoints of every shape),
+    # "classification" (one shape per image), "semantic_segmentation" (several shapes per image, with the class mask of
+    # every image), "sequence_classification" (one shape crossing the frames, labelled with its movement direction),
     # "sequence_labelling" (5 to 10 shapes per frame, a shape appearing or disappearing from one frame to the next,
     # labelled per frame), "sequence_comparison" (a before and an after sequence of the same objects, labelled with
     # whether the after member lost one of them), "frame_selection" (one shape per frame, the largest circle,
     # triangle and star being the frames to select), "self_supervised" (5 to 10 shapes per image drawn like a
     # sequence labelling frame, labelled with their number of shapes and keeping the classes of their shapes) or
     # "multi_label_classification" (the same images, labelled with the distinct classes of their shapes)
-    task = "classification"
+    argument_parser = argparse.ArgumentParser(description="Creates the synthetic shapes dataset of a task, the image "
+                                                          "size, split sizes and shapes per image of every task being "
+                                                          "set in the main block.")
+    argument_parser.add_argument("--task", type=str, required=True, choices=list(TASK_SAMPLE_NAMES),
+                                 help="Task of the dataset, e.g. classification.")
+    # Root folder of the created dataset, required on the command line so that every machine writes where its data
+    # lives: the folder the train, validation and test folders and label_mapping.json go to, which the data folders and
+    # the mapping file of the synthetic configuration of the task then point to. Existing images and labels of the same
+    # splits are overwritten
+    argument_parser.add_argument("--output_folder", type=str, required=True,
+                                 help="Root folder of the created dataset, e.g. "
+                                      "~/Data/classifier_data/synthetic_shapes for the classification.")
+    arguments = argument_parser.parse_args()
+    task = arguments.task
+    output_folder = os.path.abspath(os.path.expanduser(arguments.output_folder))
+
     # Height and width of the square images in pixels, for every task
     image_sizes = {"object_detection": 1024, "instance_segmentation": 512, "keypoint_detection": 512,
                    "classification": 512, "semantic_segmentation": 512,

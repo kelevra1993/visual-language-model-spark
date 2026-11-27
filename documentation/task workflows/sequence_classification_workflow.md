@@ -70,10 +70,9 @@ Should you need to change one step of the task, this table names the file and th
 Before a first run of the task, the moving shapes are generated once, then the run is trained and its checkpoints evaluated with the three commands below.
 
 ```bash
-# 1. Synthetic dataset: in the main block of vision_training/data/synthetic/create_synthetic_dataset.py, set
-#    task = "sequence_classification" (2,000 / 200 / 200 sequences of 2 to 12 frames of 512 pixels, one shape moving
-#    left, right, up or down across the frames), the dataset folder being required
-uv run python -m vision_training.data.synthetic.create_synthetic_dataset --output_folder="$HOME/Data/sequence_data/synthetic_moving_shapes"
+# 1. Synthetic dataset: the sequence_classification task (2,000 / 200 / 200 sequences of 2 to 12 frames of 512
+#    pixels, one shape moving left, right, up or down across the frames), its task and dataset folder being required
+uv run python -m vision_training.data.synthetic.create_synthetic_dataset --task=sequence_classification --output_folder="$HOME/Data/sequence_data/synthetic_moving_shapes"
 
 # 2. Training: set experiment_folder, the three data folders and Data.label_mapping.mapping_file_path first
 uv run python -m vision_training.main --configuration_path="vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml"
