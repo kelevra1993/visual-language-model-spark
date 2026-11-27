@@ -487,6 +487,9 @@ S is `Data.image_settings.size`, K the number of classes, T the number of frames
 
 Whenever a client sends a photo to a detector or an instance segmenter, it also sends `image_windows`, the [x1, y1, x2, y2] region of the resized photo in the input (`compute_image_window` of `vision_training/data/preprocessing.py`). The model clips its boxes to it, so no box reaches the padding. The evaluation clips them the same way.
 
+The export also writes one file next to the model:
+- `detection_score_thresholds.json` (detectors and instance segmenters): the score threshold built into the model for every class. It is the threshold of `class_thresholds.json` of the exported checkpoint, or `Detector.inference.score_threshold` for a class that never reaches the target precision.
+
 A detector or instance segmenter exported before 2026-11-27 takes `images` only: the clients of the repository refuse it, export the run again.
 
 > [!WARNING]

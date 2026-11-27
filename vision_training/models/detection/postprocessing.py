@@ -1,6 +1,6 @@
 """
 Final postprocessing of the object detector: class probabilities, background removal, boxes clipped to the window of
-their image, score threshold, per-class batched non-maximum suppression,
+their image, score threshold (one for all the classes or one per class), per-class batched non-maximum suppression,
 greedy on the IoU or DIoU-NMS ('Detector.nms_criterion'), and a fixed number of detections per image, vectorised so that
 both suppressions export, the greedy one of the exported detections and proposals through the custom operator
 suppress_stacked_groups, which the ONNX export writes without coordinate offsets. Shared by the TwoStageDetector at
@@ -346,7 +346,7 @@ def suppress_every_pair_by_distance(boxes: torch.Tensor, scores: torch.Tensor, c
 
 def postprocess_detections(classification_scores: torch.Tensor, detection_boxes: torch.Tensor,
                            valid_proposal_mask: torch.Tensor, image_windows: torch.Tensor,
-                           score_threshold: float, nms_iou_threshold: float, nms_criterion: str,
+                           score_threshold: float | torch.Tensor, nms_iou_threshold: float, nms_criterion: str,
                            nms_distance_exponent: float, maximum_detections: int, input_image_size: int,
                            suppress_candidates_only: bool) -> Dict[str, torch.Tensor]:
     """
@@ -375,7 +375,9 @@ def postprocess_detections(classification_scores: torch.Tensor, detection_boxes:
             the order of its head outputs, and the padding slots of the exportable inference path.
         image_windows (torch.Tensor): The [B, 4] [x1, y1, x2, y2] window of every image in network input pixels, the
             whole input [0, 0, S, S] for an image filling it.
-        score_threshold (float): The minimum class probability of a returned detection.
+        score_threshold (float | torch.Tensor): The minimum class probability of a returned detection, one number for
+            every class, or a [C - 1] tensor of one threshold per foreground class (the class thresholds of the
+            deployed detectors, InferenceDetector.class_score_thresholds).
         nms_iou_threshold (float): The criterion above which a lower scoring box of the same class is suppressed: the
             IoU, or the Distance-IoU of "distance_iou".
         nms_criterion (str): One of NMS_CRITERIA, "iou" for the greedy NMS of torchvision or "distance_iou" for
@@ -412,11 +414,13 @@ def postprocess_detections(classification_scores: torch.Tensor, detection_boxes:
     labels = torch.arange(start=1, end=number_classes, device=classification_scores.device)
     labels = labels.repeat(number_proposals).unsqueeze(dim=0).expand(batch_size, -1)
 
-    # Candidates that can become detections: the pairs of valid proposals reaching the score threshold
+    # Candidates that can become detections: the pairs of valid proposals reaching the score threshold of their class,
+    # the threshold of every class broadcast over the [B, P, C - 1] pairs
     batch_indices = torch.arange(end=batch_size, device=classification_scores.device).unsqueeze(dim=1).expand_as(labels)
     group_indices = batch_indices * number_classes + labels
     valid_candidate_mask = valid_proposal_mask.unsqueeze(dim=-1).expand(-1, -1, number_classes - 1)
-    candidate_mask = (probabilities >= score_threshold) & valid_candidate_mask.reshape(batch_size, -1)
+    threshold_mask = probabilities.reshape(batch_size, number_proposals, number_classes - 1) >= score_threshold
+    candidate_mask = (threshold_mask & valid_candidate_mask).reshape(batch_size, -1)
 
     # Suppress overlapping boxes of the same class and image with a single NMS call over the whole batch. The eager
     # path only gives it the candidates: a box below the threshold never suppresses a higher scoring one, so the

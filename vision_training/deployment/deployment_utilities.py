@@ -21,11 +21,13 @@ from torch import nn
 from tqdm import tqdm
 from typing import Any, Dict, List, Optional, Tuple
 
+from vision_training.deployment.detection_deployment import apply_class_score_thresholds
 from vision_training.deployment.export_specifications import (IMAGE_WINDOWS_INPUT_NAME, SEQUENCE_TASKS,
                                                               TASK_INPUT_NAMES, build_inference_model,
                                                               convert_outputs_to_numpy, get_export_specification)
 from vision_training.deployment.frame_selection_deployment import (DECODER_OUTPUT_TYPES, ENSEMBLE_MODEL_SUFFIX,
                                                                    build_decoding_settings)
+from vision_training.models.detection.inference_detector import InferenceDetector
 from vision_training.models.sequence.frame_selection_decoding import run_frame_selection
 from vision_training.trainers.checkpointing import get_checkpoint_path
 from vision_training.models.model_loading import load_trained_model
@@ -116,7 +118,8 @@ def load_local_inference_model(experiment_folder: Path, iteration: Optional[int]
     """
     Loads the trained weights of an experiment of any task into the inference model of its task on the GPU, the same
     network as the exported models but run in this process, as the reference for the speed of the served models,
-    with the export specification giving the Triton model names and outputs.
+    with the export specification giving the Triton model names and outputs. A detector or instance segmenter gets the
+    score threshold of every class of the evaluation of the checkpoint, as its export (apply_class_score_thresholds).
 
     Args:
         experiment_folder (Path): The trained experiment holding 'Weights' and 'training_configuration.yaml'.
@@ -132,6 +135,11 @@ def load_local_inference_model(experiment_folder: Path, iteration: Optional[int]
     model = load_trained_model(configuration_path=configuration_path, checkpoint_path=checkpoint_path,
                                device=torch.device("cuda"), use_averaged_weights=False)
     inference_model = build_inference_model(task=experiment_configuration["task"], model=model)
+
+    # Score thresholds of the classes of a detector, those its export builds in
+    if isinstance(inference_model, InferenceDetector):
+        apply_class_score_thresholds(inference_model=inference_model, experiment_folder=experiment_folder,
+                                     checkpoint_path=checkpoint_path, use_averaged_weights=False)
     return inference_model, get_export_specification(task=experiment_configuration["task"],
                                                      inference_model=inference_model)
 

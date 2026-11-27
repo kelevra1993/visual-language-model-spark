@@ -17,7 +17,7 @@ from vision_training.deployment.triton_configuration import format_dimensions, g
 from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
 from vision_training.models.sequence import frame_selection_decoding
 from vision_training.models.sequence.frame_selection_decoding import get_wanted_class_indices
-from vision_training.trainers.base_trainer import EVALUATION_FOLDER_NAME
+from vision_training.trainers.base_trainer import AVERAGED_WEIGHTS_FOLDER_NAME, EVALUATION_FOLDER_NAME
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Suffixes of the Triton names of the decoder model, after the model name of the task, and of the ensembles, after the
@@ -30,7 +30,8 @@ DECODER_BACKEND_PATH = Path(__file__).absolute().parent / "frame_selection_decod
 DECODING_MODULE_PATH = Path(frame_selection_decoding.__file__).absolute()
 DECODING_SETTINGS_FILE = "decoding_settings.json"
 
-# Confidence thresholds of the chosen frames, written by the evaluation of a checkpoint in its iteration folder
+# Confidence thresholds of the chosen frames, and score thresholds of the classes of the detectors, written by the
+# evaluation of a checkpoint in its iteration folder
 THRESHOLDS_FILE_NAME = "class_thresholds.json"
 
 # Input of the decoder (the output of the exported frame selector), and its outputs with their Triton data types, in
@@ -41,17 +42,22 @@ DECODER_OUTPUT_TYPES = {"selected_frames": "TYPE_INT64", "selected_probabilities
                         "candidate_probabilities": "TYPE_FP32"}
 
 
-def find_class_thresholds_path(experiment_folder: Path, checkpoint_path: Path) -> Optional[Path]:
+def find_class_thresholds_path(experiment_folder: Path, checkpoint_path: Path,
+                               use_averaged_weights: bool) -> Optional[Path]:
     """
-    Finds the confidence thresholds of the evaluation of an exported frame selection checkpoint, deployed with its
-    decoder: 'class_thresholds.json' in the folder of its iteration, '<run>/Evaluation/Iteration_<n>/' (evaluation of
-    the training) or '<run>/Checkpoint_Evaluation/Iteration_<n>/' (scripts/evaluation/evaluate_checkpoint.py), so that
-    a checkpoint evaluated after its training is deployed with its thresholds too. At most one of them may hold the
-    file, so that the deployed thresholds are never taken from another evaluation than the one chosen.
+    Finds the thresholds of the evaluation of an exported checkpoint: the confidence thresholds of a frame selector,
+    deployed with its decoder, or the score thresholds of the classes of a detector or instance segmenter, built into
+    its export (deployment/detection_deployment.py): 'class_thresholds.json' in the folder of its iteration,
+    '<run>/Evaluation/Iteration_<n>/' (evaluation of the training) or '<run>/Checkpoint_Evaluation/Iteration_<n>/'
+    (scripts/evaluation/evaluate_checkpoint.py), so that a checkpoint evaluated after its training is deployed with its
+    thresholds too, in its 'EMA' subfolder for the averaged weights. At most one of them may hold the file, so that the
+    deployed thresholds are never taken from another evaluation than the one chosen.
 
     Args:
         experiment_folder (Path): The exported run folder.
         checkpoint_path (Path): The exported checkpoint, '<run>/Weights/Iteration_<n>/model_<n>.pt'.
+        use_averaged_weights (bool): True to read the evaluation of the moving average of the weights (the 'EMA'
+            subfolder of the iteration folder), False for the trained weights.
 
     Returns:
         Optional[Path]: The thresholds of the exported checkpoint, or None when it was never evaluated.
@@ -59,8 +65,11 @@ def find_class_thresholds_path(experiment_folder: Path, checkpoint_path: Path) -
     Raises:
         ValueError: If both evaluation folders hold thresholds for the iteration of the checkpoint.
     """
-    # Folder of the iteration in the evaluation folder of the training, then in the one of the evaluation script
-    candidate_paths = [experiment_folder / evaluation_folder_name / checkpoint_path.parent.name / THRESHOLDS_FILE_NAME
+    # Folder of the iteration and weights in the evaluation folder of the training, then in the one of the evaluation
+    # script
+    weights_folders = [AVERAGED_WEIGHTS_FOLDER_NAME] if use_averaged_weights else []
+    candidate_paths = [Path(experiment_folder, evaluation_folder_name, checkpoint_path.parent.name, *weights_folders,
+                            THRESHOLDS_FILE_NAME)
                        for evaluation_folder_name in [EVALUATION_FOLDER_NAME, CHECKPOINT_EVALUATION_FOLDER_NAME]]
     found_paths = [candidate_path for candidate_path in candidate_paths if candidate_path.is_file()]
     if len(found_paths) > 1:
@@ -101,8 +110,10 @@ def build_decoding_settings(experiment_configuration: Dict[str, Any], model_conf
     wanted_class_indices = get_wanted_class_indices(number_classes=number_classes,
                                                     unselected_class_index=unselected_class_index)
 
-    # Thresholds of the evaluation of the checkpoint, by its training or by scripts/evaluation/evaluate_checkpoint.py
-    thresholds_path = find_class_thresholds_path(experiment_folder=experiment_folder, checkpoint_path=checkpoint_path)
+    # Thresholds of the evaluation of the trained weights of the checkpoint, by its training or by
+    # scripts/evaluation/evaluate_checkpoint.py
+    thresholds_path = find_class_thresholds_path(experiment_folder=experiment_folder, checkpoint_path=checkpoint_path,
+                                                 use_averaged_weights=False)
     if thresholds_path is not None:
         thresholds = json.loads(s=thresholds_path.read_text())
         class_names = list(thresholds["classes"])

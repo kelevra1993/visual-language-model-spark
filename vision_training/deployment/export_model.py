@@ -2,14 +2,16 @@
 Exports a trained experiment of any task to the Triton model repository as TorchScript (its network in FP32 or FP16)
 and ONNX (optionally run with TensorRT), writes the Triton configurations and checks every export against the eager
 inference model, in a staging folder moved into the repository only when every format matches, adding for the frame
-selection the decoder and the ensembles returning the chosen frames, and for the classification the logit temperature
-and the class thresholds saved from the temperature explorer of the exported checkpoint. Every exported model carries
-the input contract of the run (deployment/input_contract.py), in the metadata of the ONNX file and in
-'preprocessing.json' next to it, so that a server builds the input from a photo as the training did. An ONNX model
-served with TensorRT is also checked as Triton will run it (deployment/tensorrt_check.py): in FP16, a CPU scan of its
-graph for values above the largest FP16 value, then, unless skip_tensorrt_check, its engine built and run by a
-temporary Triton container on the check batches, compared with the eager model. With test_split_parity, every
-format is also served by a temporary Triton container and scored on the whole test split against the eager model
+selection the decoder and the ensembles returning the chosen frames, for the classification the logit temperature and
+the class thresholds saved from the temperature explorer of the exported checkpoint, and for the object detection and
+instance segmentation the score threshold of every class found by the evaluation of the exported checkpoint (built into
+the model and recorded in 'detection_score_thresholds.json'). Every exported model carries the input contract of the
+run (deployment/input_contract.py), in the metadata of the ONNX file and in 'preprocessing.json' next to it, so that a
+server builds the input from a photo as the training did. An ONNX model served with TensorRT is also checked as Triton
+will run it (deployment/tensorrt_check.py): in FP16, a CPU scan of its graph for values above the largest FP16 value,
+then, unless skip_tensorrt_check, its engine built and run by a temporary Triton container on the check batches,
+compared with the eager model. With test_split_parity, every format is also served by a temporary Triton container and
+scored on the whole test split against the eager model
 (deployment/export_parity.py), the summary written to '<run>/Export_Parity/Iteration_<n>[_EMA][_T<temperature>]_
 <precisions>/' and next to the installed models. Run as a script with the run folder and the export settings given as
 arguments (parse_export_arguments), its help printed when none is given.
@@ -30,6 +32,8 @@ from torch import nn
 from typing import Any, Dict, List, Optional
 
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
+from vision_training.deployment.detection_deployment import (apply_class_score_thresholds,
+                                                             write_deployed_thresholds_file)
 from vision_training.deployment.export_formats import (convert_to_half_precision, export_onnx, export_torchscript,
                                                        hide_known_export_warnings)
 from vision_training.deployment.export_parity import run_test_split_parity, write_parity_summary
@@ -51,6 +55,7 @@ from vision_training.evaluation.classification.temperature_explorer import (SAVE
                                                                             check_saved_thresholds)
 from vision_training.trainers.base_trainer import AVERAGED_WEIGHTS_FOLDER_NAME, EVALUATION_FOLDER_NAME
 from vision_training.trainers.checkpointing import get_checkpoint_path, get_last_checkpoint_iteration
+from vision_training.models.detection.inference_detector import InferenceDetector
 from vision_training.models.model_loading import load_trained_model
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
@@ -375,7 +380,12 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
     divides its class logits by the temperature saved from the temperature explorer of the exported checkpoint
     (find_saved_thresholds_path, or saved_thresholds_path given by the export button of the page, then
     read_saved_temperature), the saved thresholds being copied next to every exported model as 'class_thresholds.json';
-    without it, by 1, without thresholds. Every exported model carries the input contract of the run
+    without it, by 1, without thresholds. A detector or instance segmenter keeps the detections of every class from
+    the score threshold of the class in the 'class_thresholds.json' of the evaluation of the exported checkpoint and
+    weights, or from 'Detector.inference.score_threshold' when the class never reached the target precision or the
+    checkpoint was never evaluated (apply_class_score_thresholds), set before the reference outputs so that every check
+    covers them, printed and recorded in 'detection_score_thresholds.json' next to the model of every format. Every
+    exported model carries the input contract of the run
     (build_input_contract), written into the 'metadata_props' of the ONNX file and as 'preprocessing.json' next to the
     model of every format, the export stopping before any file is written when the contract cannot describe the input
     of the run. Every format is exported and checked in a staging folder next to the repository, and the models
@@ -427,7 +437,8 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
             use_saved_temperature is set for another task than the classification, or the saved thresholds are
             ambiguous or do not belong to the exported checkpoint, or saved_thresholds_path is given without
             use_saved_temperature, or the input contract cannot describe the input of the run (another
-            interpolation, padding, placement or channel order).
+            interpolation, padding, placement or channel order), or both evaluation folders hold the
+            'class_thresholds.json' of an exported detector or instance segmenter.
     """
     # A misspelled format or precision stops the export here, before the checkpoint is loaded
     check_export_settings(formats=formats, model_version=model_version, maximum_batch_size=maximum_batch_size,
@@ -501,6 +512,14 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
                 print_color(color="blue", output=f"Logit Temperature {logit_temperature:g} : "
                                                  f"{format_path_link(path=deployed_thresholds_path)}", indent=1)
 
+        # Score threshold of every class of a detector or instance segmenter, from the evaluation of the exported
+        # checkpoint and weights, set before the reference outputs so that the checks compare the exported thresholds
+        deployed_score_thresholds = None
+        if isinstance(inference_model, InferenceDetector):
+            deployed_score_thresholds = apply_class_score_thresholds(
+                inference_model=inference_model, experiment_folder=experiment_folder, checkpoint_path=checkpoint_path,
+                use_averaged_weights=use_averaged_weights)
+
         # Random example and check batches of different sizes, to confirm the batch dimension stays dynamic
         example_inputs = create_random_inputs(specification=specification, shape_name="example_shape",
                                               maximum_batch_size=maximum_batch_size, device=device, generator=None)
@@ -563,6 +582,10 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
 
                 # Input contract next to the model of every format, with the values of the metadata of the ONNX file
                 write_preprocessing_file(model_folder=model_path.parent, input_contract=input_contract)
+
+                # Score thresholds built into a detector or instance segmenter, next to the model
+                if deployed_score_thresholds is not None:
+                    write_deployed_thresholds_file(model_folder=model_path.parent, record=deployed_score_thresholds)
 
                 # Class thresholds of the classifier next to the model, found at the temperature built into it; without
                 # them the installed version folder holds none, so that no thresholds of another temperature stay there

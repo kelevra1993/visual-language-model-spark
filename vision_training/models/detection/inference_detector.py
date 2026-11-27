@@ -1,13 +1,14 @@
 """
 Inference-only version of the trained TwoStageDetector with batched, fixed-shape proposal filtering and detection,
-returning a fixed number of detections per image, clipped to the window of their image (its second input). Built by
+returning a fixed number of detections per image, clipped to the window of their image (its second input) and kept
+from the score threshold of their class (a buffer the export fills from the evaluation of the checkpoint). Built by
 vision_training/deployment/export_specifications.py for the TorchScript and ONNX exports served by Triton.
 """
 
 import torch
 
 from torch import nn
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from vision_training.models.backbones.backbone import split_skip_outputs
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
@@ -24,8 +25,10 @@ class InferenceDetector(nn.Module):
     data-dependent parts of its forward pass by batched, fixed-shape operations: proposals are filtered for the whole
     batch at once, padding proposals are masked instead of randomly duplicated, and no ground truth, target or loss
     code is involved. It returns a fixed number of detections per image, clipped to the window of their image (the
-    'image_windows' input, the part of the square input holding the resized image) and suppressed by the final NMS of
-    the configuration of the detector, greedy or DIoU-NMS ('Detector.nms_criterion'), as in its evaluation.
+    'image_windows' input, the part of the square input holding the resized image), kept from the score threshold of
+    their class ('class_score_thresholds' buffer, 'Detector.inference.score_threshold' for every class until
+    set_class_score_thresholds changes it) and suppressed by the final NMS of the configuration of the detector, greedy
+    or DIoU-NMS ('Detector.nms_criterion'), as in its evaluation.
     """
 
     def __init__(self, model: TwoStageDetector) -> None:
@@ -56,10 +59,37 @@ class InferenceDetector(nn.Module):
         self.proposal_nms_iou_threshold = model.region_proposal_filter.nms_iou_threshold
         self.proposal_selection = model.region_proposal_filter.proposal_selection
         self.score_threshold = model.detection_score_threshold
+        self.number_classes = model.number_classes
+
+        # Score threshold of every foreground class, the configured one until set_class_score_thresholds, on the device
+        # of the detector so that the exports write it into their graphs as a constant
+        self.register_buffer(name="class_score_thresholds", tensor=torch.full(
+            size=(model.number_classes - 1,), fill_value=float(model.detection_score_threshold), dtype=torch.float32,
+            device=model.device))
         self.detection_nms_iou_threshold = model.detection_nms_iou_threshold
         self.detection_nms_criterion = model.detection_nms_criterion
         self.detection_nms_distance_exponent = model.detection_nms_distance_exponent
         self.maximum_detections = model.maximum_detections
+
+    def set_class_score_thresholds(self, class_score_thresholds: List[float]) -> None:
+        """
+        Sets the score threshold of every foreground class, read by deployment/detection_deployment.py from the
+        'class_thresholds.json' of the evaluation of the exported checkpoint (the threshold reaching the target
+        precision, or 'Detector.inference.score_threshold' for a class that never reaches it), so that the exported
+        detector keeps the detections class by class.
+
+        Args:
+            class_score_thresholds (List[float]): The threshold of every foreground class, in class index order from 1.
+
+        Raises:
+            ValueError: If there is not one threshold per foreground class, or a threshold is outside [0, 1].
+        """
+        if len(class_score_thresholds) != self.class_score_thresholds.shape[0]:
+            raise ValueError(f"Expected one score threshold per foreground class "
+                             f"({self.class_score_thresholds.shape[0]}), got {len(class_score_thresholds)}.")
+        if any(not 0.0 <= threshold <= 1.0 for threshold in class_score_thresholds):
+            raise ValueError(f"Expected score thresholds between 0 and 1, got {class_score_thresholds}.")
+        self.class_score_thresholds.copy_(torch.tensor(data=class_score_thresholds, dtype=torch.float32))
 
     def forward(self, images: torch.Tensor, image_windows: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor,
                                                                                     torch.Tensor, torch.Tensor]:
@@ -123,11 +153,11 @@ class InferenceDetector(nn.Module):
         classification_scores, detection_boxes = self.detect(feature_maps=feature_maps, proposal_boxes=filtered_boxes,
                                                              proposal_levels=filtered_levels)
 
-        # Final detections clipped to the windows, with the NMS of 'Detector.nms_criterion' on every pair, greedy or
-        # DIoU-NMS, the form the TorchScript and ONNX exports keep
+        # Final detections clipped to the windows, kept from the threshold of their class, with the NMS of
+        # 'Detector.nms_criterion' on every pair, greedy or DIoU-NMS, the form the TorchScript and ONNX exports keep
         detections = postprocess_detections(classification_scores=classification_scores,
                                             detection_boxes=detection_boxes, valid_proposal_mask=valid_proposal_mask,
-                                            image_windows=image_windows, score_threshold=self.score_threshold,
+                                            image_windows=image_windows, score_threshold=self.class_score_thresholds,
                                             nms_iou_threshold=self.detection_nms_iou_threshold,
                                             nms_criterion=self.detection_nms_criterion,
                                             nms_distance_exponent=self.detection_nms_distance_exponent,

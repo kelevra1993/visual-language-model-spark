@@ -69,7 +69,7 @@ To find your way in the code, the table below maps each role to its file and mai
 | Detector | see `object_detection_workflow.md` | anchors, proposals, detection heads, post-processing |
 | Metrics | `vision_training/evaluation/detection/average_precision_report.py`, `mean_average_precision.py` | `summarise_average_precisions` (`overlap_type="masks"` then `"boxes"`), `evaluate_detections`, `gather_class_detections`, `compute_clopper_pearson_intervals` and `build_recall_interval_table` of `vision_training/evaluation/recall_intervals.py` |
 | Configuration checks and run name | `vision_training/configuration_processing/instance_segmentation_checks.py`, `run_name.py` | `check_instance_segmentation_configuration`, `check_mask_head_configuration`, `build_instance_segmentation_sections` (`MRES-MBN-MUTC-M14.3x32-MR28`) |
-| Export | `vision_training/models/instance_segmentation/inference_instance_segmenter.py`, `vision_training/deployment/export_specifications.py` | `InferenceInstanceSegmenter.predict_masks`, `get_export_specification` (the inputs of DET, the outputs of DET then `detection_masks`), `compare_instance_segmentations`; `vision_training/deployment/input_contract.py` |
+| Export | `vision_training/models/instance_segmentation/inference_instance_segmenter.py`, `vision_training/deployment/export_specifications.py`, `vision_training/deployment/detection_deployment.py` | `InferenceInstanceSegmenter.predict_masks`, `get_export_specification` (the inputs of DET, the outputs of DET then `detection_masks`), `compare_instance_segmentations`, `apply_class_score_thresholds` (the mask thresholds); `vision_training/deployment/input_contract.py` |
 | Export sizes at launch | `vision_training/deployment/export_size_estimates.py` | `estimate_export_sizes`, `probe_inference_graph`, `print_export_size_summary` |
 
 ### Run It
@@ -105,8 +105,8 @@ Before changing the synthetic configuration, look at the keys below: they change
 | `Optimization.loss_weights.mask_loss` | 1.0 (1.0 for the four others) | weight in the total loss; losses are tracked unweighted |
 | `ExperimentConfiguration.evaluation.original_resolution` | False | True scores boxes and masks on the original test images |
 | `Neck`, `RegionProposal`, `Detector`, `DetectionLevels.<level>.anchors` ... | `"none"`, `"joint"`, background min 0.0, `"iou"`, learning rate 2e-4 (DET: `"feature_pyramid"`, `"per_level"`, 0.1, `"distance_iou"` 0.6, 1e-3) | the detector (`object_detection_workflow.md`) |
-| `Detector.inference.score_threshold`, `maximum_detections` | 0.5, 100 | the deployed detections, each with its mask |
-| `ExperimentConfiguration.evaluation.score_threshold`, `target_precision` | 0.05, 0.99 | detections kept for the mAP; precision of the class thresholds, on the mask APs |
+| `Detector.inference.score_threshold`, `maximum_detections` | 0.5, 100 | the deployed detections, each with its mask, at this threshold for the classes without a class threshold |
+| `ExperimentConfiguration.evaluation.score_threshold`, `target_precision` | 0.05, 0.99 | detections kept for the mAP; precision of the class thresholds, on the mask APs, built into the export and the confusion matrix |
 
 ### What A Run Writes
 Whenever a run is launched or a checkpoint evaluated, the table below lists what reaches the run folder, TensorBoard and MLflow.
@@ -183,7 +183,7 @@ main()                                                     give an instance_segm
     └── run_test_evaluation()                              [STAGE 4]
         ├── predict_batch() -> postprocess_detections() + predict_detection_masks()
         ├── gather_image_detections() -> compute_mask_overlaps()     paste, threshold, mask IoU
-        ├── match on masks -> confusion matrix
+        ├── match on masks -> confusion matrix at the class thresholds
         ├── compute_evaluation_results()                   summarise_average_precisions("masks", then "boxes")
         └── report_evaluation() -> Results.txt, TensorBoard, MLflow, evaluation_summary.csv
 
@@ -722,7 +722,7 @@ The accumulator of DET (`object_detection_workflow.md`, Step 4.2). Detections an
 
 **Example output: the CPU run**
 ```text
-{'detections': list, 'ground_truths': list, 'confusion_matrix': (21, 21), ..., 'proposal_recall': dict}
+{'detections': list, 'ground_truths': list, ..., 'proposal_recall': dict}
 ```
 
 ### Step 4.3 — `prepare_batch()` + `predict_batch()` → `predict_detection_masks()`
@@ -753,7 +753,7 @@ For every image, `gather_image_detections()` keeps the valid detections with two
   - `compute_mask_intersection_over_union()`: `cut_mask_segments()` cuts the flat masks into segments of `MASK_PRODUCT_SEGMENT_PIXELS` (1024). One batched product multiplies each segment with the same segment of every ground truth mask, in float16 on the GPU (exact, since a count never exceeds 1024; float32 on CPU): 16 ms per 1024 pixel benchmark image instead of 96. Counts and areas (`count_segment_pixels()`) are divided in float64 (in float32, 13 / 20 falls below 0.65).
 - `mask_areas` [D] int64: the pixels of every binary detection mask, for the mAP by size.
 
-With `evaluation.original_resolution`, `restore_detection_boxes()` restores the boxes to the original image, for the box AP and for pasting the masks: the detector clipped them to the window, so their restored boxes stay inside the image. `gather_image_ground_truth()` adds the ground truth `mask_areas` (of `original_instance_masks` with `evaluation.original_resolution`). Detections reaching the deployment threshold are matched on masks for the confusion matrix (`compute_overlap_matrix(overlap_type="masks")`, `match_image_detections()` at IoU 0.5). Proposal recall stays on boxes.
+With `evaluation.original_resolution`, `restore_detection_boxes()` restores the boxes to the original image, for the box AP and for pasting the masks: the detector clipped them to the window, so their restored boxes stay inside the image. `gather_image_ground_truth()` adds the ground truth `mask_areas` (of `original_instance_masks` with `evaluation.original_resolution`). The confusion matrix matches the detections on masks (`compute_overlap_matrix(overlap_type="masks")`, `match_image_detections()` at IoU 0.5), at the class thresholds once they are found (Step 4.9); the error images match those reaching the deployment threshold. Proposal recall stays on boxes.
 
 **Example: the first image of the test batch of the CPU run** (2 objects, capsule (19) and pentagon (5))
 ```text
@@ -761,7 +761,7 @@ pasted masks of the first chunk: (16, 512, 512) float32, max 0.5121
 first detection: box area 7058.3 pixels, 7552 pasted pixels > 0, 6523 pixels >= 0.5
 best mask IoU per object [0.2133, 0.3883]       best box IoU per object [0.3533, 0.508]
 ground truth mask_areas [3310, 5961]            box areas [5829, 8835]
-after the batch: confusion matrix sum 3, all 3 objects in the background column (missed)
+confusion matrix (built after the split, at 0.5 then): sum 3, all 3 objects in the background column (missed)
 ```
 A box overlaps the pentagon at 0.508 but a mask only at 0.3883, so on masks it is not found at 0.5. Mask areas are smaller than box areas, which moves objects between sizes (Step 4.7).
 
@@ -880,7 +880,7 @@ block_7,69682,0.704400,0.500416,50.147950
 The proposals overlap 99.63 % of the test objects by 0.5, small ones excepted (66 of 184). The errors come from classification and masks, not from the proposals.
 
 ### Step 4.9 — `save_error_analysis()`
-The class thresholds and confusion matrix of DET (`object_detection_workflow.md`, Step 4.12), with thresholds from the mask APs and matches on masks (Step 4.5).
+The class thresholds and confusion matrix of DET (`object_detection_workflow.md`, Step 4.12), with thresholds from the mask APs and matches on masks (Step 4.5). The export builds these mask thresholds into the model, so the matrix counts the detections the exported model returns, matched on their masks as the mask AP. The example comes from a run evaluated when the matrix still counted the detections reaching 0.5.
 
 **Example output: iteration 5000** (`class_thresholds.json` is indented, shortened here)
 ```text

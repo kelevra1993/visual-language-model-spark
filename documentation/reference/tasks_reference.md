@@ -192,8 +192,8 @@ DetectionLevels:
 - **By object size**: five sizes on the object side as a share of the image side, doubling from under 1/16 to 1/2 and above, with their pixels at the network input.
 - **Mean average recall** per IoU and size, and **per-class recall** at IoU 0.5 and 0.75 with its 95 % interval.
 - **Anchor recall** of the training and test objects at the first launch (`anchor_recall.csv`, `anchor_recall.png`), and **proposal recall** at every evaluation (`proposal_recall.csv`).
-- **Class thresholds**: `class_thresholds.json`, the threshold of every class reaching `target_precision`.
-- **Confusion matrix** of the deployed detections (score from `Detector.inference.score_threshold`) at IoU 0.5, with a `background` row and column.
+- **Class thresholds**: `class_thresholds.json`, the threshold of every class reaching `target_precision`, built into the export.
+- **Confusion matrix** of the deployed detections (score from the threshold of their class, or `Detector.inference.score_threshold` for a class without one) at IoU 0.5, with a `background` row and column.
 - **Error images**: `Errors/FALSE-POSITIVE/<class>/`, `Errors/MISSED/<class>/` and `Errors/<TRUE>-TO-<PREDICTED>/`.
 
 ## Instance Segmentation (INS)

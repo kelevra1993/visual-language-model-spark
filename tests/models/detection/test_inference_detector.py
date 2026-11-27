@@ -1,9 +1,9 @@
 """
 Tests of the detection inference path of vision_training/models/detection: postprocess_detections (threshold, NMS and
 padding, the NMS run on the candidates reaching the score threshold only and giving the detections of the NMS on every
-pair run by the exports, with the greedy NMS and with DIoU-NMS, the boxes clipped to the window of their image),
-InferenceDetector matching the eager detector with either criterion, and its TorchScript round trip with the image
-windows as a second input.
+pair run by the exports, with the greedy NMS and with DIoU-NMS, the boxes clipped to the window of their image, one
+score threshold per class), InferenceDetector matching the eager detector with either criterion, its class score
+thresholds, and its TorchScript round trip with the image windows as a second input.
 """
 
 import pytest
@@ -352,3 +352,67 @@ def test_postprocess_detections_clips_the_boxes_to_the_window_of_their_image() -
         assert detections["final_detection_boxes"][:, 0].tolist() == [[20.0, 32.0, 128.0, 60.0],
                                                                       [20.0, 10.0, 128.0, 60.0]]
 
+
+def test_postprocess_detections_keeps_the_threshold_of_every_class() -> None:
+    """
+    Verifies that postprocess_detections takes one score threshold per foreground class: of two detections of 0.6,
+    the one of the class of threshold 0.5 is kept and the one of the class of threshold 0.7 is dropped, in both NMS
+    paths, and a single threshold of 0.5 keeps both.
+    """
+    # One image, two proposals far apart, classes (background, A, B)
+    probabilities = torch.tensor(data=[[[0.4, 0.6, 0.0], [0.4, 0.0, 0.6]]])
+    boxes = torch.tensor(data=[[[[10.0, 10.0, 30.0, 30.0]] * 3, [[80.0, 80.0, 110.0, 110.0]] * 3]])
+    settings = {"classification_scores": torch.log(input=probabilities.clamp(min=1e-6)), "detection_boxes": boxes,
+                "valid_proposal_mask": torch.ones(size=(1, 2), dtype=torch.bool),
+                "image_windows": torch.tensor(data=[[0.0, 0.0, 128.0, 128.0]]), "nms_iou_threshold": 0.5,
+                "nms_criterion": "iou", "nms_distance_exponent": 1.0, "maximum_detections": 4, "input_image_size": 128}
+    for suppress_candidates_only in [True, False]:
+        class_detections = postprocess_detections(**settings, score_threshold=torch.tensor(data=[0.5, 0.7]),
+                                                  suppress_candidates_only=suppress_candidates_only)
+        assert class_detections["number_detections"].tolist() == [1]
+        assert class_detections["final_detection_labels"][0, 0].item() == 1
+        single_detections = postprocess_detections(**settings, score_threshold=0.5,
+                                                   suppress_candidates_only=suppress_candidates_only)
+        assert single_detections["number_detections"].tolist() == [2]
+
+
+def test_inference_detector_keeps_the_detections_of_every_class_from_its_threshold() -> None:
+    """
+    Verifies the class score thresholds of InferenceDetector: they start at 'Detector.inference.score_threshold' for
+    every class, set_class_score_thresholds refuses a wrong number of thresholds or a threshold outside [0, 1], and a
+    detector given one threshold per class returns exactly the detections of the detector of threshold 0 whose score
+    reaches the threshold of their class, the detections per image being enough for every detection of the detector
+    of threshold 0.
+    """
+    model = build_test_model(dtype=torch.float32)
+    model.maximum_detections = 5000
+    detector = InferenceDetector(model=model).eval()
+    number_foreground_classes = model.number_classes - 1
+    assert detector.class_score_thresholds.tolist() == [model.detection_score_threshold] * number_foreground_classes
+    with pytest.raises(expected_exception=ValueError, match="one score threshold per foreground class"):
+        detector.set_class_score_thresholds(class_score_thresholds=[0.5])
+    with pytest.raises(expected_exception=ValueError, match="between 0 and 1"):
+        detector.set_class_score_thresholds(class_score_thresholds=[1.5] * number_foreground_classes)
+
+    # Detections of every class of the detector of threshold 0, then those of the thresholded detector
+    images = torch.rand(size=(2, 3, 512, 512), generator=torch.Generator().manual_seed(0)) * 255.0
+    image_windows = build_whole_input_windows(images=images)
+    with torch.no_grad():
+        boxes, scores, labels, numbers = detector(images=images, image_windows=image_windows)
+        class_score_thresholds = [float(scores[0, :numbers[0]].median())] + [0.0] * (number_foreground_classes - 1)
+        class_score_thresholds[0] = max(class_score_thresholds[0], 1e-6)
+        detector.set_class_score_thresholds(class_score_thresholds=class_score_thresholds)
+        _, kept_scores, kept_labels, kept_numbers = detector(images=images, image_windows=image_windows)
+
+    # Same detections, those of the first class below its threshold left out
+    thresholds = torch.tensor(data=[0.0] + class_score_thresholds)
+    for image_index in range(images.shape[0]):
+        valid_scores = scores[image_index, :numbers[image_index]]
+        valid_labels = labels[image_index, :numbers[image_index]]
+        expected_kept = valid_scores >= thresholds[valid_labels]
+        assert int(kept_numbers[image_index]) == int(expected_kept.sum())
+        assert torch.equal(input=kept_scores[image_index, :kept_numbers[image_index]],
+                           other=valid_scores[expected_kept])
+        assert torch.equal(input=kept_labels[image_index, :kept_numbers[image_index]],
+                           other=valid_labels[expected_kept])
+    assert int(kept_numbers.sum()) < int(numbers.sum()) and int(numbers.max()) < model.maximum_detections

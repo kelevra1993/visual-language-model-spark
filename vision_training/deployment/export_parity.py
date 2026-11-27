@@ -35,6 +35,7 @@ from vision_training.core.contracts import SAMPLE_IDENTIFIERS_KEY
 from vision_training.core.task_registry import get_trainer_class
 from vision_training.data.manifest_cache import read_manifests_once
 from vision_training.data.sequence.sequence_pair_dataset import split_pair_members
+from vision_training.deployment.detection_deployment import DEPLOYED_THRESHOLDS_FILE_NAME
 from vision_training.deployment.deployment_utilities import (get_triton_output_names, run_local_inference,
                                                              run_triton_inference)
 from vision_training.deployment.triton_configuration import EXPORT_FORMATS
@@ -549,8 +550,8 @@ def evaluate_parity_row(trainer: BaseTrainer, run_model: Callable[..., List[np.n
     """
     Scores one row on the whole test split with the test evaluation of the trainer, its predict_batch running the
     model of the row (predict_exported_batch), its evaluation files written to the folder of the row. The detectors
-    keep their deployment score threshold (the one written into their export) instead of the lower threshold of the
-    training evaluation, as the exported detector returns only those detections.
+    are scored on the detections reaching the score threshold of their class built into the export, the evaluation
+    threshold of the trainer set to the deployment one instead of the lower one of the training evaluation.
 
     Args:
         trainer (BaseTrainer): The trainer of the run, from build_evaluation_trainer.
@@ -640,9 +641,9 @@ def read_reference_scalars(experiment_folder: Path, iteration: int, use_averaged
 def describe_reference_difference(trainer: BaseTrainer, logit_temperature: float) -> Optional[str]:
     """
     Tells why the stored evaluation of the exported iteration cannot be compared with the rows, its values being then
-    left out of the summary: the detectors are scored at their deployment score threshold, the stored evaluation at
-    the lower evaluation one, and a classifier exported at another temperature than 1 has other thresholds, curves and
-    areas than its stored evaluation.
+    left out of the summary: the exported detectors return only the detections reaching the score threshold of their
+    class built into the export, the stored evaluation scores those of the lower evaluation threshold, and a classifier
+    exported at another temperature than 1 has other thresholds, curves and areas than its stored evaluation.
 
     Args:
         trainer (BaseTrainer): The trainer of the run, before the rows change its score threshold.
@@ -652,9 +653,11 @@ def describe_reference_difference(trainer: BaseTrainer, logit_temperature: float
         Optional[str]: The reason, None when the stored evaluation is comparable.
     """
     if isinstance(trainer, DetectionTrainer):
-        return (f"Stored evaluation left out: the exported detector returns the detections scored at least "
-                f"{trainer.deployment_score_threshold:g} (Detector.inference.score_threshold), while the stored "
-                f"evaluation scores those above {trainer.evaluation_score_threshold:g} (evaluation.score_threshold).")
+        return (f"Stored evaluation left out: the exported detector returns the detections reaching the score "
+                f"threshold of their class ({DEPLOYED_THRESHOLDS_FILE_NAME} next to the exported model, "
+                f"{trainer.deployment_score_threshold:g} of Detector.inference.score_threshold for a class without "
+                f"one), while the stored evaluation scores those above {trainer.evaluation_score_threshold:g} "
+                f"(evaluation.score_threshold).")
     if trainer.TASK_NAME == "classification" and logit_temperature != 1.0:
         return (f"Stored evaluation left out: the classifier is exported at the logit temperature "
                 f"{logit_temperature:g}, while the stored evaluation scored its probabilities at a temperature of 1.")
