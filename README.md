@@ -472,18 +472,18 @@ The models go to `vision_training/deployment/triton/served_models/<model name>_<
 
 | Model name | Inputs | Outputs |
 |---|---|---|
-| `image_classifier` | [B, 3, S, S] | `class_probabilities` [B, K] |
-| `object_detector` | [B, 3, S, S] | `detection_boxes` [B, D, 4]<br>`detection_scores` [B, D]<br>`detection_labels` [B, D]<br>`number_detections` [B] |
-| `instance_segmenter` | [B, 3, S, S] | the four outputs of `object_detector`<br>`detection_masks` [B, D, M, M] |
-| `keypoint_detector` | [B, 3, S, S] | `candidate_positions` [B, C, N, 2]<br>`candidate_scores` [B, C, N]<br>`candidate_tags` [B, C, N] |
-| `semantic_segmenter` | [B, 3, S, S] | `class_map` [B, S, S]<br>`class_probabilities` [B, K, S, S] |
-| `sequence_classifier` | [B, T, 3, S, S] | `class_probabilities` [B, K] |
-| `sequence_labeller` | [B, T, 3, S, S] | `class_probabilities` [B, T, K] |
-| `sequence_comparator` | [B, T, 3, S, S]<br>[B, T, 3, S, S] | `class_probabilities` [B, K] |
-| `frame_selector` | [B, T, 3, S, S] | `class_probabilities` [B, T, K] |
-| `image_encoder` | [B, 3, S, S] | `representations` [B, F] |
+| `image_classifier` | `images` [B, 3, S, S] | `class_probabilities` [B, K] |
+| `object_detector` | `images` [B, 3, S, S] | `detection_boxes` [B, D, 4]<br>`detection_scores` [B, D]<br>`detection_labels` [B, D]<br>`number_detections` [B] |
+| `instance_segmenter` | `images` [B, 3, S, S] | the four outputs of `object_detector`<br>`detection_masks` [B, D, M, M] |
+| `keypoint_detector` | `images` [B, 3, S, S] | `candidate_positions` [B, C, N, 2]<br>`candidate_scores` [B, C, N]<br>`candidate_tags` [B, C, N] |
+| `semantic_segmenter` | `images` [B, 3, S, S] | `class_map` [B, S, S]<br>`class_probabilities` [B, K, S, S] |
+| `sequence_classifier` | `images` [B, T, 3, S, S] | `class_probabilities` [B, K] |
+| `sequence_labeller` | `images` [B, T, 3, S, S] | `class_probabilities` [B, T, K] |
+| `sequence_comparator` | `before_images` [B, T, 3, S, S]<br>`after_images` [B, T, 3, S, S] | `class_probabilities` [B, K] |
+| `frame_selector` | `images` [B, T, 3, S, S] | `class_probabilities` [B, T, K] |
+| `image_encoder` | `images` [B, 3, S, S] | `representations` [B, F] |
 
-Every input is named `images`, except the two of `sequence_comparator`, `before_images` and `after_images`. S is `Data.image_settings.size`, K the number of classes, T the number of frames, D the largest number of detections, M `MaskHead.mask_resolution`, C the heatmap channels, N the candidates per channel and F the size of the representation. Inputs are float32 BGR images in [0, 255]; the normalization is inside the model. Client-side post-processing, the SEL decoder and ensembles: [tools reference](documentation/reference/tools_reference.md#export).
+S is `Data.image_settings.size`, K the number of classes, T the number of frames, D the largest number of detections, M `MaskHead.mask_resolution`, C the heatmap channels, N the candidates per channel and F the size of the representation. Inputs are float32 BGR images in [0, 255]; the normalization is inside the model. Client-side post-processing, the SEL decoder and ensembles: [tools reference](documentation/reference/tools_reference.md#export).
 
 Two options matter before production:
 - `--torchscript_precision FP16`: `model_fp16.pt`, half the size, with FP16 convolution, linear and attention weights and the rest in FP32, checked against the eager FP16 model.
