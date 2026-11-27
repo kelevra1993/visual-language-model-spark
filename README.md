@@ -83,6 +83,9 @@ uv python install
 
 # Install the packages of uv.lock
 uv sync
+
+# Activate the environment (so that python runs without uv run in front)
+source .venv/bin/activate
 ```
 
 ## Quick Start With Synthetic Data
