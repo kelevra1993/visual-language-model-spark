@@ -11,9 +11,12 @@ folder, with the best evaluation of that summary, so that the exported checkpoin
 button writes 'saved_temperature_thresholds.json' next to the page, the thresholds being found here from the logits; the
 export button exports the checkpoint at the saved temperature into '<run>/Exports/Iteration_<n>[_EMA]_T<temperature>/'
 (vision_training/deployment/explorer_export.py), in a separate process whose console output the page shows. The pages
-are written by the classification trainer or scripts/evaluation/evaluate_checkpoint.py with the per-class report.
+are written by the classification trainer or scripts/evaluation/evaluate_checkpoint.py with the per-class report. Run
+as a script, the experiments folders and the port given as arguments (parse_serve_arguments), every one of them having
+a default, so that a launch without any argument serves the experiments folders of the repository on DEFAULT_PORT.
 """
 
+import argparse
 import html
 import json
 import os
@@ -59,6 +62,10 @@ from vision_training.utilities.os_utilities import format_path_link, print_color
 # Repository root, from which the export process imports the project, and the module of the export process
 REPOSITORY_ROOT = Path(__file__).absolute().parents[2]
 EXPORT_MODULE = "vision_training.deployment.explorer_export"
+
+# Local port of the index, opened at http://127.0.0.1:<port>/, not 8090 so that the server runs next to the inference
+# explorer of the ficha repositories, which takes 8090
+DEFAULT_PORT = 8091
 
 # Evaluation folders looked for under every experiments folder, those of the training ('<run>/Evaluation/Iteration_<n>')
 # and of scripts/evaluation/evaluate_checkpoint.py ('<run>/Checkpoint_Evaluation/Iteration_<n>'), the runs up to two
@@ -774,13 +781,59 @@ def serve_temperature_explorers(experiments_roots: List[Path], port: int) -> Non
         server.server_close()
 
 
-if __name__ == "__main__":
-    # Experiments folders whose evaluations are served: the folders of the repository root whose name holds
-    # 'experiments', with the evaluations of the trainings and of evaluate_checkpoint.py in their run folders
-    experiments_roots = sorted(folder for folder in REPOSITORY_ROOT.iterdir()
-                               if folder.is_dir() and "experiments" in folder.name)
-    # Local port of the index, opened at http://127.0.0.1:<port>/, not 8090 so that the server runs next to the
-    # inference explorer of the ficha repositories, which takes 8090
-    port = 8091
+def find_experiments_roots() -> List[Path]:
+    """
+    Lists the experiments folders served when the command line of the script gives none: the folders of the
+    repository root whose name holds 'experiments', where the trainings and evaluate_checkpoint.py write the
+    evaluations of their run folders, the same folders on every computer.
 
-    serve_temperature_explorers(experiments_roots=experiments_roots, port=port)
+    Returns:
+        List[Path]: The experiments folders, sorted by path.
+    """
+    return sorted(folder for folder in REPOSITORY_ROOT.iterdir() if folder.is_dir() and "experiments" in folder.name)
+
+
+def parse_serve_arguments(arguments: List[str]) -> argparse.Namespace:
+    """
+    Reads the experiments folders and the port of the server from the command line of the script, so that other
+    folders or another port are served without editing the file: without any argument, the experiments folders of the
+    repository (find_experiments_roots) on DEFAULT_PORT. A '~' left by the shell at the start of a path
+    ('--experiments_roots=~/Data/...') is expanded to the home folder.
+
+    Args:
+        arguments (List[str]): The command line arguments, without the script name.
+
+    Returns:
+        argparse.Namespace: The arguments of serve_temperature_explorers.
+
+    Raises:
+        SystemExit: After printing the usage and the error when a value is not one the server accepts.
+    """
+    # The description and the example keep their line breaks, argparse wrapping the help of every argument
+    parser = argparse.ArgumentParser(
+        prog="uv run python -m scripts.evaluation.serve_temperature_explorer",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Serves the temperature explorers of the classifiers evaluated in experiments folders, to\n"
+                    "save the thresholds of a logit temperature and export the checkpoint at it from its page.",
+        epilog="Example, the runs of one experiments folder on another port:\n"
+               "  uv run python -m scripts.evaluation.serve_temperature_explorer \\\n"
+               "      --experiments_roots ~/Data/<experiments> --port 8092")
+    parser.add_argument("--experiments_roots", type=Path, nargs="+", default=find_experiments_roots(),
+                        help="Experiments folders whose evaluations are served, of distinct folder names (default: "
+                             "the folders of the repository root whose name holds 'experiments').")
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT,
+                        help="Local port of the index, opened at http://127.0.0.1:<port>/ (default: %(default)s).")
+    parsed_arguments = parser.parse_args(args=arguments)
+
+    # A '~' the shell leaves after '=' points to the home folder, as in the other scripts of the repository
+    parsed_arguments.experiments_roots = [experiments_root.expanduser()
+                                          for experiments_root in parsed_arguments.experiments_roots]
+    return parsed_arguments
+
+
+if __name__ == "__main__":
+    # Experiments folders and port read from the command line, the experiments folders of the repository on
+    # DEFAULT_PORT when none is given
+    serve_arguments = parse_serve_arguments(arguments=sys.argv[1:])
+
+    serve_temperature_explorers(experiments_roots=serve_arguments.experiments_roots, port=serve_arguments.port)

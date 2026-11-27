@@ -7,9 +7,12 @@ temperature is described from the class logits, the score ranges are counted fro
 any are typed (wrong requests refused), the thresholds saved from a page
 with logits are found by the server for every class whatever was posted, those of a page without logits are checked
 against its class_thresholds.json, the status gives the saved temperature and the export folder, and an export without
-saved thresholds or without its run is refused with the reason, nothing being written by a refused request.
+saved thresholds or without its run is refused with the reason, nothing being written by a refused request. The script
+reads its experiments folders and port from its command line, the folders of the repository root whose name holds
+'experiments' and DEFAULT_PORT when none is given, and refuses an unknown value before anything is served.
 """
 
+import inspect
 import json
 import re
 import threading
@@ -17,13 +20,15 @@ import urllib.error
 import urllib.request
 
 from pathlib import Path
-from typing import Any, Dict, Iterator, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 from urllib.parse import quote
 
 import pytest
 
-from scripts.evaluation.serve_temperature_explorer import (TemperatureExplorerServer, build_index_groups,
-                                                           find_explorer_evaluations)
+import scripts.evaluation.serve_temperature_explorer as serve_temperature_explorer_module
+from scripts.evaluation.serve_temperature_explorer import (DEFAULT_PORT, TemperatureExplorerServer, build_index_groups,
+                                                           find_experiments_roots, find_explorer_evaluations,
+                                                           parse_serve_arguments, serve_temperature_explorers)
 from tests.evaluation.classification.test_temperature_explorer import (EXPLORER_CLASS_NAMES, list_file_thresholds,
                                                                        write_explorer_evaluation)
 from vision_training.evaluation.classification.temperature_explorer import (DEFAULT_SCORE_CUT_POINTS,
@@ -448,3 +453,69 @@ def test_saves_and_exports_wait_for_the_running_export(served_experiments: Tuple
                                                                                     True)
     status, body = request_server(url=f"{address}/api/status?evaluation={quote(GRID_EVALUATION)}", content=None)
     assert json.loads(s=body)["export_job"] is None and json.loads(s=body)["busy"]
+
+
+def test_serve_arguments_default_to_the_repository_experiments_folders(tmp_path: Path,
+                                                                        monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that the script launched without any argument serves, on DEFAULT_PORT, the folders of the repository root
+    whose name holds 'experiments' (not its other folders nor a file of that name), without printing its help, and that
+    the parsed arguments are the parameters of serve_temperature_explorers, so that the main block passes them all.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, standing for the repository root.
+        monkeypatch (pytest.MonkeyPatch): Points the script to that repository root.
+    """
+    for folder_name in ["experiments", "hyperparameter_experiments", "vision_training"]:
+        (tmp_path / folder_name).mkdir()
+    (tmp_path / "experiments_notes.txt").write_text(data="not a folder")
+    monkeypatch.setattr(serve_temperature_explorer_module, "REPOSITORY_ROOT", tmp_path)
+
+    assert find_experiments_roots() == [tmp_path / "experiments", tmp_path / "hyperparameter_experiments"]
+    parsed_arguments = parse_serve_arguments(arguments=[])
+    assert vars(parsed_arguments) == {"experiments_roots": [tmp_path / "experiments",
+                                                            tmp_path / "hyperparameter_experiments"],
+                                      "port": DEFAULT_PORT}
+    assert set(vars(parsed_arguments)) == set(inspect.signature(serve_temperature_explorers).parameters)
+
+
+def test_serve_arguments_reach_every_setting(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                             capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the experiments folders and the port can be given on the command line of the script, a path starting
+    with a '~' the shell left unexpanded pointing to the home folder, and that its help describes both arguments.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, standing for the home folder.
+        monkeypatch (pytest.MonkeyPatch): Sets the home folder.
+        capsys (pytest.CaptureFixture): The captured console output.
+    """
+    monkeypatch.setenv(name="HOME", value=str(tmp_path))
+    parsed_arguments = parse_serve_arguments(arguments=["--experiments_roots", "~/experiments", "runs/experiments",
+                                                        "--port", "8092"])
+    assert vars(parsed_arguments) == {"experiments_roots": [tmp_path / "experiments", Path("runs/experiments")],
+                                      "port": 8092}
+
+    # The help names both arguments and stops
+    with pytest.raises(expected_exception=SystemExit) as exit_information:
+        parse_serve_arguments(arguments=["--help"])
+    assert exit_information.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "--experiments_roots" in help_text and "--port" in help_text
+
+
+@pytest.mark.parametrize(argnames="arguments", argvalues=[["--port", "local"], ["--experiments_roots"],
+                                                          ["--experiments_folder", "experiments"]])
+def test_serve_script_refuses_unknown_values(arguments: List[str], capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the script stops with its usage and the error, before anything is served, when the port is not a
+    number, no experiments folder follows its argument, or an argument is unknown.
+
+    Args:
+        arguments (List[str]): The command line arguments.
+        capsys (pytest.CaptureFixture): The captured console output.
+    """
+    with pytest.raises(expected_exception=SystemExit) as exit_information:
+        parse_serve_arguments(arguments=arguments)
+    assert exit_information.value.code == 2
+    assert "error:" in capsys.readouterr().err

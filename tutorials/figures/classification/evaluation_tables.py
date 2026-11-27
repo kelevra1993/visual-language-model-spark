@@ -10,10 +10,10 @@ the bars of its worst and best classes, the headline metrics of every evaluation
 TensorBoard, those of the standalone evaluation of the last checkpoint (classification_evaluation of
 tutorial_sources.yaml, written by scripts/evaluation/evaluate_checkpoint.py), whose report block the report scene
 shows, the size of the predictions file, and the temperatures of the slider of the temperature explorer page with the
-port of the script serving it. Nothing is drawn: the scenes draw these values with the grid and bars elements of the
-diagram engine. The labels of the bars write the F1 and recalls as the percentages of the reports of the repository
-("94.03 %"), the facts keeping every rate between 0 and 1. A build from the run snapshots reads the reduced copy of
-the predictions file, the size of the original coming from the manifest of the series.
+default port of the script serving it (DEFAULT_PORT). Nothing is drawn: the scenes draw these values with the grid and
+bars elements of the diagram engine. The labels of the bars write the F1 and recalls as the percentages of the reports
+of the repository ("94.03 %"), the facts keeping every rate between 0 and 1. A build from the run snapshots reads the
+reduced copy of the predictions file, the size of the original coming from the manifest of the series.
 """
 
 import csv
@@ -24,11 +24,10 @@ import numpy
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+from scripts.evaluation.serve_temperature_explorer import DEFAULT_PORT
 from tutorials.figures.classification.snapshot_helpers import measure_predictions_bytes, open_predictions_file
 from tutorials.figures.figure_utilities import round_fact
-from tutorials.figures.foundations.code_values import read_main_block_value
 from tutorials.figures.foundations.training_curves import read_scalars
-from tutorial_builder.figure_context import find_repository_root
 from vision_training.evaluation.classification.classification_metrics import TOP_K_ACCURACY_CLASSES
 from vision_training.evaluation.classification.temperature_explorer import TEMPERATURE_GRID
 from vision_training.evaluation.report_formatting import format_percentage
@@ -44,9 +43,6 @@ LAST_ITERATION = 2000
 HEADLINE_METRICS = {"Accuracy": "accuracy", "Balanced Accuracy": "balanced_accuracy", "Macro F1": "macro_f1",
                     f"Top-{TOP_K_ACCURACY_CLASSES} Accuracy": "top_k_accuracy", "Macro ROC AUC": "macro_roc_auc",
                     "Macro Average Precision": "macro_average_precision"}
-
-# Script serving the temperature explorer pages, whose main block sets the port of its local page
-TEMPERATURE_EXPLORER_SCRIPT = Path("scripts") / "evaluation" / "serve_temperature_explorer.py"
 
 # Largest confusions of the last checkpoint named by the facts (pairs of a true and a predicted class, the largest
 # first), weakest classes of the first checkpoint (lowest recall first), and the most classes of the confusion grids,
@@ -482,7 +478,7 @@ def make_evaluation_tables(run_folder: Path, evaluation_folder: Path) -> Dict[st
     Returns:
         Dict[str, Any]: The facts, named confusion.*, class_metrics.*, headline.*, checkpoint_evaluation.*,
             predictions_file.* and temperature_explorer.* (the lowest and highest temperatures of the slider of the
-            explorer page, and the port of the local page of serve_temperature_explorer.py).
+            explorer page, and the default port of the local page of serve_temperature_explorer.py).
     """
     check_last_iteration(run_folder=run_folder)
     facts = describe_confusion_matrices(run_folder=run_folder)
@@ -495,9 +491,8 @@ def make_evaluation_tables(run_folder: Path, evaluation_folder: Path) -> Dict[st
     facts["checkpoint_evaluation.top_k_missed_images"] = round(
         (1 - facts["checkpoint_evaluation.top_k_accuracy"]) * test_images)
 
-    # Temperatures of the slider of the explorer page, and the port its serving script sets in its main block
+    # Temperatures of the slider of the explorer page, and the port its serving script takes without --port
     facts.update({"temperature_explorer.minimum_temperature": min(TEMPERATURE_GRID),
                   "temperature_explorer.maximum_temperature": max(TEMPERATURE_GRID),
-                  "temperature_explorer.port": read_main_block_value(
-                      script_path=find_repository_root() / TEMPERATURE_EXPLORER_SCRIPT, variable_name="port")})
+                  "temperature_explorer.port": DEFAULT_PORT})
     return facts

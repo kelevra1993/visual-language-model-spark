@@ -5,10 +5,13 @@ explorer (its thresholds checked against the class logits, a temperature of 1 wi
 of the trained and averaged weights with the kept checkpoint, and the balanced accuracy of the groups seen and never
 seen in training, read from the predictions of the evaluation and a manifest of the group of every sample. Every input
 is checked before any figure is drawn, and a threshold near an edge of the recall axis is written on the other side of
-its point.
+its point. The script prints its help when launched without arguments, reads every setting of draw_report_figures but
+the font from its command line, DEFAULT_REPORT_SETTINGS for those not given, and refuses a missing run folder or
+iteration, an unknown value or a class given two names before anything is read.
 """
 
 import csv
+import inspect
 import json
 import pytest
 import torch
@@ -22,10 +25,11 @@ from torch.utils.tensorboard import SummaryWriter
 from typing import Any, Dict, List, Optional
 
 import scripts.evaluation.draw_report_figures as draw_report_figures_module
-from scripts.evaluation.draw_report_figures import (GROUPS_FIGURE_NAME, PRECISION_RECALL_FIGURE_NAME,
-                                                    REPORT_FIGURES_FOLDER_NAME, REPORT_VALUES_FILE_NAME,
-                                                    TRAINING_CURVES_FIGURE_NAME, draw_class_precision_recall,
-                                                    draw_report_figures, read_confusion_matrix, read_sample_groups,
+from scripts.evaluation.draw_report_figures import (DEFAULT_REPORT_SETTINGS, GROUPS_FIGURE_NAME,
+                                                    PRECISION_RECALL_FIGURE_NAME, REPORT_FIGURES_FOLDER_NAME,
+                                                    REPORT_VALUES_FILE_NAME, TRAINING_CURVES_FIGURE_NAME,
+                                                    draw_class_precision_recall, draw_report_figures,
+                                                    parse_report_arguments, read_confusion_matrix, read_sample_groups,
                                                     register_report_font, style_precision_recall_axis)
 from vision_training.evaluation.classification.classification_metrics import compute_confusion_matrix
 from vision_training.evaluation.classification.confusion_matrix import save_confusion_matrix_table
@@ -56,6 +60,12 @@ FIGURE_SETTINGS = {"evaluation_folder_name": "Checkpoint_Evaluation", "sample_ki
                    "split_name": "validation", "minimum_recall": 0.0, "file_name_key": "file_name",
                    "group_key": "truck", "group_plural": "trucks", "training_labels_path": None,
                    "predictions_path": None, "font_family": None}
+
+# Every argument of the script, which its help must describe
+REPORT_SCRIPT_ARGUMENTS = ["--experiment_folder", "--iteration", "--weights", "--evaluation_folder_name",
+                           "--class_display_names", "--sample_kind", "--split_name", "--minimum_recall",
+                           "--group_manifest_path", "--file_name_key", "--group_key", "--group_plural",
+                           "--training_labels_path", "--predictions_path"]
 
 
 def write_test_curves(test_folder: Path, curve: Dict[int, float]) -> None:
@@ -307,7 +317,7 @@ def test_groups_chart_inputs_are_checked_before_any_figure(tmp_path: Path) -> No
 
     # Missing predictions file
     predictions_path.unlink()
-    with pytest.raises(FileNotFoundError, match="save_predictions = True"):
+    with pytest.raises(FileNotFoundError, match="--save_predictions True"):
         draw_report_figures(**draw_settings)
     assert not figures_folder.exists()
 
@@ -421,3 +431,111 @@ def test_missing_report_font_keeps_the_default_font(tmp_path: Path, monkeypatch:
 
     assert register_report_font() is None
     assert "not installed" in capsys.readouterr().out
+
+
+def test_report_script_without_arguments_prints_its_help(capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the script launched without any argument prints the help of every one of its arguments and stops
+    without drawing, instead of failing on the missing run folder.
+
+    Args:
+        capsys (pytest.CaptureFixture): The captured console output.
+    """
+    with pytest.raises(expected_exception=SystemExit) as exit_information:
+        parse_report_arguments(arguments=[])
+    assert exit_information.value.code == 0
+    help_text = capsys.readouterr().out
+    assert [argument for argument in REPORT_SCRIPT_ARGUMENTS if argument not in help_text] == []
+
+
+def test_report_arguments_default_to_the_report_settings() -> None:
+    """
+    Verifies that the script given only the run folder and the iteration draws with DEFAULT_REPORT_SETTINGS, the class
+    names and no groups chart, and that every parsed argument is a parameter of draw_report_figures, the font alone
+    being left to register_report_font, so that the main block passes them all.
+    """
+    parsed_arguments = parse_report_arguments(arguments=["--experiment_folder", "run", "--iteration",
+                                                         str(KEPT_ITERATION)])
+    assert vars(parsed_arguments) == {"experiment_folder": Path("run"), "iteration": KEPT_ITERATION,
+                                      "class_display_names": None, "group_manifest_path": None,
+                                      "training_labels_path": None, "predictions_path": None,
+                                      **DEFAULT_REPORT_SETTINGS}
+    assert set(vars(parsed_arguments)) == set(inspect.signature(draw_report_figures).parameters) - {"font_family"}
+
+
+def test_report_arguments_reach_every_setting(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that every setting of draw_report_figures but the font can be given on the command line of the script:
+    the names shown for the classes in the order given, a name holding '=' kept whole, and paths starting with a '~'
+    the shell leaves after '=' expanded to the home folder.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, standing for the home folder.
+        monkeypatch (pytest.MonkeyPatch): Sets the home folder.
+    """
+    monkeypatch.setenv(name="HOME", value=str(tmp_path))
+    parsed_arguments = parse_report_arguments(arguments=[
+        "--experiment_folder=~/run", "--iteration", str(KEPT_ITERATION), "--weights", "ema",
+        "--evaluation_folder_name", "Evaluation", "--class_display_names", "dog=Dog", "cat=Cat = Feline",
+        "--sample_kind", "frames", "--split_name", "validation", "--minimum_recall", "0.98",
+        "--group_manifest_path=~/frames_manifest.jsonl", "--file_name_key", "image", "--group_key", "truck",
+        "--group_plural", "trucks", "--training_labels_path=~/labels.json", "--predictions_path=~/predictions.csv"])
+    assert vars(parsed_arguments) == {"experiment_folder": tmp_path / "run", "iteration": KEPT_ITERATION,
+                                      "weights": "ema", "evaluation_folder_name": "Evaluation",
+                                      "class_display_names": {"dog": "Dog", "cat": "Cat = Feline"},
+                                      "sample_kind": "frames", "split_name": "validation", "minimum_recall": 0.98,
+                                      "group_manifest_path": tmp_path / "frames_manifest.jsonl",
+                                      "file_name_key": "image", "group_key": "truck", "group_plural": "trucks",
+                                      "training_labels_path": tmp_path / "labels.json",
+                                      "predictions_path": tmp_path / "predictions.csv"}
+    assert list(parsed_arguments.class_display_names) == ["dog", "cat"]
+
+
+def test_parsed_report_arguments_draw_the_figures(tmp_path: Path) -> None:
+    """
+    Verifies that the arguments read from a command line draw the figures of a run as the main block passes them, the
+    averaged weights of the kept checkpoint and the groups chart of its trucks.
+
+    Args:
+        tmp_path (Path): The temporary folder of the test, holding the fake run.
+    """
+    fake_run = write_fake_run(run_folder=tmp_path / "run", class_names=THREE_CLASS_NAMES, weights="ema",
+                              saved_temperature=SAVED_TEMPERATURE, averaged_curve=AVERAGED_CURVE)
+    parsed_arguments = parse_report_arguments(arguments=[
+        "--experiment_folder", str(tmp_path / "run"), "--iteration", str(KEPT_ITERATION), "--weights", "ema",
+        "--split_name", "validation", "--group_manifest_path", str(fake_run["manifest_path"]), "--group_key",
+        "truck", "--group_plural", "trucks"])
+
+    output_folder = draw_report_figures(**vars(parsed_arguments), font_family=None)
+
+    report_values = json.loads(s=(output_folder / REPORT_VALUES_FILE_NAME).read_text())
+    assert output_folder == fake_run["evaluation_folder"] / REPORT_FIGURES_FOLDER_NAME
+    assert (report_values["weights"], report_values["logit_temperature"]) == ("ema", SAVED_TEMPERATURE)
+    assert report_values["groups"]["never_seen_groups"] == ["t5", "t6"]
+
+
+@pytest.mark.parametrize(argnames="arguments", argvalues=[
+    ["--iteration", str(KEPT_ITERATION)],
+    ["--experiment_folder", "run"],
+    ["--experiment_folder", "run", "--iteration", "last"],
+    ["--experiment_folder", "run", "--iteration", str(KEPT_ITERATION), "--weights", "averaged"],
+    ["--experiment_folder", "run", "--iteration", str(KEPT_ITERATION), "--evaluation_folder_name", "Results"],
+    ["--experiment_folder", "run", "--iteration", str(KEPT_ITERATION), "--minimum_recall", "high"],
+    ["--experiment_folder", "run", "--iteration", str(KEPT_ITERATION), "--class_display_names", "cat"],
+    ["--experiment_folder", "run", "--iteration", str(KEPT_ITERATION), "--class_display_names", "cat=Cat",
+     "cat=Feline"]])
+def test_report_script_refuses_missing_settings_or_unknown_values(arguments: List[str],
+                                                                  capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the script stops with its usage and the error, before anything is read, when the run folder or the
+    iteration is missing, a number, weights or evaluation folder is not one the figures accept, or a class name is
+    not given as CLASS=NAME or is given twice.
+
+    Args:
+        arguments (List[str]): The command line arguments.
+        capsys (pytest.CaptureFixture): The captured console output.
+    """
+    with pytest.raises(expected_exception=SystemExit) as exit_information:
+        parse_report_arguments(arguments=arguments)
+    assert exit_information.value.code == 2
+    assert "error:" in capsys.readouterr().err

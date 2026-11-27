@@ -2,18 +2,24 @@
 Tests of scripts/evaluation/compare_best_evaluations.py, the Markdown tables comparing the best test evaluation of
 several trained runs: the best evaluation over the trained and averaged weights, the columns expanded per class and
 titled, the curves that are rates written as percentages ("90.00 %") and the others (ranks) with their decimals, and
-the counts of data.json.
+the counts of data.json. The script prints its help when launched without arguments, reads every setting of
+compare_best_evaluations from its command line, DEFAULT_COLUMNS (with the chosen best metric) and
+DEFAULT_COLUMN_TITLES for those not given, and refuses missing experiment folders, an unknown value or a column given
+two titles before anything is read.
 """
 
 import hashlib
+import inspect
 import json
+import pytest
 import yaml
 
 from pathlib import Path
 from torch.utils.tensorboard import SummaryWriter
 from typing import Dict, List, Optional
 
-from scripts.evaluation.compare_best_evaluations import compare_best_evaluations
+from scripts.evaluation.compare_best_evaluations import (DEFAULT_BEST_METRIC, DEFAULT_COLUMN_TITLES, DEFAULT_COLUMNS,
+                                                         compare_best_evaluations, parse_comparison_arguments)
 
 # Classes of the fake runs, with their category identifiers in the labels files and the label mapping
 FAKE_CATEGORIES = [{"id": 1, "name": "cat"}, {"id": 2, "name": "dog"}]
@@ -23,6 +29,11 @@ COLUMNS = ["configuration:Data.image_settings.size", "best_iteration", "Balanced
            "validation_images/{class}", "train_images"]
 COLUMN_TITLES = {"configuration:Data.image_settings.size": "Image Size", "Recall/{class}": "Recall {class}",
                  "validation_images/{class}": "Validation {class}"}
+
+# Every argument of the comparison script, which its help must describe
+COMPARISON_SCRIPT_ARGUMENTS = ["--experiment_folders", "--best_metric", "--lower_is_better", "--evaluated_weights",
+                               "--columns", "--column_titles", "--table_grouping", "--number_decimals",
+                               "--rates_as_decimals", "--output_path"]
 
 
 def write_test_curves(test_folder: Path, curves: Dict[str, Dict[int, float]]) -> None:
@@ -179,3 +190,121 @@ def test_curves_that_are_not_rates_keep_their_decimals(tmp_path: Path) -> None:
                            columns=["best_iteration", "Balanced Accuracy", "Recall/{class}", "Mean True Frame Rank",
                                     "Mean True Frame Rank/{class}", "Effective Rank"])
     assert table.splitlines()[-1] == "| 400 | 85.00 % | 90.00 % | 80.00 % | 1.250 | 1.000 | 1.500 | 12.340 |"
+
+
+def test_comparison_script_without_arguments_prints_its_help(capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the comparison script launched without any argument prints the help of every one of its arguments
+    and stops without comparing, instead of failing on the missing experiment folders.
+
+    Args:
+        capsys (pytest.CaptureFixture): The captured console output.
+    """
+    with pytest.raises(expected_exception=SystemExit) as exit_information:
+        parse_comparison_arguments(arguments=[])
+    assert exit_information.value.code == 0
+    help_text = capsys.readouterr().out
+    assert [argument for argument in COMPARISON_SCRIPT_ARGUMENTS if argument not in help_text] == []
+
+
+def test_comparison_arguments_default_to_the_default_columns() -> None:
+    """
+    Verifies that the comparison script given only the experiment folders compares them by DEFAULT_BEST_METRIC, the
+    highest value winning, over the trained and averaged weights, with DEFAULT_COLUMNS and DEFAULT_COLUMN_TITLES, one
+    table per run and the rates as percentages, printed only; that a chosen best metric takes the place of the default
+    one in the default columns but not in columns given; and that every parsed argument but output_path is a parameter
+    of compare_best_evaluations, so that the main block passes them all.
+    """
+    parsed_arguments = parse_comparison_arguments(arguments=["--experiment_folders", "experiments"])
+    assert vars(parsed_arguments) == {"experiment_folders": [Path("experiments")], "best_metric": DEFAULT_BEST_METRIC,
+                                      "higher_is_better": True, "evaluated_weights": ["trained", "ema"],
+                                      "columns": DEFAULT_COLUMNS, "column_titles": DEFAULT_COLUMN_TITLES,
+                                      "table_grouping": "run", "number_decimals": 3, "curves_in_percent": True,
+                                      "output_path": None}
+    assert set(vars(parsed_arguments)) - {"output_path"} == set(
+        inspect.signature(compare_best_evaluations).parameters)
+
+    # The chosen best metric in the place of the default one, in the default columns only
+    macro_arguments = parse_comparison_arguments(arguments=["--experiment_folders", "experiments", "--best_metric",
+                                                            "Macro F1"])
+    assert macro_arguments.columns == ["Macro F1" if column == DEFAULT_BEST_METRIC else column
+                                       for column in DEFAULT_COLUMNS]
+    assert "Macro F1" in macro_arguments.columns and DEFAULT_BEST_METRIC not in macro_arguments.columns
+    given_arguments = parse_comparison_arguments(arguments=["--experiment_folders", "experiments", "--best_metric",
+                                                            "Macro F1", "--columns", "run", DEFAULT_BEST_METRIC])
+    assert given_arguments.columns == ["run", DEFAULT_BEST_METRIC]
+
+
+def test_comparison_arguments_reach_every_setting(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that every setting of compare_best_evaluations and the output file can be given on the command line of
+    the script: the columns in their order, titles given as COLUMN=TITLE replacing the default ones (a title holding
+    '=' kept whole), the weights alone, and paths starting with a '~' the shell left unexpanded (after '=' or quoted)
+    pointing to the home folder.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, standing for the home folder.
+        monkeypatch (pytest.MonkeyPatch): Sets the home folder.
+    """
+    monkeypatch.setenv(name="HOME", value=str(tmp_path))
+    parsed_arguments = parse_comparison_arguments(arguments=[
+        "--experiment_folders", "~/experiments", "runs/run_256", "--best_metric", "Validation Loss",
+        "--lower_is_better", "--evaluated_weights", "ema", "--columns", "run", "Validation Loss", "Recall/{class}",
+        "--column_titles",
+        "Recall/{class}=Recall {class}", "run=Run = Folder", "--table_grouping", "columns", "--number_decimals", "5",
+        "--rates_as_decimals", "--output_path=~/tables.md"])
+    assert vars(parsed_arguments) == {"experiment_folders": [tmp_path / "experiments", Path("runs/run_256")],
+                                      "best_metric": "Validation Loss", "higher_is_better": False,
+                                      "evaluated_weights": ["ema"], "columns": ["run", "Validation Loss",
+                                                                               "Recall/{class}"],
+                                      "column_titles": {"Recall/{class}": "Recall {class}", "run": "Run = Folder"},
+                                      "table_grouping": "columns", "number_decimals": 5, "curves_in_percent": False,
+                                      "output_path": tmp_path / "tables.md"}
+
+
+def test_parsed_comparison_arguments_compare_the_runs(tmp_path: Path) -> None:
+    """
+    Verifies that the arguments read from a command line compare the runs of an experiment folder as the main block
+    passes them, the titles given replacing the default ones.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    write_fake_run(run_folder=tmp_path / "experiments" / "run_256", data_folder=tmp_path / "data", image_size=256,
+                   trained_curves=build_curves(balanced_accuracies={200: 0.8, 400: 0.85}),
+                   averaged_curves=build_curves(balanced_accuracies={200: 0.75, 400: 0.9}), counted_classes=True)
+    parsed_arguments = parse_comparison_arguments(arguments=[
+        "--experiment_folders", str(tmp_path / "experiments"), "--evaluated_weights", "trained", "--columns",
+        "best_iteration", "Balanced Accuracy", "Recall/{class}", "--column_titles", "best_iteration=Best Iteration"])
+
+    table = compare_best_evaluations(**{name: value for name, value in vars(parsed_arguments).items()
+                                        if name != "output_path"})
+
+    assert table.splitlines()[2:] == ["| Best Iteration | Balanced Accuracy | Recall/cat | Recall/dog |",
+                                      "|---|---|---|---|", "| 400 | 85.00 % | 90.00 % | 80.00 % |"]
+
+
+@pytest.mark.parametrize(argnames="arguments", argvalues=[
+    ["--best_metric", "Accuracy"],
+    ["--experiment_folders"],
+    ["--experiment_folders", "experiments", "--evaluated_weights", "averaged"],
+    ["--experiment_folders", "experiments", "--table_grouping", "experiment"],
+    ["--experiment_folders", "experiments", "--number_decimals", "three"],
+    ["--experiment_folders", "experiments", "--column_titles", "Recall/{class}"],
+    ["--experiment_folders", "experiments", "--column_titles", "=Run"],
+    ["--experiment_folders", "experiments", "--column_titles", "run=Run", "run=Folder"]])
+def test_comparison_script_refuses_missing_folders_or_unknown_values(arguments: List[str],
+                                                                     capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the comparison script stops with its usage and the error, before anything is read, when the
+    experiment folders are missing, weights, a grouping or a number is not one the comparison accepts, or a title is
+    not given as COLUMN=TITLE or is given twice for a column.
+
+    Args:
+        arguments (List[str]): The command line arguments.
+        capsys (pytest.CaptureFixture): The captured console output.
+    """
+    with pytest.raises(expected_exception=SystemExit) as exit_information:
+        parse_comparison_arguments(arguments=arguments)
+    assert exit_information.value.code == 2
+    assert "error:" in capsys.readouterr().err
