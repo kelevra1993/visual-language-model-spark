@@ -226,7 +226,7 @@ The common checks run first, then `check_self_supervised_configuration()` (`visi
 | Part | Checks |
 |---|---|
 | data | `multi_class` label mode, classes 0 to K-1; `Data.data_augmentation.activated` True (its types draw the views); `random_crop` at probability 1.0 when activated; no sequence settings (`check_image_task_sequence_settings()`) |
-| grouped batches | `check_grouped_batches_configuration()`: `activated` a boolean, `block_key` a non-empty string, `batch_key` null or a non-empty string, `images_per_block` at least 2 and dividing the batch size |
+| grouped batches | `check_grouped_batches_configuration()`: `activated` a boolean, `block_key` a non-empty string, `batch_key` null or a non-empty string, `images_per_block` at least 2, and dividing the batch size when `activated` is True |
 | head | `check_projection_head_configuration()`: pooling, layers (positive integers, embedding size last), normalization (`"none"` with the embedding layer only), method (`simclr` or `barlow_twins`), `simclr.temperature` and `barlow_twins.off_diagonal_weight` above 0 whatever the method |
 | batch and evaluation | batch size of at least 2; `number_neighbours` and `number_reference_images_per_class` positive integers (`check_self_supervised_evaluation_configuration()`) |
 
@@ -310,7 +310,7 @@ crop_area_range: (0.2, 1.0)   brightness_factor_range: (0.6, 1.2)   maximum_hue_
 ### Step 2.6 — `setup_training_paths()`
 It creates the run folder, copies the YAML file as written and writes `label_dictionary.json`; the data record follows once the loaders exist. Before it, `restore_run_label_dictionary()` and `check_resumed_data()` handle a resumed run, as for every task (`classification_workflow.md`, Step 2.6).
 
-**Example: the run folder after the construction** (the configuration file was 28,255 bytes on 2026-10-24 and 16,041 bytes on 2026-11-20)
+**Example: the run folder after the construction** (the configuration file was 28,255 bytes on 2026-10-24 and 16,151 bytes on 2026-11-27)
 ```text
 Tensorboard/                    folder
 Weights/                        folder
@@ -731,7 +731,7 @@ embeddings        [8, 128] torch.float32 in [-0.24, 0.22]
 Keeps the representations (`.detach().float().cpu()`), labels and identifiers. The embeddings are not kept: the representation is what is evaluated.
 
 ### Step 4.6 — `save_sample_images()` → `build_sample_image()`
-For each fixed test image of Step 2.11: the image next to two random views, captioned with its class (or `unlabelled`) and the cosine similarity of the two view representations. The views are drawn from the seed `SAMPLE_VIEWS_SEED` (20000) plus the sample identifier, inside `torch.random.fork_rng()`, so every evaluation compares the same views and the training random state is unchanged. `add_caption_bar()` writes the caption in a 24 pixel black bar (`CAPTION_BAR_HEIGHT`).
+For each fixed test image of Step 2.11: the image next to two random views, captioned with its class (or `unlabelled`) and the cosine similarity of the two view representations. The views are drawn from the seed `SAMPLE_VIEWS_SEED` (20000) plus the sample identifier, inside `fork_random_state()` (copies of the Python and PyTorch random states), so every evaluation compares the same views and the training random state is unchanged. `add_caption_bar()` writes the caption in a 24 pixel black bar (`CAPTION_BAR_HEIGHT`).
 
 **Example: the sample images of iteration 12**
 ```text
@@ -827,6 +827,7 @@ Iteration 12 · 1000 Test Images · 2026-10-23 02:19 ─────────
   - Class Metrics : class_metrics.csv
   - Sample Images : Samples
 ```
+The current code writes the k-NN note of Step 2.1 instead, "by labelled training images" in place of "by the other ones" in the legend, adds the `Per Class k-NN Recall` table and prints `Evaluation Curves : evaluation_curves.png` after the links.
 
 After the two evaluations, `Tensorboard/Test` holds 32 scalars (5 global + 27 per class) at steps 6 and 12, and MLflow 44 metric keys. A run started after 2026-11-18 also sends `Input_Samples/`, `evaluation_curves.png` and `Evaluation/evaluation_summary.csv` to MLflow. With `Optimization.exponential_moving_average` on, the averaged weights are evaluated the same way, in `Evaluation/Iteration_<n>/EMA/` and `Tensorboard/Test_EMA`.
 
@@ -834,10 +835,10 @@ After the two evaluations, `Tensorboard/Test` holds 32 scalars (5 global + 27 pe
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> The examples below are real outputs of `scripts/evaluation/evaluate_checkpoint.py` on the Stage 3 run (checkpoints 3, 6, 9 and 12), with `iteration = "all"`, `batch_size = 16` and the first 200 test images (`test_200`). A second evaluation of iteration 12 uses the same images without categories (`test_unlabelled_200`). As in Stage 4, the k-NN numbers come from the old leave-one-out vote and the recall table is missing. The folder names are those of the current `<run>/Checkpoint_Evaluation/`.
+> The examples below are real outputs of `scripts/evaluation/evaluate_checkpoint.py` on the Stage 3 run (checkpoints 3, 6, 9 and 12), with `--iteration all`, `--batch_size 16` and the first 200 test images as `--test_data_folder` (`test_200`). A second evaluation of iteration 12 uses the same images without categories (`test_unlabelled_200`). As in Stage 4, the k-NN numbers come from the old leave-one-out vote and the recall table is missing. The current code writes `test_200` to `<run>/Checkpoint_Evaluation_split_<parent folder>_test_200/` (Step 5.2).
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-The script of every task (`classification_workflow.md`, Stage 5), set by its arguments: `--experiment_folder` (the run folder, required), `--iteration` (an integer or `all`, the last checkpoint by default) and `--test_data_folder`. The task has no `evaluation.error_dumps` section, so `--maximum_error_images_per_class_pair` is skipped with a yellow warning. `--save_predictions`, `--target_precisions`, `--nms_criterion` and `--nms_distance_exponent` are skipped the same way when given. A run saved before the reference training images lacks `evaluation.number_reference_images_per_class`, which the checks refuse: add the key to its `training_configuration.yaml` first. The split needs no labels (Step 5.6).
+The script of every task (`classification_workflow.md`, Stage 5), set by its arguments: `--experiment_folder` (the run folder, required), `--iteration` (an integer or `all`, the last checkpoint by default), `--test_data_folder`, `--batch_size` (128 by default) and `--track_evaluation` (the `tracking.activated` of the run by default). The task has no `evaluation.error_dumps` section, so `--maximum_error_images_per_class_pair`, `100000` by default, is skipped with a yellow warning unless it is `None`. `--save_predictions`, `--target_precisions`, `--nms_criterion` and `--nms_distance_exponent` are skipped the same way when given. A run saved before the reference training images lacks `evaluation.number_reference_images_per_class`, which the checks refuse: add the key to its `training_configuration.yaml` first. The split needs no labels (Step 5.6).
 
 ### Step 5.2 — trainer construction
 The script loads the run's `training_configuration.yaml` with the classes of its `label_dictionary.json`. `point_to_checkpoint_evaluation()` sends the files to `<run name>/Checkpoint_Evaluation/`, or `<run name>/Checkpoint_Evaluation_split_<parent folder>_<split folder>/` for another split such as `test_200`. Then `disable_pretrained_settings()` runs and a `SelfSupervisedTrainer` is built inside `read_manifests_once()`. `tracking_root` keeps the experiments root folder, so the evaluation is tracked in the backend of the run.
@@ -866,7 +867,7 @@ metrics: 33 keys, 132 rows
 ```
 
 ### Step 5.5 — `summarise_checkpoint_evaluations()`
-So that the checkpoint to keep can be chosen, every evaluation adds its row to `Checkpoint_Evaluation/evaluation_summary.csv` (increasing iteration order, rows of earlier launches kept) and draws `evaluation_curves.png` again. The best checkpoint of the k-NN accuracy is printed after the last one. The file has 33 columns: the iteration, the 5 global metrics and the 27 per-class metrics.
+So that the checkpoint to keep can be chosen, every evaluation adds its row to the `evaluation_summary.csv` of its folder (`Checkpoint_Evaluation/` for the test split of the run; increasing iteration order, rows of earlier launches kept) and draws `evaluation_curves.png` again. The best checkpoint of the k-NN accuracy is printed after the last one. The file has 33 columns: the iteration, the 5 global metrics and the 27 per-class metrics.
 
 **Example output**
 ```text
@@ -893,4 +894,4 @@ Each checkpoint prints a block like Step 4.12. This table gives the global metri
 
 The effective rank and the spread grow as the batch normalization statistics settle (Step 4.9). The k-NN accuracy only moves around chance (0.11) on 200 images, which makes iteration 3 the best checkpoint here.
 
-On the same 200 images without labels (`test_unlabelled_200`), a yellow block counts the 200 samples kept without class, the k-NN is skipped (`Labelled Test Images : 0 of 200`) and the best checkpoint is chosen by `Effective Rank` (1.0433 at iteration 12). Without labels there is no class table nor `class_metrics.csv`, the samples are captioned `unlabelled`, and the MLflow run has 3 metric keys. In the same `Checkpoint_Evaluation/` folder as the labelled evaluation, the row of iteration 12 replaces the labelled one with empty k-NN cells; the rows of 3, 6 and 9 stay.
+On the same 200 images without labels (`test_unlabelled_200`), a yellow block counts the 200 samples kept without class, the k-NN is skipped (`Labelled Test Images : 0 of 200`) and the best checkpoint is chosen by `Effective Rank` (1.0433 at iteration 12). Without labels there is no class table nor `class_metrics.csv`, the samples are captioned `unlabelled`, and the MLflow run has 3 metric keys. The current code gives this split its own folder (Step 5.2), so its `evaluation_summary.csv` holds the row of iteration 12 only. When these outputs were recorded, both splits shared one folder: the row of iteration 12 replaced the labelled one with empty k-NN cells, and the rows of 3, 6 and 9 stayed.

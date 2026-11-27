@@ -63,7 +63,7 @@ If you are looking for the code of a step, the table lists the files of the task
 
 ### Run It
 
-In order to generate, train, evaluate and export the synthetic shapes segmenter from scratch, run these commands from the repository root. Before training, set `experiment_folder`, the three data folders, `Data.label_mapping.mapping_file_path` and `number_iterations` (1e10 in this file; 2000 for the 9-class run of `experiments/readme_screenshots`).
+In order to generate, train, evaluate and export the synthetic shapes segmenter from scratch, run these commands from the repository root. Before training, set `experiment_folder`, the three data folders, `Data.label_mapping.mapping_file_path` and `number_iterations` (1e10 in this file; 2000 for the 9-class run of `tutorials/run_snapshots/readme_screenshots`).
 
 ```bash
 # Generate the dataset: 50,000 / 200 / 200 images of 512 pixels, up to 6 of the 35 shapes, with class masks
@@ -75,11 +75,11 @@ uv run python -m vision_training.main --configuration_path="vision_training/conf
 # Evaluate every checkpoint into <run>/Checkpoint_Evaluation/, without error images (Step 5.1)
 uv run python -m scripts.evaluation.evaluate_checkpoint --experiment_folder <run folder> --iteration all --maximum_error_images_per_class_pair None
 
-# Export (CUDA only; run without arguments for the help)
+# Export (a CUDA GPU, and Docker for the TensorRT engine check; run without arguments for the help)
 uv run python -m vision_training.deployment.export_model --experiment_folder <run folder> --iteration <iteration>
 ```
 
-The export writes the input contract in `<model>/<version>/preprocessing.json` and the metadata of `model.onnx`; served models are replaced only once every format matches the eager model. On the 35-class dataset of 2026-11-19 this recipe (batch 32, shape pre-trainer backbone) reached only 4.44 % mean IoU at 1000 iterations; the 35-shape recipe is still to be studied.
+The export writes the input contract in `<model>/<version>/preprocessing.json` and the metadata of `model.onnx`; served models are replaced only once every format matches the eager model. The TensorRT engine of `model.onnx` is checked too, built and run by a temporary Triton container; `--skip_tensorrt_check` leaves it unchecked ([tools reference, TensorRT Check](../reference/tools_reference.md#tensorrt-check)). On the 35-class dataset of 2026-11-19 this recipe (batch 32, shape pre-trainer backbone) reached only 4.44 % mean IoU at 1000 iterations; the 35-shape recipe is still to be studied.
 
 ### Configuration Keys To Know First
 
@@ -106,8 +106,9 @@ Whenever you look for a result of the run, the table lists what training and eva
 |---|---|
 | `Results.txt` | one block per checkpoint: the headline metrics (Step 4.7), notes, the per-class table and the `Per Class Recall` table (Step 4.13); rates as `7.90 %`, files and scalars between 0 and 1 |
 | `Evaluation/Iteration_<n>/` | `class_metrics.csv` (Step 4.10), `confusion_matrix.csv`; with `per_class_report` `confusion_matrix.png`, `roc_curves.png`, `precision_recall_curves.png`; `Samples/` (2060x560 at 512 pixels); `Predicted_Masks/` with `save_predicted_masks`; no `EMA/` (moving average off) |
+| `Evaluation/evaluation_summary.csv`, `evaluation_curves.png` | one row per evaluated iteration, every scalar (per class with `per_class_report`); the mean IoU per iteration, redrawn after each evaluation (Step 4.14) |
 | `class_pixel_counts.json` | with `class_weighting: "balanced"` |
-| TensorBoard | `Train` and `Validation`: losses, `Pixel Accuracy`, `Mean IoU`; `Test`: 88 scalars and 11 images in the 9-class run of `experiments/readme_screenshots` (Step 4.13) |
+| TensorBoard | `Train` and `Validation`: losses, `Pixel Accuracy`, `Mean IoU`; `Test`: 88 scalars and 11 images in the 9-class run of `tutorials/run_snapshots/readme_screenshots` (Step 4.13) |
 | `Weights/Iteration_<n>/model_<n>.pt` | about 9.6 MB: 3.15 MB of weights and the two Adam moments |
 
 ### Pitfalls
@@ -156,10 +157,10 @@ main()                                                 give a semantic_segmentat
         ├── per test batch: predict_batch() (tile by tile when tiled), accumulate_evaluation_batch(),
         │                   save_sample_images()
         ├── compute_evaluation_results()               region, boundary, curve metrics, recall intervals, files
-        └── report_evaluation()
+        └── report_evaluation()                        Results.txt, TensorBoard, MLflow, update_evaluation_curves()
 
 scripts/evaluation/evaluate_checkpoint.py              [STAGE 5]
-└── evaluate_checkpoints() -> run_test_evaluation() for every checkpoint -> summarise_checkpoint_evaluations()
+└── evaluate_checkpoints() -> summarise_checkpoint_evaluations() -> run_test_evaluation() for every checkpoint
 ```
 
 ---
@@ -348,7 +349,10 @@ So that one can check the last level reaches the input resolution, the segmenter
 ╭─────────────────────── Segmentation Decoder And Head ────────────────────────╮
 │ Upsampling    : transposed                                                   │
 │ Bottleneck    : 16x16x128                                                    │
-│  - Level Of Block 5 : skip 32x32x64, 2 x 64 channels, output 32x32x64        │
+│  - Level Of Block 5                                                          │
+│    - Skip Connection : 32x32x64                                              │
+│    - Convolutions    : 2 x 64 channels                                       │
+│    - Output          : 32x32x64                                              │
 │  ...                                                                         │
 │  - Level Of Block 1                                                          │
 │    - Output          : 512x512x16                                            │
@@ -635,7 +639,7 @@ Mean Boundary IoU 0.0195   Mean Boundary F1 0.0608
 ### Step 4.10 — `build_segmentation_class_rows()` + `write_class_metrics_file()`
 Pixels of an image are correlated (a missed object loses all its pixels), so an exact interval over pixels would be far too narrow. `compute_bootstrap_recall_intervals()` instead gives a Korn-Graubard interval per class: 1000 resamples of whole test images (fixed seed) give the recall variance, hence an effective sample size `p (1 - p) / variance`, and the bounds are the Clopper-Pearson interval at that size. A recall of 0 or 1, or a single image holding the class, falls back to the exact interval over those images.
 
-The bounds join the row as `recall_lower` and `recall_upper` after `recall`, empty for a class without true pixels. `class_metrics.csv` holds one row per class, in index order, at every evaluation. With `per_class_report`, `compute_histogram_score_curves()` turns the histograms into one-against-rest ROC and precision-recall curves, exact at the bin edges. Each class gets `roc_auc` and `average_precision`, and their means (`compute_macro_curve_metrics()`) become `Macro ROC AUC` and `Macro Average Precision`. A class without pixels has neither; a class covering every labelled pixel has no ROC AUC. The example predates these two columns.
+The bounds join the row as `recall_lower` and `recall_upper` after `recall`, empty for a class without true pixels. `class_metrics.csv` holds one row per class, in index order, at every evaluation. With `per_class_report`, `compute_histogram_score_curves()` turns the histograms into one-against-rest ROC and precision-recall curves, exact at the bin edges. Each class gets `roc_auc` and `average_precision`, and their means (`compute_macro_curve_metrics()`) become `Macro ROC AUC` and `Macro Average Precision`. A class without pixels has neither; a class covering every labelled pixel has no ROC AUC. The example predates `recall_lower`, `recall_upper`, `roc_auc` and `average_precision`.
 
 **Example: `Evaluation/Iteration_12/class_metrics.csv`**
 ```text
@@ -654,7 +658,7 @@ class_index,class,pixels,iou,dice,boundary_iou,boundary_f1,precision,recall
 The notes name what was scored: the labelled pixel count and the resolution (`network resolution`, `original resolution of the images`, or `images scaled by <scale>, segmented tile by tile`), and the boundary tolerance. With `save_predicted_masks`, the `Predicted_Masks` folder and its image count are added.
 
 ### Step 4.13 — `build_segmentation_class_table()` + `build_segmentation_class_scalars()`
-The per-class table sorts classes by IoU, worst first. `build_recall_interval_table()` adds the `Per Class Recall` table (true pixels, recall, `95 % Lower`, `95 % Upper`), worst recall first. Rates print as percentages (`percent_columns`, `percent_metrics`). With `per_class_report` only, each class with pixels gets 6 scalars (`IoU`, `Dice`, `Boundary IoU`, `Boundary F1`, `Precision`, `Recall`): 60 for 10 classes. `ROC AUC` and `Average Precision` raise this to 80, plus 8 headline metrics, in the 512 pixel run of `experiments/readme_screenshots`.
+The per-class table sorts classes by IoU, worst first. `build_recall_interval_table()` adds the `Per Class Recall` table (true pixels, recall, `95 % Lower`, `95 % Upper`), worst recall first. Rates print as percentages (`percent_columns`, `percent_metrics`). With `per_class_report` only, each class with pixels gets 6 scalars (`IoU`, `Dice`, `Boundary IoU`, `Boundary F1`, `Precision`, `Recall`): 60 for 10 classes. `ROC AUC` and `Average Precision` raise this to 80, plus 8 headline metrics, in the 512 pixel run of `tutorials/run_snapshots/readme_screenshots`.
 
 ### Step 4.14 — `report_evaluation()` → `report_evaluation_results()` + `track_evaluation()`
 **Example output: the block of iteration 12** (also appended to `Results.txt`)
@@ -685,13 +689,15 @@ Tensorboard/Test: 66 scalars (6 global + 60 per class), 9 images (8 samples + Co
 MLflow: test/Mean IoU, ..., test/best_Mean IoU (steps 6, 12), 60 test_class/<metric>/<class>,
         artifacts evaluation/iteration_6/ and iteration_12/: class_metrics.csv, confusion_matrix.png
 ```
+The current code then runs `update_evaluation_curves()`: it writes the row of the iteration into `Evaluation/evaluation_summary.csv` and draws `evaluation_curves.png` again, both also sent to MLflow.
+
 Iteration 6 predicted `square` almost everywhere (pixel accuracy 1.96 %, square recall 99.66 %); iteration 12 learned that most pixels are background.
 
 ---
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> The examples below come from `scripts/evaluation/evaluate_checkpoint.py` on the Stage 3 run (checkpoints 3, 6, 9 and 12, the first three saved before their training step) with `iteration = "all"`, `batch_size = 16`, on the first 40 test images. They predate the per-class recall intervals and the curves.
+> The examples below come from `scripts/evaluation/evaluate_checkpoint.py` on the Stage 3 run (checkpoints 3, 6, 9 and 12, the first three saved before their training step) with `--iteration all --batch_size 16`, on the first 40 test images. They predate the per-class recall intervals and the curves.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
 The same script for every task (`classification_workflow.md`, Stage 5): give the run as `--experiment_folder`, and `--test_data_folder` for another labelled split (`labels.json`, `data/`, `masks/`). `--maximum_error_images_per_class_pair` unless it is `None`, and `--save_predictions`, `--target_precisions`, `--nms_criterion` and `--nms_distance_exponent` when given, are skipped with a yellow warning: the task has no error images, predictions file, class thresholds or `Detector`. The evaluation goes to `Checkpoint_Evaluation/` of the run (`Checkpoint_Evaluation_split_<parent folder>_<split folder>/` for another split).
@@ -700,7 +706,7 @@ The same script for every task (`classification_workflow.md`, Stage 5): give the
 The script loads the run's `training_configuration.yaml` with the classes of its `label_dictionary.json`, points it to `Checkpoint_Evaluation/`, the split and the batch size, and builds a `SegmentationTrainer`. With `class_weighting: "balanced"` it would count the training mask pixels again, the cache living in the trainer's folder.
 
 ### Step 5.3 — `get_checkpoint_iterations()`
-With `iteration = "all"` it returns `[12, 9, 6, 3]`.
+It returns `[3, 6, 9, 12]`. With `--iteration all`, `list_evaluated_iterations()` reverses it into `[12, 9, 6, 3]`, the last saved checkpoint first.
 
 ### Step 5.4 — `evaluate_checkpoints()` → `start_evaluation_tracking()`
 **Example output**
@@ -718,7 +724,7 @@ iteration,Mean IoU,Mean Dice,...
 12,0.07127240554791028,0.08981075670647244, ...
 9,0.054483986969393404,0.0767030110689235, ...
 ```
-The current summary also has `Macro ROC AUC` and `Macro Average Precision` after `Frequency Weighted IoU`, and the per-class curve columns.
+The current summary also has `Macro ROC AUC` and `Macro Average Precision` after `Frequency Weighted IoU`, and the per-class curve columns. Its rows now come in increasing iteration order, and the console adds an `Evaluation Curves : evaluation_curves.png` line.
 
 ### Step 5.6 — `run_test_evaluation()` for each checkpoint
 **Example output: the block of iteration 12 on the 40 images** (shortened)

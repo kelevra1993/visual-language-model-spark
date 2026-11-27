@@ -137,11 +137,11 @@ Data:
       random_crop: { activated: True, probability: 0.25 }
       # Random Aspect Crop : 75% to 100% of the width and, separately, of the height, resized back (x0.75 to x1.33
       # stretch; other camera proportions, for keep_ratio False)
-      random_aspect_crop: { activated: False, probability: 0.25 }
+      random_aspect_crop: { activated: True, probability: 0.25 }
       # Random Zoom Out : image shrunk to 50% to 100% of each side on a black canvas, objects appearing smaller
       random_zoom_out: { activated: True, probability: 0.25 }
       # Random Translation : shift of up to 25% along x, y or both, border filled black
-      random_translation: { activated: False, probability: 0.25 }
+      random_translation: { activated: True, probability: 0.25 }
       # Random Left-Right Flip
       random_left_right_flip: { activated: True, probability: 0.5 }
       # Random Up-Down Flip
@@ -161,7 +161,7 @@ Data:
       # Brightness (+-40 levels), contrast and saturation (x0.7 to x1.0)
       brightness_contrast_saturation: { activated: True, probability: 0.25 }
       # Random Hue : hue turned by up to 18 degrees (5% of the circle) either way
-      random_hue: { activated: False, probability: 0.25 }
+      random_hue: { activated: True, probability: 0.25 }
       # CLAHE, clip limit 2.0 on a 4x4 tile grid
       clahe_augment: { activated: True, probability: 0.25 }
       # Laplacian of Gaussian unsharp mask sharpening (sigma 1.5, strength 3)
@@ -177,23 +177,23 @@ Data:
       # Random Colour augmentation : BGR to RGB channel swap
       random_colour_augmentation: { activated: False, probability: 0.25 }
       # Random Gamma : gamma 0.8 to 1.25, darkening or lightening the mid-tones
-      random_gamma: { activated: False, probability: 0.25 }
+      random_gamma: { activated: True, probability: 0.25 }
       # Random Linear Illumination : 13 to 38 level ramp across the image, brightening or darkening one side
-      random_linear_illumination: { activated: False, probability: 0.25 }
+      random_linear_illumination: { activated: True, probability: 0.25 }
       # Random Plasma Shadow : irregular fractal shadows darkening by up to 77 levels
-      random_plasma_shadow: { activated: False, probability: 0.25 }
+      random_plasma_shadow: { activated: True, probability: 0.25 }
       # Random Blur : 9x9 Gaussian kernel, sigma 2.5
       random_blur: { activated: True, probability: 0.25 }
       # Random Motion Blurring : 5 to 15 pixel streak at 0 to 180 degrees (camera or object motion)
-      random_motion_blur: { activated: False, probability: 0.25 }
+      random_motion_blur: { activated: True, probability: 0.25 }
       # Random Haze : uniform grey airlight of 180 to 255 levels taking 20% to 60% of every pixel, a camera fog (after
       # the blurs, before solarization, black-out and erasing)
       random_haze: { activated: True, probability: 0.25 }
       # Random Solarize : pixels at or above 128 levels inverted
-      random_solarize: { activated: False, probability: 0.25 }
+      random_solarize: { activated: True, probability: 0.25 }
       # Random Black Out : grid_size x grid_size cells, each blacked out with probability 0.2 (after the other
       # photometric types but the erasing); labels unchanged, so a hidden object keeps its label
-      random_black_out: { activated: False, probability: 0.25, grid_size: 8 }
+      random_black_out: { activated: True, probability: 0.25, grid_size: 8 }
       # Random Erasing : one black rectangle of 2% to 15% of the image, height / width 0.3 to 3.3, applied last; labels
       # unchanged
       random_erasing: { activated: False, probability: 0.25 }
@@ -292,7 +292,7 @@ DetectionLevels:
 Neck:
   # "none" (heads read the blocks), "feature_pyramid" (top-down path from the coarse levels, kept by the detection
   # benchmark) or "path_aggregation" (the feature pyramid, then a bottom-up path from the fine levels).
-  type: "feature_pyramid"
+  type: "path_aggregation"
   # Channels of every level after the neck, read by the heads (unused with "none").
   output_channels: 64
   normalization:
