@@ -530,17 +530,38 @@ The figure below shows the three resizes on one photo:
 </p>
 <p align="center"><em>A 640 x 359 photo resized for an input size of 256 (tiles overlapping by 64). Photo: COCO 2017 validation image 288882, Flickr, CC BY 2.0.</em></p>
 
-A client reads and checks the contract of an ONNX file in three lines:
+A client reads and checks the contract of an ONNX file before building its inputs:
 
 ```python
+import onnxruntime
+
+from vision_training.deployment.input_contract import check_input_contract
+
 # Open the exported model on the CPU
 session = onnxruntime.InferenceSession("model.onnx", providers=["CPUExecutionProvider"])
 
-# Read the contract from the ONNX metadata
+# Read the contract from the ONNX metadata, the same keys as preprocessing.json
 input_contract = session.get_modelmeta().custom_metadata_map
+print(input_contract["input_resize"], input_contract["input_size"], input_contract["input_color_order"], input_contract["input_layout"])
+
+# Name and shape of the input the contract describes
+network_input = session.get_inputs()[0]
+print(network_input.name, network_input.shape)
 
 # Fail if a key is missing or has an unknown value
 check_input_contract(input_contract=input_contract)
+
+# A value the contract does not allow stops the client, here an RGB channel order
+check_input_contract(input_contract={**input_contract, "input_color_order": "RGB"})
+```
+
+Run next to the `model.onnx` of the README classifier, it prints:
+
+```text
+keep_ratio 512 BGR NCHW
+images ['batch', 3, 512, 512]
+ValueError: The input contract version 2 cannot describe this input:
+input_color_order 'RGB', from the channel order of read_image, is not allowed (allowed: 'BGR')
 ```
 
 Every key: [tools reference](documentation/reference/tools_reference.md#input-contract). `build_input_from_contract` in `tests/deployment/test_input_contract.py` builds an input from the contract alone.
