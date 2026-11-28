@@ -249,9 +249,16 @@ Read the `All Levels` column size by size. An object under `RegionProposal.foreg
 Before training an architecture, `ExperimentConfiguration.diagnosis_modes.benchmark_speed: True` measures how fast it trains and infers when the data never waits, then exits (`BaseTrainer.benchmark_speed`, `vision_training/trainers/speed_benchmark.py`). It writes nothing to the run folder.
 - **Memory**: `limit_process_memory` caps PyTorch at the free memory minus a margin: 40 GB on an integrated GPU (`INTEGRATED_GPU_MEMORY_MARGIN_BYTES`), 2 GB on a discrete one (`DISCRETE_GPU_MEMORY_MARGIN_BYTES`).
 - **Largest batch size**: `find_largest_batch_size` doubles, then bisects to within 1/16, up to `MAXIMUM_BENCHMARK_BATCH_SIZE` (2048).
-- **Inference**: the last checkpoint is loaded when there is one. Each format is timed at batch 1, the configured batch and the largest: `PyTorch Evaluation`, `PyTorch Inference Model`, `TorchScript`, and ONNX Runtime CUDA and TensorRT FP32 and FP16. The ONNX formats need `onnxruntime-gpu`.
+- **Inference**: the last checkpoint is loaded when there is one. Each way of running the model is timed at batch 1, the configured batch and the largest. Two run inside the repository: the test evaluation (`predict_batch`) and the network before export (the reference of the speed-up). Four are served by Triton: the TorchScript file, and the ONNX file on ONNX Runtime CUDA and on TensorRT FP32 and FP16. The ONNX rows need `onnxruntime-gpu`.
 - **Training**: `run_training_step` is timed at the configured and largest batch sizes. The training time of `number_iterations` is a lower bound (loading, validation and evaluations left out).
-- **Timing**: `measure_iteration_time` warms up 2 seconds, then times 5 windows over 5 seconds. Each row gives the median window, samples per second, spread and peak memory.
+- **Timing**: `measure_iteration_time` warms up 2 seconds, then times 5 windows over 5 seconds. Every cell is the median window. A cell whose windows spread more than 10 % (`UNSTEADY_SPREAD`) gets a `*`.
+
+In order to follow a run, the console opens with a panel listing the numbered steps. Each step then prints one progress line: the batch sizes tried (`64 fits   256 too large`), or each format with its timed batch sizes (`1 done   64 done`).
+
+The report has three panels:
+- **What Was Measured**: the GPU, the memory, the batch, the weights and the timing.
+- **Training**: one row per batch size, with the milliseconds per step, the samples per second and the peak memory.
+- **Inference**: one row per way of running the model and one column per batch size. Batch 1 gives the milliseconds per sample (the latency of one request). The other columns give the samples per second. The last column gives the speed-up over the network before export.
 
 ## TensorBoard Monitoring
 To follow a run live, open TensorBoard on its folders, listed below.

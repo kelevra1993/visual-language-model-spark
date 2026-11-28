@@ -3,7 +3,8 @@ Tests of the 'benchmark_speed' diagnosis mode: the helpers of vision_training/tr
 loader batch, search of the largest batch size, out of memory errors, memory cap) and BaseTrainer.benchmark_speed of
 vision_training/trainers/base_trainer.py, run on the dummy task (training step and test evaluation only, the task
 having no export) and on the synthetic classification task (TorchScript and ONNX Runtime formats too), checking that
-the benchmark exits without training nor run folder and prints its report.
+the benchmark exits without training nor run folder and prints its numbered progress lines and its report, plus the
+tables and notes of the report and the capture of the native error output of the probes.
 """
 
 import os
@@ -14,8 +15,10 @@ import torch
 import yaml
 
 from functools import partial
+from io import StringIO
 from pathlib import Path
-from typing import Any, List
+from rich.console import Console
+from typing import Any, Dict, List, Optional
 
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.synthetic.create_synthetic_dataset import create_synthetic_dataset
@@ -293,10 +296,11 @@ def test_dummy_benchmark_exits_without_run_folder(tmp_path: Path, capsys: pytest
                                                   monkeypatch: pytest.MonkeyPatch) -> None:
     """
     Verifies the speed benchmark on the dummy task, which has no export: the trainer exits at construction without
-    creating the run folder, after printing the searches of the largest batch sizes (both reaching the capped maximum),
-    the inference table with the test evaluation measured at a batch of 1, at the configured batch size and at the
-    largest one, the exported formats reported as not available, the training table with the configured and largest
-    batch sizes measured, the training time of the run, and the note on the initial weights; the memory cap is lifted.
+    creating the run folder, after printing the opening panel and the four numbered steps (no export step), the
+    searches of the largest batch sizes (both reaching the capped maximum), the inference panel with the test evaluation
+    timed at a batch of 1, at the configured batch size and at the largest one, the exported formats reported as not
+    available, the training panel with the configured and largest batch sizes timed, the training time of the run, and
+    the initial weights; the memory cap is lifted.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -312,18 +316,24 @@ def test_dummy_benchmark_exits_without_run_folder(tmp_path: Path, capsys: pytest
     assert not (tmp_path / "experiments").exists()
     assert torch.cuda.get_per_process_memory_fraction(device=torch.cuda.current_device()) == 1.0
 
-    # Searches, tables and notes of the report
-    assert f"Batch Size {TEST_MAXIMUM_BATCH_SIZE} : Fits" in printed_output
-    assert (f"Largest inference batch size : {TEST_MAXIMUM_BATCH_SIZE}, the largest the search tries "
-            f"({TEST_MAXIMUM_BATCH_SIZE})") in printed_output
-    assert (f"Largest training batch size : {TEST_MAXIMUM_BATCH_SIZE}, the largest the search tries "
-            f"({TEST_MAXIMUM_BATCH_SIZE})") in printed_output
-    assert "Training Step" in printed_output and "Inference" in printed_output
-    assert "Configured" in printed_output and "Largest Found" in printed_output
-    assert "no export specification for the dummy_task task" in printed_output
-    assert "2 iterations (number_iterations) at the configured batch size" in printed_output
-    assert "No checkpoint in the run folder" in printed_output
-    assert printed_output.count("PyTorch Evaluation") >= 3
+    # Numbered steps of the progress lines, four without the export step
+    assert "[1/4] Searching the largest inference batch size" in printed_output
+    assert "[4/4] Timing the training step at batch 2 and 16" in printed_output
+    assert "Export of the network" not in printed_output
+    assert f"{TEST_MAXIMUM_BATCH_SIZE} fits   → largest: {TEST_MAXIMUM_BATCH_SIZE}" in printed_output
+
+    # Panels, tables and notes of the report
+    assert "1 · Training: how long will the training take?" in printed_output
+    assert "2 · Inference: how fast does the model answer?" in printed_output
+    assert (f"Largest inference batch size: {TEST_MAXIMUM_BATCH_SIZE}, the maximum the search tries "
+            f"({TEST_MAXIMUM_BATCH_SIZE}).") in printed_output
+    assert (f"Largest training batch size: {TEST_MAXIMUM_BATCH_SIZE}, the maximum the search tries "
+            f"({TEST_MAXIMUM_BATCH_SIZE}).") in printed_output
+    assert "2  (configured)" in printed_output and f"{TEST_MAXIMUM_BATCH_SIZE}  (largest that fits)" in printed_output
+    assert "not available: no export specification for the dummy_task task" in printed_output
+    assert "2 steps (number_iterations) at batch 2: at least" in printed_output
+    assert "initial weights, no checkpoint in the run folder" in printed_output
+    assert printed_output.count("Test evaluation (predict_batch)") == 2
 
 
 @requires_cuda
@@ -347,8 +357,8 @@ def test_dummy_benchmark_reads_the_last_checkpoint_without_writing(tmp_path: Pat
     with pytest.raises(expected_exception=SystemExit):
         build_benchmarking_dummy_trainer(temporary_directory=tmp_path, benchmark_speed=True)
     printed_output = capsys.readouterr().out
-    assert "Weights : checkpoint of iteration 2 of the run folder" in printed_output
-    assert "No checkpoint in the run folder" not in printed_output
+    assert "checkpoint of iteration 2 of the run folder" in printed_output
+    assert "no checkpoint in the run folder" not in printed_output
     assert {path: path.stat().st_mtime_ns for path in run_folder.rglob("*") if path.is_file()} == files_before
 
 
@@ -380,15 +390,19 @@ def test_classification_benchmark_times_the_exported_formats(tmp_path: Path, cap
     printed_output = capsys.readouterr().out
     assert not (tmp_path / "experiments").exists()
 
-    # TorchScript measured at the batch of 1, the configured batch of 4 and the largest batch of the search
-    assert "Timing TorchScript FP32" in printed_output
-    torchscript_section = printed_output.split("Timing TorchScript FP32")[1].split("Timing ")[0]
-    assert torchscript_section.count(": Measured") == 3
+    # Five numbered steps with the export, and TorchScript timed at the batch of 1, the configured batch of 4 and the
+    # largest batch of the search, on its progress line
+    assert "[2/5] Exporting the network to TorchScript and ONNX" in printed_output
+    assert "TorchScript file written" in printed_output
+    torchscript_lines = [line for line in printed_output.splitlines()
+                         if line.strip().startswith("TorchScript file, PyTorch backend")]
+    assert len(torchscript_lines) == 1 and torchscript_lines[0].count(" done") == 3
 
     # ONNX Runtime formats timed with a GPU provider, reported with their reason without one
     if "CUDAExecutionProvider" not in onnxruntime.get_available_providers():
         assert "has no GPU provider" in printed_output
-        assert "Not Available" in printed_output
+        assert "not available: no ONNX file, see the export step" in printed_output
+        assert "not available (same reason as above)" in printed_output
 
 
 def test_sequence_comparison_gives_both_members_to_the_inference_model() -> None:
@@ -417,34 +431,131 @@ def test_base_trainer_gives_the_images_to_the_inference_model() -> None:
     assert list(inference_inputs) == ["images"] and inference_inputs["images"] is images
 
 
-def test_report_tables_write_every_row() -> None:
+def render_text(renderable: Any) -> str:
     """
-    Verifies the cells of the tables of the report: a measured row gives its milliseconds, throughput, frame
-    throughput, window spread and peak memory, a row without measurement or without batch size gives empty cells and
-    its status, and a format whose memory is outside PyTorch gives no peak memory.
-    """
-    measurement = {"seconds_per_iteration": 0.5, "fastest_seconds": 0.45, "slowest_seconds": 0.55,
-                   "measured_iterations": 10, "peak_memory_bytes": 3 * 10 ** 9}
-    rows = [{"label": "Configured", "precision": "BF16", "batch_size": 8, "measurement": measurement,
-             "status": speed_benchmark.MEASURED_STATUS, "frames_per_batch": 40},
-            {"label": "Largest Found", "precision": "BF16", "batch_size": 64, "measurement": None,
-             "status": speed_benchmark.OUT_OF_MEMORY_STATUS, "frames_per_batch": None}]
-    training_table = speed_benchmark.build_training_table(rows=rows, sample_name="Sequences", counts_frames=True,
-                                                          legend="legend")
-    assert training_table["columns"] == ["Batch", "Batch\nSize", "Milliseconds\nPer Iteration",
-                                         "Sequences\nPer Second", "Frames\nPer Second", "Window\nSpread",
-                                         "Peak Memory\n(GB)", "Status"]
-    assert training_table["rows"][0] == ["Configured", 8, "500.00", "16.0", "80.0", pytest.approx(0.2), "3.0",
-                                         "Measured"]
-    assert training_table["rows"][1] == ["Largest Found", 64, None, None, None, None, None, "Out Of Memory"]
+    Renders a table of the report of the speed benchmark as plain text, wide enough that no cell is cut, so that the
+    tests read its cells.
 
-    # Inference rows, one of a format measured without peak memory and one of a format that could not be opened
-    inference_rows = [{**rows[0], "label": "ONNX Runtime CUDA", "precision": "FP32",
-                       "measurement": {**measurement, "peak_memory_bytes": None}},
-                      {"label": "TorchScript", "precision": "FP32", "batch_size": None, "measurement": None,
-                       "status": speed_benchmark.NOT_AVAILABLE_STATUS, "frames_per_batch": None}]
-    inference_table = speed_benchmark.build_inference_table(rows=inference_rows, sample_name="Images",
-                                                            counts_frames=False, legend="legend")
-    assert inference_table["rows"][0] == ["ONNX Runtime CUDA", "FP32", 8, "500.00", "16.0", pytest.approx(0.2), None,
-                                          "Measured"]
-    assert inference_table["rows"][1] == ["TorchScript", "FP32", None, None, None, None, None, "Not Available"]
+    Args:
+        renderable (Any): The rich table.
+
+    Returns:
+        str: The rendered text.
+    """
+    console = Console(file=StringIO(), width=200, color_system=None)
+    console.print(renderable)
+    return console.file.getvalue()
+
+
+def build_row(label: str, batch_size: Optional[int], seconds: Optional[float], status: str,
+              failure_reason: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Builds a row of a table of the report for the tests, measured in 'seconds' per iteration with windows 20 % apart
+    (an unsteady timing) and 3 GB of peak memory, or without measurement when 'seconds' is None.
+
+    Args:
+        label (str): The label of the row, a format label or 'configured' / 'largest that fits'.
+        batch_size (Optional[int]): The batch size, None for a format that could not be opened.
+        seconds (Optional[float]): The seconds per iteration, None for a row without measurement.
+        status (str): The status of the row.
+        failure_reason (Optional[str]): The error of a failed format. Defaults to None.
+
+    Returns:
+        Dict[str, Any]: The row.
+    """
+    measurement = None if seconds is None else {"seconds_per_iteration": seconds, "fastest_seconds": 0.9 * seconds,
+                                                "slowest_seconds": 1.1 * seconds, "measured_iterations": 10,
+                                                "peak_memory_bytes": 3 * 10 ** 9}
+    return {"label": label, "precision": "FP32", "batch_size": batch_size, "measurement": measurement,
+            "status": status, "frames_per_batch": None if batch_size is None else 5 * batch_size,
+            "failure_reason": failure_reason}
+
+
+def test_training_table_writes_every_batch_size() -> None:
+    """
+    Verifies the training table of the report: a timed batch size gives its milliseconds per step (marked unsteady
+    with windows 20 % apart), its throughput, its frame throughput and its peak memory, and a batch size that does not
+    fit gives its status.
+    """
+    rows = [build_row(label="configured", batch_size=8, seconds=0.5, status=speed_benchmark.MEASURED_STATUS),
+            build_row(label="largest that fits", batch_size=64, seconds=None,
+                      status=speed_benchmark.OUT_OF_MEMORY_STATUS)]
+    lines = render_text(renderable=speed_benchmark.build_training_table(rows=rows, sample_name="Sequences",
+                                                                       counts_frames=True)).splitlines()
+    assert "Milliseconds" in lines[0] and "Frames" in lines[0] and "Peak Memory" in lines[0]
+    assert [line.split() for line in lines if "(configured)" in line] == [["8", "(configured)", "500.00", "*", "16.0",
+                                                                          "80.0", "3.0"]]
+    assert [line.split() for line in lines if "(largest that fits)" in line] == [
+        ["64", "(largest", "that", "fits)", "out", "of", "memory", "—", "—", "—"]]
+
+
+def test_inference_table_writes_every_format_and_speed_up() -> None:
+    """
+    Verifies the inference table of the report: one column per batch size with its role and unit (milliseconds per
+    image at a batch of 1, images per second otherwise), the formats under their group, the speed-up over the network
+    before export at the configured batch size, a failed batch size written with its status and without speed-up, and a
+    format that could not be opened written once with its status.
+    """
+    evaluation_label, reference_label, torchscript_label, onnx_label = [
+        inference_format["label"] for inference_format in speed_benchmark.INFERENCE_FORMATS[:4]]
+    rows = [build_row(label=evaluation_label, batch_size=1, seconds=0.002, status=speed_benchmark.MEASURED_STATUS),
+            build_row(label=evaluation_label, batch_size=8, seconds=0.25, status=speed_benchmark.MEASURED_STATUS),
+            build_row(label=reference_label, batch_size=1, seconds=0.004, status=speed_benchmark.MEASURED_STATUS),
+            build_row(label=reference_label, batch_size=8, seconds=0.5, status=speed_benchmark.MEASURED_STATUS),
+            build_row(label=torchscript_label, batch_size=1, seconds=0.003, status=speed_benchmark.MEASURED_STATUS),
+            build_row(label=torchscript_label, batch_size=8, seconds=None, status=speed_benchmark.FORMAT_FAILED_STATUS,
+                      failure_reason="RuntimeError: broken"),
+            build_row(label=onnx_label, batch_size=None, seconds=None, status=speed_benchmark.NOT_AVAILABLE_STATUS)]
+    text = render_text(renderable=speed_benchmark.build_inference_table(
+        rows=rows, configured_batch_size=8, largest_batch_size=8, sample_name="Images", counts_frames=False))
+    lines = text.splitlines()
+
+    # Headers of the batch sizes, their roles and units, and of the speed-up at the configured batch size
+    assert "Batch 1" in lines[0] and "Batch 8" in lines[0] and "Speed-Up" in lines[1]
+    assert "Configured, Largest" in lines[1]
+    assert "Per Image" in text and "Per Second" in text and "At Batch" in text
+
+    # Groups, then every format with its cells and its speed-up over the reference
+    assert text.index(speed_benchmark.REPOSITORY_GROUP) < text.index(evaluation_label) < text.index(
+        speed_benchmark.TRITON_GROUP) < text.index(torchscript_label)
+    cells_by_label = {label: line.split(label)[1].split() for line in lines for label in
+                      [evaluation_label, reference_label, torchscript_label, onnx_label] if label in line}
+    assert cells_by_label[evaluation_label] == ["2.00", "*", "32.0", "*", "2.00", "x"]
+    assert cells_by_label[reference_label] == ["4.00", "*", "16.0", "*", "1.00", "x"]
+    assert cells_by_label[torchscript_label] == ["3.00", "*", "failed", "—"]
+    assert cells_by_label[onnx_label] == ["not", "available", "—", "—"]
+
+
+def test_steadiness_notes_count_the_unsteady_timings() -> None:
+    """
+    Verifies the note on the spread of the timing windows: the largest spread when every timing is steady, the number
+    of unsteady timings otherwise, and no note for a table without measurement.
+    """
+    steady_row = build_row(label="configured", batch_size=8, seconds=0.5, status=speed_benchmark.MEASURED_STATUS)
+    steady_row["measurement"] = {**steady_row["measurement"], "fastest_seconds": 0.49, "slowest_seconds": 0.51}
+    unsteady_row = build_row(label="largest that fits", batch_size=16, seconds=1.0,
+                             status=speed_benchmark.MEASURED_STATUS)
+    assert speed_benchmark.describe_steadiness(rows=[steady_row]) == (
+        "Timings steady: the timing windows of every cell are within 4.00 % of each other.")
+    assert speed_benchmark.describe_steadiness(rows=[steady_row, unsteady_row]).startswith(
+        "* Unsteady timing (1 of 2): its slowest and fastest timing windows differ by more than 10 % (up to 20.00 %)")
+    assert speed_benchmark.describe_steadiness(rows=[build_row(
+        label="configured", batch_size=8, seconds=None, status=speed_benchmark.OUT_OF_MEMORY_STATUS)]) is None
+
+
+def test_native_error_output_is_dropped_only_for_a_lack_of_memory(capfd: pytest.CaptureFixture) -> None:
+    """
+    Verifies that what a native library writes to the error stream during a probe of the benchmark (the C++ stack trace
+    of libtorch) is dropped when the probe ran out of memory, and written back otherwise.
+
+    Args:
+        capfd (pytest.CaptureFixture): The pytest fixture capturing the file descriptors 1 and 2.
+    """
+    with speed_benchmark.capture_native_error_output() as native_output:
+        os.write(2, b"stack trace of an out of memory error\n")
+        native_output["out_of_memory"] = True
+    with speed_benchmark.capture_native_error_output():
+        os.write(2, b"warning of another library\n")
+    captured_error = capfd.readouterr().err
+    assert "stack trace of an out of memory error" not in captured_error
+    assert "warning of another library" in captured_error
