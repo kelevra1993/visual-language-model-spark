@@ -22,7 +22,6 @@ references:
   - "vision_training/deployment/input_contract.py · write_preprocessing_file"
   - "vision_training/deployment/export_formats.py · restore_dynamic_output_frames"
   - "vision_training/deployment/export_size_estimates.py · estimate_export_sizes"
-  - "documentation/suggestions.md"
 scenes:
   - kind: title_card
     heading: "Evaluation and deployment"

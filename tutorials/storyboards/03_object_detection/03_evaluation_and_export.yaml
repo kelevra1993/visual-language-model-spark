@@ -19,7 +19,6 @@ references:
   - "vision_training/models/detection/inference_detector.py · InferenceDetector"
   - "vision_training/deployment/export_specifications.py · get_export_specification"
   - "vision_training/deployment/input_contract.py · build_input_contract"
-  - "documentation/suggestions.md"
 scenes:
   - kind: title_card
     heading: "Evaluation and export"

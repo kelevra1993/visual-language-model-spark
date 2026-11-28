@@ -22,7 +22,6 @@ references:
   - "vision_training/deployment/export_specifications.py"
   - "vision_training/deployment/input_contract.py · build_input_contract"
   - "vision_training/deployment/export_size_estimates.py · probe_inference_graph"
-  - "documentation/suggestions.md"
   - "documentation/task workflows/sequence_classification_workflow.md"
 scenes:
   - kind: title_card
