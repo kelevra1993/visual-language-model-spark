@@ -41,7 +41,7 @@ ExperimentConfiguration:
     score_threshold: 0.05
     # Precision every class score threshold must reach, saved with its recall in class_thresholds.json for deployment
     # (AP@0.5 matching); only detections reaching score_threshold count. Within [0, 1].
-    target_precision: 0.99
+    target_precision: 0.9
     # Saves error images of detections reaching Detector.inference.score_threshold (IoU 0.5) at every evaluation in
     # Evaluation/Iteration_<n>/Errors/: FALSE-POSITIVE/<class>/, MISSED/<class>/, <TRUE>-TO-<PREDICTED>/.
     error_dumps:

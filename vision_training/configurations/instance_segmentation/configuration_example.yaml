@@ -40,7 +40,7 @@ ExperimentConfiguration:
     score_threshold: 0.05
     # Precision every class score threshold must reach, saved with its recall in class_thresholds.json for deployment
     # (mask AP@0.5 matching); only detections reaching score_threshold count. Within [0, 1].
-    target_precision: 0.99
+    target_precision: 0.9
     # Scores boxes and masks at the original image resolution as deployed (no padding, object sizes in original pixels);
     # proposal recall and images stay at network resolution. False: network resolution, vanished masks dropped.
     original_resolution: True
