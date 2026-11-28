@@ -2,10 +2,11 @@
 # the layout of a model repository (the real one of the serving benchmark), the path of a request (input contract,
 # gRPC or system shared memory, dynamic batcher, instances, backend), run_inference.py, the serving paths the export
 # offers (TorchScript on libtorch, ONNX Runtime CUDA, ONNX with the TensorRT accelerator in FP32 or FP16, BF16 refused
-# by the backend, native TensorRT engines not implemented), the FP32 engines checked within the TF32 roundings of the
-# eager model (measured on 2026-11-27 with the Triton image of the compose file: the keypoint detector and the sequence
-# labeller of the tutorials miss the FP32 tolerances and pass within 4 times the TF32 difference of the eager model,
-# while the FP16 engine of the sequence labeller fails its check), the image windows a client sends a detector, the
+# by the backend, native TensorRT engines not implemented), the engines checked within the TF32 or FP16 roundings of
+# the eager model (measured on 2026-11-27 and 2026-11-28 with the Triton image of the compose file: the keypoint
+# detector and the sequence labeller of the tutorials miss the FP32 tolerances and pass within 4 times the TF32
+# difference of the eager model, and the FP16 engine of the sequence labeller within 4 times the FP16 difference of
+# the eager model), the image windows a client sends a detector, the
 # TensorRT engines built at the first requests, and how the dynamic batching and the instances of a model are
 # changed. Coordinates of the html scenes are in pixels of the content area (1760 x 740, origin at its top left
 # corner); the facts named deployment.* are made by tutorials/figures/deployment from the code and from the serving
@@ -179,7 +180,7 @@ scenes:
       - {type: text, position: [500, 592], text: "model.plan · tensorrt_plan", font: diagram_small, anchor: lm, appear: 8}
       - {type: text, position: [1050, 592], text: "FP32 to FP8", font: diagram_small, anchor: lm, appear: 8}
       - {type: text, position: [1420, 592], text: "not implemented", font: diagram_small, colour: red, anchor: lm, appear: 8}
-      - {type: text, position: [880, 665], text: "FP32 engines: checked within the TF32 roundings of the eager model · sequence labeller FP16: refused", font: diagram_small, colour: yellow, anchor: mm, appear: 4, highlight: [4, 5, 6]}
+      - {type: text, position: [880, 665], text: "engines missing their tolerances: checked within the TF32 or FP16 roundings of the eager model", font: diagram_small, colour: yellow, anchor: mm, appear: 4, highlight: [4, 5, 6]}
       - {type: text, position: [880, 710], text: "float inputs and outputs float32 on every path · INT8 and FP8 left out, without calibration", font: diagram_small, colour: dim, anchor: mm, appear: 8}
     narration:
       - "The reference of every comparison is the eager model in the process, which runs its convolutions in TF32, the default of PyTorch."
@@ -188,7 +189,7 @@ scenes:
       - "In FP16, TensorRT may run any layer in half precision where it finds it faster, and the export checks both engines against the eager model."
       - "The TF32 roundings of an FP32 engine can exceed the FP32 tolerances: they move the candidate scores of the keypoint detector of the tutorials and the probabilities of the sequence labeller."
       - "So the check measures how far TF32 moves the eager model on the same batch, and accepts an FP32 engine within a few times that, its green line naming what the tolerances missed."
-      - "In FP16 the tolerances only grow by a fixed factor, which the sequence labeller misses, so its FP16 export is refused, though the serving benchmark measured {{deployment.metric.M2M.tensorrt_fp16_gap:points}} on its test accuracy."
+      - "An FP16 engine is first compared with the eager FP16 copy, and the sequence labeller misses that too, since both round its uncertain probabilities their own way; measured against FP32 the same way, it passes, and the serving benchmark measured {{deployment.metric.M2M.tensorrt_fp16_gap:points}} on its test accuracy."
       - "BF16 cannot be served this way: the ONNX Runtime backend of this Triton image refuses the precision mode at load, does not accept the TensorRT parameter that would enable it, and the environment variable of ONNX Runtime is ignored."
       - "Native TensorRT engines, the only route to BF16 or calibrated INT8, are not implemented, and INT8 and FP8 are left out of the export."
 
