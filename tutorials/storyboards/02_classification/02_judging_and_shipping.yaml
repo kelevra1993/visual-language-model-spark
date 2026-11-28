@@ -351,7 +351,7 @@ scenes:
       - "So that a server builds these inputs as the training did, the export also writes their colour order, resize, size, interpolation, padding, layout and value range in the preprocessing file next to the model and in the ONNX metadata."
       - "Its Triton model is named after the task in the export specifications, followed by its format, and the softmax is inside it, after the logits are divided by the temperature saved on the explorer page, whose thresholds are copied next to the model as class thresholds json."
       - "Exported from that page, every checkpoint, weights and temperature gets its own Triton repository in the Exports folder of the run, with the record and the console output of the export."
-      - "Faced with several evaluated checkpoints, the export only accepts the thresholds saved on the evaluation of the exported iteration and weights, in the evaluation folder of the training or the checkpoint evaluation folder, never in both."
+      - "Faced with several evaluated checkpoints, the export only accepts the thresholds saved on the evaluation of the exported iteration and weights, and takes those of the checkpoint evaluation folder when the evaluation folder of the training holds some too."
       - "Run by the export model script without its use saved temperature flag, the export keeps a temperature of one and copies no thresholds."
       - "Long before any export, the launch of every training prints the Export Sizes panel after the Model Size panel: the estimated size of the PyTorch weights, the TorchScript and ONNX files, the TensorRT engines and the checkpoint."
 

@@ -1,8 +1,8 @@
 # Export and deployment, chapter 1: the export and its checks: the settings of export_model.py, the steps of
 # export_experiment (inference model, input contract, reference outputs, staging folder, every format checked against
 # the eager model, install_staged_models), the batches the exports are traced and checked on, the comparison tolerances
-# of every task and the TensorRT engine check (FP16 overflow scan, engine run by a temporary Triton, FP32 engines
-# accepted within the TF32 roundings of the eager model), the config.pbtxt the export writes, the input contract
+# of every task and the TensorRT engine check (FP16 overflow scan, engine run by a temporary Triton, engines
+# accepted within the TF32 or FP16 roundings of the eager model), the config.pbtxt the export writes, the input contract
 # (preprocessing.json and the ONNX metadata, the image windows input of the detectors), the files of the detector
 # (score threshold of every class) and of the keypoint detector (keypoint_channels.json), the extras of the classifier
 # (temperature and class thresholds) and of the frame selector (decoder and ensembles), and the Export Sizes panel
@@ -34,7 +34,7 @@ references:
   - "vision_training/deployment/frame_selection_deployment.py · export_frame_selection_decoding"
   - "vision_training/deployment/detection_deployment.py · apply_class_score_thresholds"
   - "vision_training/deployment/keypoint_deployment.py · write_keypoint_channels_file"
-  - "vision_training/deployment/tensorrt_check.py · derive_tf32_tolerances"
+  - "vision_training/deployment/tensorrt_check.py · derive_precision_tolerances"
   - "vision_training/deployment/frame_selection_deployment.py · build_decoding_settings"
   - "vision_training/deployment/frame_selection_decoder_backend.py"
   - "vision_training/models/classification/inference_classifier.py · InferenceClassifier.set_logit_temperature"
@@ -145,7 +145,7 @@ scenes:
       - "An instance segmenter adds its masks, compared within {{deployment.tolerances.instance_segmentation.mask_tolerance}}."
       - "Classifiers and sequence models compare probabilities within {{deployment.tolerances.classification.tolerance}}, and a segmenter must agree on a share of {{deployment.tolerances.semantic_segmentation.minimum_equal_share}} of its pixels, a keypoint detector on {{deployment.tolerances.keypoint_detection.minimum_equal_share}} of its candidates."
       - "The ONNX check runs on the CPU, so with a TensorRT precision the export also runs the engine in a temporary Triton and, in FP16, first scans the graph for overflows."
-      - "TensorRT runs an FP32 engine with TF32, so an engine missing these tolerances still passes within {{constant:vision_training/deployment/tensorrt_check.py#TF32_DIFFERENCE_FACTOR:words}} times the difference TF32 makes in the eager model on the same batch."
+      - "TensorRT runs an FP32 engine with TF32, and an FP16 engine rounds elsewhere than the eager FP16 copy, so an engine missing its tolerances still passes within {{constant:vision_training/deployment/tensorrt_check.py#REDUCED_PRECISION_DIFFERENCE_FACTOR:words}} times the difference its reduced precision makes in the eager model on the same batch."
       - "That engine check came after a detector lost points of mAP in FP16 without the export noticing, the story of the third chapter."
 
   - kind: code
@@ -249,14 +249,14 @@ scenes:
         source: {file: "figures:deployment/listings/decoder_outputs.txt"}
         highlights:
           - {match: "selected_frames|low_confidence", sentences: [4]}
-      - {type: text, position: [880, 640], text: "both tasks: the files of the evaluation of the exported checkpoint, in Evaluation/ or Checkpoint_Evaluation/, never both", font: diagram_small, colour: dim, anchor: mm, appear: 5, highlight: [5]}
+      - {type: text, position: [880, 640], text: "both tasks: the files of the evaluation of the exported checkpoint, from Checkpoint_Evaluation/ when Evaluation/ holds one too", font: diagram_small, colour: dim, anchor: mm, appear: 5, highlight: [5]}
     narration:
       - "A classifier exported with use saved temperature divides its logits by the temperature saved on the explorer page of the exported checkpoint, so the softmax is inside the served model."
       - "The thresholds found at that temperature are copied next to the model as class thresholds json; without the setting, the temperature is one and no thresholds are deployed."
       - "Suppose you deploy a frame selector: its network returns probabilities per frame, so the export adds a decoder run by the Python backend of Triton, with the decoding settings of the run."
       - "One ensemble per format chains the network and the decoder, and it is the ensemble that clients query."
       - "They receive the selected frames, their probabilities, a low confidence flag from the thresholds of the evaluation, and the candidate frames."
-      - "Both extras read the files of the evaluation of the exported iteration, in the evaluation folder of the training or of the checkpoint evaluation script, and refuse to choose when both hold one."
+      - "Both extras read the files of the evaluation of the exported iteration; when the training and the checkpoint evaluation script both wrote one, the export takes that of the script and names both in a yellow line."
 
   - kind: html
     page: diagram

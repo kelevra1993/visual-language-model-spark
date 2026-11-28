@@ -220,14 +220,14 @@ def check_sample_images(evaluation_folder: Path, results: Dict[str, Any], number
 
 
 def check_detection_error_analysis(evaluation_folder: Path, results: Dict[str, Any], class_names: List[str],
-                                   number_objects: int, maximum_per_class_pair: int) -> None:
+                                   number_objects: int, maximum_per_class_pair: int, target_precision: float) -> None:
     """
     Verifies the error analysis of a detection evaluation, shared by the object detection and instance segmentation
     smoke tests: confusion_matrix.csv with its background row and column, every object of the test images counted
-    once (found or missed) and its background cell empty, the note counting the outcomes, class_thresholds.json with a
-    threshold and recall within [0, 1] or None for every foreground class, and the error images, one folder per error
-    cell ('FALSE-POSITIVE/<class>', 'MISSED/<class>', '<TRUE>-TO-<PREDICTED>') holding at most the maximum per folder,
-    the total in the notes. The error images keep 'Detector.inference.score_threshold' while the matrix takes the class
+    once (found or missed) and its background cell empty, the note counting the outcomes, class_thresholds.json with the
+    target precision of the configuration and a threshold and recall within [0, 1] or None for every foreground class,
+    and the error images, one folder per error cell ('FALSE-POSITIVE/<class>', 'MISSED/<class>',
+    '<TRUE>-TO-<PREDICTED>') holding at most the maximum per folder, the total in the notes. The error images keep 'Detector.inference.score_threshold' while the matrix takes the class
     thresholds, so the folders are those of the non-empty error cells of the matrix, each holding at most the errors of
     its cell, only when no class reaches the target precision.
 
@@ -237,6 +237,7 @@ def check_detection_error_analysis(evaluation_folder: Path, results: Dict[str, A
         class_names (List[str]): The name of every class, background first.
         number_objects (int): The number of objects of the test images.
         maximum_per_class_pair (int): The largest number of images saved per folder.
+        target_precision (float): The 'evaluation.target_precision' of the configuration the trainer loaded.
     """
     # Confusion matrix: rows true classes, columns predicted classes, the background first
     with open(file=evaluation_folder / "confusion_matrix.csv", mode="r", newline="") as matrix_file:
@@ -252,7 +253,8 @@ def check_detection_error_analysis(evaluation_folder: Path, results: Dict[str, A
 
     # Threshold of every foreground class, or None
     class_thresholds = json.loads(s=(evaluation_folder / "class_thresholds.json").read_text())
-    assert class_thresholds["target_precision"] == 0.99 and list(class_thresholds["classes"]) == class_names[1:]
+    assert class_thresholds["target_precision"] == target_precision
+    assert list(class_thresholds["classes"]) == class_names[1:]
     for class_threshold in class_thresholds["classes"].values():
         assert class_threshold is None or (0.0 <= class_threshold["threshold"] <= 1.0 and
                                            0.0 <= class_threshold["recall"] <= 1.0)

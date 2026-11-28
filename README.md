@@ -463,7 +463,7 @@ uv run python -m vision_training.deployment.export_model --experiment_folder ~/D
 #   --show_warnings                           show the harmless library warnings
 ```
 
-With a TensorRT precision, the export also builds and runs the engine in a temporary Triton container, so Docker and a GPU are needed; `--skip_tensorrt_check` skips it. TensorRT runs an FP32 engine with TF32. An FP32 engine missing the FP32 tolerances still passes within 4 times the difference TF32 makes in the eager model on the same batch; the console then reads `Matches The Eager Model Within Its TF32 Roundings`. The keypoint detector and the M2M and SEL tutorial runs pass this way. The FP16 engine of M2M fails its check (2.53e-02 against 1e-02): export it in FP32 (item 41 of `documentation/suggestions.md`).
+With a TensorRT precision, the export also builds and runs the engine in a temporary Triton container, so Docker and a GPU are needed; `--skip_tensorrt_check` skips it. TensorRT runs an FP32 engine with TF32. An FP32 engine missing the FP32 tolerances still passes within 4 times the difference TF32 makes in the eager model on the same batch; the console then reads `Matches The Eager Model Within Its TF32 Roundings`. The keypoint detector and the M2M and SEL tutorial runs pass this way. An FP16 engine is compared with the eager FP16 copy of the network at 100 times the FP32 tolerances; missing them, it passes within 4 times the difference that copy has from the FP32 eager model, compared with the FP32 eager model, and the console reads `Matches The Eager Model Within Its FP16 Roundings`. The FP16 engine of M2M passes this way: FP16 moves its uncertain probabilities by 1e-02 to 3e-02 in the eager model as in the engine.
 
 <p align="center">
   <img src="README/export_pipeline.png" width="100%" />
@@ -489,7 +489,7 @@ S is `Data.image_settings.size`, K the number of classes, T the number of frames
 Whenever a client sends a photo to a detector or an instance segmenter, it also sends `image_windows`, the [x1, y1, x2, y2] region of the resized photo in the input (`compute_image_window` of `vision_training/data/preprocessing.py`). The model clips its boxes to it, so no box reaches the padding. The evaluation clips them the same way.
 
 The export also writes two files next to the model:
-- `detection_score_thresholds.json` (detectors and instance segmenters): the score threshold built into the model for every class. It is the threshold of `class_thresholds.json` of the exported checkpoint, or `Detector.inference.score_threshold` for a class that never reaches the target precision.
+- `detection_score_thresholds.json` (detectors and instance segmenters): the score threshold built into the model for every class. It is the threshold of `class_thresholds.json` of the exported checkpoint, or `Detector.inference.score_threshold` for a class that never reaches the target precision. When both `Checkpoint_Evaluation/` and `Evaluation/` hold that file, the export takes the one of `Checkpoint_Evaluation/` and names both in a yellow line.
 - `keypoint_channels.json` (keypoint detectors): the class, keypoint and skeleton of every heatmap channel, read by `read_keypoint_channels` of `vision_training/deployment/keypoint_deployment.py`.
 
 A detector or instance segmenter exported before 2026-11-27 takes `images` only: the clients of the repository refuse it, export the run again.

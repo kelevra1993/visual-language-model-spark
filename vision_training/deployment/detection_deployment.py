@@ -2,7 +2,7 @@
 Deployment of the object detection and instance segmentation tasks (DET, INS): the score threshold of every class built
 into their exports. The evaluation of a checkpoint writes the score from which every class reaches the target precision
 into 'class_thresholds.json' (DetectionTrainer.save_error_analysis, the mask matching for the instance segmenter); the
-export reads the file of the exported checkpoint and weights (find_class_thresholds_path), gives every class its
+export reads the file of the exported checkpoint and weights (find_evaluation_file), gives every class its
 threshold, or 'Detector.inference.score_threshold' when it never reaches the target, sets them into the
 'class_score_thresholds' buffer of the inference model, prints them and records them in
 'detection_score_thresholds.json' next to every exported model. Called by deployment/export_model.py and by the local
@@ -14,8 +14,8 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from vision_training.deployment.frame_selection_deployment import THRESHOLDS_FILE_NAME, find_class_thresholds_path
-from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
+from vision_training.deployment.frame_selection_deployment import THRESHOLDS_FILE_NAME
+from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME, find_evaluation_file
 from vision_training.models.detection.inference_detector import InferenceDetector
 from vision_training.trainers.base_trainer import AVERAGED_WEIGHTS_FOLDER_NAME, EVALUATION_FOLDER_NAME
 from vision_training.utilities.os_utilities import format_path_link, print_color
@@ -38,7 +38,7 @@ def build_class_score_thresholds(thresholds_path: Optional[Path], configured_sco
 
     Args:
         thresholds_path (Optional[Path]): The 'class_thresholds.json' of the evaluation of the exported checkpoint and
-            weights (find_class_thresholds_path), None when there is none.
+            weights (find_evaluation_file), None when there is none.
         configured_score_threshold (float): 'Detector.inference.score_threshold' of the run.
         number_classes (int): The number of classes of the detector, background included.
 
@@ -86,7 +86,8 @@ def apply_class_score_thresholds(inference_model: InferenceDetector, experiment_
     instance segmenter (set_class_score_thresholds), before its reference outputs and its export, so that the exported
     files keep the detections class by class, and prints them: the number of classes taking the threshold of the
     evaluation, with the target precision and the file, or a warning naming the folders looked into when the checkpoint
-    was never evaluated.
+    was never evaluated. When both evaluation folders hold thresholds for the checkpoint, those of the standalone
+    evaluation are taken (find_evaluation_file).
 
     Args:
         inference_model (InferenceDetector): The inference detector or instance segmenter of the export.
@@ -99,11 +100,10 @@ def apply_class_score_thresholds(inference_model: InferenceDetector, experiment_
         Dict[str, Any]: The record of the thresholds (build_class_score_thresholds).
 
     Raises:
-        ValueError: If both evaluation folders hold thresholds for the exported checkpoint, or the file does not hold
-            one entry per foreground class.
+        ValueError: If the file does not hold one entry per foreground class.
     """
-    thresholds_path = find_class_thresholds_path(experiment_folder=experiment_folder, checkpoint_path=checkpoint_path,
-                                                 use_averaged_weights=use_averaged_weights)
+    thresholds_path = find_evaluation_file(experiment_folder=experiment_folder, checkpoint_path=checkpoint_path,
+                                           use_averaged_weights=use_averaged_weights, file_name=THRESHOLDS_FILE_NAME)
     record = build_class_score_thresholds(thresholds_path=thresholds_path,
                                           configured_score_threshold=inference_model.score_threshold,
                                           number_classes=inference_model.number_classes)

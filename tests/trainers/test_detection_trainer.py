@@ -232,7 +232,8 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     check_detection_error_analysis(
         evaluation_folder=trainer.experiment_folder / "Evaluation" / "Iteration_5", results=results,
         class_names=[trainer.class_names[class_index] for class_index in range(len(trainer.class_names))],
-        number_objects=number_boxes, maximum_per_class_pair=SMOKE_MAXIMUM_ERROR_IMAGES)
+        number_objects=number_boxes, maximum_per_class_pair=SMOKE_MAXIMUM_ERROR_IMAGES,
+        target_precision=trainer.experiment_configuration["evaluation"]["target_precision"])
 
     # Every test image is a sample image (8 asked for 4 images), named after its file: its ground truth panel next to
     # its detection panel, between the caption and legend bars

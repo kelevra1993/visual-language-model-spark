@@ -7,9 +7,9 @@ reports the finite values above 65,504, the largest FP16 value, which the engine
 of the detectors overflowed this way before 2026-11-17, losing 7.88 points of mAP). Then, unless skipped, the staged
 model is served with its TensorRT config.pbtxt by a temporary Triton container (deployment/triton_server.py, as the
 test split parity of deployment/export_parity.py serves it), the check batches are sent and the outputs compared with
-the eager model by the comparison of the export specification of the task. An FP32 engine, which TensorRT runs with
-TF32 allowed, missing those tolerances is compared again within a factor of the differences TF32 makes in the eager
-model on the same batch.
+the eager model by the comparison of the export specification of the task. An engine missing those tolerances is
+compared again with the FP32 eager model within a factor of the differences its reduced precision makes in the eager
+model on the same batch: TF32 for an FP32 engine, which TensorRT runs with TF32 allowed, FP16 for an FP16 engine.
 """
 
 import operator
@@ -46,19 +46,25 @@ TENSORRT_CHECK_CONTAINER_PREFIX = "export-tensorrt-check-triton"
 SERVER_LOG_LINES_SHOWN = 10
 SERVER_LOG_FAILURE_WORDS = ["error", "signal"]
 
-# TensorRT runs an FP32 engine with TF32 allowed, which ONNX Runtime cannot switch off, while the reference of the
-# check is the eager model with TF32 off: an FP32 engine missing the tolerances of the export specification is
-# accepted when its differences stay within TF32_DIFFERENCE_FACTOR times those of the eager model with TF32 on
-# against TF32 off on the same check batch, and its share of differing outputs (1 - minimum_equal_share) within
-# TF32_DISAGREEMENT_FACTOR times that of the eager model, the tolerances of the specification staying the floor
-TF32_DIFFERENCE_FACTOR = 4
-TF32_DISAGREEMENT_FACTOR = 2
+# An engine missing its tolerances is compared again with the FP32 eager model within the roundings of its reduced
+# precision, measured on the eager model on the same check batch: TF32 for an FP32 engine (which TensorRT runs with
+# TF32 allowed, ONNX Runtime unable to switch it off, against the eager reference with TF32 off), FP16 for an FP16
+# engine (the eager FP16 copy of convert_to_half_precision against the FP32 eager model, both FP16 roundings, the copy's
+# and the engine's, adding up in a direct comparison of the two). It is accepted when its differences from the FP32
+# eager model stay within REDUCED_PRECISION_DIFFERENCE_FACTOR times those of the eager model in the reduced precision,
+# and its share of differing outputs (1 - minimum_equal_share) within REDUCED_PRECISION_DISAGREEMENT_FACTOR times that
+# of the eager model, the tolerances of the specification staying the floor
+REDUCED_PRECISION_DIFFERENCE_FACTOR = 4
+REDUCED_PRECISION_DISAGREEMENT_FACTOR = 2
 
-# Range and bisection steps of the search of the factor of the tolerances within which TF32 moves the eager outputs,
-# from 1 / TF32_SEARCH_RANGE to TF32_SEARCH_RANGE; a difference beyond the range (another number of detections, a
-# shape) leaves the tolerances of the specification unchanged
-TF32_SEARCH_RANGE = 1e4
-TF32_SEARCH_STEPS = 40
+# Eager comparison measuring the roundings of every reduced precision, named in the console line of the comparison
+REDUCED_PRECISION_MEASURES = {"TF32": "eager TF32 on vs off", "FP16": "eager FP16 vs FP32"}
+
+# Range and bisection steps of the search of the factor of the tolerances within which the reduced precision moves the
+# eager outputs, from 1 / PRECISION_SEARCH_RANGE to PRECISION_SEARCH_RANGE; a difference beyond the range (another
+# number of detections, a shape) leaves the tolerances of the specification unchanged
+PRECISION_SEARCH_RANGE = 1e4
+PRECISION_SEARCH_STEPS = 40
 
 
 def list_floating_node_outputs(model_proto: onnx.ModelProto) -> List[Dict[str, str]]:
@@ -211,11 +217,12 @@ def compare_at_tolerances(reference_outputs: List[np.ndarray], candidate_outputs
                           specification: Dict[str, Any], tolerances: Dict[str, float]) -> bool:
     """
     Tells whether two sets of outputs agree by the comparison of the export specification at the given tolerances, the
-    test repeated by the searches of the TF32 differences of the eager model (find_tf32_scale, find_tf32_share).
+    test repeated by the searches of the reduced precision differences of the eager model (find_precision_scale,
+    find_precision_share).
 
     Args:
-        reference_outputs (List[np.ndarray]): The eager outputs with TF32 off.
-        candidate_outputs (List[np.ndarray]): The compared outputs, the eager ones with TF32 on.
+        reference_outputs (List[np.ndarray]): The FP32 eager outputs.
+        candidate_outputs (List[np.ndarray]): The compared outputs, the eager ones in the reduced precision.
         specification (Dict[str, Any]): The export specification of the task, giving its 'compare_outputs'.
         tolerances (Dict[str, float]): The tolerances of the comparison.
 
@@ -228,7 +235,7 @@ def compare_at_tolerances(reference_outputs: List[np.ndarray], candidate_outputs
 def scale_tolerances(tolerances: Dict[str, float], scale: float) -> Dict[str, float]:
     """
     Multiplies every difference tolerance of an export specification (the keys ending with 'tolerance') by one scale,
-    the minimum shares of equal outputs set to zero, the tolerances of the search of find_tf32_scale.
+    the minimum shares of equal outputs set to zero, the tolerances of the search of find_precision_scale.
 
     Args:
         tolerances (Dict[str, float]): The comparison tolerances of the export specification.
@@ -240,40 +247,41 @@ def scale_tolerances(tolerances: Dict[str, float], scale: float) -> Dict[str, fl
     return {name: value * scale if name.endswith("tolerance") else 0.0 for name, value in tolerances.items()}
 
 
-def find_tf32_scale(reference_outputs: List[np.ndarray], tf32_outputs: List[np.ndarray],
-                    specification: Dict[str, Any], tolerances: Dict[str, float]) -> Optional[float]:
+def find_precision_scale(reference_outputs: List[np.ndarray], reduced_precision_outputs: List[np.ndarray],
+                         specification: Dict[str, Any], tolerances: Dict[str, float]) -> Optional[float]:
     """
-    Measures how far TF32 moves the eager outputs on the check batch, in multiples of the tolerances of the export
-    specification, for derive_tf32_tolerances: the smallest factor of every difference tolerance at once at which the
-    eager outputs with TF32 on agree with those with TF32 off, the shares of equal outputs set to zero, found by
-    bisection in log scale. One factor for all the tolerances keeps those that define what is compared (the position
-    pairing the keypoint candidates, the score pairing the detections) as tight as the others, which a search of one
-    tolerance with the others loosened would not.
+    Measures how far a reduced precision (TF32, FP16) moves the eager outputs on the check batch, in multiples of the
+    tolerances of the export specification, for derive_precision_tolerances: the smallest factor of every difference
+    tolerance at once at which the eager outputs in the reduced precision agree with the FP32 ones, the shares of equal
+    outputs set to zero, found by bisection in log scale. One factor for all the tolerances keeps those that define
+    what is compared (the position pairing the keypoint candidates, the score pairing the detections) as tight as the
+    others, which a search of one tolerance with the others loosened would not.
 
     Args:
-        reference_outputs (List[np.ndarray]): The eager outputs with TF32 off, the reference of the engine check.
-        tf32_outputs (List[np.ndarray]): The eager outputs with TF32 on, on the same check batch.
+        reference_outputs (List[np.ndarray]): The FP32 eager outputs (TF32 off), the reference of the engine check.
+        reduced_precision_outputs (List[np.ndarray]): The eager outputs in the reduced precision, on the same check
+            batch.
         specification (Dict[str, Any]): The export specification of the task, giving its 'compare_outputs'.
         tolerances (Dict[str, float]): The comparison tolerances of the export specification.
 
     Returns:
-        Optional[float]: The factor, None when the outputs differ beyond TF32_SEARCH_RANGE times the tolerances or by
-            something no tolerance covers (a shape, a number of detections).
+        Optional[float]: The factor, None when the outputs differ beyond PRECISION_SEARCH_RANGE times the tolerances or
+            by something no tolerance covers (a shape, a number of detections).
     """
-    lower_scale, upper_scale = 1.0 / TF32_SEARCH_RANGE, TF32_SEARCH_RANGE
-    if not compare_at_tolerances(reference_outputs=reference_outputs, candidate_outputs=tf32_outputs,
+    lower_scale, upper_scale = 1.0 / PRECISION_SEARCH_RANGE, PRECISION_SEARCH_RANGE
+    if not compare_at_tolerances(reference_outputs=reference_outputs, candidate_outputs=reduced_precision_outputs,
                                  specification=specification,
                                  tolerances=scale_tolerances(tolerances=tolerances, scale=upper_scale)):
         return None
-    if compare_at_tolerances(reference_outputs=reference_outputs, candidate_outputs=tf32_outputs,
+    if compare_at_tolerances(reference_outputs=reference_outputs, candidate_outputs=reduced_precision_outputs,
                              specification=specification,
                              tolerances=scale_tolerances(tolerances=tolerances, scale=lower_scale)):
         return lower_scale
 
     # Bisection in log scale between a failing and a passing factor
-    for _ in range(TF32_SEARCH_STEPS):
+    for _ in range(PRECISION_SEARCH_STEPS):
         middle_scale = float(np.sqrt(lower_scale * upper_scale))
-        if compare_at_tolerances(reference_outputs=reference_outputs, candidate_outputs=tf32_outputs,
+        if compare_at_tolerances(reference_outputs=reference_outputs, candidate_outputs=reduced_precision_outputs,
                                  specification=specification,
                                  tolerances=scale_tolerances(tolerances=tolerances, scale=middle_scale)):
             upper_scale = middle_scale
@@ -282,40 +290,42 @@ def find_tf32_scale(reference_outputs: List[np.ndarray], tf32_outputs: List[np.n
     return upper_scale
 
 
-def find_tf32_share(reference_outputs: List[np.ndarray], tf32_outputs: List[np.ndarray],
-                    specification: Dict[str, Any], tolerances: Dict[str, float], share_name: str) -> Optional[float]:
+def find_precision_share(reference_outputs: List[np.ndarray], reduced_precision_outputs: List[np.ndarray],
+                         specification: Dict[str, Any], tolerances: Dict[str, float],
+                         share_name: str) -> Optional[float]:
     """
-    Measures the share of outputs TF32 leaves equal in the eager model on the check batch (keypoint candidates at the
-    same position with the same tag, pixels of the same class), for derive_tf32_tolerances: the largest value of one
-    minimum share at which the eager outputs with TF32 on agree with those with TF32 off, at the given difference
-    tolerances (those within which TF32 agrees, since they define what counts as equal) and the other shares set to
-    zero, found by bisection.
+    Measures the share of outputs a reduced precision leaves equal in the eager model on the check batch (keypoint
+    candidates at the same position with the same tag, pixels of the same class), for derive_precision_tolerances: the
+    largest value of one minimum share at which the eager outputs in the reduced precision agree with the FP32 ones, at
+    the given difference tolerances (those within which the reduced precision agrees, since they define what counts as
+    equal) and the other shares set to zero, found by bisection.
 
     Args:
-        reference_outputs (List[np.ndarray]): The eager outputs with TF32 off, the reference of the engine check.
-        tf32_outputs (List[np.ndarray]): The eager outputs with TF32 on, on the same check batch.
+        reference_outputs (List[np.ndarray]): The FP32 eager outputs (TF32 off), the reference of the engine check.
+        reduced_precision_outputs (List[np.ndarray]): The eager outputs in the reduced precision, on the same check
+            batch.
         specification (Dict[str, Any]): The export specification of the task, giving its 'compare_outputs'.
         tolerances (Dict[str, float]): The difference tolerances the share is measured at, with the shares.
         share_name (str): The share measured, a key not ending with 'tolerance' ('minimum_equal_share').
 
     Returns:
-        Optional[float]: The share of equal outputs between TF32 on and off, None when the outputs differ by something
-            no share covers.
+        Optional[float]: The share of equal outputs between the reduced precision and FP32, None when the outputs
+            differ by something no share covers.
     """
     # Tolerances kept, every other share dropped
     unshared = {name: value if name.endswith("tolerance") else 0.0 for name, value in tolerances.items()}
-    if not compare_at_tolerances(reference_outputs=reference_outputs, candidate_outputs=tf32_outputs,
+    if not compare_at_tolerances(reference_outputs=reference_outputs, candidate_outputs=reduced_precision_outputs,
                                  specification=specification, tolerances={**unshared, share_name: 0.0}):
         return None
     lower_share, upper_share = 0.0, 1.0
-    if compare_at_tolerances(reference_outputs=reference_outputs, candidate_outputs=tf32_outputs,
+    if compare_at_tolerances(reference_outputs=reference_outputs, candidate_outputs=reduced_precision_outputs,
                              specification=specification, tolerances={**unshared, share_name: upper_share}):
         return upper_share
 
     # Bisection between a passing and a failing share
-    for _ in range(TF32_SEARCH_STEPS):
+    for _ in range(PRECISION_SEARCH_STEPS):
         middle_share = (lower_share + upper_share) / 2.0
-        if compare_at_tolerances(reference_outputs=reference_outputs, candidate_outputs=tf32_outputs,
+        if compare_at_tolerances(reference_outputs=reference_outputs, candidate_outputs=reduced_precision_outputs,
                                  specification=specification, tolerances={**unshared, share_name: middle_share}):
             lower_share = middle_share
         else:
@@ -323,71 +333,82 @@ def find_tf32_share(reference_outputs: List[np.ndarray], tf32_outputs: List[np.n
     return lower_share
 
 
-def derive_tf32_tolerances(reference_outputs: List[np.ndarray], tf32_outputs: List[np.ndarray],
-                           specification: Dict[str, Any], tolerances: Dict[str, float]) -> Dict[str, Any]:
+def derive_precision_tolerances(reference_outputs: List[np.ndarray], reduced_precision_outputs: List[np.ndarray],
+                                specification: Dict[str, Any], tolerances: Dict[str, float]) -> Dict[str, Any]:
     """
-    Gives the tolerances at which an FP32 TensorRT engine, run by TensorRT with TF32 allowed, is still accepted once it
-    missed those of the export specification: every difference tolerance multiplied by TF32_DIFFERENCE_FACTOR times
-    the factor TF32 needs in the eager model on the same check batch (find_tf32_scale), every minimum share of equal
-    outputs allowing TF32_DISAGREEMENT_FACTOR times the share TF32 changes at those TF32 tolerances (find_tf32_share),
-    the values of the specification staying the floor, and outputs TF32 changes beyond any tolerance keeping them.
+    Gives the tolerances at which an engine that missed its tolerances is still accepted against the FP32 eager model,
+    within the roundings of its reduced precision (TF32 for an FP32 engine, FP16 for an FP16 engine): every difference
+    tolerance multiplied by REDUCED_PRECISION_DIFFERENCE_FACTOR times the factor the reduced precision needs in the
+    eager model on the same check batch (find_precision_scale), every minimum share of equal outputs allowing
+    REDUCED_PRECISION_DISAGREEMENT_FACTOR times the share the reduced precision changes at those tolerances
+    (find_precision_share), the values of the specification staying the floor, and outputs the reduced precision
+    changes beyond any tolerance keeping them.
 
     Args:
-        reference_outputs (List[np.ndarray]): The eager outputs with TF32 off, the reference of the engine check.
-        tf32_outputs (List[np.ndarray]): The eager outputs with TF32 on, on the same check batch.
+        reference_outputs (List[np.ndarray]): The FP32 eager outputs (TF32 off), the reference of the engine check.
+        reduced_precision_outputs (List[np.ndarray]): The eager outputs in the reduced precision, on the same check
+            batch.
         specification (Dict[str, Any]): The export specification of the task, giving its 'compare_outputs'.
         tolerances (Dict[str, float]): The comparison tolerances of the export specification.
 
     Returns:
-        Dict[str, Any]: The 'tf32_scale' (None when not measurable), the 'tf32_shares' measured for every minimum share
-            (None when not measurable) and the 'tolerances' of the TF32 comparison, with the keys of the given ones.
+        Dict[str, Any]: The 'precision_scale' (None when not measurable), the 'precision_shares' measured for every
+            minimum share (None when not measurable) and the 'tolerances' of the comparison, with the keys of the
+            given ones.
     """
-    # Difference tolerances: TF32_DIFFERENCE_FACTOR times the factor TF32 needs, never below those of the specification
-    tf32_scale = find_tf32_scale(reference_outputs=reference_outputs, tf32_outputs=tf32_outputs,
-                                 specification=specification, tolerances=tolerances)
-    difference_scale = 1.0 if tf32_scale is None else max(1.0, TF32_DIFFERENCE_FACTOR * tf32_scale)
-    measured_scale = 1.0 if tf32_scale is None else max(1.0, tf32_scale)
-    tf32_tolerances = {name: value * difference_scale for name, value in tolerances.items()
-                       if name.endswith("tolerance")}
+    # Difference tolerances: REDUCED_PRECISION_DIFFERENCE_FACTOR times the factor the reduced precision needs, never
+    # below those of the specification
+    precision_scale = find_precision_scale(reference_outputs=reference_outputs,
+                                           reduced_precision_outputs=reduced_precision_outputs,
+                                           specification=specification, tolerances=tolerances)
+    difference_scale = 1.0 if precision_scale is None else max(1.0,
+                                                               REDUCED_PRECISION_DIFFERENCE_FACTOR * precision_scale)
+    measured_scale = 1.0 if precision_scale is None else max(1.0, precision_scale)
+    precision_tolerances = {name: value * difference_scale for name, value in tolerances.items()
+                            if name.endswith("tolerance")}
 
-    # Minimum shares: TF32_DISAGREEMENT_FACTOR times the share TF32 changes, measured within the TF32 tolerances
-    tf32_shares = {}
+    # Minimum shares: REDUCED_PRECISION_DISAGREEMENT_FACTOR times the share the reduced precision changes, measured
+    # within the tolerances it needs
+    precision_shares = {}
     for name, value in tolerances.items():
         if name.endswith("tolerance"):
             continue
-        tf32_shares[name] = find_tf32_share(
-            reference_outputs=reference_outputs, tf32_outputs=tf32_outputs, specification=specification,
+        precision_shares[name] = find_precision_share(
+            reference_outputs=reference_outputs, reduced_precision_outputs=reduced_precision_outputs,
+            specification=specification,
             tolerances={**scale_tolerances(tolerances=tolerances, scale=measured_scale), name: value}, share_name=name)
-        tf32_tolerances[name] = (value if tf32_shares[name] is None else
-                                 min(value, max(0.0, 1.0 - TF32_DISAGREEMENT_FACTOR * (1.0 - tf32_shares[name]))))
-    return {"tf32_scale": tf32_scale, "tf32_shares": tf32_shares,
-            "tolerances": {name: tf32_tolerances[name] for name in tolerances}}
+        precision_tolerances[name] = (value if precision_shares[name] is None else min(value, max(
+            0.0, 1.0 - REDUCED_PRECISION_DISAGREEMENT_FACTOR * (1.0 - precision_shares[name]))))
+    return {"precision_scale": precision_scale, "precision_shares": precision_shares,
+            "tolerances": {name: precision_tolerances[name] for name in tolerances}}
 
 
-def describe_tf32_tolerances(tf32_comparison: Dict[str, Any]) -> str:
+def describe_precision_tolerances(precision_comparison: Dict[str, Any]) -> str:
     """
-    Writes the console line of an FP32 engine compared within the TF32 roundings of the eager model: the factor TF32
-    needs in the eager model, then every tolerance or share the comparison used, a share with the one TF32 leaves.
+    Writes the console line of an engine compared with the FP32 eager model within the roundings of its reduced
+    precision: the factor the reduced precision needs in the eager model, then every tolerance or share the comparison
+    used, a share with the one the reduced precision leaves.
 
     Args:
-        tf32_comparison (Dict[str, Any]): The 'tf32_comparison' of check_tensorrt_engine, from derive_tf32_tolerances.
+        precision_comparison (Dict[str, Any]): The 'precision_comparison' of check_tensorrt_engine, from
+            derive_precision_tolerances, with its 'reduced_precision' ('TF32' or 'FP16').
 
     Returns:
-        str: The line, such as 'eager TF32 on vs off within 2.37 x the tolerances, compared at 4 x that: tolerance
-            9.48e-04'.
+        str: The line, such as 'eager TF32 on vs off within 2.37 x the tolerances, compared at 4 x that and 2 x its
+            disagreement: tolerance 9.48e-04'.
     """
-    scale = tf32_comparison["tf32_scale"]
+    measure = REDUCED_PRECISION_MEASURES[precision_comparison["reduced_precision"]]
+    scale = precision_comparison["precision_scale"]
     measured = "beyond any tolerance" if scale is None else f"within {scale:.2f} x the tolerances"
     descriptions = []
-    for name, value in tf32_comparison["tolerances"].items():
+    for name, value in precision_comparison["tolerances"].items():
         share_description = ""
-        if name in tf32_comparison["tf32_shares"]:
-            share = tf32_comparison["tf32_shares"][name]
-            share_description = (" (eager TF32 on vs off not measurable)" if share is None else
-                                 f" (eager TF32 on vs off {share:.3f})")
+        if name in precision_comparison["precision_shares"]:
+            share = precision_comparison["precision_shares"][name]
+            share_description = f" ({measure} not measurable)" if share is None else f" ({measure} {share:.3f})"
         descriptions.append(f"{name} {value:.2e}{share_description}")
-    return (f"eager TF32 on vs off {measured}, compared at {TF32_DIFFERENCE_FACTOR} x that and "
-            f"{TF32_DISAGREEMENT_FACTOR} x its disagreement: " + ", ".join(descriptions))
+    return (f"{measure} {measured}, compared at {REDUCED_PRECISION_DIFFERENCE_FACTOR} x that and "
+            f"{REDUCED_PRECISION_DISAGREEMENT_FACTOR} x its disagreement: " + ", ".join(descriptions))
 
 
 def read_server_log_errors(log_path: Path) -> List[str]:
@@ -411,14 +432,15 @@ def read_server_log_errors(log_path: Path) -> List[str]:
 def check_tensorrt_engine(staged_repository: Path, engine_cache_folder: Path, log_path: Path, model_name: str,
                           check_inputs: Dict[str, np.ndarray], reference_outputs: List[np.ndarray],
                           specification: Dict[str, Any], tolerances: Dict[str, float],
-                          tf32_reference_outputs: Optional[List[np.ndarray]]) -> Dict[str, Any]:
+                          precision_fallback: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """
     Serves the staged ONNX model of an export with its TensorRT config.pbtxt by a temporary Triton container on free
     ports, sends the check batches in one request, which builds the engine (ONNX Runtime builds it at the first request
-    of a shape), and compares the outputs with the eager reference (compare_engine_outputs). An FP32 engine missing the
-    tolerances is compared again within the TF32 roundings of the eager model (derive_tf32_tolerances) when the eager
-    outputs with TF32 on are given. A model Triton fails to load, build or run is a mismatch quoting the error and the
-    error lines of the server log. The container is removed whatever happens.
+    of a shape), and compares the outputs with the eager reference (compare_engine_outputs). An engine missing the
+    tolerances is compared again with the FP32 eager model within the roundings of its reduced precision measured on
+    the eager model (derive_precision_tolerances), TF32 for an FP32 engine, FP16 for an FP16 engine, when the fallback
+    is given. A model Triton fails to load, build or run is a mismatch quoting the error and the error lines of the
+    server log. The container is removed whatever happens.
 
     Args:
         staged_repository (Path): The model repository of the staged export, served read only.
@@ -426,17 +448,21 @@ def check_tensorrt_engine(staged_repository: Path, engine_cache_folder: Path, lo
         log_path (Path): The file receiving the server log.
         model_name (str): The Triton model name of the ONNX export.
         check_inputs (Dict[str, np.ndarray]): The float32 check batch of every input, keyed by input name.
-        reference_outputs (List[np.ndarray]): The eager outputs on the check batches.
+        reference_outputs (List[np.ndarray]): The eager outputs on the check batches, the FP32 model for an FP32
+            engine, its FP16 copy for an FP16 engine.
         specification (Dict[str, Any]): The export specification of the task.
-        tolerances (Dict[str, float]): The tolerances of the comparison.
-        tf32_reference_outputs (Optional[List[np.ndarray]]): The eager outputs with TF32 on, for an FP32 engine, or
-            None for an engine compared at the tolerances only (FP16).
+        tolerances (Dict[str, float]): The tolerances of the comparison with reference_outputs.
+        precision_fallback (Optional[Dict[str, Any]]): The comparison of an engine missing the tolerances: its
+            'reduced_precision' ('TF32' or 'FP16'), the FP32 eager outputs 'reference_outputs' and the eager outputs
+            in the reduced precision 'reduced_precision_outputs' (TF32 on, or the FP16 copy), compared at the
+            'comparison_tolerances' of the specification; None for an engine compared at the tolerances only.
 
     Returns:
-        Dict[str, Any]: The 'mismatches' (empty when the engine agrees), the 'tf32_comparison' (None when the
-            tolerances decided, otherwise the 'tolerances_mismatches' at the tolerances and the 'tf32_scale',
-            'tf32_shares' and 'tolerances' of derive_tf32_tolerances), the 'server_start_seconds' and the
-            'engine_check_seconds' (model load, engine build, request and comparison).
+        Dict[str, Any]: The 'mismatches' (empty when the engine agrees), the 'precision_comparison' (None when the
+            tolerances decided, otherwise its 'reduced_precision', the 'tolerances_mismatches' at the tolerances and
+            the 'precision_scale', 'precision_shares' and 'tolerances' of derive_precision_tolerances), the
+            'server_start_seconds' and the 'engine_check_seconds' (model load, engine build, request and
+            comparison).
     """
     output_names = [output["name"] for output in specification["outputs"]]
     start_time = time.time()
@@ -446,7 +472,7 @@ def check_tensorrt_engine(staged_repository: Path, engine_cache_folder: Path, lo
 
     # The request builds the engine and runs it, a failure of Triton being recorded with its first line
     check_start_time = time.time()
-    server_error, tf32_comparison = None, None
+    server_error, precision_comparison = None, None
     try:
         try:
             load_served_model(server=server, model_name=model_name, configuration=None)
@@ -459,16 +485,19 @@ def check_tensorrt_engine(staged_repository: Path, engine_cache_folder: Path, lo
                                                 output_names=output_names, specification=specification,
                                                 tolerances=tolerances)
 
-            # An FP32 engine missing the tolerances, compared again within the TF32 roundings of the eager model
-            if mismatches and tf32_reference_outputs is not None:
-                tf32_comparison = derive_tf32_tolerances(reference_outputs=reference_outputs,
-                                                         tf32_outputs=tf32_reference_outputs,
-                                                         specification=specification, tolerances=tolerances)
-                tf32_comparison["tolerances_mismatches"] = mismatches
-                mismatches = compare_engine_outputs(reference_outputs=reference_outputs,
+            # An engine missing the tolerances, compared again with the FP32 eager model within the roundings of its
+            # reduced precision in the eager model
+            if mismatches and precision_fallback is not None:
+                precision_comparison = derive_precision_tolerances(
+                    reference_outputs=precision_fallback["reference_outputs"],
+                    reduced_precision_outputs=precision_fallback["reduced_precision_outputs"],
+                    specification=specification, tolerances=specification["comparison_tolerances"])
+                precision_comparison["reduced_precision"] = precision_fallback["reduced_precision"]
+                precision_comparison["tolerances_mismatches"] = mismatches
+                mismatches = compare_engine_outputs(reference_outputs=precision_fallback["reference_outputs"],
                                                     engine_outputs=engine_outputs, output_names=output_names,
                                                     specification=specification,
-                                                    tolerances=tf32_comparison["tolerances"])
+                                                    tolerances=precision_comparison["tolerances"])
         except (TritonServerError, InferenceServerException, urllib.error.URLError) as error:
             server_error = str(error).strip().splitlines()[0] if str(error).strip() else type(error).__name__
     finally:
@@ -479,6 +508,6 @@ def check_tensorrt_engine(staged_repository: Path, engine_cache_folder: Path, lo
     if server_error is not None:
         mismatches = [f"Triton failed to build or run the engine: {server_error}"]
         mismatches += [f"  log: {line}" for line in read_server_log_errors(log_path=log_path)]
-    return {"mismatches": mismatches, "tf32_comparison": tf32_comparison,
+    return {"mismatches": mismatches, "precision_comparison": precision_comparison,
             "server_start_seconds": server_start_seconds,
             "engine_check_seconds": engine_check_seconds}

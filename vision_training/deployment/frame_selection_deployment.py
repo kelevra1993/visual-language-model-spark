@@ -11,13 +11,14 @@ import json
 import shutil
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from vision_training.deployment.triton_configuration import format_dimensions, get_served_output_names
-from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
+from vision_training.evaluation.checkpoint_evaluation import (CHECKPOINT_EVALUATION_FOLDER_NAME,
+                                                              find_evaluation_file)
 from vision_training.models.sequence import frame_selection_decoding
 from vision_training.models.sequence.frame_selection_decoding import get_wanted_class_indices
-from vision_training.trainers.base_trainer import AVERAGED_WEIGHTS_FOLDER_NAME, EVALUATION_FOLDER_NAME
+from vision_training.trainers.base_trainer import EVALUATION_FOLDER_NAME
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Suffixes of the Triton names of the decoder model, after the model name of the task, and of the ensembles, after the
@@ -42,42 +43,6 @@ DECODER_OUTPUT_TYPES = {"selected_frames": "TYPE_INT64", "selected_probabilities
                         "candidate_probabilities": "TYPE_FP32"}
 
 
-def find_class_thresholds_path(experiment_folder: Path, checkpoint_path: Path,
-                               use_averaged_weights: bool) -> Optional[Path]:
-    """
-    Finds the thresholds of the evaluation of an exported checkpoint: the confidence thresholds of a frame selector,
-    deployed with its decoder, or the score thresholds of the classes of a detector or instance segmenter, built into
-    its export (deployment/detection_deployment.py): 'class_thresholds.json' in the folder of its iteration,
-    '<run>/Evaluation/Iteration_<n>/' (evaluation of the training) or '<run>/Checkpoint_Evaluation/Iteration_<n>/'
-    (scripts/evaluation/evaluate_checkpoint.py), so that a checkpoint evaluated after its training is deployed with its
-    thresholds too, in its 'EMA' subfolder for the averaged weights. At most one of them may hold the file, so that the
-    deployed thresholds are never taken from another evaluation than the one chosen.
-
-    Args:
-        experiment_folder (Path): The exported run folder.
-        checkpoint_path (Path): The exported checkpoint, '<run>/Weights/Iteration_<n>/model_<n>.pt'.
-        use_averaged_weights (bool): True to read the evaluation of the moving average of the weights (the 'EMA'
-            subfolder of the iteration folder), False for the trained weights.
-
-    Returns:
-        Optional[Path]: The thresholds of the exported checkpoint, or None when it was never evaluated.
-
-    Raises:
-        ValueError: If both evaluation folders hold thresholds for the iteration of the checkpoint.
-    """
-    # Folder of the iteration and weights in the evaluation folder of the training, then in the one of the evaluation
-    # script
-    weights_folders = [AVERAGED_WEIGHTS_FOLDER_NAME] if use_averaged_weights else []
-    candidate_paths = [Path(experiment_folder, evaluation_folder_name, checkpoint_path.parent.name, *weights_folders,
-                            THRESHOLDS_FILE_NAME)
-                       for evaluation_folder_name in [EVALUATION_FOLDER_NAME, CHECKPOINT_EVALUATION_FOLDER_NAME]]
-    found_paths = [candidate_path for candidate_path in candidate_paths if candidate_path.is_file()]
-    if len(found_paths) > 1:
-        raise ValueError(f"Two {THRESHOLDS_FILE_NAME} for the exported checkpoint, remove the evaluation not to "
-                         f"deploy: " + ", ".join(str(found_path) for found_path in found_paths) + ".")
-    return found_paths[0] if found_paths else None
-
-
 def build_decoding_settings(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
                             unselected_class_index: int, checkpoint_path: Path,
                             experiment_folder: Path) -> Dict[str, Any]:
@@ -85,8 +50,10 @@ def build_decoding_settings(experiment_configuration: Dict[str, Any], model_conf
     Gathers the settings of the decoding of a frame selection run, written next to the Triton decoder and used by the
     local inference: the decoding and the frames per class of the 'Selection' section, the unselected class saved with
     the weights, the number of candidate frames of every class ('evaluation.top_k'), and the confidence thresholds and
-    class names of the evaluation of the checkpoint ('class_thresholds.json', find_class_thresholds_path). A checkpoint
-    that was not evaluated has no thresholds, and no chosen frame is then flagged as low confidence.
+    class names of the evaluation of the checkpoint ('class_thresholds.json', find_evaluation_file, the one of the
+    standalone evaluation when both evaluation folders hold one). A checkpoint that was not evaluated has no
+    thresholds, and no chosen frame is then flagged as low confidence. Called by the export before any model is
+    installed, so that a file it cannot read stops the export with the served models untouched.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration of the run.
@@ -101,19 +68,16 @@ def build_decoding_settings(experiment_configuration: Dict[str, Any], model_conf
         Dict[str, Any]: The 'decoding', 'frames_per_class', 'unselected_class_index', 'number_candidates', and for
             every wanted class (in class index order) its name in 'class_names' and its threshold in
             'class_thresholds' (None when the target precision was never reached, 0 without evaluation).
-
-    Raises:
-        ValueError: If both evaluation folders hold thresholds for the iteration of the checkpoint.
     """
     selection_configuration = model_configuration["Selection"]
     number_classes = len(set(model_configuration["Data"]["label_dictionary"].values()))
     wanted_class_indices = get_wanted_class_indices(number_classes=number_classes,
                                                     unselected_class_index=unselected_class_index)
 
-    # Thresholds of the evaluation of the trained weights of the checkpoint, by its training or by
-    # scripts/evaluation/evaluate_checkpoint.py
-    thresholds_path = find_class_thresholds_path(experiment_folder=experiment_folder, checkpoint_path=checkpoint_path,
-                                                 use_averaged_weights=False)
+    # Thresholds of the evaluation of the trained weights of the checkpoint, by the evaluation script
+    # (scripts/evaluation/evaluate_checkpoint.py) or by its training
+    thresholds_path = find_evaluation_file(experiment_folder=experiment_folder, checkpoint_path=checkpoint_path,
+                                           use_averaged_weights=False, file_name=THRESHOLDS_FILE_NAME)
     if thresholds_path is not None:
         thresholds = json.loads(s=thresholds_path.read_text())
         class_names = list(thresholds["classes"])
@@ -282,10 +246,12 @@ def export_frame_selection_decoding(repository: Path, model_version: int, format
     """
     Adds the decoding of the selection to the exported frame selector in the Triton repository: one decoder model,
     shared by the formats, and one ensemble per export format chaining the exported frame selector with it, named
-    '<frame selector>_<format>_ensemble', the model the clients query.
+    '<frame selector>_<format>_ensemble', the model the clients query. The export writes them into its staging folder,
+    so that they are installed with the networks, the console naming the written models and the installation linking
+    them.
 
     Args:
-        repository (Path): The Triton model repository.
+        repository (Path): The Triton model repository, or the staged models folder of an export.
         model_version (int): The Triton version of the exported models.
         formats (List[str]): The export formats of the frame selector, among 'torchscript' and 'onnx'.
         specification (Dict[str, Any]): The export specification of the frame selector.
@@ -299,8 +265,8 @@ def export_frame_selection_decoding(repository: Path, model_version: int, format
                                                       decoding_settings=decoding_settings,
                                                       number_classes=number_classes,
                                                       maximum_batch_size=maximum_batch_size)
-    print_color(color="green", output=f"Frame Selection Decoder ({decoding_settings['decoding']}) : "
-                                      f"{format_path_link(path=decoder_directory)}", indent=1)
+    print_color(color="green", output=f"Frame Selection Decoder ({decoding_settings['decoding']}) Written : "
+                                      f"{decoder_directory.name}", indent=1)
 
     # One ensemble per export format, chaining the exported frame selector of the format with the decoder
     for export_format in formats:
@@ -309,5 +275,5 @@ def export_frame_selection_decoding(repository: Path, model_version: int, format
             repository=repository, ensemble_name=f"{network_name}{ENSEMBLE_MODEL_SUFFIX}", network_name=network_name,
             decoder_name=decoder_name, model_version=model_version, export_format=export_format,
             specification=specification, decoding_settings=decoding_settings, maximum_batch_size=maximum_batch_size)
-        print_color(color="green", output=f"{export_format} Selection Ensemble : "
-                                          f"{format_path_link(path=ensemble_directory)}", indent=1)
+        print_color(color="green", output=f"{export_format} Selection Ensemble Written : {ensemble_directory.name}",
+                    indent=1)

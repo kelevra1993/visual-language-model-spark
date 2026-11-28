@@ -1551,7 +1551,7 @@ iteration,Accuracy,Balanced Accuracy,Macro F1,Top-2 Accuracy,Precision/square,Re
 The Stage 4 function, so the console and `Results.txt` block, `Tensorboard/Test`, sample images and `Iteration_N/` files are the same as in training, only in `<run>/Checkpoint_Evaluation/` and tracked in the evaluation MLflow run.
 - Another split gets `<run>/Checkpoint_Evaluation_split_<parent folder>_<split folder>/` (`apply_test_data_folder()`); a folder holding another split is refused (`check_evaluation_folder_split()`).
 - Evaluating the same split again reuses its folder: new `Results.txt` blocks, rewritten `Iteration_N` files, replaced error images.
-- With `per_class_report`, a classifier also gets `temperature_explorer.html` and `class_logits.npz`, listed by `serve_temperature_explorer.py` (4.13). Thresholds saved there land in this `Iteration_N` folder, one of the two places `export_model.py` searches with `use_saved_temperature` (`find_saved_thresholds_path()`, which refuses the export when both `Evaluation/` and `Checkpoint_Evaluation/` hold a saved file for the checkpoint).
+- With `per_class_report`, a classifier also gets `temperature_explorer.html` and `class_logits.npz`, listed by `serve_temperature_explorer.py` (4.13). Thresholds saved there land in this `Iteration_N` folder, one of the two places `export_model.py` searches with `use_saved_temperature` (`find_saved_thresholds_path()`, which takes the file of `Checkpoint_Evaluation/` with a yellow line when `Evaluation/` holds one for the checkpoint too).
 
 The block of iteration 9 on the 300 images and the folder tree below predate the curves and the temperature explorer.
 ```text

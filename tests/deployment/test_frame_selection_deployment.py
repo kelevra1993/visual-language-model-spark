@@ -4,11 +4,13 @@ frame_selection_decoder_backend.py: the decoder model and the ensembles are writ
 Python backend model decodes like the evaluation (run with a stand-in for the Triton backend utilities, which only exist
 in the Triton image), the local inference returns the outputs of the ensembles, and the decoding settings take the
 thresholds of the evaluation of the exported checkpoint from the training or from
-scripts/evaluation/evaluate_checkpoint.py.
+scripts/evaluation/evaluate_checkpoint.py, the latter when both hold them; the export of a tiny frame selector
+installs its networks, decoder and ensembles together, or nothing when its thresholds cannot be used.
 """
 
 import importlib.util
 import json
+import re
 import sys
 import types
 import numpy as np
@@ -27,11 +29,31 @@ from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATI
 from vision_training.models.sequence.frame_selection_decoding import run_frame_selection
 from vision_training.models.sequence.frame_selector import FrameSelector
 from vision_training.trainers.base_trainer import EVALUATION_FOLDER_NAME
+from vision_training.trainers.checkpointing import get_checkpoint_file
+from tests.deployment import test_input_contract
+from tests.deployment.test_export_model import read_repository_files
 from tests.fixtures.configuration_fixtures import get_sequence_model_configuration
+
+# Colour codes and opening or closing terminal hyperlinks of the console lines, removed before a line is read
+CONSOLE_CODE_PATTERN = r"\x1b\[[0-9;]*m|\x1b\]8;;[^\x1b]*\x1b\\"
 
 # Decoding settings of the test frame selector: classes 0 and 2 wanted, class 1 unselected
 TEST_DECODING_SETTINGS = {"decoding": "hungarian", "frames_per_class": 1, "unselected_class_index": 1,
                           "number_candidates": 2, "class_names": ["A", "C"], "class_thresholds": [0.5, None]}
+
+
+def strip_console_codes(text: str) -> str:
+    """
+    Removes the colour codes and the terminal hyperlinks of the console output of the export (print_color,
+    format_path_link), so that a test reads the line as plain text, the label of every link kept.
+
+    Args:
+        text (str): The captured console output.
+
+    Returns:
+        str: The output without escape sequences.
+    """
+    return re.sub(pattern=CONSOLE_CODE_PATTERN, repl="", string=text)
 
 
 class FakeTritonTensor:
@@ -227,17 +249,19 @@ def test_local_inference_decodes_the_selection() -> None:
         "selected_frames"])
 
 
-def write_test_thresholds(experiment_folder: Path, evaluation_folder_name: str, threshold: float) -> None:
+def write_test_thresholds(experiment_folder: Path, evaluation_folder_name: str, threshold: float,
+                          iteration_folder_name: str) -> None:
     """
-    Writes the class_thresholds.json of the evaluation of iteration 500 of a frame selection run, in the format of the
+    Writes the class_thresholds.json of the evaluation of one iteration of a frame selection run, in the format of the
     frame selection trainer, so that build_decoding_settings finds it in the given evaluation folder.
 
     Args:
         experiment_folder (Path): The run folder.
         evaluation_folder_name (str): 'Evaluation' (training) or 'Checkpoint_Evaluation' (evaluate_checkpoint.py).
         threshold (float): The threshold of the wanted class 'A', the class 'C' never reaching the target precision.
+        iteration_folder_name (str): The folder of the evaluated iteration, named after its checkpoint folder.
     """
-    iteration_folder = experiment_folder / evaluation_folder_name / "Iteration_500"
+    iteration_folder = experiment_folder / evaluation_folder_name / iteration_folder_name
     iteration_folder.mkdir(parents=True)
     (iteration_folder / THRESHOLDS_FILE_NAME).write_text(data=json.dumps(obj={
         "target_precision": 0.9, "decoding": "hungarian", "unselected_class": "B",
@@ -276,25 +300,34 @@ def test_decoding_settings_read_the_thresholds_of_either_evaluation(tmp_path: Pa
         tmp_path (Path): The pytest temporary directory, used as the run folder.
         evaluation_folder_name (str): The evaluation folder holding the thresholds.
     """
-    write_test_thresholds(experiment_folder=tmp_path, evaluation_folder_name=evaluation_folder_name, threshold=0.7)
+    write_test_thresholds(experiment_folder=tmp_path, evaluation_folder_name=evaluation_folder_name, threshold=0.7,
+                          iteration_folder_name="Iteration_500")
     decoding_settings = build_test_decoding_settings(experiment_folder=tmp_path)
     assert decoding_settings["class_names"] == ["A", "C"]
     assert decoding_settings["class_thresholds"] == [0.7, None]
 
 
-def test_decoding_settings_refuse_two_evaluations(tmp_path: Path) -> None:
+def test_decoding_settings_take_the_checkpoint_evaluation_of_two(tmp_path: Path,
+                                                                  capsys: pytest.CaptureFixture) -> None:
     """
-    Verifies that the export of a frame selector stops when both evaluation folders hold thresholds for the exported
-    checkpoint, rather than deploying the thresholds of one of them without saying so.
+    Verifies that the export of a frame selector takes the thresholds of the standalone evaluation
+    (Checkpoint_Evaluation) when both evaluation folders hold thresholds for the exported checkpoint, and names both
+    files and the one used in a yellow console line, instead of stopping the export.
 
     Args:
         tmp_path (Path): The pytest temporary directory, used as the run folder.
+        capsys (pytest.CaptureFixture): Captures the console line naming the two files.
     """
-    write_test_thresholds(experiment_folder=tmp_path, evaluation_folder_name=EVALUATION_FOLDER_NAME, threshold=0.7)
+    write_test_thresholds(experiment_folder=tmp_path, evaluation_folder_name=EVALUATION_FOLDER_NAME, threshold=0.7,
+                          iteration_folder_name="Iteration_500")
     write_test_thresholds(experiment_folder=tmp_path, evaluation_folder_name=CHECKPOINT_EVALUATION_FOLDER_NAME,
-                          threshold=0.6)
-    with pytest.raises(expected_exception=ValueError, match="Two class_thresholds.json"):
-        build_test_decoding_settings(experiment_folder=tmp_path)
+                          threshold=0.6, iteration_folder_name="Iteration_500")
+    decoding_settings = build_test_decoding_settings(experiment_folder=tmp_path)
+    assert decoding_settings["class_thresholds"] == [0.6, None]
+    console_output = strip_console_codes(text=capsys.readouterr().out)
+    assert (f"Two {THRESHOLDS_FILE_NAME} for the exported checkpoint, the one of Checkpoint_Evaluation is used : "
+            f"Checkpoint_Evaluation/Iteration_500/{THRESHOLDS_FILE_NAME} (not Evaluation/Iteration_500/"
+            f"{THRESHOLDS_FILE_NAME})") in console_output
 
 
 def test_decoding_settings_without_evaluation_flag_nothing(tmp_path: Path) -> None:
@@ -308,3 +341,60 @@ def test_decoding_settings_without_evaluation_flag_nothing(tmp_path: Path) -> No
     decoding_settings = build_test_decoding_settings(experiment_folder=tmp_path)
     assert decoding_settings["class_names"] == ["0", "2"]
     assert decoding_settings["class_thresholds"] == [0.0, 0.0]
+
+
+@pytest.mark.skipif(condition=not torch.cuda.is_available(), reason="The export runs the model on the GPU.")
+@pytest.mark.parametrize(argnames="checkpoint_evaluation_readable", argvalues=[True, False])
+def test_frame_selector_export_installs_its_decoder_or_nothing(tmp_path: Path,
+                                                               checkpoint_evaluation_readable: bool) -> None:
+    """
+    Verifies the export of a tiny frame selector whose exported checkpoint was evaluated by its training and by the
+    evaluation script: it completes, installing the networks, the decoder with the thresholds of Checkpoint_Evaluation
+    and the ensembles; and when the only thresholds it finds cannot be used (a file without its 'decoding'), it stops
+    before anything is installed, instead of leaving the networks served without their decoder and ensembles.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, holding the run and the repository.
+        checkpoint_evaluation_readable (bool): False to write the thresholds of Checkpoint_Evaluation alone, without
+            their 'decoding' entry.
+    """
+    experiment_folder, repository = tmp_path / "SEL_TEST_MC3", tmp_path / "served_models"
+    test_input_contract.write_trained_model(experiment_folder=experiment_folder, task="frame_selection",
+                                            keep_ratio=True, tiling_configuration=None)
+    checkpoint_path = get_checkpoint_file(weights_directory=experiment_folder / "Weights",
+                                          iteration=test_input_contract.EXPORTED_ITERATION)
+    iteration_folder_name = checkpoint_path.parent.name
+
+    # Class 1 marked as the unselected class in the saved weights, as the frame selection trainer sets it
+    checkpoint = torch.load(f=checkpoint_path, weights_only=True)
+    checkpoint["model_state"]["wanted_class_mask"][1] = 0.0
+    torch.save(obj=checkpoint, f=checkpoint_path)
+    evaluated_folders = [(EVALUATION_FOLDER_NAME, 0.7), (CHECKPOINT_EVALUATION_FOLDER_NAME, 0.6)]
+    for evaluation_folder_name, threshold in evaluated_folders[0 if checkpoint_evaluation_readable else 1:]:
+        write_test_thresholds(experiment_folder=experiment_folder, evaluation_folder_name=evaluation_folder_name,
+                              threshold=threshold, iteration_folder_name=iteration_folder_name)
+    if not checkpoint_evaluation_readable:
+        thresholds_path = experiment_folder / CHECKPOINT_EVALUATION_FOLDER_NAME / iteration_folder_name / (
+            THRESHOLDS_FILE_NAME)
+        thresholds = json.loads(s=thresholds_path.read_text())
+        del thresholds["decoding"]
+        thresholds_path.write_text(data=json.dumps(obj=thresholds))
+
+        # The unreadable thresholds stop the export with the repository left empty
+        with pytest.raises(expected_exception=KeyError, match="decoding"):
+            test_input_contract.export_test_run(experiment_folder=experiment_folder, repository=repository,
+                                                formats=["onnx"])
+        assert read_repository_files(repository=repository) == {}
+        return
+
+    # Both evaluations: the networks, the decoder with the thresholds of Checkpoint_Evaluation and the ensembles
+    test_input_contract.export_test_run(experiment_folder=experiment_folder, repository=repository,
+                                        formats=["torchscript", "onnx"])
+    installed_models = sorted(model_folder.name for model_folder in repository.iterdir())
+    assert installed_models == ["frame_selector_decoder", "frame_selector_onnx", "frame_selector_onnx_ensemble",
+                                "frame_selector_torchscript", "frame_selector_torchscript_ensemble"]
+    decoding_settings = json.loads(s=(repository / "frame_selector_decoder" / "1" /
+                                      "decoding_settings.json").read_text())
+    assert decoding_settings["class_thresholds"] == [0.6, None]
+    assert (repository / "frame_selector_onnx_ensemble" / "1").is_dir()
+    assert not list(tmp_path.glob(pattern=".export_staging_*"))

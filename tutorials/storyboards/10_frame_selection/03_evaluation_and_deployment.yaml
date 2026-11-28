@@ -152,14 +152,14 @@ scenes:
     source:
       file: vision_training/deployment/frame_selection_deployment.py
       function: build_decoding_settings
-      start: "thresholds_path = find_class_thresholds_path"
+      start: "thresholds_path = find_evaluation_file"
       end: "class_names = \\[str\\(class_index\\)"
     highlights:
-      - {match: "find_class_thresholds_path\\(", sentences: [0, 1, 3]}
+      - {match: "find_evaluation_file\\(", sentences: [0, 1, 3]}
       - {match: "^    else:|wanted_class_indices", sentences: [2]}
     narration:
       - "The decoding settings read the class thresholds file of the evaluation of the exported iteration, written by the training or by the evaluation script."
-      - "Should both folders hold one, the export stops before writing the decoder rather than pick one of them."
+      - "Should both folders hold one, the export takes that of the evaluation script, names both files in a yellow line, and reads it before writing any model."
       - "Take a checkpoint that was never evaluated: once exported, every threshold is zero, no chosen frame is ever flagged, and the wanted classes are named by their indices, so evaluate before exporting."
       - "Say you export the moving average of the weights: it still reads the thresholds of the trained weights, a known limit left as it is."
 

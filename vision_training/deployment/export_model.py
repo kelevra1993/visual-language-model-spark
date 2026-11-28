@@ -46,13 +46,13 @@ from vision_training.deployment.input_contract import (build_input_contract, wri
                                                        write_preprocessing_file)
 from vision_training.deployment.keypoint_deployment import write_keypoint_channels_file
 from vision_training.deployment.tensorrt_check import (HALF_PRECISION_LARGEST_VALUE, check_tensorrt_engine,
-                                                       describe_half_precision_overflows, describe_tf32_tolerances,
+                                                       describe_half_precision_overflows, describe_precision_tolerances,
                                                        find_half_precision_overflows)
 from vision_training.deployment.triton_configuration import (EXPORT_FORMATS, TENSORRT_PRECISIONS,
                                                              TORCHSCRIPT_FILE_NAMES, TORCHSCRIPT_PRECISIONS,
                                                              write_triton_configuration)
 from vision_training.deployment.triton_server import check_triton_available
-from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME
+from vision_training.evaluation.checkpoint_evaluation import CHECKPOINT_EVALUATION_FOLDER_NAME, find_evaluation_file
 from vision_training.evaluation.classification.temperature_explorer import (SAVED_THRESHOLDS_FILE_NAME,
                                                                             check_saved_thresholds)
 from vision_training.trainers.base_trainer import AVERAGED_WEIGHTS_FOLDER_NAME, EVALUATION_FOLDER_NAME
@@ -98,10 +98,10 @@ def find_saved_thresholds_path(experiment_folder: Path, checkpoint_path: Path, u
     """
     Finds the thresholds saved from the temperature explorer of the exported checkpoint, whose temperature is built
     into an exported classifier with use_saved_temperature: 'saved_temperature_thresholds.json' in the evaluation
-    folder of the exported iteration and weights, '<run>/Evaluation/Iteration_<n>' (evaluation of the training) or
-    '<run>/Checkpoint_Evaluation/Iteration_<n>' (scripts/evaluation/evaluate_checkpoint.py), its 'EMA' subfolder for
-    the averaged weights. Exactly one of them must hold the file, so that the deployed temperature is never taken from
-    another evaluation than the one chosen.
+    folder of the exported iteration and weights, '<run>/Checkpoint_Evaluation/Iteration_<n>'
+    (scripts/evaluation/evaluate_checkpoint.py) or '<run>/Evaluation/Iteration_<n>' (evaluation of the training), its
+    'EMA' subfolder for the averaged weights, the one of Checkpoint_Evaluation taken with a yellow line when both hold
+    it (find_evaluation_file, the reader of the class thresholds of the other tasks too).
 
     Args:
         experiment_folder (Path): The exported run folder.
@@ -113,23 +113,18 @@ def find_saved_thresholds_path(experiment_folder: Path, checkpoint_path: Path, u
 
     Raises:
         FileNotFoundError: If none of the two evaluation folders holds saved thresholds.
-        ValueError: If both hold saved thresholds.
     """
-    # Evaluation folder of the exported iteration and weights, of the training then of the standalone evaluation
-    weights_folders = [AVERAGED_WEIGHTS_FOLDER_NAME] if use_averaged_weights else []
-    candidate_paths = [Path(experiment_folder, evaluation_folder_name, checkpoint_path.parent.name, *weights_folders,
-                            SAVED_THRESHOLDS_FILE_NAME)
-                       for evaluation_folder_name in [EVALUATION_FOLDER_NAME, CHECKPOINT_EVALUATION_FOLDER_NAME]]
-    found_paths = [candidate_path for candidate_path in candidate_paths if candidate_path.is_file()]
-    if not found_paths:
+    saved_thresholds_path = find_evaluation_file(experiment_folder=experiment_folder, checkpoint_path=checkpoint_path,
+                                                 use_averaged_weights=use_averaged_weights,
+                                                 file_name=SAVED_THRESHOLDS_FILE_NAME)
+    if saved_thresholds_path is None:
+        weights_folder = f"/{AVERAGED_WEIGHTS_FOLDER_NAME}" if use_averaged_weights else ""
         raise FileNotFoundError(f"No {SAVED_THRESHOLDS_FILE_NAME} for the exported checkpoint: save the thresholds of "
                                 f"a temperature with the button of its temperature explorer, served by "
-                                f"scripts/evaluation/serve_temperature_explorer.py. Looked for: " +
-                                ", ".join(str(candidate_path) for candidate_path in candidate_paths) + ".")
-    if len(found_paths) > 1:
-        raise ValueError(f"Two {SAVED_THRESHOLDS_FILE_NAME} for the exported checkpoint, remove the one not to "
-                         f"deploy: " + ", ".join(str(found_path) for found_path in found_paths) + ".")
-    return found_paths[0]
+                                f"scripts/evaluation/serve_temperature_explorer.py. Looked in "
+                                f"{experiment_folder}/[{CHECKPOINT_EVALUATION_FOLDER_NAME} or "
+                                f"{EVALUATION_FOLDER_NAME}]/{checkpoint_path.parent.name}{weights_folder}.")
+    return saved_thresholds_path
 
 
 def check_saved_thresholds_location(saved_thresholds_path: Path, experiment_folder: Path, checkpoint_path: Path,
@@ -290,11 +285,14 @@ def check_tensorrt_export(model_path: Path, staging_folder: Path, model_name: st
     (deployment/tensorrt_check.py). In FP16, the graph is first scanned on the CPU for values above the largest FP16
     value, a value above it stopping the checks. Then, unless skip_tensorrt_check, the engine is built and run on the
     check batches by a temporary Triton container and compared with the eager model: an FP32 engine with the FP32 model
-    at the tolerances of the export specification, or, missing them, within TF32_DIFFERENCE_FACTOR times the
-    differences TF32 makes in the eager model on the same batch (run_eager_with_tf32, TensorRT running FP32 engines
-    with TF32 allowed), an FP16 engine with the FP16 copy of the network
-    (convert_to_half_precision) at the tolerances of the FP16 TorchScript check (scale_half_precision_tolerances). Every
-    step prints what it checked and how long it took.
+    at the tolerances of the export specification, an FP16 engine with the FP16 copy of the network
+    (convert_to_half_precision) at the tolerances of the FP16 TorchScript check (scale_half_precision_tolerances). An
+    engine missing them is compared again with the FP32 eager model within REDUCED_PRECISION_DIFFERENCE_FACTOR times the
+    differences its reduced precision makes in the eager model on the same batch: TF32 for an FP32 engine
+    (run_eager_with_tf32, TensorRT running FP32 engines with TF32 allowed), FP16 for an FP16 engine (the FP16 copy
+    against the FP32 model), so that a model whose outputs FP16 moves far beyond the tolerances anyway (the sequence
+    labeller of the tutorials, 1e-2 to 3e-2 on its probabilities) is judged by what FP16 costs it, while an engine far
+    off its own reduced precision still fails. Every step prints what it checked and how long it took.
 
     Args:
         model_path (Path): The staged 'model.onnx', its config.pbtxt written next to its version folder.
@@ -334,21 +332,25 @@ def check_tensorrt_export(model_path: Path, staging_folder: Path, model_name: st
                                            f"model", indent=1)
         return []
 
-    # Reference of the engine: the FP32 eager model, with its outputs with TF32 on for the TF32 roundings of an FP32
-    # engine, or its FP16 copy at the loosened tolerances of FP16
+    # Reference of the engine: the FP32 eager model, or its FP16 copy at the loosened tolerances of FP16; the eager
+    # outputs in the reduced precision of the engine (TF32 on, or the FP16 copy) measure the roundings an engine
+    # missing them is compared within, against the FP32 eager model
     reference_name, engine_reference_outputs = "Eager Model", reference_outputs
     tolerances = specification["comparison_tolerances"]
-    tf32_reference_outputs = None
     if tensorrt_precision == "FP32":
-        tf32_reference_outputs = run_eager_with_tf32(inference_model=inference_model, check_inputs=check_inputs)
-    if tensorrt_precision == "FP16":
+        reduced_precision_outputs = run_eager_with_tf32(inference_model=inference_model, check_inputs=check_inputs)
+    else:
         input_names = [input_specification["name"] for input_specification in specification["inputs"]]
         half_precision_model = convert_to_half_precision(inference_model=inference_model, input_names=input_names)
         with torch.no_grad():
             engine_reference_outputs = convert_outputs_to_numpy(outputs=half_precision_model(**check_inputs))
         del half_precision_model
+        reduced_precision_outputs = engine_reference_outputs
         reference_name = "Eager FP16 Model"
         tolerances = scale_half_precision_tolerances(comparison_tolerances=tolerances)
+    reduced_precision = {"FP32": "TF32", "FP16": "FP16"}[tensorrt_precision]
+    precision_fallback = {"reduced_precision": reduced_precision, "reference_outputs": reference_outputs,
+                          "reduced_precision_outputs": reduced_precision_outputs}
 
     # Engine built and run by a temporary Triton container on the check batches
     engine_check = check_tensorrt_engine(staged_repository=staging_folder / STAGED_MODELS_FOLDER_NAME,
@@ -356,26 +358,26 @@ def check_tensorrt_export(model_path: Path, staging_folder: Path, model_name: st
                                          log_path=staging_folder / TENSORRT_CHECK_LOG_NAME, model_name=model_name,
                                          check_inputs=numpy_inputs, reference_outputs=engine_reference_outputs,
                                          specification=specification, tolerances=tolerances,
-                                         tf32_reference_outputs=tf32_reference_outputs)
+                                         precision_fallback=precision_fallback)
     timing_description = (f"{batch_description} served by Triton, engine built and checked in "
                           f"{engine_check['engine_check_seconds']:.1f} seconds, Triton started in "
                           f"{engine_check['server_start_seconds']:.1f} seconds")
 
-    # An FP32 engine missing the tolerances is named with the reference it was compared with again, the eager model
-    # within its TF32 roundings, and with what it missed at the tolerances
-    tf32_lines = []
-    if engine_check["tf32_comparison"] is not None:
-        reference_name = "Eager Model Within Its TF32 Roundings"
-        tf32_lines = [f"tolerances of the specification missed: "
-                      f"{'; '.join(engine_check['tf32_comparison']['tolerances_mismatches'])}",
-                      describe_tf32_tolerances(tf32_comparison=engine_check["tf32_comparison"])]
+    # An engine missing the tolerances is named with the reference it was compared with again, the FP32 eager model
+    # within the roundings of its reduced precision, and with what it missed against its first reference
+    precision_lines = []
+    if engine_check["precision_comparison"] is not None:
+        precision_lines = [f"tolerances against the {reference_name} missed: "
+                           f"{'; '.join(engine_check['precision_comparison']['tolerances_mismatches'])}",
+                           describe_precision_tolerances(precision_comparison=engine_check["precision_comparison"])]
+        reference_name = f"Eager Model Within Its {reduced_precision} Roundings"
     if engine_check["mismatches"]:
         mismatch_lines = ([f"TensorRT {tensorrt_precision} Engine Fails Its Check Against The {reference_name} : "
-                           f"{timing_description}"] + tf32_lines + engine_check["mismatches"])
+                           f"{timing_description}"] + precision_lines + engine_check["mismatches"])
         print_color(color="red", output="\n".join(mismatch_lines), indent=1)
         return mismatch_lines
     print_color(color="green", output="\n".join([f"TensorRT {tensorrt_precision} Engine Matches The {reference_name} : "
-                                                 f"{timing_description}"] + tf32_lines), indent=1)
+                                                 f"{timing_description}"] + precision_lines), indent=1)
     return []
 
 
@@ -383,7 +385,7 @@ def run_eager_with_tf32(inference_model: nn.Module, check_inputs: Dict[str, torc
     """
     Runs the eager inference model on the check batches with TF32 allowed, the precision TensorRT gives the
     convolutions and matrix products of an FP32 engine, so that check_tensorrt_export measures how far TF32 alone moves
-    the outputs (derive_tf32_tolerances of deployment/tensorrt_check.py); the TF32 settings of the export (off) are
+    the outputs (derive_precision_tolerances of deployment/tensorrt_check.py); the TF32 settings of the export (off) are
     restored afterwards.
 
     Args:
@@ -420,7 +422,10 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
     that eager FP16 copy at tolerances multiplied by HALF_PRECISION_TOLERANCE_FACTOR, its differences from the FP32
     eager model being printed for information.
     A frame selector also gets its decoder and one ensemble per format, with the decoding settings of the run and
-    the confidence thresholds of the evaluation of the exported checkpoint. With use_saved_temperature, a classifier
+    the confidence thresholds of the evaluation of the exported checkpoint, staged and installed with its networks.
+    Every file of an evaluation the export reads (saved thresholds, class thresholds) is read, and every setting
+    checked, before any file is written, the one of Checkpoint_Evaluation being taken with a yellow line when both
+    evaluation folders hold it (find_evaluation_file). With use_saved_temperature, a classifier
     divides its class logits by the temperature saved from the temperature explorer of the exported checkpoint
     (find_saved_thresholds_path, or saved_thresholds_path given by the export button of the page, then
     read_saved_temperature), the saved thresholds being copied next to every exported model as 'class_thresholds.json';
@@ -479,11 +484,11 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
         FileNotFoundError: If use_saved_temperature finds no saved thresholds for the exported checkpoint.
         ValueError: If a format, the model version, the maximum batch size, the TensorRT or the TorchScript precision
             is not one the export accepts (check_export_settings, before anything is loaded), if
-            use_saved_temperature is set for another task than the classification, or the saved thresholds are
-            ambiguous or do not belong to the exported checkpoint, or saved_thresholds_path is given without
-            use_saved_temperature, or the input contract cannot describe the input of the run (another
-            interpolation, padding, placement or channel order), or both evaluation folders hold the
-            'class_thresholds.json' of an exported detector or instance segmenter.
+            use_saved_temperature is set for another task than the classification, or the saved thresholds do not
+            belong to the exported checkpoint, or saved_thresholds_path is given without use_saved_temperature, or
+            the input contract cannot describe the input of the run (another interpolation, padding, placement or
+            channel order), or the 'class_thresholds.json' of an exported detector or instance segmenter holds
+            another number of classes.
     """
     # A misspelled format or precision stops the export here, before the checkpoint is loaded
     check_export_settings(formats=formats, model_version=model_version, maximum_batch_size=maximum_batch_size,
@@ -564,6 +569,15 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
             deployed_score_thresholds = apply_class_score_thresholds(
                 inference_model=inference_model, experiment_folder=experiment_folder, checkpoint_path=checkpoint_path,
                 use_averaged_weights=use_averaged_weights)
+
+        # Decoding settings of a frame selector, with the thresholds of the evaluation of the exported checkpoint, read
+        # before any file is written so that a file the export cannot read leaves the served models untouched
+        decoding_settings = None
+        if experiment_configuration["task"] == "frame_selection":
+            decoding_settings = build_decoding_settings(
+                experiment_configuration=experiment_configuration, model_configuration=model_configuration,
+                unselected_class_index=model.get_unselected_class_index(), checkpoint_path=checkpoint_path,
+                experiment_folder=experiment_folder)
 
         # Random example and check batches of different sizes, to confirm the batch dimension stays dynamic
         example_inputs = create_random_inputs(specification=specification, shape_name="example_shape",
@@ -675,6 +689,15 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
                         "; ".join(precision_differences) if precision_differences else "within the FP32 tolerances"),
                                 indent=1)
 
+            # Frame selector: the decoder of the selection and the ensembles the clients query, staged next to the
+            # networks so that they are installed with them, or not at all
+            if decoding_settings is not None:
+                export_frame_selection_decoding(repository=staging_folder / STAGED_MODELS_FOLDER_NAME,
+                                                model_version=model_version, formats=formats,
+                                                specification=specification, decoding_settings=decoding_settings,
+                                                number_classes=inference_model.number_classes,
+                                                maximum_batch_size=maximum_batch_size)
+
             # Test split parity of the staged models, written whatever the random batch check found, the installation
             # recorded in it before the models are installed or refused
             mismatching_formats = [export_format for export_format, mismatches in random_batch_checks.items()
@@ -717,17 +740,6 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], use_ave
         # The staging folder is removed whether the export succeeded or raised, with the version folders replaced
         finally:
             shutil.rmtree(path=staging_folder)
-
-        # Frame selector: the decoder of the selection and the ensembles the clients query
-        if experiment_configuration["task"] == "frame_selection":
-            decoding_settings = build_decoding_settings(
-                experiment_configuration=experiment_configuration, model_configuration=model_configuration,
-                unselected_class_index=model.get_unselected_class_index(), checkpoint_path=checkpoint_path,
-                experiment_folder=experiment_folder)
-            export_frame_selection_decoding(repository=repository, model_version=model_version, formats=formats,
-                                            specification=specification, decoding_settings=decoding_settings,
-                                            number_classes=inference_model.number_classes,
-                                            maximum_batch_size=maximum_batch_size)
     # 'finally' runs whether the export succeeds or raises an error (missing checkpoint, export mismatch...), so the
     # TF32 settings are always restored, and any error still reaches the caller afterwards
     finally:
