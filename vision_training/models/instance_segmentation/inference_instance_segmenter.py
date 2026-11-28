@@ -10,7 +10,8 @@ import torch
 from typing import Dict, Optional, Tuple
 
 from vision_training.models.detection.inference_detector import InferenceDetector
-from vision_training.models.instance_segmentation.instance_segmenter import InstanceSegmenter, SHARED_MASK_HEAD_KEY
+from vision_training.models.detection.two_stage_detector import SHARED_HEAD_KEY
+from vision_training.models.instance_segmentation.instance_segmenter import InstanceSegmenter
 
 
 class InferenceInstanceSegmenter(InferenceDetector):
@@ -108,7 +109,7 @@ class InferenceInstanceSegmenter(InferenceDetector):
         # Shared head: every detection pooled from every level, the pooled features of its own level kept, then the
         # layers of the head run once
         if self.shared_mask_head:
-            mask_head = self.mask_heads_dictionary[SHARED_MASK_HEAD_KEY]
+            mask_head = self.mask_heads_dictionary[SHARED_HEAD_KEY]
             pooled_features: Optional[torch.Tensor] = None
             for level_index, level_name in enumerate(self.level_names):
                 level_pooled_features = mask_head.pool_box_features(

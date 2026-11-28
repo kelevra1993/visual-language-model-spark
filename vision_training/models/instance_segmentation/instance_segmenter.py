@@ -19,13 +19,9 @@ from typing import Any, Dict, List, Optional
 from vision_training.losses.instance_segmentation_losses import compute_mask_loss
 from vision_training.models.backbones.backbone import SKIP_OUTPUT_PREFIX
 from vision_training.models.components.convolution_block import BATCH_NORMALIZATION_MOMENTUM
-from vision_training.models.detection.two_stage_detector import TwoStageDetector
+from vision_training.models.detection.two_stage_detector import SHARED_HEAD_KEY, TwoStageDetector
 from vision_training.models.instance_segmentation.mask_head import MaskFineInputs, MaskHead
 from vision_training.models.instance_segmentation.mask_operations import build_mask_targets
-
-# Key of the mask head shared by every level in the mask heads dictionary, which otherwise holds one head per level
-# keyed by its detection block, so that the transfer, the optimizer groups and the size summary read both alike
-SHARED_MASK_HEAD_KEY = "shared"
 
 
 class InstanceSegmenter(TwoStageDetector):
@@ -127,10 +123,11 @@ class InstanceSegmenter(TwoStageDetector):
 
         Returns:
             nn.ModuleDict: The mask head of every level, keyed by the detection block index, or the shared head
-                alone, keyed SHARED_MASK_HEAD_KEY.
+                alone, keyed SHARED_HEAD_KEY.
 
         Raises:
-            ValueError: If the shared head is asked for levels of different mask head settings or channel counts.
+            ValueError: If the shared head is asked for levels of different mask head settings or channel counts
+                (list_head_levels).
         """
         mask_heads_dictionary = nn.ModuleDict()
         pool_size_skip_information = self.select_skip_information(
@@ -141,17 +138,8 @@ class InstanceSegmenter(TwoStageDetector):
                           for index_string, level_information in self.detection_input_information.items()}
 
         # Heads to build: the levels each head reads, keyed by the name of the head
-        if self.shared_mask_head:
-            first_level = next(iter(level_mask_heads))
-            if any(level_mask_head != level_mask_heads[first_level] for level_mask_head in level_mask_heads.values()):
-                raise ValueError(f"'MaskHead.shared' needs the same 'mask_head' on every detection level, got "
-                                 f"{level_mask_heads}.")
-            if len(set(level_channels.values())) != 1:
-                raise ValueError(f"'MaskHead.shared' needs the same channel count on every detection level (a neck, "
-                                 f"or backbone blocks of equal channels), got {level_channels}.")
-            head_levels = {SHARED_MASK_HEAD_KEY: list(level_mask_heads)}
-        else:
-            head_levels = {index_string: [index_string] for index_string in level_mask_heads}
+        head_levels = self.list_head_levels(section_name="MaskHead", level_component="mask_head",
+                                            shared=self.shared_mask_head)
 
         # Iterate over the heads, the levels in the order of the backbone outputs
         for head_name, level_names in head_levels.items():
@@ -339,7 +327,7 @@ class InstanceSegmenter(TwoStageDetector):
         """
         # Shared head: the boxes of every level pooled at the spatial scale of their level, then predicted at once
         if self.shared_mask_head:
-            mask_head = self.mask_heads_dictionary[SHARED_MASK_HEAD_KEY]
+            mask_head = self.mask_heads_dictionary[SHARED_HEAD_KEY]
             pooled_features = torch.cat(tensors=[mask_head.pool_box_features(
                 proposal_boxes=boxes, input_tensor=feature_maps[level_name], skip_feature_maps=skip_feature_maps,
                 level_name=level_name) for level_name, boxes in level_boxes.items()], dim=0)
@@ -447,7 +435,7 @@ class InstanceSegmenter(TwoStageDetector):
         # One block of lines per detection level, or one for the head shared by the levels
         for index_string, mask_head in self.mask_heads_dictionary.items():
             summary_text += (f"[bold]Mask Head Shared By Blocks {', '.join(mask_head.level_names)}[/bold]\n"
-                             if index_string == SHARED_MASK_HEAD_KEY else f"[bold]Mask Block {index_string}[/bold]\n")
+                             if index_string == SHARED_HEAD_KEY else f"[bold]Mask Block {index_string}[/bold]\n")
             active_module_names = mask_head.convolutional_block.get_active_module_names()
             if active_module_names:
                 summary_text += f"  - Modules            : {', '.join(active_module_names)}\n"

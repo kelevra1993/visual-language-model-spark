@@ -9,7 +9,8 @@ heads and of the semantic segmentation grown to the new classes, which keep the 
 the source runs without class names, and the runs holding the source classes at other indices, whose rows land at the
 index of their name, a run lacking a source class being refused. The keypoint head loaded with its keypoint channel
 layers only moves between runs predicting the same keypoints on the same channels, read from the record of the data of
-the source run, and the mask heads between runs sharing them by the levels or not alike. The classification,
+the source run, and the region proposal, detection and mask heads between runs sharing them by the levels or not
+alike, a source run written before the sharing having one head per level. The classification,
 detection, mask and keypoint heads loaded without their class layers initialise runs of unrelated classes or keypoints,
 only their other layers being transferred, frozen and fine-tuned, and the class layer flags are turned off with the
 transfers.
@@ -1474,6 +1475,62 @@ def test_mask_heads_move_only_between_runs_of_the_same_sharing(tmp_path: Path) -
                                             target_configuration=level_configuration) == [
         "'MaskHead.shared' is True in the source run and False in this run."]
     assert compare_component_configurations(section_name="MaskHead", source_configuration=former_configuration,
+                                            target_configuration=level_configuration) == []
+
+
+@pytest.mark.parametrize(argnames=("section_name", "component_attribute"),
+                         argvalues=[("RegionProposal", "region_proposer_dictionary"),
+                                    ("Detector", "detector_heads_dictionary")])
+def test_detection_heads_move_only_between_runs_of_the_same_sharing(tmp_path: Path, section_name: str,
+                                                                     component_attribute: str) -> None:
+    """
+    Verifies that the region proposal head and the detection head shared by the levels ('RegionProposal.shared',
+    'Detector.shared') move to a run that also shares them, every tensor being copied but the class layers of the
+    detection head (loaded with 'class_layers' True only), and that heads trained per level are refused by a run
+    sharing one head and the reverse, a source run written before the sharing counting as one head per level.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        section_name (str): The section of the transferred heads.
+        component_attribute (str): The attribute of the detector holding them.
+    """
+    shared_configuration, _, _ = get_detection_model_configuration()
+    shared_configuration = copy.deepcopy(shared_configuration)
+    shared_configuration[section_name]["shared"] = True
+    source_detector = build_task_model(task="object_detection", configuration=shared_configuration, seed=0)
+    write_source_run(run_folder=tmp_path / "shared_run", configuration=shared_configuration, model=source_detector)
+    target_detector = build_task_model(task="object_detection", configuration=shared_configuration, seed=1)
+    load_pretrained_component(component=getattr(target_detector, component_attribute), section_name=section_name,
+                              model_configuration=point_to_source_run(configuration=shared_configuration,
+                                                                      section_name=section_name,
+                                                                      source_folder=tmp_path / "shared_run"),
+                              device=torch.device("cpu"))
+
+    # Every tensor of the single shared head copied, the class layers of the detection head left random
+    source_state = getattr(source_detector, component_attribute).state_dict()
+    target_state = getattr(target_detector, component_attribute).state_dict()
+    assert {tensor_name.split(".")[0] for tensor_name in source_state} == {"shared"}
+    assert source_state.keys() == target_state.keys()
+    class_layer_prefixes = ("shared.classifier.", "shared.bounding_box_regressor.")
+    copied_names = [tensor_name for tensor_name in source_state
+                    if section_name == "RegionProposal" or not tensor_name.startswith(class_layer_prefixes)]
+    assert len(copied_names) > 0
+    for tensor_name in copied_names:
+        assert torch.equal(input=target_state[tensor_name], other=source_state[tensor_name]), tensor_name
+
+    # Heads per level and a shared head are refused by each other, a source run written before the sharing being one
+    # head per level
+    level_configuration, _, _ = get_detection_model_configuration()
+    former_configuration = copy.deepcopy(level_configuration)
+    former_configuration[section_name].pop("shared")
+    for source_configuration in [level_configuration, former_configuration]:
+        assert compare_component_configurations(section_name=section_name, source_configuration=source_configuration,
+                                                target_configuration=shared_configuration) == [
+            f"'{section_name}.shared' is False in the source run and True in this run."]
+    assert compare_component_configurations(section_name=section_name, source_configuration=shared_configuration,
+                                            target_configuration=level_configuration) == [
+        f"'{section_name}.shared' is True in the source run and False in this run."]
+    assert compare_component_configurations(section_name=section_name, source_configuration=former_configuration,
                                             target_configuration=level_configuration) == []
 
 

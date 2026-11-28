@@ -262,11 +262,12 @@ def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[s
     runs written before the neck keep their names, then NPT and NFRZ when it is transferred and frozen), the anchors
     A<anchors per position>.<smallest scale>-<largest scale>.<hash of every scale and aspect ratio of every level>
     (build_anchors_hash), so that other ratios or middle scales start a new run, the region proposal heads
-    (R<normalization>, R<layers>x<filters>, RPL with the selection of the proposals level by level, then RPT and RFRZ
-    when they are transferred and frozen), the detector heads (modules DSE, DRES, DINC, D<normalization>, D<RoIAlign
-    pool size>.<layers>x<filters>.<fully connected sizes>, DCIOU with the CIoU box loss, then DPT, DRCL when their class
-    layers stay random, and DFRZ when they are transferred and frozen) and the classes (BIN or MC<foreground classes>,
-    the categories merged into one class counting once). The levels are the keys of 'DetectionLevels', whose anchor
+    (R<normalization>, R<layers>x<filters>, RSH when a single head is shared by the levels ('RegionProposal.shared'),
+    RPL with the selection of the proposals level by level, then RPT and RFRZ when they are transferred and frozen),
+    the detector heads (modules DSE, DRES, DINC, D<normalization>, D<RoIAlign pool size>.<layers>x<filters>.<fully
+    connected sizes>, DSH when a single head is shared by the levels ('Detector.shared'), DCIOU with the CIoU box loss,
+    then DPT, DRCL when their class layers stay random, and DFRZ when they are transferred and frozen) and the classes
+    (BIN or MC<foreground classes>, the categories merged into one class counting once). The levels are the keys of 'DetectionLevels', whose anchor
     counts, region proposal and detector settings are written once when identical on every level, otherwise joined with
     '+' in level order.
 
@@ -307,6 +308,11 @@ def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[s
             str(region_proposal_configuration["normalization"]["feature_map_normalization"]).lower().strip()],
         "R" + join_level_tokens(level_tokens=[f"{region_proposal_heads[level][0]}x{region_proposal_heads[level][1]}"
                                               for level in level_names])]
+
+    # One region proposal head shared by the levels, only when used so that the runs written before it keep their
+    # names
+    if region_proposal_configuration["shared"]:
+        region_proposal_tokens.append("RSH")
     proposal_selection = region_proposal_configuration["proposal_selection"]
     if proposal_selection != "joint":
         region_proposal_tokens.append("R" + PROPOSAL_SELECTION_CODES[proposal_selection])
@@ -331,6 +337,10 @@ def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[s
         f"{detector_heads[level]['convolutions'][1]}." + ".".join(str(size) for size in
                                                                    detector_heads[level]["fully_connected"])
         for level in level_names]))
+
+    # One detection head shared by the levels, only when used so that the runs written before it keep their names
+    if detector_configuration["shared"]:
+        detector_tokens.append("DSH")
     if detector_configuration["box_loss"] != "smooth_l1":
         detector_tokens.append("D" + BOX_LOSS_CODES[detector_configuration["box_loss"]])
     detector_tokens += build_pretrained_tokens(model_configuration=model_configuration, section_name="Detector")

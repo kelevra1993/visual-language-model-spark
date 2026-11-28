@@ -119,7 +119,7 @@ KNOWN_KEY_PATHS: Dict[str, Tuple[str, ...]] = {
     **{f"Neck.{key_name}": DETECTION_TASKS for key_name in [
         "type", "output_channels", "normalization.feature_map_normalization"]},
     **{f"RegionProposal.{key_name}": DETECTION_TASKS for key_name in [
-        "normalization.feature_map_normalization", "proposal_selection", "training.pre_nms_proposals",
+        "normalization.feature_map_normalization", "proposal_selection", "shared", "training.pre_nms_proposals",
         "training.post_nms_proposals", "inference.pre_nms_proposals", "inference.post_nms_proposals",
         "foreground_iou_threshold.min", "foreground_iou_threshold.max", "background_iou_threshold.min",
         "background_iou_threshold.max", "nms_iou_threshold", "number_training_positives", "total_training_samples"]},
@@ -127,7 +127,7 @@ KNOWN_KEY_PATHS: Dict[str, Tuple[str, ...]] = {
         "normalization.feature_map_normalization", "modules.residual_nets", "modules.inception",
         "modules.squeeze_and_excite", "inference.score_threshold", "inference.maximum_detections",
         "foreground_iou_threshold", "nms_iou_threshold", "nms_criterion", "nms_distance_exponent",
-        "number_training_positives", "total_training_samples", "box_loss"]},
+        "number_training_positives", "total_training_samples", "box_loss", "shared"]},
 
     # Mask heads of the instance segmentation, with their settings in every detection level
     **{f"DetectionLevels.{ANY_KEY}.mask_head.{key_name}": ("instance_segmentation",) for key_name in [

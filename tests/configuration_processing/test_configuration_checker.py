@@ -279,6 +279,73 @@ def remove_view_training_targets(configuration: Dict[str, Any]) -> None:
     del configuration["ExperimentConfiguration"]["diagnosis_modes"]["view_training_targets"]
 
 
+def share_the_detection_heads(configuration: Dict[str, Any]) -> None:
+    """
+    Shares one region proposal head and one detection head between the levels of the example configuration, which
+    hold the same heads and 9 anchors per position each and read the 64 channels of the feature pyramid.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["RegionProposal"]["shared"] = True
+    configuration["Detector"]["shared"] = True
+
+
+def test_shared_detection_heads_are_accepted(tmp_path: Path) -> None:
+    """
+    Verifies that one region proposal head and one detection head shared by the levels pass the checks when every
+    level holds the same heads and the same number of anchors per position and the neck gives every level the same
+    channels.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = write_modified_configuration(temporary_directory=tmp_path,
+                                                      modify_function=share_the_detection_heads)
+    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
+    assert model_configuration["RegionProposal"]["shared"] is True and model_configuration["Detector"]["shared"] is True
+
+
+def share_the_detection_heads_of_different_levels(configuration: Dict[str, Any]) -> None:
+    """
+    Shares the region proposal and detection heads between levels that cannot share them: level 7 with 6 anchors
+    per position where levels 5 and 6 have 9, with a region proposal head and a detection head of one convolution
+    where levels 5 and 6 have two, and, without the feature pyramid, block 5 of 64 channels where blocks 6 and 7 have
+    128.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    share_the_detection_heads(configuration=configuration)
+    level_configuration = configuration["DetectionLevels"]["7"]
+    level_configuration["anchors"]["scales"] = [128, 256]
+    level_configuration["region_proposal"]["convolutions"] = [1, 64]
+    level_configuration["detector"]["convolutions"] = [1, 64]
+    configuration["Neck"]["type"] = "none"
+    configuration["Neck"]["pretrained"]["experiment_folder"] = None
+
+
+def set_invalid_shared_detection_heads(configuration: Dict[str, Any]) -> None:
+    """
+    Sets the sharing of the region proposal and detection heads to strings instead of booleans.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["RegionProposal"]["shared"] = "yes"
+    configuration["Detector"]["shared"] = "no"
+
+
+def remove_shared_detection_head(configuration: Dict[str, Any]) -> None:
+    """
+    Removes the sharing of the detection heads, as in the detection files written before it.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    del configuration["Detector"]["shared"]
+
+
 def set_invalid_loss_weights(configuration: Dict[str, Any]) -> None:
     """
     Sets a negative weight of the classification loss of the region proposals and writes the weight of the box loss of
@@ -350,7 +417,21 @@ IMAGE_ONLY_TYPE_REFUSALS = [f"'Data.data_augmentation.types.{augmentation_type}.
     (set_invalid_view_training_targets, ["'ExperimentConfiguration.diagnosis_modes.view_training_targets' must be True "
                                          "or False, got 'False'."]),
     (remove_view_training_targets, ["Missing configuration key "
-                                    "'ExperimentConfiguration.diagnosis_modes.view_training_targets'."])])
+                                    "'ExperimentConfiguration.diagnosis_modes.view_training_targets'."]),
+    (share_the_detection_heads_of_different_levels, [
+        "'RegionProposal.shared' needs the same 'region_proposal' on every detection level, one head reading them all, "
+        "got {'5': {'convolutions': [2, 64]}, '6': {'convolutions': [2, 64]}, '7': {'convolutions': [1, 64]}}.",
+        "'RegionProposal.shared' needs the same channel count on every detection level, the backbone blocks read "
+        "without a neck having {'5': 64, '6': 128, '7': 128} channels: set 'Neck.type' or give the blocks of the "
+        "levels the same channels.",
+        "'RegionProposal.shared' needs the same number of anchors per position (scales x aspect ratios) on every "
+        "detection level, the outputs of the head, got {'5': 9, '6': 9, '7': 6}.",
+        "'Detector.shared' needs the same 'detector' on every detection level, one head reading them all, got",
+        "'Detector.shared' needs the same channel count on every detection level, the backbone blocks read without a "
+        "neck having {'5': 64, '6': 128, '7': 128} channels"]),
+    (set_invalid_shared_detection_heads, ["'RegionProposal.shared' must be True or False, got 'yes'.",
+                                          "'Detector.shared' must be True or False, got 'no'."]),
+    (remove_shared_detection_head, ["Missing configuration key 'Detector.shared'."])])
 def test_inconsistent_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                 modify_function: Callable[[Dict[str, Any]], None],
                                                 expected_messages: List[str]) -> None:

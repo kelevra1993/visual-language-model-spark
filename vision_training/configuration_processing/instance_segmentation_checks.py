@@ -17,6 +17,7 @@ from vision_training.configuration_processing.common_checks import check_pretrai
 from vision_training.configuration_processing.detection_checks import (MASK_HEAD_LEVEL_COMPONENT,
                                                                        check_convolution_layers,
                                                                        check_detection_configuration,
+                                                                       check_shared_level_heads,
                                                                        list_checked_detection_levels)
 
 
@@ -27,7 +28,7 @@ def check_mask_head_configuration(model_configuration: Dict[str, Any]) -> List[s
     most the mask resolution, the pooled features being only enlarged) and its [number_layers, output_channels]
     convolutions (a multiple of 8 channels with inception modules), the feature map normalization, the module flags,
     the mask threshold of the inference, the 'pretrained' settings initialising the mask heads with those of another
-    run, their finer inputs (check_mask_head_fine_inputs) and the head shared by the levels (check_shared_mask_head).
+    run, their finer inputs (check_mask_head_fine_inputs) and the head shared by the levels (check_shared_level_heads).
     The presence of the mask head of every level is checked by check_detection_levels.
 
     Args:
@@ -87,51 +88,8 @@ def check_mask_head_configuration(model_configuration: Dict[str, Any]) -> List[s
     errors += check_mask_head_fine_inputs(model_configuration=model_configuration)
 
     # One mask head read by every level instead of one head per level
-    errors += check_shared_mask_head(model_configuration=model_configuration)
-    return errors
-
-
-def check_shared_mask_head(model_configuration: Dict[str, Any]) -> List[str]:
-    """
-    Verifies 'MaskHead.shared', True for a single mask head read by every level as in Mask R-CNN (stage 5 of the
-    instance segmentation benchmark), False for one head per level: the shared head needs the same
-    'DetectionLevels.<level>.mask_head' on every level (one pool size and convolution block), and the same channel
-    count on every level, which a neck gives ('Neck.output_channels') and which the backbone blocks of the levels
-    ('Backbone.convolutions') must give without one. Levels without mask head and blocks in a wrong form are reported
-    by their own checks, so they are left out here.
-
-    Args:
-        model_configuration (Dict[str, Any]): The model configuration containing the 'MaskHead', 'DetectionLevels',
-            'Neck' and 'Backbone' sections.
-
-    Returns:
-        List[str]: The description of every inconsistency found.
-    """
-    errors = check_boolean_flags(configuration=model_configuration, key_paths=["MaskHead.shared"])
-    shared = get_configuration_value(configuration=model_configuration, key_path="MaskHead.shared")
-    detection_levels = get_configuration_value(configuration=model_configuration, key_path="DetectionLevels")
-    if errors or not shared or not isinstance(detection_levels, dict):
-        return errors
-
-    # One pool size and convolution block for every level
-    level_mask_heads = {level_key: level_configuration[MASK_HEAD_LEVEL_COMPONENT]
-                        for level_key, level_configuration in detection_levels.items()
-                        if isinstance(level_configuration, dict) and MASK_HEAD_LEVEL_COMPONENT in level_configuration}
-    if any(level_mask_head != next(iter(level_mask_heads.values())) for level_mask_head in level_mask_heads.values()):
-        errors.append(f"'MaskHead.shared' needs the same '{MASK_HEAD_LEVEL_COMPONENT}' on every detection level, one "
-                      f"head reading them all, got {level_mask_heads!r}.")
-
-    # Without a neck, the levels keep the channels of their backbone blocks, which must then be equal
-    neck_type = get_configuration_value(configuration=model_configuration, key_path="Neck.type")
-    block_convolutions = get_configuration_value(configuration=model_configuration, key_path="Backbone.convolutions")
-    if neck_type == "none" and isinstance(block_convolutions, dict):
-        level_channels = {level_key: block_convolutions[level_key][1] for level_key in detection_levels
-                          if level_key in block_convolutions and isinstance(block_convolutions[level_key], list)
-                          and len(block_convolutions[level_key]) == 2}
-        if len(set(level_channels.values())) > 1:
-            errors.append(f"'MaskHead.shared' needs the same channel count on every detection level, the backbone "
-                          f"blocks read without a neck having {level_channels!r} channels: set 'Neck.type' or give "
-                          f"the blocks of the levels the same channels.")
+    errors += check_shared_level_heads(model_configuration=model_configuration, section_name="MaskHead",
+                                       level_component=MASK_HEAD_LEVEL_COMPONENT)
     return errors
 
 

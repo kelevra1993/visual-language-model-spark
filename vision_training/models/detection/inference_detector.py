@@ -1,7 +1,9 @@
 """
 Inference-only version of the trained TwoStageDetector with batched, fixed-shape proposal filtering and detection,
 returning a fixed number of detections per image, clipped to the window of their image (its second input) and kept
-from the score threshold of their class (a buffer the export fills from the evaluation of the checkpoint). Built by
+from the score threshold of their class (a buffer the export fills from the evaluation of the checkpoint). A region
+proposal head shared by the levels runs on every level with the anchors of that level, and a shared detection head
+pools every proposal from every level, keeps the features of its own level and runs once. Built by
 vision_training/deployment/export_specifications.py for the TorchScript and ONNX exports served by Triton.
 """
 
@@ -11,7 +13,7 @@ from torch import nn
 from typing import Any, Dict, List, Optional, Tuple
 
 from vision_training.models.backbones.backbone import split_skip_outputs
-from vision_training.models.detection.two_stage_detector import TwoStageDetector
+from vision_training.models.detection.two_stage_detector import SHARED_HEAD_KEY, TwoStageDetector
 from vision_training.models.detection.postprocessing import postprocess_detections
 from vision_training.models.detection.region_proposer import select_best_proposals
 
@@ -44,9 +46,14 @@ class InferenceDetector(nn.Module):
         self.neck = model.neck
         self.region_proposer_dictionary = model.region_proposer_dictionary
         self.detector_heads_dictionary = model.detector_heads_dictionary
+        self.level_anchor_generators = model.level_anchor_generators
+
+        # One region proposal head and one detection head read by every level instead of one head per level
+        self.shared_region_proposal = model.shared_region_proposal
+        self.shared_detector = model.shared_detector
 
         # Detection levels, ordered like the backbone outputs
-        self.level_names = [str(index) for index in sorted(int(name) for name in model.detector_heads_dictionary)]
+        self.level_names = [str(index) for index in sorted(int(name) for name in model.level_anchor_generators)]
 
         # Region proposal filtering and final post-processing settings of the inference mode
         self.input_image_size = model.input_image_size
@@ -136,11 +143,14 @@ class InferenceDetector(nn.Module):
         # Merge the levels through the neck, as in training ('none' returns the backbone blocks)
         feature_maps = self.neck(feature_maps=backbone_feature_maps)
 
-        # Run every region proposal head and concatenate the proposals of all levels, remembering their level
+        # Run the region proposal head of every level (or the head shared by the levels) on the map of the level with
+        # its anchors, and concatenate the proposals of all levels, remembering their level
         proposal_scores, proposal_boxes, proposal_levels = [], [], []
         for level_index, level_name in enumerate(self.level_names):
-            level_scores, _, level_boxes = self.region_proposer_dictionary[level_name](
-                input_tensor=feature_maps[level_name])
+            region_proposal_head = self.region_proposer_dictionary[
+                SHARED_HEAD_KEY if self.shared_region_proposal else level_name]
+            level_scores, _, level_boxes = region_proposal_head(
+                input_tensor=feature_maps[level_name], anchors=self.level_anchor_generators[level_name].anchors)
             proposal_scores.append(level_scores)
             proposal_boxes.append(level_boxes)
             proposal_levels.append(torch.full_like(input=level_scores, fill_value=level_index, dtype=torch.int64))
@@ -201,7 +211,9 @@ class InferenceDetector(nn.Module):
 
         Every head processes all the proposals and each proposal keeps the output of its own level's head. Selecting
         the proposals of each level instead would give data-dependent tensor sizes, which the ONNX export cannot
-        handle; the results are identical, at the cost of running the (small) detection heads on every proposal.
+        handle; the results are identical, at the cost of running the (small) detection heads on every proposal. The
+        head shared by the levels ('Detector.shared') pools every proposal from every level instead, keeps the pooled
+        features of its own level, and runs its layers once on all the proposals.
 
         Args:
             feature_maps (dict): The backbone feature maps, keyed by level name.
@@ -222,17 +234,31 @@ class InferenceDetector(nn.Module):
         classification_scores: Optional[torch.Tensor] = None
         detection_boxes: Optional[torch.Tensor] = None
 
-        # Run every level's head on all the proposals and keep, for each proposal, the output of its own level
-        for level_index, level_name in enumerate(self.level_names):
-            level_scores, _, level_boxes = self.detector_heads_dictionary[level_name](
-                proposal_boxes=region_boxes, input_tensor=feature_maps[level_name])
+        # Shared head: every proposal pooled from every level, the pooled features of its own level kept, then the
+        # layers of the head run once
+        if self.shared_detector:
+            detection_head = self.detector_heads_dictionary[SHARED_HEAD_KEY]
+            pooled_features: Optional[torch.Tensor] = None
+            for level_index, level_name in enumerate(self.level_names):
+                level_pooled_features = detection_head.pool_box_features(
+                    proposal_boxes=region_boxes, input_tensor=feature_maps[level_name], level_name=level_name)
+                pooled_features = level_pooled_features if pooled_features is None else torch.where(
+                    (flat_levels == level_index).reshape(-1, 1, 1, 1), level_pooled_features, pooled_features)
+            classification_scores, _, detection_boxes = detection_head.predict_from_pooled_features(
+                pooled_features=pooled_features, proposal_boxes=region_boxes)
 
-            if classification_scores is None or detection_boxes is None:
-                classification_scores, detection_boxes = level_scores, level_boxes
-            else:
-                level_mask = (flat_levels == level_index).unsqueeze(dim=1)
-                classification_scores = torch.where(level_mask, level_scores, classification_scores)
-                detection_boxes = torch.where(level_mask.unsqueeze(dim=2), level_boxes, detection_boxes)
+        # Run every level's head on all the proposals and keep, for each proposal, the output of its own level
+        else:
+            for level_index, level_name in enumerate(self.level_names):
+                level_scores, _, level_boxes = self.detector_heads_dictionary[level_name](
+                    proposal_boxes=region_boxes, input_tensor=feature_maps[level_name])
+
+                if classification_scores is None or detection_boxes is None:
+                    classification_scores, detection_boxes = level_scores, level_boxes
+                else:
+                    level_mask = (flat_levels == level_index).unsqueeze(dim=1)
+                    classification_scores = torch.where(level_mask, level_scores, classification_scores)
+                    detection_boxes = torch.where(level_mask.unsqueeze(dim=2), level_boxes, detection_boxes)
 
         number_classes = classification_scores.shape[-1]
         return (classification_scores.reshape(batch_size, number_proposals, number_classes),

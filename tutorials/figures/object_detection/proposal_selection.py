@@ -104,12 +104,12 @@ def describe_benchmark_levels(run_folder: Path) -> Dict[str, Any]:
         Dict[str, Any]: The levels, their anchors, the evaluation and training counts, and the candidates reaching a
             suppression with each selection, named proposal_selection.*.
     """
-    # Build the detector of the launch from its configuration and read the anchors of every level from its region
-    # proposers
+    # Build the detector of the launch from its configuration and read the anchors of every level from its anchor
+    # generators
     model = load_untrained_run_model(run_folder=run_folder)
-    level_names = list(model.region_proposer_dictionary)
-    level_anchor_counts = [int(region_proposer.region_proposal_anchor_object.anchors.shape[0])
-                           for region_proposer in model.region_proposer_dictionary.values()]
+    level_names = list(model.level_anchor_generators)
+    level_anchor_counts = [int(anchor_generator.anchors.shape[0])
+                           for anchor_generator in model.level_anchor_generators.values()]
     filter_configuration = model.region_proposal_configuration
 
     # Candidates of an image reaching a suppression in evaluation: the best of all the anchors for the joint

@@ -1,9 +1,10 @@
 """
 Tests of build_run_name of vision_training/configuration_processing/run_name.py on the reference configurations of every
 task: the reference run names are fixed, changed settings (backbone modules, detection levels, classes, fusions, tiling,
-mask heads, transfers, sequence normalization, optimizer, weight decay) change the run name with their token, the run
-name suffix ends the name, and the training settings that can change between two resumptions (augmentation, batch
-size, learning rate, schedule, moving average of the weights, dropout rates, grouped batches) keep it.
+mask heads, heads shared by the levels, transfers, sequence normalization, optimizer, weight decay) change the run name
+with their token, the run name suffix ends the name, and the training settings that can change between two resumptions
+(augmentation, batch size, learning rate, schedule, moving average of the weights, dropout rates, grouped batches) keep
+it.
 """
 
 import copy
@@ -75,8 +76,10 @@ def get_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, Any]]:
                                    "normalization": {"feature_map_normalization": "batch"},
                                    "pretrained": dict(NO_TRANSFER_SETTINGS)}
     model_configuration["RegionProposal"]["normalization"]["feature_map_normalization"] = "batch"
-    # Proposals selected over all the levels at once, which gives no token
-    model_configuration["RegionProposal"]["proposal_selection"] = "joint"
+    # Proposals selected over all the levels at once, and one region proposal head and one detection head per level,
+    # which give no token
+    model_configuration["RegionProposal"].update({"proposal_selection": "joint", "shared": False})
+    model_configuration["Detector"]["shared"] = False
     model_configuration["Detector"]["modules"].update({"squeeze_and_excite": True, "residual_nets": True,
                                                        "inception": False})
     model_configuration["Detector"]["normalization"]["feature_map_normalization"] = "batch"
@@ -165,6 +168,19 @@ def select_proposals_per_level(experiment_configuration: Dict[str, Any], model_c
     model_configuration["RegionProposal"]["proposal_selection"] = "per_level"
 
 
+def share_the_detection_heads(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+    """
+    Shares one region proposal head and one detection head between the levels, as in Mask R-CNN, with the proposals
+    selected level by level.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["RegionProposal"].update({"proposal_selection": "per_level", "shared": True})
+    model_configuration["Detector"]["shared"] = True
+
+
 def change_training_settings(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
     """
     Changes every training setting that can change between two resumptions of a run: turns off data augmentation,
@@ -227,7 +243,9 @@ def test_final_nms_settings_keep_the_run_name(nms_criterion: str, nms_distance_e
     (add_feature_pyramid, REFERENCE_RUN_NAME.replace("_L567_", "_L567-NFPN32BN_")),
     (add_path_aggregation, REFERENCE_RUN_NAME.replace("_L567_", "_L567-NPAN64LN_")),
     (use_complete_iou_detector_box_loss, REFERENCE_RUN_NAME.replace("-D7.2x64.256.128_", "-D7.2x64.256.128-DCIOU_")),
-    (select_proposals_per_level, REFERENCE_RUN_NAME.replace("_RBN-R2x64_", "_RBN-R2x64-RPL_"))])
+    (select_proposals_per_level, REFERENCE_RUN_NAME.replace("_RBN-R2x64_", "_RBN-R2x64-RPL_")),
+    (share_the_detection_heads, REFERENCE_RUN_NAME.replace("_RBN-R2x64_", "_RBN-R2x64-RSH-RPL_").replace(
+        "-D7.2x64.256.128_", "-D7.2x64.256.128-DSH_"))])
 def test_changed_settings_change_run_name(modify_function: Callable[[Dict[str, Any], Dict[str, Any]], None],
                                           expected_run_name: str) -> None:
     """

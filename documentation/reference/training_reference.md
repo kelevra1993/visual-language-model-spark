@@ -303,7 +303,7 @@ The settings defining the layers must match, which is checked at launch. The ima
 | Classification head | `fully_connected`, `fully_connected_normalization`, the image size after `flatten` |
 | Transformer with positional embedding | `maximum_sequence_length` |
 | Neck | `type` (not `none`), `output_channels`, `normalization`, the detection levels and the channels of their backbone blocks |
-| Region proposal, detection and mask heads | detection levels and their head settings, anchors per position, normalization, modules, the same `Neck.type` and, with a neck, `Neck.output_channels`; the mask image branch is not transferred and stays `[0, 0]` |
+| Region proposal, detection and mask heads | detection levels and their head settings, anchors per position, `shared` (a run written before it has one head per level), normalization, modules, the same `Neck.type` and, with a neck, `Neck.output_channels`; the mask image branch is not transferred and stays `[0, 0]` |
 | High resolution network | `base_width`, `modules_per_stage`, `blocks_per_branch`, `modules`, `normalization`, channels of the last stem block |
 | Keypoint head | `higher_resolution`, `hidden_width`, `HRNet.base_width`; with `class_layers: True`, every channel must predict the same keypoint of the same class |
 

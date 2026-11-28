@@ -17,7 +17,8 @@ flag of the 'pretrained' block of the 'ClassificationHead' section of the
 classification-like tasks and the 'class_layers' flag of the 'pretrained' block of the 'Detector' section of the
 detection tasks, of the 'MaskHead' section of the instance segmentation and of the 'KeypointHead' section of the
 keypoint detection, True for heads transferred from another run, which loaded their class layers, False otherwise;
-the 'pretrained' block of the 'Neck' section of the detection tasks, a neck starting from random weights), and
+the 'pretrained' block of the 'Neck' section of the detection tasks, a neck starting from random weights; the
+'shared' setting of the 'RegionProposal' and 'Detector' sections of the detection tasks, one head per level), and
 renames the settings of RENAMED_SETTINGS ('SegmentationDecoder.pretrained.load_class_layers', now 'class_layers'),
 so that the training_configuration.yaml of the saved runs, reloaded to resume a run, by
 scripts/evaluation/evaluate_checkpoint.py and by the export, and the launch files of vision_training/main.py load
@@ -186,6 +187,18 @@ MASK_HEAD_SHARED_LINES = [
     '# on every level and equal level channels (a neck). False: one mask head per level.',
     'shared: False']
 
+# Lines of the sharing of the region proposal heads and of the detection heads added to the 'RegionProposal' and
+# 'Detector' sections of the detection runs written before it, whose heads are one per level: the comment lines, then
+# the setting
+REGION_PROPOSAL_SHARED_LINES = [
+    '# True: one region proposal head applied to every level (Mask R-CNN); needs the same region_proposal, anchors per',
+    '# position and level channels (a neck) on every level. False: one head per level.',
+    'shared: False']
+DETECTOR_SHARED_LINES = [
+    '# True: one detection head reading the RoIs of every level (Mask R-CNN), run once in the export; needs the same',
+    '# detector and level channels (a neck) on every level. False: one head per level.',
+    'shared: False']
+
 # Comment lines of the class layer flag added to the 'pretrained' block of the 'ClassificationHead' section of the runs
 # of the classification-like tasks written before it, then the setting: False for the heads trained from random
 # weights, True for the heads transferred from another run, which loaded their class layer
@@ -282,7 +295,12 @@ ADDED_SETTINGS = {"Detector.box_loss": {"tasks": ["object_detection", "instance_
                                          "lines": comment_lines + ["class_layers: True"]}}
                      for section_name, comment_lines in HEAD_CLASS_LAYERS_COMMENT_LINES.items()},
                   "Neck.pretrained": {"tasks": ["object_detection", "instance_segmentation"],
-                                      "after": "Neck.normalization", "lines": NECK_PRETRAINED_LINES}}
+                                      "after": "Neck.normalization", "lines": NECK_PRETRAINED_LINES},
+                  "RegionProposal.shared": {"tasks": ["object_detection", "instance_segmentation"],
+                                            "after": "RegionProposal.proposal_selection",
+                                            "lines": REGION_PROPOSAL_SHARED_LINES},
+                  "Detector.shared": {"tasks": ["object_detection", "instance_segmentation"],
+                                      "after": "Detector.box_loss", "lines": DETECTOR_SHARED_LINES}}
 
 # Settings renamed in the files of some tasks, by their path before the renaming: the tasks holding the setting and its
 # new name, the setting keeping its value and its place, and the mentions of the old name in the comments of its
@@ -316,8 +334,9 @@ KEY_LINE_PATTERN = re.compile(pattern=r"^(\s*)([A-Za-z0-9_]+):(.*)$")
 # 'SegmentationDecoder.pretrained.load_class_layers' renamed on 2026-11-24, then '_before_mask_scoring_removal' for the
 # removal of the 'MaskHead.mask_scoring' on 2026-11-27, then '_before_neck_pretrained' for the 'Neck.pretrained' block
 # added on 2026-11-27, then '_before_view_training_targets' for the 'diagnosis_modes.view_training_targets' of the
-# detection tasks added on 2026-11-27
-DEFAULT_BACKUP_SUFFIX = "_before_view_training_targets"
+# detection tasks added on 2026-11-27, then '_before_shared_detection_heads' for the 'RegionProposal.shared' and
+# 'Detector.shared' of the detection tasks added on 2026-11-28
+DEFAULT_BACKUP_SUFFIX = "_before_shared_detection_heads"
 
 
 def get_indentation(line: str) -> int:

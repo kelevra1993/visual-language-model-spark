@@ -110,6 +110,7 @@ If one wishes to change what the detector learns or how it filters its outputs, 
 | `RegionProposal.foreground_iou_threshold.min`, `background_iou_threshold` | 0.5; min 0.1, max 0.3 | anchors positive from 0.5, negative from 0.1 to 0.3, ignored below 0.1 and in between, plus the best anchor of every object |
 | `RegionProposal.training`, `.inference`, `nms_iou_threshold` | 1000 then 500; 500 then 250; 0.7 | proposals given to the detection heads per image |
 | `RegionProposal.proposal_selection` | `per_level` | top-k and NMS per level, then the best over all levels (`RPL`); `joint` ranks all anchors at once, as the run of Stages 3 to 5 (Step 3.13) |
+| `RegionProposal.shared`, `Detector.shared` | `False`, `False` | `True`: one region proposal head applied to every level (`RSH`), one detection head reading the RoIs of every level and run once in the export (`DSH`), as Mask R-CNN; needs the same head settings and level channels (a neck), and for the region proposal head the same anchors per position |
 | `RegionProposal.number_training_positives`, `total_training_samples` | 128, 256 | anchors sampled per image for the region proposal losses |
 | `Detector.foreground_iou_threshold`, `number_training_positives`, `total_training_samples` | 0.5, 64, 128 | proposals sampled per image for the detection losses, ground truth boxes included |
 | `Detector.inference.score_threshold`, `maximum_detections`, `Detector.nms_iou_threshold` | 0.5, 100, 0.5 | post-processing of the deployed detector, the score threshold kept by the classes without a threshold in `class_thresholds.json`; the sample images and the error images use it for every class |
@@ -177,7 +178,7 @@ main()                                    entry point of every task, --configura
 │       │       CocoDetectionDataset() + build_native_loader(collate_function), decoding on the CPU workers
 │       ├── check_loaders_give_batches() / save_data_record() / choose_sample_identifiers()
 │       ├── build_model() -> TwoStageDetector.__init__()
-│       │       build_backbone(), FeatureNeck(), RegionProposal() + Anchors per level, DetectionHead() per level,
+│       │       build_backbone(), FeatureNeck(), Anchors + RegionProposal() + DetectionHead() per level (or one shared head),
 │       │       _aggregate_all_anchors(), RegionProposalFilter()
 │       ├── initialise_pretrained_components() / build_optimizer() / ExponentialMovingAverage() / MetricTracker()
 │       ├── print_experiment_information() / print_summary() / export sizes
@@ -310,6 +311,8 @@ The input and backbone tokens are those of every image task. This table gives th
 | `MC9` | 9 foreground classes (`BIN` in binary mode) |
 | `-NFPN<channels><normalization>`, `-NPAN...` | after the levels token, with a neck (`L567-NFPN32BN` in the current synthetic configuration) |
 | `RPL` | after the region proposal heads, with `proposal_selection: "per_level"` |
+| `RSH` | after the region proposal convolutions, with `RegionProposal.shared: True` |
+| `DSH` | after the detection head layers, with `Detector.shared: True` |
 | `DCIOU` | after the detection heads, with `Detector.box_loss: "complete_iou"` |
 
 A setting that differs between levels is written for every level, joined with `+`.
@@ -380,7 +383,7 @@ sample_image_identifiers  -> [1, 4, 6, 9, 12, 15, 17, 20]
 ```
 
 ### Step 2.12 — `build_model()` → `TwoStageDetector.__init__()`
-The detector holds the backbone (Step 2.13), the neck (`FeatureNeck`, no layer for `none`), a region proposal head per level (Step 2.14), the proposal filter (Step 2.16) and a detection head per level (Step 2.15). It reads the inference settings: `Detector.inference.score_threshold`, `maximum_detections`, `Detector.nms_iou_threshold`, `nms_criterion` and `nms_distance_exponent`.
+The detector holds the backbone (Step 2.13), the neck (`FeatureNeck`, no layer for `none`), a region proposal head per level (Step 2.14), the proposal filter (Step 2.16) and a detection head per level (Step 2.15). With `RegionProposal.shared` or `Detector.shared`, the dictionary holds one head under the key `shared`, used by every level. It reads the inference settings: `Detector.inference.score_threshold`, `maximum_detections`, `Detector.nms_iou_threshold`, `nms_criterion` and `nms_distance_exponent`.
 
 **Example: the components of the model**
 ```text
@@ -395,8 +398,8 @@ The shared backbone (`classification_workflow.md`, Step 2.14). The detector take
 
 It gives block 5 a 32 x 32 map of 64 channels, blocks 6 and 7 16 x 16 maps of 128 channels (block 7 has no max pooling, `last_max_pooling: False`).
 
-### Step 2.14 — `RegionProposal.__init__()` → `Anchors.generate_anchors()`
-Every position of a level's feature map gets one anchor per scale and aspect ratio. The ratio is height over width (0.5 wide, 2.0 tall) at the same area. Anchors are centred on the cell corner, `(column x stride, row x stride)`, as torchvision. The head is a block of 3x3 convolutions (`DetectionLevels.<level>.region_proposal.convolutions`), a 3x3 convolution and ReLU, then two 1x1 convolutions: one objectness logit and 4 box offsets per anchor. `_aggregate_all_anchors()` concatenates the anchors of every level into `model.anchors`.
+### Step 2.14 — `_build_level_anchor_generators()` → `Anchors.generate_anchors()`, `RegionProposal.__init__()`
+Every position of a level's feature map gets one anchor per scale and aspect ratio, in the `Anchors` of the level (`level_anchor_generators`), which `RegionProposal.forward()` receives with the map. The ratio is height over width (0.5 wide, 2.0 tall) at the same area. Anchors are centred on the cell corner, `(column x stride, row x stride)`, as torchvision. The head is a block of 3x3 convolutions (`DetectionLevels.<level>.region_proposal.convolutions`), a 3x3 convolution and ReLU, then two 1x1 convolutions: one objectness logit and 4 box offsets per anchor. `_aggregate_all_anchors()` concatenates the anchors of every level into `model.anchors`.
 
 **Example: the anchors of the three levels, and those of the first position of level 5** (1024 pixels)
 ```text
@@ -407,7 +410,7 @@ level 5, position 0:  scale 32: [-22.6, -11.3, 22.6, 11.3]  [-16.0, -16.0, 16.0,
 ```
 
 ### Step 2.15 — `DetectionHead.__init__()`
-`roi_align()` cuts a 7x7 map out of the level for every proposal (`spatial_scale` = feature map size / image size, `sampling_ratio=0`, `aligned=True`). A block of 3x3 convolutions with the modules of `Detector.modules` refines it. Fully connected layers without normalization flatten it. Two linear layers give the logit of every class and 4 box offsets per class.
+`roi_align()` cuts a 7x7 map out of the level for every proposal (`spatial_scale` = feature map size / image size, `sampling_ratio=0`, `aligned=True`). A block of 3x3 convolutions with the modules of `Detector.modules` refines it. Fully connected layers without normalization flatten it. Two linear layers give the logit of every class and 4 box offsets per class. A head shared by the levels (`Detector.shared`) keeps the spatial scale of every level (`spatial_scales`).
 
 **Example: the head of level 5** (shortened)
 ```text
@@ -583,7 +586,7 @@ total_loss                            4.4665
 The backbone returns its final map and the maps of the detection blocks: `{'5': (2, 64, 16, 16), '6': (2, 128, 8, 8), '7': (2, 128, 8, 8)}`.
 
 ### Step 3.11 — `_forward_region_proposals()` → `RegionProposal.forward()`
-Every level gives an objectness logit and 4 offsets `[dx, dy, dw, dh]` per anchor. `apply_regression_predictions()` moves each anchor into a proposal box: the centre by `dx` times the anchor width and `dy` times its height, the size times `exp(dw)` and `exp(dh)` (clamped so the exponential stays finite). The offsets are detached for the boxes, so proposals do not back-propagate.
+Every level gives an objectness logit and 4 offsets `[dx, dy, dw, dh]` per anchor. `apply_regression_predictions()` moves each anchor into a proposal box: the centre by `dx` times the anchor width and `dy` times its height, the size times `exp(dw)` and `exp(dh)` (clamped so the exponential stays finite). The offsets are detached for the boxes, so proposals do not back-propagate. A shared head (`RegionProposal.shared`) runs on the map of every level with the anchors of that level, its batch normalization running statistics updated once per level.
 
 **Example output**
 ```text
@@ -634,7 +637,7 @@ image 1: sampled labels {0: 124, 1: 3, 5: 1}
 ```
 
 ### Step 3.15 — `_forward_detections()` → `DetectionHead.forward()`
-Every proposal goes to the head of its level: `roi_align()` cuts its 7x7 map, the head gives a logit and offsets per class, applied to give one box per class (`detection_boxes`).
+Every proposal goes to the head of its level: `roi_align()` cuts its 7x7 map, the head gives a logit and offsets per class, applied to give one box per class (`detection_boxes`). A shared head (`Detector.shared`, `predict_level_detections()`) pools the proposals of every level from the map of their level, runs once on all of them, so its batch statistics cover every level, and splits the outputs back per level.
 
 In the example, levels 5, 6 and 7 receive 244, 9 and 3 of the 256 sampled proposals (`detection_boxes (244, 10, 4)` on level 5).
 

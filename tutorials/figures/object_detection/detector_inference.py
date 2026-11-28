@@ -151,15 +151,19 @@ def describe_level_anchors(model: TwoStageDetector, object_boxes: torch.Tensor,
             and the index of the object whose cell is drawn.
     """
     level_anchors = model.get_level_anchors()
+    level_anchor_generators = model.get_level_anchor_generators()
     cell_object_index = choose_anchor_cell_object(object_boxes=object_boxes, image_size=model.input_image_size)
     level_descriptions = []
     best_overlaps = {}
     stride_cells = {}
     for level, anchors in level_anchors.items():
-        region_proposer = model.region_proposer_dictionary[str(level)]
-        feature_map_size = region_proposer.feature_map_size
+        # Grid of the anchors of the level and the scales and aspect ratios of the configuration
+        anchor_generator = level_anchor_generators[level]
+        anchor_configuration = model.detection_levels_configuration[str(level)]["anchors"]
+        level_scales, level_aspect_ratios = anchor_configuration["scales"], anchor_configuration["aspect_ratios"]
+        feature_map_size = anchor_generator.feature_map_size
         stride = model.input_image_size // feature_map_size
-        anchors_per_cell = region_proposer.number_anchors_per_location
+        anchors_per_cell = anchor_generator.number_anchors_per_location
         overlaps = get_intersection_over_union(boxes_1=object_boxes, boxes_2=anchors)
         best_overlaps[level] = overlaps.max(dim=1)
 
@@ -169,13 +173,13 @@ def describe_level_anchors(model: TwoStageDetector, object_boxes: torch.Tensor,
             stride_cells[stride] = int(overlaps[cell_object_index].argmax()) // anchors_per_cell
         cell_index = stride_cells[stride]
         cell_anchors = anchors[cell_index * anchors_per_cell:(cell_index + 1) * anchors_per_cell]
-        ratios = [float(ratio) for ratio in region_proposer.aspect_ratios for _ in region_proposer.scales]
-        scales = [float(scale) for _ in region_proposer.aspect_ratios for scale in region_proposer.scales]
+        ratios = [float(ratio) for ratio in level_aspect_ratios for _ in level_scales]
+        scales = [float(scale) for _ in level_aspect_ratios for scale in level_scales]
         level_descriptions.append({
             "name": str(level), "stride": stride, "cells": feature_map_size, "anchor_count": int(anchors.shape[0]),
-            "anchors_per_cell": anchors_per_cell, "scale_count": len(region_proposer.scales),
-            "ratio_count": len(region_proposer.aspect_ratios), "group": list(stride_cells).index(stride),
-            "scales": [float(scale) for scale in region_proposer.scales],
+            "anchors_per_cell": anchors_per_cell, "scale_count": len(level_scales),
+            "ratio_count": len(level_aspect_ratios), "group": list(stride_cells).index(stride),
+            "scales": [float(scale) for scale in level_scales],
             "cell": [cell_index % feature_map_size, cell_index // feature_map_size],
             "anchors": [{"box": [round_fact(value=coordinate) for coordinate in box.tolist()], "scale": scale,
                          "ratio": ratio} for box, scale, ratio in zip(cell_anchors, scales, ratios)]})
@@ -616,9 +620,9 @@ def describe_model(model: TwoStageDetector) -> Dict[str, Any]:
     # Spatial scale and pool of the RoIAlign of every level, the feature map side over the input side, and the channels
     # of the map the heads of the level read, after the neck (those of the backbone block without neck)
     for level, head in model.detector_heads_dictionary.items():
-        facts[f"inference.model.level_{level}.spatial_scale"] = round_fact(value=head.spatial_scale)
+        facts[f"inference.model.level_{level}.spatial_scale"] = round_fact(value=head.spatial_scales[level])
         facts[f"inference.model.level_{level}.roi_align_pool_size"] = head.roi_align_pool_size
-        facts[f"inference.model.level_{level}.feature_map_size"] = head.feature_map_size
+        facts[f"inference.model.level_{level}.feature_map_size"] = head.feature_map_sizes[level]
         facts[f"inference.model.level_{level}.head_input_channels"] = model.detection_input_information[level][
             "number_channels"]
     return facts
