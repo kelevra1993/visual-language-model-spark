@@ -2,7 +2,7 @@
 Tests of find_saved_thresholds_path, check_saved_thresholds_location and read_saved_temperature of
 vision_training/deployment/export_model.py, used by the export with use_saved_temperature: the thresholds saved from
 the temperature explorer of the exported checkpoint are found in its evaluation folder in the Checkpoint_Evaluation
-folder of scripts/evaluation/evaluate_checkpoint.py (its 'EMA' subfolder for the averaged weights), the export stopping
+folder of scripts/evaluation/evaluate_checkpoint.py (its 'EMA' subfolder for the averaged weights), that one deployed
 when the Evaluation folder of the training holds them too, thresholds given by the export button of the page are
 accepted only from an evaluation of the exported checkpoint and weights in the run folder, and their temperature is
 read after checking them against the classes of the exported model. An export failing its check against the eager
@@ -170,23 +170,28 @@ def test_saved_temperature_is_read_from_the_evaluation_of_the_checkpoint(
     assert read_saved_temperature(saved_thresholds_path=found_path, number_classes=3) == 2.5
 
 
-def test_thresholds_saved_in_both_folders_are_refused(tmp_path: Path) -> None:
+def test_thresholds_saved_in_both_folders_take_the_checkpoint_evaluation(tmp_path: Path) -> None:
     """
     Verifies that thresholds saved for the exported checkpoint in both the Evaluation and the Checkpoint_Evaluation
-    folders of the run stop the export, so that the deployed temperature is never picked silently between two saves.
+    folders of the run deploy the one of Checkpoint_Evaluation, the deliberate standalone evaluation of the checkpoint,
+    instead of stopping the export.
 
     Args:
         tmp_path (Path): The pytest temporary folder holding the run and its evaluations.
     """
-    for evaluation_subfolder in [f"{RUN_NAME}/Evaluation/Iteration_6",
-                                 f"{RUN_NAME}/Checkpoint_Evaluation/Iteration_6"]:
-        write_evaluation(evaluation_folder=tmp_path / evaluation_subfolder,
-                         saved_thresholds=build_thresholds(logit_temperature=2.5, number_classes=3), number_classes=3)
+    # Temperature 2.5 saved on the evaluation of the training, 3 on the standalone evaluation
+    evaluation_temperatures = [(f"{RUN_NAME}/Evaluation/Iteration_6", 2.5),
+                               (f"{RUN_NAME}/Checkpoint_Evaluation/Iteration_6", 3.0)]
+    saved_paths = [write_evaluation(evaluation_folder=tmp_path / evaluation_subfolder,
+                                    saved_thresholds=build_thresholds(logit_temperature=logit_temperature,
+                                                                      number_classes=3), number_classes=3)
+                   for evaluation_subfolder, logit_temperature in evaluation_temperatures]
     experiment_folder = tmp_path / RUN_NAME
-    with pytest.raises(expected_exception=ValueError, match="Two saved_temperature_thresholds.json"):
-        find_saved_thresholds_path(experiment_folder=experiment_folder,
-                                   checkpoint_path=get_checkpoint_path(experiment_folder=experiment_folder),
-                                   use_averaged_weights=False)
+    found_path = find_saved_thresholds_path(experiment_folder=experiment_folder,
+                                            checkpoint_path=get_checkpoint_path(experiment_folder=experiment_folder),
+                                            use_averaged_weights=False)
+    assert found_path == saved_paths[1]
+    assert read_saved_temperature(saved_thresholds_path=found_path, number_classes=3) == 3.0
 
 
 @pytest.mark.parametrize(argnames=("saved_thresholds", "evaluated_classes", "exported_classes", "expected_message"),

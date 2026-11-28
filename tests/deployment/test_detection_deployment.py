@@ -1,8 +1,9 @@
 """
 Tests of the class score thresholds of the exported detectors (vision_training/deployment/detection_deployment.py):
 the thresholds of the evaluation of the exported checkpoint found for the trained or the averaged weights
-(find_class_thresholds_path), every class taking its threshold or the configured one, the file of another run refused,
-the thresholds built into the inference detector and recorded next to the exported model.
+(find_evaluation_file, the standalone evaluation taken when both folders hold one), every class taking its threshold or
+the configured one, the file of another run refused, the thresholds built into the inference detector and recorded next
+to the exported model.
 """
 
 import json
@@ -16,7 +17,8 @@ from vision_training.deployment.detection_deployment import (CONFIGURED_THRESHOL
                                                              apply_class_score_thresholds,
                                                              build_class_score_thresholds,
                                                              write_deployed_thresholds_file)
-from vision_training.deployment.frame_selection_deployment import THRESHOLDS_FILE_NAME, find_class_thresholds_path
+from vision_training.deployment.frame_selection_deployment import THRESHOLDS_FILE_NAME
+from vision_training.evaluation.checkpoint_evaluation import find_evaluation_file
 from vision_training.models.detection.inference_detector import InferenceDetector
 from tests.testing_utilities import build_test_model
 
@@ -43,7 +45,7 @@ def test_thresholds_of_the_exported_weights_are_found(tmp_path: Path, evaluation
     """
     Verifies that the thresholds of the exported checkpoint are found in the evaluation of the training or of the
     evaluation script, in the 'EMA' subfolder for the averaged weights only, none being found for the weights never
-    evaluated, and that thresholds of the same weights in both folders are refused.
+    evaluated, and that the thresholds of the evaluation script are taken when both folders hold the same weights.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -52,17 +54,17 @@ def test_thresholds_of_the_exported_weights_are_found(tmp_path: Path, evaluation
     checkpoint_path = tmp_path / "Weights" / "Iteration_5" / "model_5.pt"
     averaged_path = write_class_thresholds(evaluation_folder=tmp_path / evaluation_folder_name / "Iteration_5" / "EMA",
                                            classes={"square": None})
-    assert find_class_thresholds_path(experiment_folder=tmp_path, checkpoint_path=checkpoint_path,
-                                      use_averaged_weights=True) == averaged_path
-    assert find_class_thresholds_path(experiment_folder=tmp_path, checkpoint_path=checkpoint_path,
-                                      use_averaged_weights=False) is None
+    assert find_evaluation_file(experiment_folder=tmp_path, checkpoint_path=checkpoint_path,
+                                use_averaged_weights=True, file_name=THRESHOLDS_FILE_NAME) == averaged_path
+    assert find_evaluation_file(experiment_folder=tmp_path, checkpoint_path=checkpoint_path,
+                                use_averaged_weights=False, file_name=THRESHOLDS_FILE_NAME) is None
 
-    # The trained weights evaluated in both folders are refused
+    # The trained weights evaluated in both folders: the file of the evaluation script is taken
     for folder_name in ["Evaluation", "Checkpoint_Evaluation"]:
         write_class_thresholds(evaluation_folder=tmp_path / folder_name / "Iteration_5", classes={"square": None})
-    with pytest.raises(expected_exception=ValueError, match="Two class_thresholds.json"):
-        find_class_thresholds_path(experiment_folder=tmp_path, checkpoint_path=checkpoint_path,
-                                   use_averaged_weights=False)
+    assert find_evaluation_file(experiment_folder=tmp_path, checkpoint_path=checkpoint_path,
+                                use_averaged_weights=False, file_name=THRESHOLDS_FILE_NAME) == (
+        tmp_path / "Checkpoint_Evaluation" / "Iteration_5" / THRESHOLDS_FILE_NAME)
 
 
 def test_every_class_takes_its_threshold_or_the_configured_one(tmp_path: Path) -> None:

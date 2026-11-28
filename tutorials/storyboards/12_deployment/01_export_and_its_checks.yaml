@@ -249,14 +249,14 @@ scenes:
         source: {file: "figures:deployment/listings/decoder_outputs.txt"}
         highlights:
           - {match: "selected_frames|low_confidence", sentences: [4]}
-      - {type: text, position: [880, 640], text: "both tasks: the files of the evaluation of the exported checkpoint, in Evaluation/ or Checkpoint_Evaluation/, never both", font: diagram_small, colour: dim, anchor: mm, appear: 5, highlight: [5]}
+      - {type: text, position: [880, 640], text: "both tasks: the files of the evaluation of the exported checkpoint, from Checkpoint_Evaluation/ when Evaluation/ holds one too", font: diagram_small, colour: dim, anchor: mm, appear: 5, highlight: [5]}
     narration:
       - "A classifier exported with use saved temperature divides its logits by the temperature saved on the explorer page of the exported checkpoint, so the softmax is inside the served model."
       - "The thresholds found at that temperature are copied next to the model as class thresholds json; without the setting, the temperature is one and no thresholds are deployed."
       - "Suppose you deploy a frame selector: its network returns probabilities per frame, so the export adds a decoder run by the Python backend of Triton, with the decoding settings of the run."
       - "One ensemble per format chains the network and the decoder, and it is the ensemble that clients query."
       - "They receive the selected frames, their probabilities, a low confidence flag from the thresholds of the evaluation, and the candidate frames."
-      - "Both extras read the files of the evaluation of the exported iteration, in the evaluation folder of the training or of the checkpoint evaluation script, and refuse to choose when both hold one."
+      - "Both extras read the files of the evaluation of the exported iteration; when the training and the checkpoint evaluation script both wrote one, the export takes that of the script and names both in a yellow line."
 
   - kind: html
     page: diagram

@@ -4,13 +4,16 @@ according to the headline metric of the task, for the trained and the averaged w
 when the tracking is on. Every evaluation adds its row to 'evaluation_summary.csv', next to the iteration folders of the
 evaluations (the averaged weights of the runs keeping a moving average in 'ema_' columns), and draws
 'evaluation_curves.png' again next to it, as during a training (evaluation/evaluation_curves.py). Called by
-scripts/evaluation/evaluate_checkpoint.py, which writes into '<run>/Checkpoint_Evaluation/'.
+scripts/evaluation/evaluate_checkpoint.py, which writes into '<run>/Checkpoint_Evaluation/'. Also gives the export and
+the local inference of deployment/ the file of the evaluation of an exported checkpoint (find_evaluation_file), the
+class thresholds of a frame selector, detector or instance segmenter, or the thresholds saved from the temperature
+explorer of a classifier, the standalone evaluation taking precedence over the evaluation of the training.
 """
 
 import torch
 
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from vision_training.evaluation.evaluation_curves import (EVALUATION_CURVES_FIGURE_NAME, EVALUATION_SUMMARY_FILE_NAME,
                                                           find_best_iterations)
@@ -18,14 +21,60 @@ from vision_training.evaluation.report_formatting import format_report_value
 from vision_training.tracking.experiment_tracker import (FAILED_STATUS, FINISHED_STATUS, KILLED_STATUS,
                                                          RUN_RECORD_FILE_NAME, DisabledTracker, ExperimentTracker,
                                                          create_experiment_tracker, read_run_record)
-from vision_training.trainers.base_trainer import AVERAGED_WEIGHTS_LABEL, BaseTrainer
+from vision_training.trainers.base_trainer import (AVERAGED_WEIGHTS_FOLDER_NAME, AVERAGED_WEIGHTS_LABEL,
+                                                   EVALUATION_FOLDER_NAME, BaseTrainer)
 from vision_training.trainers.checkpointing import get_checkpoint_file
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Folder of the evaluations of scripts/evaluation/evaluate_checkpoint.py inside the evaluated run folder, next to the
 # 'Evaluation' folder of its training: '<run>/Checkpoint_Evaluation/', holding the iteration folders directly, where the
-# export also looks for the thresholds saved from the temperature explorer
+# export also looks for the thresholds of the evaluation of the exported checkpoint
 CHECKPOINT_EVALUATION_FOLDER_NAME = "Checkpoint_Evaluation"
+
+
+def find_evaluation_file(experiment_folder: Path, checkpoint_path: Path, use_averaged_weights: bool,
+                         file_name: str) -> Optional[Path]:
+    """
+    Finds a file of the evaluation of an exported checkpoint, read by the export (deployment/export_model.py) and the
+    local inference (deployment/deployment_utilities.py): the confidence thresholds of a frame selector deployed with
+    its decoder, the score thresholds of the classes built into a detector or instance segmenter (both
+    'class_thresholds.json'), or the thresholds saved from the temperature explorer of a classifier
+    ('saved_temperature_thresholds.json'). The file is looked for in the folder of the iteration of the checkpoint,
+    in its 'EMA' subfolder for the averaged weights, in '<run>/Checkpoint_Evaluation/' (scripts/evaluation/
+    evaluate_checkpoint.py) and in '<run>/Evaluation/' (evaluation of the training). When both hold it, the one of
+    Checkpoint_Evaluation is taken, the deliberate standalone evaluation of that checkpoint made after its training
+    (with the current code, on the chosen split and target precision), and a yellow line names both files and the one
+    taken, so that the export never stops on the evaluation of the training the run keeps anyway.
+
+    Args:
+        experiment_folder (Path): The exported run folder.
+        checkpoint_path (Path): The exported checkpoint, '<run>/Weights/Iteration_<n>/model_<n>.pt'.
+        use_averaged_weights (bool): True to read the evaluation of the moving average of the weights (the 'EMA'
+            subfolder of the iteration folder), False for the trained weights.
+        file_name (str): The name of the evaluation file.
+
+    Returns:
+        Optional[Path]: The file of the evaluation of the exported checkpoint and weights, None when neither
+            evaluation folder holds it.
+    """
+    # Folder of the iteration and weights in the folder of the standalone evaluation, then of the training
+    weights_folders = [AVERAGED_WEIGHTS_FOLDER_NAME] if use_averaged_weights else []
+    candidate_paths = [Path(experiment_folder, evaluation_folder_name, checkpoint_path.parent.name, *weights_folders,
+                            file_name)
+                       for evaluation_folder_name in [CHECKPOINT_EVALUATION_FOLDER_NAME, EVALUATION_FOLDER_NAME]]
+    found_paths = [candidate_path for candidate_path in candidate_paths if candidate_path.is_file()]
+    if not found_paths:
+        return None
+
+    # Both evaluations hold the file: the standalone one is taken, both named in the console
+    if len(found_paths) > 1:
+        used_link, unused_link = [format_path_link(path=found_path,
+                                                   label=str(found_path.relative_to(experiment_folder)))
+                                  for found_path in found_paths]
+        print_color(color="yellow", output=f"Two {file_name} for the exported checkpoint, the one of "
+                                           f"{CHECKPOINT_EVALUATION_FOLDER_NAME} is used : {used_link} (not "
+                                           f"{unused_link})", indent=1)
+    return found_paths[0]
 
 
 def start_evaluation_tracking(trainer: BaseTrainer, experiment_folder: Path,
