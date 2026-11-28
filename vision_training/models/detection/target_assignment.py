@@ -19,6 +19,11 @@ from vision_training.models.detection.box_operations import (BOX_REGRESSION_WEIG
 # overlap of get_intersection_over_union: the objects of a crowded batch are matched to the anchors in chunks below it
 MAXIMUM_ANCHOR_OVERLAPS = 2 ** 26
 
+# Inductor settings of the compiled anchor matching (compile_for_gpu) giving the rounding of the eager operations: no
+# fused multiply-add, divisions rounded to nearest, subnormal numbers kept, so that the overlaps match bit for bit
+EAGER_ROUNDING_OPTIONS = {"emulate_precision_casts": True, "eager_numerics.division_rounding": True,
+                          "eager_numerics.disable_ftz": True}
+
 
 def count_objects_per_chunk(batch_size: int, number_anchors: int) -> int:
     """
@@ -104,8 +109,9 @@ def compile_for_gpu(function: Callable) -> Callable:
     time of a training step of the Open Images detectors (330,240 anchors); compiled, they take a few fused kernels, 8
     to 14 times faster. The functions compile once per process, at the first training batch (about 10 s, plus a few
     seconds for the chunks of a single object and for the evaluation passes without gradients, which compile apart),
-    their shapes staying dynamic so that the changing numbers of objects never compile again. The fused kernels round
-    differently: their overlaps differ from the eager ones by at most about 3e-7. The CPU keeps the eager functions.
+    their shapes staying dynamic so that the changing numbers of objects never compile again. The kernels compile with
+    the rounding of the eager operations (EAGER_ROUNDING_OPTIONS), so that their overlaps and targets are those of the
+    eager functions bit for bit, at the same speed. The CPU keeps the eager functions.
 
     Args:
         function (Callable): The matching function to compile.
@@ -113,7 +119,7 @@ def compile_for_gpu(function: Callable) -> Callable:
     Returns:
         Callable: The compiled function, the same object for every call of the process.
     """
-    return torch.compile(model=function, dynamic=True)
+    return torch.compile(model=function, dynamic=True, options=EAGER_ROUNDING_OPTIONS)
 
 
 def compute_best_anchor_overlaps(padded_boxes: torch.Tensor, anchors: torch.Tensor) -> torch.Tensor:
@@ -253,7 +259,7 @@ def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tenso
     ground truth box of its image, for all the images at once (the ground truths padded with empty boxes, which
     overlap nothing) and for chunks of objects (count_objects_per_chunk), so that a crowded image of hundreds of
     objects never holds all its overlaps at once, the targets being those of a single pass (match_objects_to_anchors,
-    compiled on the GPU by compile_for_gpu, its overlaps within about 3e-7 of the eager ones). It categorizes each
+    compiled on the GPU by compile_for_gpu with the rounding of the eager operations). It categorizes each
     anchor as foreground (positive object), background (negative), or grey zone (ignored during training). The best
     anchor of every ground truth box is also made positive, so that objects with no anchor above the foreground
     threshold still train, but it regresses to the box it overlaps the most, as in torchvision and Detectron2: a box

@@ -285,3 +285,33 @@ def test_fused_gpu_matching_gives_the_eager_targets(monkeypatch: pytest.MonkeyPa
     assert all(torch.equal(input=gpu_output, other=cpu_output)
                for gpu_output, cpu_output in zip(outputs["cuda"], outputs["cpu"]))
     assert outputs["cuda"][0][0, 0].tolist() == [0.0, 0.0, 16.0, 32.0]
+
+
+@pytest.mark.skipif(condition=not torch.cuda.is_available(), reason="The fused matching runs on the GPU.")
+def test_fused_gpu_overlaps_are_the_eager_ones_bit_for_bit() -> None:
+    """
+    Verifies that the compiled matching functions give, on random boxes and 20,000 random anchors on the GPU, the best
+    overlaps, best objects and forced anchors of the eager functions bit for bit, the compilation keeping the rounding
+    of the eager operations (EAGER_ROUNDING_OPTIONS); without it, about 1 % of the overlaps differ in their last bits.
+    """
+    generator = torch.Generator().manual_seed(0)
+    positions = torch.rand(size=(20000, 2), generator=generator) * 1000.0
+    anchors = torch.cat(tensors=[positions, positions + torch.rand(size=(20000, 2), generator=generator) * 200.0 + 4.0],
+                        dim=-1).cuda()
+    corners = torch.rand(size=(4, 12, 2), generator=generator) * 900.0
+    boxes = torch.cat(tensors=[corners, corners + torch.rand(size=(4, 12, 2), generator=generator) * 300.0 + 4.0],
+                      dim=-1).cuda()
+    valid_ground_truths = (torch.rand(size=(4, 12), generator=generator) > 0.2).cuda()
+    batched_anchors = anchors.unsqueeze(dim=0).expand(4, -1, -1)
+
+    # Matching of the chunk and best overlaps of a level, eager then compiled
+    eager_matching = target_assignment.match_objects_to_anchors(
+        chunk_boxes=boxes, chunk_valid_ground_truths=valid_ground_truths, anchors=batched_anchors)
+    fused_matching = target_assignment.compile_for_gpu(function=target_assignment.match_objects_to_anchors)(
+        chunk_boxes=boxes, chunk_valid_ground_truths=valid_ground_truths, anchors=batched_anchors)
+    eager_overlaps = target_assignment.compute_chunk_best_overlaps(chunk_boxes=boxes, anchors=anchors)
+    fused_overlaps = target_assignment.compile_for_gpu(function=target_assignment.compute_chunk_best_overlaps)(
+        chunk_boxes=boxes, anchors=anchors)
+    assert all(torch.equal(input=fused_output, other=eager_output)
+               for fused_output, eager_output in zip(fused_matching, eager_matching))
+    assert torch.equal(input=fused_overlaps, other=eager_overlaps)
