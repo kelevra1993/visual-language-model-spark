@@ -1,6 +1,8 @@
 """
-Model of the object detection task: the TwoStageDetector combines the shared Backbone, the region proposal heads and
-filter, the target assignment, the detection heads and the postprocessing, and returns the losses and detections.
+Model of the object detection task: the TwoStageDetector combines the shared Backbone, the anchors of every level, the
+region proposal heads and filter, the target assignment, the detection heads and the postprocessing, and returns the
+losses and detections. Its region proposal heads and detection heads are one per level, or one head read by every
+level ('RegionProposal.shared', 'Detector.shared', as the region proposal network and box head of Mask R-CNN).
 Registered in model_registry.py for the "object_detection" task and wrapped by inference_detector.py for the exports.
 """
 
@@ -24,6 +26,11 @@ from vision_training.models.detection.postprocessing import postprocess_detectio
 from vision_training.losses.detection_losses import (assign_region_proposal_targets, compute_detection_losses,
                                                      compute_region_proposal_losses)
 
+# Key of a head shared by every level in the dictionaries of the region proposal, detection and mask heads, which
+# otherwise hold one head per level keyed by its detection block, so that the transfer, the optimizer groups and the
+# size summary read both alike
+SHARED_HEAD_KEY = "shared"
+
 
 class TwoStageDetector(TaskModel):
     """
@@ -34,9 +41,9 @@ class TwoStageDetector(TaskModel):
     def __init__(self, configuration: Dict[str, Any], device: torch.device = None, dtype: torch.dtype = None) -> None:
         """
         Builds the detector of the object detection task, and the base of the instance segmenter: the shared backbone
-        with its outputs at the detection levels, the region proposal head and the detection head of every level, the
-        anchors of all the levels and the region proposal filter, from the model configuration read by the detection
-        trainer, the model registry and the export.
+        with its outputs at the detection levels, the anchors of every level, the region proposal head and the
+        detection head of every level (or one of each read by every level), and the region proposal filter, from the
+        model configuration read by the detection trainer, the model registry and the export.
 
         Args:
             configuration (Dict[str, Any]): The complete configuration dictionary for the experiment.
@@ -70,6 +77,10 @@ class TwoStageDetector(TaskModel):
         self.detection_nms_criterion = self.detector_configuration["nms_criterion"]
         self.detection_nms_distance_exponent = self.detector_configuration["nms_distance_exponent"]
 
+        # One region proposal head and one detection head read by every level instead of one head per level
+        self.shared_region_proposal = bool(self.region_proposal_configuration["shared"])
+        self.shared_detector = bool(self.detector_configuration["shared"])
+
         # Initialize the backbone feature extractor, whose outputs are the blocks numbered by the detection levels, and
         # the skip outputs the mask heads of the instance segmenter read (none for the detector)
         detection_convolution_block_indices = sorted(int(level_key) for level_key in configuration["DetectionLevels"])
@@ -91,12 +102,16 @@ class TwoStageDetector(TaskModel):
                                 dtype=self.dtype)
         self.detection_input_information = self.neck.compute_output_information()
 
-        # Initialize the region proposal head of every detection level
+        # Anchors of every detection level, which the region proposal heads regress and the targets are assigned to
+        self.level_anchor_generators = self._build_level_anchor_generators(
+            detection_levels_configuration=self.detection_levels_configuration)
+
+        # Initialize the region proposal head of every detection level, or the head shared by the levels
         self.region_proposer_dictionary = self._build_region_proposer_dictionary(
             region_proposal_configuration=self.region_proposal_configuration,
             detection_levels_configuration=self.detection_levels_configuration)
 
-        # Initialize the detection head of every detection level
+        # Initialize the detection head of every detection level, or the head shared by the levels
         self.detector_heads_dictionary = self._build_detector_heads_dictionary(
             detector_configuration=self.detector_configuration,
             detection_levels_configuration=self.detection_levels_configuration)
@@ -109,45 +124,114 @@ class TwoStageDetector(TaskModel):
         self.region_proposal_filter = self._build_region_proposal_filter(
             region_proposal_configuration=self.region_proposal_configuration)
 
+    def _build_level_anchor_generators(self, detection_levels_configuration: Dict[str, Any]) -> nn.ModuleDict:
+        """
+        Builds the anchors of every detection level from its scales and aspect ratios and the size of its feature map
+        after the neck, read by the region proposal heads (one per level or one shared by the levels), the target
+        assignment, the anchor recall and the proposal filter.
+
+        Args:
+            detection_levels_configuration (Dict[str, Any]): The 'DetectionLevels' section, giving the anchor scales
+                                                             and aspect ratios of every level.
+
+        Returns:
+            nn.ModuleDict: The Anchors of every level, keyed by the stringified detection block index, in the order of
+                the backbone outputs.
+        """
+        level_anchor_generators = nn.ModuleDict()
+
+        # Iterate over the sequentially ordered detection blocks given by the neck
+        for index_string, level_information in self.detection_input_information.items():
+            anchor_configuration = detection_levels_configuration[index_string]["anchors"]
+            level_anchor_generators[index_string] = Anchors(
+                scales=anchor_configuration["scales"], aspect_ratios=anchor_configuration["aspect_ratios"],
+                input_image_size=self.input_image_size, feature_map_size=level_information["feature_map_size"],
+                dtype=self.dtype, device=self.device)
+        return level_anchor_generators
+
+    def list_head_levels(self, section_name: str, level_component: str, shared: bool) -> Dict[str, List[str]]:
+        """
+        Lists the heads of one kind to build (region proposal, detection or mask heads) with the levels each reads:
+        one head per detection level, keyed by its block, or with the sharing of the section a single head keyed
+        SHARED_HEAD_KEY reading every level, which needs the same head settings ('DetectionLevels.<level>.<component>')
+        and the same channel count on every level (the outputs of a neck, or backbone blocks of equal channels), the
+        configuration checks refusing the other files before the model is built.
+
+        Args:
+            section_name (str): The section holding the sharing, named in the errors ('RegionProposal', 'Detector' or
+                'MaskHead').
+            level_component (str): The component of every level holding the head settings ('region_proposal',
+                'detector' or 'mask_head').
+            shared (bool): Whether a single head reads every level.
+
+        Returns:
+            Dict[str, List[str]]: The levels of every head, in the order of the backbone outputs, keyed by the name of
+                the head in its dictionary.
+
+        Raises:
+            ValueError: If the shared head is asked for levels of different head settings or channel counts.
+        """
+        level_names = list(self.detection_input_information)
+        if not shared:
+            return {level_name: [level_name] for level_name in level_names}
+
+        # One set of head settings and one channel count for every level
+        level_heads = {level_name: self.detection_levels_configuration[level_name][level_component]
+                       for level_name in level_names}
+        level_channels = {level_name: self.detection_input_information[level_name]["number_channels"]
+                          for level_name in level_names}
+        if any(level_head != level_heads[level_names[0]] for level_head in level_heads.values()):
+            raise ValueError(f"'{section_name}.shared' needs the same '{level_component}' on every detection level, "
+                             f"got {level_heads}.")
+        if len(set(level_channels.values())) != 1:
+            raise ValueError(f"'{section_name}.shared' needs the same channel count on every detection level (a neck, "
+                             f"or backbone blocks of equal channels), got {level_channels}.")
+        return {SHARED_HEAD_KEY: level_names}
+
     def _build_region_proposer_dictionary(self, region_proposal_configuration: Dict[str, Any],
                                           detection_levels_configuration: Dict[str, Any]) -> nn.ModuleDict:
         """
         Dynamically constructs the Region Proposal components tailored for each detection feature map scale.
 
-        This builder method reads the exact spatial dimensions and channel depths of the feature maps of every
-        detection level after the neck (those of the backbone blocks without neck). It then reads the anchors and the
-        convolutions of every detection level to instantiate a distinct RegionProposal module for each level.
+        This builder method reads the channel depths of the feature maps of every detection level after the neck
+        (those of the backbone blocks without neck), the number of anchors per position of every level and the
+        convolutions of every detection level to instantiate a distinct RegionProposal module for each level. With
+        'RegionProposal.shared', a single head is applied to the map of every level instead, which needs the same
+        convolutions, the same channel count and the same number of anchors per position on every level.
 
         Args:
             region_proposal_configuration (Dict[str, Any]): The 'RegionProposal' section, giving the normalization
                                                             shared by every level.
-            detection_levels_configuration (Dict[str, Any]): The 'DetectionLevels' section, giving the anchor scales
-                                                             and aspect ratios and the region proposal convolutions
-                                                             of every level.
+            detection_levels_configuration (Dict[str, Any]): The 'DetectionLevels' section, giving the region proposal
+                                                             convolutions of every level.
 
         Returns:
             nn.ModuleDict: A PyTorch ModuleDict mapping the stringified detection block indices to
-                           their initialized RegionProposal modules.
+                           their initialized RegionProposal modules, or the shared head alone, keyed SHARED_HEAD_KEY.
+
+        Raises:
+            ValueError: If the shared head is asked for levels of different convolutions, channel counts or numbers of
+                anchors per position.
         """
         region_proposer_dictionary = nn.ModuleDict()
         feature_map_normalization = region_proposal_configuration["normalization"]["feature_map_normalization"]
+        head_levels = self.list_head_levels(section_name="RegionProposal", level_component="region_proposal",
+                                            shared=self.shared_region_proposal)
 
-        # Iterate over the sequentially ordered detection blocks given by the neck
-        for index_string in self.detection_input_information.keys():
-            # Retrieve the anchor scales and ratios of this scale level
-            anchor_configuration = detection_levels_configuration[index_string]["anchors"]
-            scales = anchor_configuration["scales"]
-            aspect_ratios = anchor_configuration["aspect_ratios"]
+        # The output layers of a shared head predict the same number of anchors at every position of every level
+        anchors_per_location = {level_name: anchor_generator.number_anchors_per_location
+                                for level_name, anchor_generator in self.level_anchor_generators.items()}
+        if self.shared_region_proposal and len(set(anchors_per_location.values())) != 1:
+            raise ValueError(f"'RegionProposal.shared' needs the same number of anchors per position (scales x aspect "
+                             f"ratios) on every detection level, got {anchors_per_location}.")
 
-            # Dynamically fetch the accurate structural size and channel depth of the level after the neck
-            feature_map_size = self.detection_input_information[index_string]["feature_map_size"]
-            input_channels = self.detection_input_information[index_string]["number_channels"]
-
-            # Initialize and store the RegionProposal module
-            region_proposer_dictionary[index_string] = RegionProposal(
-                convolutions=detection_levels_configuration[index_string]["region_proposal"]["convolutions"],
-                input_channels=input_channels, scales=scales, aspect_ratios=aspect_ratios,
-                input_image_size=self.input_image_size, feature_map_size=feature_map_size,
+        # Iterate over the heads, the levels in the order of the backbone outputs
+        for head_name, level_names in head_levels.items():
+            first_level = level_names[0]
+            region_proposer_dictionary[head_name] = RegionProposal(
+                convolutions=detection_levels_configuration[first_level]["region_proposal"]["convolutions"],
+                input_channels=self.detection_input_information[first_level]["number_channels"],
+                number_anchors_per_location=anchors_per_location[first_level],
                 feature_map_normalization=feature_map_normalization,
                 batch_normalization_momentum=BATCH_NORMALIZATION_MOMENTUM, dtype=self.dtype, device=self.device)
 
@@ -160,7 +244,9 @@ class TwoStageDetector(TaskModel):
 
         This builder method reads the exact spatial dimensions and channel depths of the feature maps of every
         detection level after the neck (those of the backbone blocks without neck). It then reads the detection head
-        of every detection level to instantiate a distinct DetectionHead module for each level.
+        of every detection level to instantiate a distinct DetectionHead module for each level. With
+        'Detector.shared', a single head reads the proposals of every level, each pooled at the scale of its level,
+        which needs the same detection head and the same channel count on every level.
 
         Args:
             detector_configuration (Dict[str, Any]): The 'Detector' section, giving the normalization and the
@@ -171,34 +257,34 @@ class TwoStageDetector(TaskModel):
 
         Returns:
             nn.ModuleDict: A PyTorch ModuleDict mapping the stringified detection block indices to
-                           their initialized DetectionHead modules.
+                           their initialized DetectionHead modules, or the shared head alone, keyed SHARED_HEAD_KEY.
+
+        Raises:
+            ValueError: If the shared head is asked for levels of different detection heads or channel counts.
         """
         detector_heads_dictionary = nn.ModuleDict()
-
         feature_map_normalization = detector_configuration["normalization"]["feature_map_normalization"]
+        head_levels = self.list_head_levels(section_name="Detector", level_component="detector",
+                                            shared=self.shared_detector)
 
-        # Iterate over the sequentially ordered detection blocks given by the neck
-        for index_string in self.detection_input_information.keys():
-            # Retrieve the detection head configuration of this scale level
-            specific_configuration = detection_levels_configuration[index_string]["detector"]
-
-            # Dynamically fetch the accurate structural size and channel depth of the level after the neck
-            feature_map_size = self.detection_input_information[index_string]["feature_map_size"]
-            input_channels = self.detection_input_information[index_string]["number_channels"]
-
-            # Initialize and store the DetectionHead module
-            detector_heads_dictionary[index_string] = DetectionHead(
-                detector_configuration=specific_configuration, number_classes=self.number_classes,
-                input_channels=input_channels, feature_map_normalization=feature_map_normalization,
+        # Iterate over the heads, the levels in the order of the backbone outputs
+        for head_name, level_names in head_levels.items():
+            first_level = level_names[0]
+            detector_heads_dictionary[head_name] = DetectionHead(
+                detector_configuration=detection_levels_configuration[first_level]["detector"],
+                number_classes=self.number_classes,
+                input_channels=self.detection_input_information[first_level]["number_channels"],
+                feature_map_normalization=feature_map_normalization,
                 batch_normalization_momentum=BATCH_NORMALIZATION_MOMENTUM, input_image_size=self.input_image_size,
-                feature_map_size=feature_map_size, dtype=self.dtype, device=self.device,
-                modules=detector_configuration["modules"])
+                feature_map_sizes={level_name: self.detection_input_information[level_name]["feature_map_size"]
+                                   for level_name in level_names},
+                dtype=self.dtype, device=self.device, modules=detector_configuration["modules"])
 
         return detector_heads_dictionary
 
     def _aggregate_all_anchors(self) -> torch.Tensor:
         """
-        Aggregates the base unbatched anchors across all RegionProposal modules.
+        Aggregates the base unbatched anchors across all detection levels.
 
         This method concatenates the absolute base anchors from every detection level
         into a single unified tensor. This provides easy global
@@ -207,14 +293,9 @@ class TwoStageDetector(TaskModel):
         Returns:
             torch.Tensor: A tensor of shape [total_anchors, 4] containing all base bounding boxes.
         """
-        aggregated_anchors = []
-
-        # Iterate over all instanced RegionProposal modules and extract their base anchors
-        for index_string, region_proposer in self.region_proposer_dictionary.items():
-            aggregated_anchors.append(region_proposer.region_proposal_anchor_object.anchors)
-
-        # Concatenate them vertically to form a single continuous list of bounding boxes
-        return torch.cat(tensors=aggregated_anchors, dim=0)
+        # Concatenate the anchors of every level vertically, in level order, to form a single list of bounding boxes
+        return torch.cat(tensors=[anchor_generator.anchors
+                                  for anchor_generator in self.level_anchor_generators.values()], dim=0)
 
     def get_level_anchors(self) -> Dict[int, torch.Tensor]:
         """
@@ -226,8 +307,8 @@ class TwoStageDetector(TaskModel):
             Dict[int, torch.Tensor]: The [A, 4] [x_min, y_min, x_max, y_max] anchors of every level in network input
                 pixels, keyed by block number.
         """
-        return {int(index_string): region_proposer.region_proposal_anchor_object.anchors
-                for index_string, region_proposer in self.region_proposer_dictionary.items()}
+        return {int(index_string): anchor_generator.anchors
+                for index_string, anchor_generator in self.level_anchor_generators.items()}
 
     def get_level_anchor_generators(self) -> Dict[int, Anchors]:
         """
@@ -238,8 +319,21 @@ class TwoStageDetector(TaskModel):
         Returns:
             Dict[int, Anchors]: The Anchors module of every level, keyed by block number.
         """
-        return {int(index_string): region_proposer.region_proposal_anchor_object
-                for index_string, region_proposer in self.region_proposer_dictionary.items()}
+        return {int(index_string): anchor_generator
+                for index_string, anchor_generator in self.level_anchor_generators.items()}
+
+    def get_region_proposal_head(self, level_name: str) -> RegionProposal:
+        """
+        Gives the region proposal head applied to the feature map of a level, its own head or the head shared by the
+        levels, for the region proposals of the training and of the exported InferenceDetector.
+
+        Args:
+            level_name (str): The detection level, the stringified block index.
+
+        Returns:
+            RegionProposal: The head of the level.
+        """
+        return self.region_proposer_dictionary[SHARED_HEAD_KEY if self.shared_region_proposal else level_name]
 
     def _build_region_proposal_filter(self, region_proposal_configuration: Dict[str, Any]) -> RegionProposalFilter:
         """
@@ -255,10 +349,10 @@ class TwoStageDetector(TaskModel):
         Returns:
             RegionProposalFilter: The initialized module for filtering bounding box proposals.
         """
-        # Anchors of every level in the order of the region proposal heads, the order in which
-        # aggregate_proposals_and_anchors concatenates their proposals and _aggregate_all_anchors their anchors
-        level_sizes = [int(region_proposer.region_proposal_anchor_object.anchors.shape[0])
-                       for region_proposer in self.region_proposer_dictionary.values()]
+        # Anchors of every level in level order, the order in which aggregate_proposals_and_anchors concatenates their
+        # proposals and _aggregate_all_anchors their anchors
+        level_sizes = [int(anchor_generator.anchors.shape[0])
+                       for anchor_generator in self.level_anchor_generators.values()]
         region_proposal_filter = RegionProposalFilter(configuration=region_proposal_configuration,
                                                       level_sizes=level_sizes)
 
@@ -554,7 +648,8 @@ class TwoStageDetector(TaskModel):
     def _forward_region_proposals(
             self, backbone_output_tensor_dictionary: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, torch.Tensor]]:
         """
-        Executes the Region Proposal forward pass for all intermediate feature map scales.
+        Executes the Region Proposal forward pass for all intermediate feature map scales, the head of every level (or
+        the head shared by the levels) regressing the anchors of that level.
 
         Args:
             backbone_output_tensor_dictionary (Dict[str, torch.Tensor]): The multi-scale backbone feature maps of
@@ -570,9 +665,10 @@ class TwoStageDetector(TaskModel):
         region_proposal_output_tensor_dictionary = {}
 
         for detection_index_string, feature_map_tensor in backbone_output_tensor_dictionary.items():
-            # Pass the corresponding feature map through its specific region proposal block
-            proposal_scores, proposal_boxes_transformations, proposal_boxes = self.region_proposer_dictionary[
-                detection_index_string](input_tensor=feature_map_tensor)
+            # Pass the corresponding feature map through its region proposal head, with the anchors of its level
+            region_proposal_head = self.get_region_proposal_head(level_name=detection_index_string)
+            proposal_scores, proposal_boxes_transformations, proposal_boxes = region_proposal_head(
+                input_tensor=feature_map_tensor, anchors=self.level_anchor_generators[detection_index_string].anchors)
 
             # Store the predictions structured securely by their detection indices
             region_proposal_output_tensor_dictionary[detection_index_string] = {
@@ -589,7 +685,8 @@ class TwoStageDetector(TaskModel):
                             detection_regression_targets: Optional[torch.Tensor] = None,
                             detection_matched_ground_truth_indices: Optional[torch.Tensor] = None) -> Dict[str, Any]:
         """
-        Executes the Detection Head forward pass for all proposals across their respective feature maps.
+        Executes the Detection Head forward pass for all proposals across their respective feature maps, with the head
+        of their level or the head shared by the levels (predict_level_detections).
 
         Args:
             backbone_output_tensor_dictionary (Dict[str, torch.Tensor]): The multi-scale backbone feature maps of
@@ -618,12 +715,20 @@ class TwoStageDetector(TaskModel):
         """
         detection_output_dictionary = {}
 
-        for detection_index_string, feature_map_tensor in backbone_output_tensor_dictionary.items():
-            # Find the indices of the proposals that originated from this specific feature map scale
-            scale_indices = torch.where(detection_proposals_origins == int(detection_index_string))[0]
+        # Indices of the proposals that originated from every feature map scale, and those proposals
+        level_indices = {detection_index_string: torch.where(
+            detection_proposals_origins == int(detection_index_string))[0]
+            for detection_index_string in backbone_output_tensor_dictionary}
+        level_proposals = {detection_index_string: detection_proposals[scale_indices]
+                           for detection_index_string, scale_indices in level_indices.items()}
 
-            # Slice the valid proposals for this particular scale
-            scale_proposals = detection_proposals[scale_indices]
+        # Classification logits, bounding box regressions and refined boxes of the proposals of every level, from the
+        # head of their level or from the head shared by the levels
+        level_head_outputs = self.predict_level_detections(feature_maps=backbone_output_tensor_dictionary,
+                                                           level_proposals=level_proposals)
+
+        for detection_index_string, scale_indices in level_indices.items():
+            # Slice the batch indices of the proposals of this particular scale
             scale_batch_indices = detection_batch_indices[scale_indices]
 
             # Slice the labels and regression targets if they are provided (training mode)
@@ -632,13 +737,7 @@ class TwoStageDetector(TaskModel):
                 scale_indices] if detection_regression_targets is not None else None
             scale_matched_indices = detection_matched_ground_truth_indices[
                 scale_indices] if detection_matched_ground_truth_indices is not None else None
-
-            # Retrieve the specific detection head for this feature map scale
-            detection_head = self.detector_heads_dictionary[detection_index_string]
-
-            # Execute the forward pass to get the classification logits and bounding box regressions
-            classification_scores, box_regressions, detection_boxes = detection_head(proposal_boxes=scale_proposals,
-                                                                                     input_tensor=feature_map_tensor)
+            classification_scores, box_regressions, detection_boxes = level_head_outputs[detection_index_string]
 
             # Store the computed tensors and the sliced ground truth targets for later loss computation
             detection_output_dictionary[detection_index_string] = {
@@ -651,9 +750,50 @@ class TwoStageDetector(TaskModel):
                 "sliced_matched_ground_truth_indices": scale_matched_indices,
                 "sliced_origins": detection_proposals_origins[scale_indices],
                 "sliced_valid_mask": detection_valid_mask[scale_indices],
-                "sliced_proposals": scale_proposals}
+                "sliced_proposals": level_proposals[detection_index_string]}
 
         return detection_output_dictionary
+
+    def predict_level_detections(self, feature_maps: Dict[str, torch.Tensor],
+                                 level_proposals: Dict[str, torch.Tensor]
+                                 ) -> Dict[str, Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
+        """
+        Runs the detection heads on the proposals of every level, for the detection losses and the detections of the
+        evaluation: the head of every level on the proposals of its level, even when it has none so that it stays in
+        the graph, or the head shared by the levels ('Detector.shared'), which pools the proposals of every level from
+        the map of that level at its spatial scale and runs its layers once on all of them, so that it trains on the
+        sampled proposals of every level and its batch statistics cover them all.
+
+        Args:
+            feature_maps (Dict[str, torch.Tensor]): The feature maps after the neck, keyed by detection level.
+            level_proposals (Dict[str, torch.Tensor]): The [K_l, 5] proposals of every level (image index, then the
+                corners in network input pixels), keyed by level in the order of the feature maps, possibly empty.
+
+        Returns:
+            Dict[str, Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]: The [K_l, number_classes] class logits, the
+                [K_l, number_classes, 4] box regressions and the [K_l, number_classes, 4] refined boxes of the
+                proposals of every level, keyed by level.
+        """
+        # One head per level, each run on the proposals of its own level
+        if not self.shared_detector:
+            return {level_name: self.detector_heads_dictionary[level_name](proposal_boxes=proposals,
+                                                                            input_tensor=feature_maps[level_name])
+                    for level_name, proposals in level_proposals.items()}
+
+        # Shared head: the proposals of every level pooled at the spatial scale of their level, then predicted at once
+        detection_head = self.detector_heads_dictionary[SHARED_HEAD_KEY]
+        pooled_features = torch.cat(tensors=[detection_head.pool_box_features(
+            proposal_boxes=proposals, input_tensor=feature_maps[level_name], level_name=level_name)
+            for level_name, proposals in level_proposals.items()], dim=0)
+        head_outputs = detection_head.predict_from_pooled_features(
+            pooled_features=pooled_features, proposal_boxes=torch.cat(tensors=list(level_proposals.values()), dim=0))
+
+        # Outputs split back into the proposals of every level, in level order
+        level_counts = [int(proposals.shape[0]) for proposals in level_proposals.values()]
+        split_outputs = [torch.split(output, split_size_or_sections=level_counts, dim=0) for output in head_outputs]
+        return {level_name: (split_outputs[0][level_position], split_outputs[1][level_position],
+                             split_outputs[2][level_position])
+                for level_position, level_name in enumerate(level_proposals)}
 
     def forward(self, input_tensor: torch.Tensor, image_windows: Optional[torch.Tensor] = None,
                 ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
@@ -915,21 +1055,27 @@ class TwoStageDetector(TaskModel):
         Prints a structural summary of the Region Proposal Network components.
 
         This summary leverages rich panels to cleanly display the feature map size, the number
-        of scales, aspect ratios, and the absolute anchor count for each configured RPN block,
-        culminating in the total number of region proposal anchors across the entire network.
+        of scales, aspect ratios, and the absolute anchor count of every detection level, whether
+        it has its own region proposal head or reads the head shared by the levels, culminating in
+        the total number of region proposal anchors across the entire network.
         """
         console = Console(width=60)
 
+        # The head shared by the levels is named first, the anchors staying those of every level
         summary_text = ""
+        if self.shared_region_proposal:
+            summary_text += (f"[bold]One Head Shared By Blocks "
+                             f"{', '.join(self.level_anchor_generators)}[/bold]\n\n")
 
-        for index_string, region_proposal_object in self.region_proposer_dictionary.items():
+        for index_string, anchor_generator in self.level_anchor_generators.items():
             # Feature map spatial size
-            feature_map_size = region_proposal_object.feature_map_size
+            feature_map_size = anchor_generator.feature_map_size
 
-            # Anchor scales and ratios
-            scales = region_proposal_object.scales
-            aspect_ratios = region_proposal_object.aspect_ratios
-            number_of_anchors_per_location = region_proposal_object.number_anchors_per_location
+            # Anchor scales and ratios of the configuration
+            anchor_configuration = self.detection_levels_configuration[index_string]["anchors"]
+            scales = anchor_configuration["scales"]
+            aspect_ratios = anchor_configuration["aspect_ratios"]
+            number_of_anchors_per_location = anchor_generator.number_anchors_per_location
 
             # Calculate the total number of region proposal anchors generated by this specific block by multiplying
             # the spatial area of the feature map by the number of anchors spawned at each spatial location
@@ -951,7 +1097,8 @@ class TwoStageDetector(TaskModel):
         Prints a structural summary of the Detection Network components.
 
         This summary leverages rich panels to cleanly display the feature map size, the RoI Align
-        pool size, and the spatial scale used for RoI pooling across each configured Detection block.
+        pool size, and the spatial scale used for RoI pooling across each configured Detection block,
+        or those of every level for the detection head shared by the levels.
         """
         console = Console(width=80)
 
@@ -963,11 +1110,11 @@ class TwoStageDetector(TaskModel):
         for index_string, detection_head in self.detector_heads_dictionary.items():
             convolution_layers = detection_head.convolution_number_layers
             fully_connected_layers = detection_head.fully_connected_dimensions
-            feature_map_size = detection_head.feature_map_size
             roi_align_pool_size = detection_head.roi_align_pool_size
-            spatial_scale = detection_head.spatial_scale
 
-            summary_text += f"[bold]Detection Block {index_string}[/bold]\n"
+            # One block of lines per detection level, or one for the head shared by the levels
+            summary_text += (f"[bold]Detection Head Shared By Blocks {', '.join(detection_head.level_names)}[/bold]\n"
+                             if index_string == SHARED_HEAD_KEY else f"[bold]Detection Block {index_string}[/bold]\n")
 
             # Show the convolution modules used by this head, only when it is not a plain convolution block
             active_module_names = detection_head.convolutional_block.get_active_module_names()
@@ -976,9 +1123,12 @@ class TwoStageDetector(TaskModel):
 
             summary_text += f"  - Convolution Layers : {convolution_layers}\n"
             summary_text += f"  - Fully Conn. Layers : {fully_connected_layers}\n"
-            summary_text += f"  - Feature Map Size   : [{feature_map_size}, {feature_map_size}]\n"
+            summary_text += "  - Feature Map Size   : " + ", ".join(
+                f"[{feature_map_size}, {feature_map_size}]"
+                for feature_map_size in detection_head.feature_map_sizes.values()) + "\n"
             summary_text += f"  - RoI Align Pool     : [{roi_align_pool_size}, {roi_align_pool_size}]\n"
-            summary_text += f"  - Spatial Scale      : {spatial_scale:.4f}\n\n"
+            summary_text += "  - Spatial Scale      : " + ", ".join(
+                f"{spatial_scale:.4f}" for spatial_scale in detection_head.spatial_scales.values()) + "\n\n"
 
         if summary_text.endswith("\n\n"):
             summary_text = summary_text[:-2]

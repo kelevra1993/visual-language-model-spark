@@ -15,9 +15,9 @@
     {
       "options": {},
       "reduction": "copy",
-      "snapshot_bytes": 22864,
+      "snapshot_bytes": 23294,
       "snapshot_path": "hyperparameter_experiments/object_detection/run_9/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35/training_configuration.yaml",
-      "snapshot_sha256": "b65e3d777ece8b61bb4d93ac665567eefdd454b489afe9e648275ecd63c2bb5b",
+      "snapshot_sha256": "118996e2e882691acddeaab971920918947d3ce47b7588ba1832bd98d8a2b09e",
       "source_bytes": 22864,
       "source_kind": "run",
       "source_path": "hyperparameter_experiments/object_detection/run_9/DET_IN-KAR-1024_SE-RES-BN-B1x16.2x16.2x16.3x32.3x32.5x32.5x32_L4567-NFPN32BN_A6.16-768.d8ffba_RBN-R2x32_DSE-DRES-DBN-D7.2x32.64.32_MC35/training_configuration.yaml",
@@ -91,5 +91,5 @@
     }
   ],
   "series": "deployment",
-  "snapshot_bytes": 67437
+  "snapshot_bytes": 67867
 }

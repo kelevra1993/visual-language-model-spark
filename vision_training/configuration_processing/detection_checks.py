@@ -176,6 +176,72 @@ def check_detection_levels(model_configuration: Dict[str, Any]) -> List[str]:
     return errors
 
 
+def check_shared_level_heads(model_configuration: Dict[str, Any], section_name: str,
+                             level_component: str) -> List[str]:
+    """
+    Verifies the 'shared' setting of the region proposal heads ('RegionProposal.shared'), of the detection heads
+    ('Detector.shared') or of the mask heads of the instance segmentation ('MaskHead.shared'): True for a single head
+    read by every level, as the region proposal network, box head and mask head of Mask R-CNN, False for one head per
+    level. The shared head needs the same 'DetectionLevels.<level>.<component>' on every level (one set of layers),
+    and the same channel count on every level, which a neck gives ('Neck.output_channels') and which the backbone
+    blocks of the levels ('Backbone.convolutions') must give without one; the shared region proposal head also needs
+    the same number of anchors per position (scales x aspect ratios) on every level, the channels of its output
+    layers. Levels without the component and blocks or anchors in a wrong form are reported by their own checks, so
+    they are left out here.
+
+    Args:
+        model_configuration (Dict[str, Any]): The model configuration containing the section, 'DetectionLevels',
+            'Neck' and 'Backbone'.
+        section_name (str): The section holding the setting: "RegionProposal", "Detector" or "MaskHead".
+        level_component (str): The component of every level holding the settings of the head: "region_proposal",
+            "detector" or "mask_head".
+
+    Returns:
+        List[str]: The description of every inconsistency found.
+    """
+    errors = check_boolean_flags(configuration=model_configuration, key_paths=[f"{section_name}.shared"])
+    shared = get_configuration_value(configuration=model_configuration, key_path=f"{section_name}.shared")
+    detection_levels = get_configuration_value(configuration=model_configuration, key_path="DetectionLevels")
+    if errors or not shared or not isinstance(detection_levels, dict):
+        return errors
+
+    # One set of head layers for every level
+    level_heads = {level_key: level_configuration[level_component]
+                   for level_key, level_configuration in detection_levels.items()
+                   if isinstance(level_configuration, dict) and level_component in level_configuration}
+    if any(level_head != next(iter(level_heads.values())) for level_head in level_heads.values()):
+        errors.append(f"'{section_name}.shared' needs the same '{level_component}' on every detection level, one "
+                      f"head reading them all, got {level_heads!r}.")
+
+    # Without a neck, the levels keep the channels of their backbone blocks, which must then be equal
+    neck_type = get_configuration_value(configuration=model_configuration, key_path="Neck.type")
+    block_convolutions = get_configuration_value(configuration=model_configuration, key_path="Backbone.convolutions")
+    if neck_type == "none" and isinstance(block_convolutions, dict):
+        level_channels = {level_key: block_convolutions[level_key][1] for level_key in detection_levels
+                          if level_key in block_convolutions and isinstance(block_convolutions[level_key], list)
+                          and len(block_convolutions[level_key]) == 2}
+        if len(set(level_channels.values())) > 1:
+            errors.append(f"'{section_name}.shared' needs the same channel count on every detection level, the "
+                          f"backbone blocks read without a neck having {level_channels!r} channels: set 'Neck.type' "
+                          f"or give the blocks of the levels the same channels.")
+
+    # The output layers of the shared region proposal head predict the same anchors at every position of every level
+    if section_name == "RegionProposal":
+        anchors_per_position = {}
+        for level_key in list_checked_detection_levels(model_configuration=model_configuration,
+                                                       component_names=["anchors"]):
+            scales = get_configuration_value(configuration=model_configuration,
+                                             key_path=f"DetectionLevels.{level_key}.anchors.scales")
+            aspect_ratios = get_configuration_value(configuration=model_configuration,
+                                                    key_path=f"DetectionLevels.{level_key}.anchors.aspect_ratios")
+            if isinstance(scales, list) and isinstance(aspect_ratios, list):
+                anchors_per_position[level_key] = len(scales) * len(aspect_ratios)
+        if len(set(anchors_per_position.values())) > 1:
+            errors.append(f"'RegionProposal.shared' needs the same number of anchors per position (scales x aspect "
+                          f"ratios) on every detection level, the outputs of the head, got {anchors_per_position!r}.")
+    return errors
+
+
 def check_neck_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the 'Neck' section, the layers between the backbone blocks of the detection levels and the region
@@ -220,10 +286,11 @@ def check_region_proposal_configuration(model_configuration: Dict[str, Any]) -> 
     Verifies the 'RegionProposal' section, the settings shared by the region proposal heads of every level (their
     convolutions being checked with the levels): the normalization, the IoU thresholds used to label anchors, the
     selection of the proposals over all the levels or level by level, the proposal counts kept around non-maximum
-    suppression, the anchor sampling budget of the proposal losses, and the 'pretrained' settings initialising the
-    heads with those of another run. A background range starting above 0.0 is allowed silently: the anchors overlapping
-    no object are then ignored, only the hard negatives touching an object being sampled as background, as the 0.1 of
-    the shipped detection configurations kept by the detection benchmark.
+    suppression, the anchor sampling budget of the proposal losses, the 'pretrained' settings initialising the
+    heads with those of another run, and the head shared by the levels (check_shared_level_heads). A background range
+    starting above 0.0 is allowed silently: the anchors overlapping no object are then ignored, only the hard negatives
+    touching an object being sampled as background, as the 0.1 of the shipped detection configurations kept by the
+    detection benchmark.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'RegionProposal' section.
@@ -294,6 +361,10 @@ def check_region_proposal_configuration(model_configuration: Dict[str, Any]) -> 
     # Region proposal heads possibly initialised by those of another run
     errors += check_pretrained_configuration(model_configuration=model_configuration, section_name="RegionProposal")
 
+    # One region proposal head applied to the map of every level instead of one head per level
+    errors += check_shared_level_heads(model_configuration=model_configuration, section_name="RegionProposal",
+                                       level_component="region_proposal")
+
     return errors
 
 
@@ -302,8 +373,8 @@ def check_detector_configuration(model_configuration: Dict[str, Any]) -> List[st
     Verifies the 'Detector' section, the settings shared by the detection heads of every level (their pool size,
     convolutions and fully connected layers being checked with the levels): the normalization, the modules, the IoU
     thresholds, the criterion of the final non-maximum suppression, that the proposal sampling budget fits within the
-    proposals kept by the Region Proposal stage during training, the box loss, and the 'pretrained' settings
-    initialising the heads with those of another run.
+    proposals kept by the Region Proposal stage during training, the box loss, the 'pretrained' settings
+    initialising the heads with those of another run, and the head shared by the levels (check_shared_level_heads).
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'Detector' section.
@@ -371,6 +442,10 @@ def check_detector_configuration(model_configuration: Dict[str, Any]) -> List[st
 
     # Detection heads possibly initialised by those of another run
     errors += check_pretrained_configuration(model_configuration=model_configuration, section_name="Detector")
+
+    # One detection head reading the proposals of every level instead of one head per level
+    errors += check_shared_level_heads(model_configuration=model_configuration, section_name="Detector",
+                                       level_component="detector")
 
     return errors
 

@@ -312,6 +312,9 @@ RegionProposal:
   # "joint" (one top-k and NMS over all the levels) or "per_level" (top-k and NMS of every level, then the best
   # over all the levels, as torchvision, empty proposals dropped), which makes pre_nms_proposals a count per level.
   proposal_selection: "per_level"
+  # True: one region proposal head applied to every level (Mask R-CNN); needs the same region_proposal, anchors per
+  # position and level channels (a neck) on every level. False: one head per level.
+  shared: False
   training:
     # Top raw proposals kept per image (per level with "per_level") before non-maximum suppression in training.
     pre_nms_proposals: 1000
@@ -391,6 +394,9 @@ Detector:
   # Box loss of the positive proposals: "smooth_l1" on the offsets, or "complete_iou" (1 - CIoU of the
   # decoded boxes, https://arxiv.org/abs/2005.03572).
   box_loss: "smooth_l1"
+  # True: one detection head reading the RoIs of every level (Mask R-CNN), run once in the export; needs the same
+  # detector and level channels (a neck) on every level. False: one head per level.
+  shared: False
   # Detection heads of another DET or INS run initialising this one; levels, per-level detectors, normalization, modules
   # and level channels must match, same neck type; class layers loaded with class_layers True only (source classes).
   pretrained:

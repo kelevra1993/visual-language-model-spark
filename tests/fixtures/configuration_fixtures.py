@@ -68,6 +68,8 @@ def get_detection_model_configuration(mask_head: bool = False, neck_type: str = 
                      # Proposal filter and anchor target assignment of the region proposal network
                      'RegionProposal': {
                          'normalization': {'feature_map_normalization': 'batch'},
+                         # One region proposal head per level, as in the behaviour baseline
+                         'shared': False,
                          # Proposals selected over all the levels at once, as in the behaviour baseline
                          'proposal_selection': 'joint',
                          'nms_iou_threshold': 0.7,
@@ -81,6 +83,8 @@ def get_detection_model_configuration(mask_head: bool = False, neck_type: str = 
                      # Proposal sampling, losses and postprocessing of the detection heads
                      'Detector': {
                          'normalization': {'feature_map_normalization': 'batch'},
+                         # One detection head per level, as in the behaviour baseline
+                         'shared': False,
                          'foreground_iou_threshold': 0.3,
                          'number_training_positives': 128,
                          'total_training_samples': 256,

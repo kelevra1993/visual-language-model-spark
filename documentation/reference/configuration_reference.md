@@ -66,6 +66,8 @@ Whenever a task cannot use a value, its check refuses it. Keys not listed accept
 - `Detector.box_loss`: `smooth_l1` or `complete_iou`. The region proposal network always uses smooth L1.
 - `Detector.nms_criterion`: `iou` or `distance_iou`, with `nms_distance_exponent` a finite positive number. Neither enters the run name.
 - `RegionProposal.proposal_selection`: `joint` or `per_level`. `per_level` makes `pre_nms_proposals` a count per level.
+- `RegionProposal.shared: True` needs the same `region_proposal`, the same anchors per position (scales x aspect ratios) and the same channels on every level.
+- `Detector.shared: True` needs the same `detector` and the same channels on every level.
 
 **INS mask heads**
 - `roi_align_pool_size` must not exceed `MaskHead.mask_resolution`.
@@ -212,9 +214,9 @@ The table lists every token, the setting it comes from and its tasks.
 | Levels | `NFPN<channels><BN, LN or NN>`, `NPAN…` | `Neck.type`, `output_channels`, `normalization` | DET, INS |
 | Levels | `NPT`, `NFRZ` | `Neck.pretrained`, `freeze` | DET, INS |
 | Anchors | `A<anchors>.<smallest>-<largest>.<hash>` | anchors per position, scale range, first 6 characters of the SHA-256 of scales and ratios | DET, INS |
-| Region proposal | `RBN`, `RLN`, `RNN`, `R<layers>x<filters>`, `RPL`, `RPT`, `RFRZ` | normalization, convolutions, `per_level` selection, pretrained, frozen | DET, INS |
+| Region proposal | `RBN`, `RLN`, `RNN`, `R<layers>x<filters>`, `RSH`, `RPL`, `RPT`, `RFRZ` | normalization, convolutions, `shared`, `per_level` selection, pretrained, frozen | DET, INS |
 | Detector | `DSE`, `DRES`, `DINC`, `DBN`, `DLN`, `DNN` | `Detector.modules`, normalization | DET, INS |
-| Detector | `D<pool>.<layers>x<filters>.<fully connected>`, `DCIOU` | `DetectionLevels.<level>.detector`, `complete_iou` box loss | DET, INS |
+| Detector | `D<pool>.<layers>x<filters>.<fully connected>`, `DSH`, `DCIOU` | `DetectionLevels.<level>.detector`, `shared`, `complete_iou` box loss | DET, INS |
 | Detector | `DPT`, `DRCL`, `DFRZ` | pretrained, without class layers (`class_layers` False), frozen | DET, INS |
 | Mask heads | `MSE`, `MRES`, `MINC`, `MBN`, `MLN`, `MNN`, `MUTC`, `MUBL` | `MaskHead.modules`, normalization, upsampling transposed or bilinear | INS |
 | Mask heads | `M<pool>.<layers>x<channels>`, `MSH`, `MR<resolution>` | `mask_head` of the level, `shared`, `mask_resolution` | INS |

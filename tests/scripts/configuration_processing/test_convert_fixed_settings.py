@@ -6,7 +6,8 @@ section removed (a CIoU one leaving the file as it is), the turned off gradient 
 left as it is), the final NMS settings added to their detector section, the proposal selection added to their region
 proposal section, the anchors centred on the cell corners removed (a file centring them on the cell centres left as
 it is), the instance index maps (one mask per object) added to the data section of the instance segmentation files,
-the finer inputs of the mask heads (none) added to their mask heads section, the speed benchmark diagnosis mode (off)
+the finer inputs of the mask heads (none) added to their mask heads section, the region proposal and detection heads
+shared by the levels (one head per level) added to their sections, the speed benchmark diagnosis mode (off)
 added to the diagnosis modes of every task (a partial draft without them left as it is), the training target viewer
 (off) added to the diagnosis modes of the detection tasks only, the class layer flag added to
 the classification heads and to the detection, mask and keypoint heads (True for heads transferred from another run,
@@ -26,8 +27,9 @@ from pathlib import Path
 from typing import List
 
 from scripts.configuration_processing import convert_fixed_settings as conversion_script
-from scripts.configuration_processing.convert_fixed_settings import (DEFAULT_BACKUP_SUFFIX, NECK_PRETRAINED_LINES,
-                                                                      NECK_SECTION_TEXT,
+from scripts.configuration_processing.convert_fixed_settings import (DEFAULT_BACKUP_SUFFIX, DETECTOR_SHARED_LINES,
+                                                                      NECK_PRETRAINED_LINES, NECK_SECTION_TEXT,
+                                                                      REGION_PROPOSAL_SHARED_LINES,
                                                                       add_required_sections, add_required_settings,
                                                                       check_conversion, convert_fixed_settings,
                                                                       parse_conversion_arguments,
@@ -281,10 +283,34 @@ def add_proposal_selection_text(configuration_text: str) -> str:
                                       f"{REGION_PROPOSAL_START_TEXT}{REGION_PROPOSAL_SELECTION_TEXT}")
 
 
-# The converted detection sections holding every added setting: the neck, the box loss, the final NMS settings and the
-# proposal selection
-CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS = add_proposal_selection_text(
-    configuration_text=CONVERTED_DETECTION_TEXT_WITH_NMS)
+# Lines the conversion writes after the proposal selection of the region proposal section and after the box loss of
+# the detector section in the files written before the sharing of these heads, whose heads are one per level
+REGION_PROPOSAL_SHARED_TEXT = "".join(f"  {line}\n" for line in REGION_PROPOSAL_SHARED_LINES)
+DETECTOR_SHARED_TEXT = "".join(f"  {line}\n" for line in DETECTOR_SHARED_LINES)
+
+
+def add_shared_heads_text(configuration_text: str) -> str:
+    """
+    Writes the lines of the sharing of the region proposal heads after the proposal selection of a detection text, and
+    those of the sharing of the detection heads after its box loss, as the conversion does, for the texts of the files
+    converted after 2026-11-28.
+
+    Args:
+        configuration_text (str): The detection text, holding the proposal selection and the box loss of the texts
+            above.
+
+    Returns:
+        str: The text with the sharing of both heads.
+    """
+    return configuration_text.replace(REGION_PROPOSAL_SELECTION_TEXT,
+                                      f"{REGION_PROPOSAL_SELECTION_TEXT}{REGION_PROPOSAL_SHARED_TEXT}").replace(
+        DETECTOR_BOX_LOSS_TEXT, f"{DETECTOR_BOX_LOSS_TEXT}{DETECTOR_SHARED_TEXT}")
+
+
+# The converted detection sections holding every added setting: the neck, the box loss, the final NMS settings, the
+# proposal selection and the sharing of the region proposal and detection heads
+CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS = add_shared_heads_text(configuration_text=add_proposal_selection_text(
+    configuration_text=CONVERTED_DETECTION_TEXT_WITH_NMS))
 
 # Data section the detection texts start with, and the lines the conversion writes after its image settings in the
 # instance segmentation files, which loaded one mask per object
@@ -407,9 +433,8 @@ def test_conversion_adds_the_box_loss_to_the_detection_files(tmp_path: Path) -> 
             "  total_training_samples: 128\n", ""), task="object_detection", configuration_path=configuration_path)
     with pytest.raises(expected_exception=ValueError, match=r"than the fixed ones: Detector\.box_loss\.$"):
         check_conversion(original_text=CONVERTED_DETECTION_TEXT_WITH_NECK_AND_NMS, task="object_detection",
-                         converted_text=add_proposal_selection_text(
-                             configuration_text=CONVERTED_DETECTION_TEXT_WITH_NECK_AND_NMS),
-                         configuration_path=configuration_path)
+                         converted_text=CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace(
+                             DETECTOR_BOX_LOSS_TEXT, ""), configuration_path=configuration_path)
     complete_iou_text = CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace(
         DETECTOR_BOX_LOSS_TEXT, DETECTOR_BOX_LOSS_TEXT.replace('box_loss: "smooth_l1"', 'box_loss: "complete_iou"'))
     with pytest.raises(expected_exception=ValueError, match=r"than the fixed ones: Detector\.box_loss\.$"):
@@ -571,8 +596,8 @@ def test_conversion_adds_the_final_nms_settings_to_the_detection_files(tmp_path:
     with pytest.raises(expected_exception=ValueError,
                        match=r"than the fixed ones: Detector\.nms_criterion, Detector\.nms_distance_exponent\.$"):
         check_conversion(original_text=CONVERTED_DETECTION_TEXT_WITH_BOX_LOSS, task="object_detection",
-                         converted_text=add_proposal_selection_text(
-                             configuration_text=CONVERTED_DETECTION_TEXT_WITH_BOX_LOSS),
+                         converted_text=add_shared_heads_text(configuration_text=add_proposal_selection_text(
+                             configuration_text=CONVERTED_DETECTION_TEXT_WITH_BOX_LOSS)),
                          configuration_path=configuration_path)
     distance_text = CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace('nms_criterion: "iou"',
                                                                          'nms_criterion: "distance_iou"')
@@ -619,7 +644,8 @@ def test_conversion_adds_the_proposal_selection_to_the_detection_files(tmp_path:
     with pytest.raises(expected_exception=ValueError,
                        match=r"than the fixed ones: RegionProposal\.proposal_selection\.$"):
         check_conversion(original_text=CONVERTED_DETECTION_TEXT_WITH_NMS, task="object_detection",
-                         converted_text=CONVERTED_DETECTION_TEXT_WITH_NMS, configuration_path=configuration_path)
+                         converted_text=CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace(
+                             REGION_PROPOSAL_SELECTION_TEXT, ""), configuration_path=configuration_path)
     with pytest.raises(expected_exception=ValueError,
                        match=r"than the fixed ones: RegionProposal\.proposal_selection\.$"):
         check_conversion(original_text=CONVERTED_DETECTION_TEXT_WITH_NMS, converted_text=per_level_text,
@@ -836,7 +862,8 @@ def test_conversion_adds_the_mask_head_sharing_to_the_instance_segmentation_file
     assert add_required_settings(configuration_text=CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS,
                                  task="object_detection", configuration_path=configuration_path) == \
         CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS
-    shared_text = expected_text.replace("shared: False", "shared: True")
+    shared_text = expected_text.replace(MASK_HEAD_SHARED_TEXT, MASK_HEAD_SHARED_TEXT.replace("shared: False",
+                                                                                         "shared: True"))
     assert add_required_settings(configuration_text=shared_text, task="instance_segmentation",
                                  configuration_path=configuration_path) == shared_text
 
@@ -855,6 +882,61 @@ def test_conversion_adds_the_mask_head_sharing_to_the_instance_segmentation_file
     assert converted_paths == [configuration_folder / "run-1.yaml"]
     assert (configuration_folder / "run-1.yaml").read_text(encoding="utf-8") == expected_text
     assert (configuration_folder / "previous_configurations" / "run-1_before_shared_mask_head.yaml").read_text(
+        encoding="utf-8") == original_text
+
+
+def test_conversion_adds_the_sharing_of_the_region_proposal_and_detection_heads(tmp_path: Path) -> None:
+    """
+    Verifies that the conversion writes the one head per level of the runs written before the sharing of the region
+    proposal and detection heads, 'shared: False' with its comment lines, right after the proposal selection of the
+    region proposal section and right after the box loss of the detector section of the detection and instance
+    segmentation files, and only there: a classification file and a file sharing its heads are left as they are, the
+    check refuses a converted file lacking a setting or sharing a head, and convert_fixed_settings converts a launch
+    file with a backup of the latest suffix.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = tmp_path / "configuration.yaml"
+    for task in ["object_detection", "instance_segmentation"]:
+        expected_text = write_task_text(configuration_text=CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS, task=task)
+        original_text = expected_text.replace(REGION_PROPOSAL_SHARED_TEXT, "").replace(DETECTOR_SHARED_TEXT, "")
+        converted_text = add_required_settings(configuration_text=original_text, task=task,
+                                               configuration_path=configuration_path)
+        assert converted_text == expected_text, task
+        assert REGION_PROPOSAL_SELECTION_TEXT + REGION_PROPOSAL_SHARED_TEXT in converted_text
+        assert DETECTOR_BOX_LOSS_TEXT + DETECTOR_SHARED_TEXT in converted_text
+        assert check_conversion(original_text=original_text, converted_text=converted_text, task=task,
+                                configuration_path=configuration_path) == []
+
+    # A classification file, and a detection file sharing its heads, are left as they are
+    assert add_required_settings(configuration_text=CONVERTED_CLASSIFICATION_TEXT, task="classification",
+                                 configuration_path=configuration_path) == CONVERTED_CLASSIFICATION_TEXT
+    shared_text = CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace("shared: False", "shared: True")
+    assert add_required_settings(configuration_text=shared_text, task="object_detection",
+                                 configuration_path=configuration_path) == shared_text
+
+    # Conversions without a setting or sharing a head are refused
+    original_text = CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace(REGION_PROPOSAL_SHARED_TEXT, "").replace(
+        DETECTOR_SHARED_TEXT, "")
+    detector_sharing_missing_text = CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS.replace(DETECTOR_SHARED_TEXT, "")
+    refused_texts = {r"Detector\.shared": detector_sharing_missing_text,
+                     r"Detector\.shared, RegionProposal\.shared": shared_text}
+    for refused_settings, refused_text in refused_texts.items():
+        with pytest.raises(expected_exception=ValueError, match=rf"than the fixed ones: {refused_settings}\.$"):
+            check_conversion(original_text=original_text, converted_text=refused_text, task="object_detection",
+                             configuration_path=configuration_path)
+
+    # A launch file converted with its backup, the original kept in it
+    configuration_folder = tmp_path / "launch_files"
+    configuration_folder.mkdir()
+    (configuration_folder / "run-1.yaml").write_text(data=original_text, encoding="utf-8")
+    converted_paths = convert_fixed_settings(run_roots=[], configuration_folders=[configuration_folder],
+                                             write_files=True, backup_suffix=DEFAULT_BACKUP_SUFFIX)
+    assert converted_paths == [configuration_folder / "run-1.yaml"]
+    assert (configuration_folder / "run-1.yaml").read_text(encoding="utf-8") == \
+        CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS
+    assert (configuration_folder / "previous_configurations" / "run-1_before_shared_detection_heads.yaml").read_text(
         encoding="utf-8") == original_text
 
 
@@ -1130,6 +1212,7 @@ HEADS_TEXT = """ExperimentConfiguration:
 Detector:
   total_training_samples: 256
   box_loss: "smooth_l1"
+  shared: False
   nms_iou_threshold: 0.5
   nms_criterion: "iou"
   nms_distance_exponent: 1.0
@@ -1293,8 +1376,9 @@ def test_conversion_adds_the_neck_transfer_to_the_detection_files(tmp_path: Path
     (configuration_folder / "run-1.yaml").write_text(data=DETECTION_TEXT_WITHOUT_NECK_TRANSFER, encoding="utf-8")
     converted_paths = convert_fixed_settings(run_roots=[], configuration_folders=[configuration_folder],
                                              write_files=True, backup_suffix=DEFAULT_BACKUP_SUFFIX)
-    # The default names the latest conversion, the 'diagnosis_modes.view_training_targets' added after the neck block
-    assert DEFAULT_BACKUP_SUFFIX == "_before_view_training_targets"
+    # The default names the latest conversion, the 'RegionProposal.shared' and 'Detector.shared' added after the neck
+    # block
+    assert DEFAULT_BACKUP_SUFFIX == "_before_shared_detection_heads"
     assert converted_paths == [configuration_folder / "run-1.yaml"]
     assert (configuration_folder / "run-1.yaml").read_text(encoding="utf-8") == \
         CONVERTED_DETECTION_TEXT_WITH_ADDED_SETTINGS
