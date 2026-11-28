@@ -7,9 +7,10 @@ whatever its size and the GPU never waits for the host. Used by the TwoStageDete
 vision_training/losses/detection_losses.py.
 """
 
+import functools
 import torch
 
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from vision_training.models.detection.box_operations import (BOX_REGRESSION_WEIGHTS, get_box_dimensions_and_centers,
                                                              get_intersection_over_union)
@@ -37,6 +38,84 @@ def count_objects_per_chunk(batch_size: int, number_anchors: int) -> int:
     return max(1, MAXIMUM_ANCHOR_OVERLAPS // max(1, batch_size * number_anchors))
 
 
+def match_objects_to_anchors(chunk_boxes: torch.Tensor, chunk_valid_ground_truths: torch.Tensor,
+                             anchors: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Matches a chunk of the objects of a training batch to all the anchors, the step of batch_assign_targets_to_anchors
+    repeated for every chunk of objects: the best object of the chunk of every anchor with its overlap, and the anchors
+    forced foreground as the best anchor of an object of the chunk. On the GPU it runs compiled (compile_for_gpu), its
+    overlaps and their three reductions fused into a few kernels.
+
+    Args:
+        chunk_boxes (torch.Tensor): The [B, G_chunk, 4] padded ground truth boxes of the chunk.
+        chunk_valid_ground_truths (torch.Tensor): The [B, G_chunk] boolean mask of the real objects of the chunk.
+        anchors (torch.Tensor): The [B, A, 4] anchors of every image.
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: The [B, A] best overlap of every anchor with an object of the
+            chunk, the [B, A] int64 index of that object within the chunk (the first one on ties) and the [B, A]
+            boolean mask of the anchors that are the best anchor of an object of the chunk.
+    """
+    # Shape: [batch_size, objects of the chunk, number_of_anchors], the padding rows overlapping nothing
+    intersection_over_union_matrix = get_intersection_over_union(boxes_1=chunk_boxes, boxes_2=anchors)
+    intersection_over_union_matrix = intersection_over_union_matrix.masked_fill(
+        mask=~chunk_valid_ground_truths.unsqueeze(dim=-1), value=0.0)
+
+    # For every anchor, find the ground truth box of the chunk that has the highest IoU with it
+    chunk_best_iou, chunk_best_index = intersection_over_union_matrix.max(dim=1)
+
+    # Forcing the best anchor of every ground truth box positive, even below the foreground threshold
+    # Get the best iou value for each ground truth box across all the anchors of its image, shape [batch, chunk]
+    best_match_anchor_iou, _ = intersection_over_union_matrix.max(dim=2)
+
+    # This gives us all the anchors that tie for the highest iou for each ground truth box.
+    # We use torch.isclose to safely handle float32 truncation artifacts where mathematically
+    # identical bounding box areas might differ by ~1e-6.
+    # We also enforce a strict > 0.0 threshold to prevent the "Zero-IoU Explosion",
+    # preventing a ground truth box with no overlap (or a padding row) from resurrecting thousands of anchors.
+    is_best_anchor = (torch.isclose(input=intersection_over_union_matrix,
+                                    other=best_match_anchor_iou.unsqueeze(dim=-1), atol=1e-6)
+                      & (best_match_anchor_iou.unsqueeze(dim=-1) > 0.0))
+    return chunk_best_iou, chunk_best_index, is_best_anchor.any(dim=1)
+
+
+def compute_chunk_best_overlaps(chunk_boxes: torch.Tensor, anchors: torch.Tensor) -> torch.Tensor:
+    """
+    Gives the best overlap of every object of a chunk with the anchors of one detection level, the step of
+    compute_best_anchor_overlaps repeated for every chunk of objects. On the GPU it runs compiled (compile_for_gpu), the
+    overlaps and their maximum fused into a few kernels.
+
+    Args:
+        chunk_boxes (torch.Tensor): The [B, G_chunk, 4] padded ground truth boxes of the chunk.
+        anchors (torch.Tensor): The [A, 4] anchors of the level, of the type of the boxes.
+
+    Returns:
+        torch.Tensor: The [B, G_chunk] best overlap of every object of the chunk with the anchors of the level.
+    """
+    return get_intersection_over_union(boxes_1=chunk_boxes, boxes_2=anchors).amax(dim=-1)
+
+
+@functools.lru_cache(maxsize=None)
+def compile_for_gpu(function: Callable) -> Callable:
+    """
+    Gives a matching function of the anchor target assignments (match_objects_to_anchors, compute_chunk_best_overlaps)
+    compiled by torch.compile, used for the batches on the GPU. Run eagerly, the overlaps of a chunk of objects with all
+    the anchors and their reductions take about fifteen passes over [B, objects, anchors] tensors, a quarter of the GPU
+    time of a training step of the Open Images detectors (330,240 anchors); compiled, they take a few fused kernels, 8
+    to 14 times faster. The functions compile once per process, at the first training batch (about 10 s, plus a few
+    seconds for the chunks of a single object and for the evaluation passes without gradients, which compile apart),
+    their shapes staying dynamic so that the changing numbers of objects never compile again. The fused kernels round
+    differently: their overlaps differ from the eager ones by at most about 3e-7. The CPU keeps the eager functions.
+
+    Args:
+        function (Callable): The matching function to compile.
+
+    Returns:
+        Callable: The compiled function, the same object for every call of the process.
+    """
+    return torch.compile(model=function, dynamic=True)
+
+
 def compute_best_anchor_overlaps(padded_boxes: torch.Tensor, anchors: torch.Tensor) -> torch.Tensor:
     """
     Gives the best overlap of every object of a training batch with the anchors of one detection level, read by
@@ -53,10 +132,13 @@ def compute_best_anchor_overlaps(padded_boxes: torch.Tensor, anchors: torch.Tens
     """
     objects_per_chunk = count_objects_per_chunk(batch_size=padded_boxes.shape[0], number_anchors=anchors.shape[0])
 
-    # Best overlap of the objects of every chunk, of shape [B, objects of the chunk], joined in the order of the objects
-    return torch.cat(tensors=[get_intersection_over_union(
-        boxes_1=padded_boxes[:, chunk_start:chunk_start + objects_per_chunk], boxes_2=anchors).amax(dim=-1)
-        for chunk_start in range(0, padded_boxes.shape[1], objects_per_chunk)], dim=1)
+    # Best overlap of the objects of every chunk, of shape [B, objects of the chunk], joined in the order of the
+    # objects, fused on the GPU (compile_for_gpu)
+    chunk_function = compile_for_gpu(function=compute_chunk_best_overlaps) if padded_boxes.is_cuda else \
+        compute_chunk_best_overlaps
+    return torch.cat(tensors=[chunk_function(chunk_boxes=padded_boxes[:, chunk_start:chunk_start + objects_per_chunk],
+                                             anchors=anchors)
+                              for chunk_start in range(0, padded_boxes.shape[1], objects_per_chunk)], dim=1)
 
 
 def pad_ground_truths(batched_ground_truth_boxes: List[torch.Tensor],
@@ -170,7 +252,8 @@ def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tenso
     This function sits at the heart of the RPN training pipeline. It computes the IoU between every anchor and every
     ground truth box of its image, for all the images at once (the ground truths padded with empty boxes, which
     overlap nothing) and for chunks of objects (count_objects_per_chunk), so that a crowded image of hundreds of
-    objects never holds all its overlaps at once, the targets being those of a single pass. It categorizes each
+    objects never holds all its overlaps at once, the targets being those of a single pass (match_objects_to_anchors,
+    compiled on the GPU by compile_for_gpu, its overlaps within about 3e-7 of the eager ones). It categorizes each
     anchor as foreground (positive object), background (negative), or grey zone (ignored during training). The best
     anchor of every ground truth box is also made positive, so that objects with no anchor above the foreground
     threshold still train, but it regresses to the box it overlaps the most, as in torchvision and Detectron2: a box
@@ -198,33 +281,17 @@ def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tenso
 
     # The objects are matched to the anchors in chunks (count_objects_per_chunk), the best object of every anchor and
     # the anchors forced foreground being gathered over the chunks, so that a crowded batch never holds the overlaps of
-    # all its objects with all the anchors at once
+    # all its objects with all the anchors at once; the matching of a chunk is fused on the GPU (compile_for_gpu)
+    matching_function = compile_for_gpu(function=match_objects_to_anchors) if padded_boxes.is_cuda else \
+        match_objects_to_anchors
     best_match_ground_truth_iou, best_match_ground_truth_index, resurrected_anchors = None, None, None
     for chunk_start in range(0, padded_boxes.shape[1], objects_per_chunk):
         chunk_end = chunk_start + objects_per_chunk
 
-        # Shape: [batch_size, objects of the chunk, number_of_anchors], the padding rows overlapping nothing
-        intersection_over_union_matrix = get_intersection_over_union(boxes_1=padded_boxes[:, chunk_start:chunk_end],
-                                                                     boxes_2=batched_anchors)
-        intersection_over_union_matrix = intersection_over_union_matrix.masked_fill(
-            mask=~valid_ground_truths[:, chunk_start:chunk_end].unsqueeze(dim=-1), value=0.0)
-
-        # For every anchor, find the ground truth box of the chunk that has the highest IoU with it
-        chunk_best_iou, chunk_best_index = intersection_over_union_matrix.max(dim=1)
-
-        # Forcing the best anchor of every ground truth box positive, even below the foreground threshold
-        # Get the best iou value for each ground truth box across all the anchors of its image, shape [batch, chunk]
-        best_match_anchor_iou, _ = intersection_over_union_matrix.max(dim=2)
-
-        # This gives us all the anchors that tie for the highest iou for each ground truth box.
-        # We use torch.isclose to safely handle float32 truncation artifacts where mathematically
-        # identical bounding box areas might differ by ~1e-6.
-        # We also enforce a strict > 0.0 threshold to prevent the "Zero-IoU Explosion",
-        # preventing a ground truth box with no overlap (or a padding row) from resurrecting thousands of anchors.
-        is_best_anchor = (torch.isclose(input=intersection_over_union_matrix,
-                                        other=best_match_anchor_iou.unsqueeze(dim=-1), atol=1e-6)
-                          & (best_match_anchor_iou.unsqueeze(dim=-1) > 0.0))
-        chunk_resurrected_anchors = is_best_anchor.any(dim=1)
+        # Best object of the chunk of every anchor with its overlap, and the anchors forced foreground by the chunk
+        chunk_best_iou, chunk_best_index, chunk_resurrected_anchors = matching_function(
+            chunk_boxes=padded_boxes[:, chunk_start:chunk_end],
+            chunk_valid_ground_truths=valid_ground_truths[:, chunk_start:chunk_end], anchors=batched_anchors)
 
         # The first chunk starts the matches, a later one takes the anchors it overlaps strictly more, so that the
         # first best object stays on ties, as the max over all the objects at once returns the first one

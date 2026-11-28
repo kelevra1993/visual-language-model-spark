@@ -44,11 +44,13 @@ RUN case "${TARGETARCH}" in \
     esac
 
 # Certificates for the downloads of uv, MLflow and Hugging Face; the GL, GLib and X11 libraries the Qt bundled with
-# opencv-python loads at import, even without a display; tini to forward the stop signal and reap the loader workers
+# opencv-python loads at import, even without a display; tini to forward the stop signal and reap the loader workers;
+# gcc and the C library headers, with which Triton builds its launchers when torch.compile fuses the anchor matching of
+# the detection tasks on the GPU (compile_for_gpu in target_assignment.py)
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends ca-certificates libgl1 libglib2.0-0t64 libice6 libsm6 libx11-6 \
-        libxcb1 libxext6 tini \
+        libxcb1 libxext6 tini gcc libc6-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Unprivileged user of the trainings, numeric so that runAsNonRoot can check it (uid 1000 is the ubuntu user)
