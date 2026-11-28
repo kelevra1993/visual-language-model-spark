@@ -4,7 +4,7 @@ foreground, background and ignored anchors of every image (an image without obje
 every object made foreground with both fallback rules, the proposal targets of images with different object counts,
 the number, kind and uniformity of the sampled targets, the ground truth boxes added to the proposals of the
 detection heads giving a positive proposal per object, and the anchor matching of a crowded batch in chunks of objects
-giving the targets of a single pass.
+giving the targets of a single pass, compiled on the GPU as eager on the CPU.
 """
 
 import functools
@@ -252,3 +252,36 @@ def test_ground_truth_proposal_levels_in_chunks_match_a_single_pass(monkeypatch:
 
     # The levels of the written slots are not all the same, so that the best level of every object was compared
     assert len(set(single_pass_outputs[1][single_pass_outputs[2]].tolist())) > 1
+
+
+@pytest.mark.skipif(condition=not torch.cuda.is_available(), reason="The fused matching runs on the GPU.")
+def test_fused_gpu_matching_gives_the_eager_targets(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that the anchor targets and the levels of the ground truth proposals of a crowded batch on the GPU, whose
+    matching runs compiled (compile_for_gpu) in chunks of 2 objects, are those of the eager matching on the CPU, the
+    first of two objects overlapping an anchor equally included.
+    """
+    batched_boxes, anchors = build_crowded_batch()
+    monkeypatch.setattr(target_assignment, "MAXIMUM_ANCHOR_OVERLAPS", len(batched_boxes) * anchors.shape[0] * 2)
+    level_anchors = {3: anchors[:625], 4: anchors[625:1250], 5: anchors[1250:]}
+    proposals = torch.rand(size=(3, 12, 2), generator=torch.Generator().manual_seed(1)) * 200.0
+    outputs = {}
+    for device in ["cpu", "cuda"]:
+        device_boxes = [boxes.to(device=device) for boxes in batched_boxes]
+        device_anchors = anchors.to(device=device)
+        target_boxes, labels = batch_assign_targets_to_anchors(
+            batched_ground_truth_boxes=device_boxes,
+            batched_anchors=device_anchors.unsqueeze(dim=0).expand(len(batched_boxes), -1, -1),
+            background_iou_threshold=BACKGROUND_THRESHOLD, foreground_iou_threshold=FOREGROUND_THRESHOLD)
+        _, proposal_levels, _ = add_ground_truth_proposals(
+            batched_ground_truth_boxes=device_boxes,
+            batched_proposals=torch.cat(tensors=[proposals, proposals + 8.0], dim=-1).to(device=device),
+            batched_proposal_levels=torch.full(size=(3, 12), fill_value=4, dtype=torch.int64, device=device),
+            level_anchors={level: level_anchor.to(device=device) for level, level_anchor in level_anchors.items()})
+        outputs[device] = [target_boxes.cpu(), labels.cpu(), proposal_levels.cpu()]
+
+    # Both matching functions were compiled for the GPU, and give the targets of the eager matching
+    assert target_assignment.compile_for_gpu.cache_info().currsize == 2
+    assert all(torch.equal(input=gpu_output, other=cpu_output)
+               for gpu_output, cpu_output in zip(outputs["cuda"], outputs["cpu"]))
+    assert outputs["cuda"][0][0, 0].tolist() == [0.0, 0.0, 16.0, 32.0]
