@@ -19,7 +19,6 @@ references:
   - "vision_training/models/backbones/backbone.py · Backbone.forward"
   - "vision_training/data/augmentations.py · DataAugmenter.augment_batch"
   - "documentation/task workflows/semantic_segmentation_workflow.md"
-  - "documentation/suggestions.md"
 scenes:
   - kind: title_card
     heading: "Masks, classes and the decoder"

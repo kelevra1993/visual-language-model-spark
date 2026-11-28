@@ -4,7 +4,7 @@
 > only gets smaller: each item is removed once implemented or dropped, and the file is deleted once empty.
 
 The items were checked against the code on 2026-10-15, 2026-11-13, 2026-11-20 and 2026-11-27. Audit L19 (item 8) is a
-finding of the repository audit of 2026-10-10. "Mask R-CNN" (items 7 and 8) means its Keras / TensorFlow 1
+finding of the repository audit of 2026-10-10. "Mask R-CNN" (item 8) means its Keras / TensorFlow 1
 implementation (matterport, commit `3deaec5`), whose files `model.py`, `utils.py` and `config.py` are those of `mrcnn/`.
 
 ## Table Of Content
@@ -15,19 +15,6 @@ implementation (matterport, commit `3deaec5`), whose files `model.py`, `utils.py
 - [J. Self-supervised counted shapes: tests left to run](#j-self-supervised-counted-shapes-tests-left-to-run)
 
 ## B. Instance segmentation
-7. **Region proposal and detection heads shared by the levels**, as the mask heads now are:
-   - **Mask R-CNN:** `build_fpn_mask_graph` is built once (`model.py:956-1005`) and receives the RoIs of every level
-     through `PyramidROIAlign`. The box head and the region proposal head are shared the same way
-     (`model.py:1939-1944`).
-   - **Here:** `MaskHead.shared: True` gives one mask head read by every level, each box pooled at the scale of its
-     level (no per-level 1×1 convolution, so it needs equal level channels). Stage 5 of
-     `instance_segmentation_experiment_plan.md` tied with per-level heads on the score (+0.0050 at 10,000, inside the
-     launch gap) while leading at every evaluation, gaining 0.0169 on the large objects and cutting the mask branch
-     of the export by 3.3, and the user kept it on 2026-11-21. The region proposal and detection heads are still one
-     per level.
-   - **Change:** the same switch for `RegionProposal` and `Detector`, one head trained on the anchors or proposals of
-     every level, whose export runs once instead of once per level.
-   - **Measure:** box mAP overall and by object size, and the export throughput, as stage 5 measured the masks.
 8. **Ground truth masks cropped to their boxes ("mini masks")**:
    - **Mask R-CNN:** `USE_MINI_MASK` and `MINI_MASK_SHAPE` (56 × 56) (`config.py:103-104`): each mask is cropped to its
      box and resized (`minimize_mask`, `utils.py:517-534`), and the mask target of a RoI is cropped from that small
@@ -46,22 +33,15 @@ implementation (matterport, commit `3deaec5`), whose files `model.py`, `utils.py
      for large objects. Only worth doing if memory or loader throughput becomes the limit.
 
 ## C. Evaluation and deployment
-41. **What the TensorRT engine check leaves open**: since 2026-11-27 the keypoint detector serves with TensorRT, the
-    `config.pbtxt` of the export sets no TensorRT workspace limit, and the engine check of `export_model.py` accepts an
-    FP32 engine within the TF32 roundings of the eager model (`TF32_DIFFERENCE_FACTOR` of `tensorrt_check.py`). Left:
-    - **The FP16 engine of M2M fails its check**: 2.53e-02 against 1e-02, at the tolerances multiplied by 100 for FP16
-      (`HALF_PRECISION_TOLERANCE_FACTOR`), while the serving benchmark measured its test accuracy at +0.02 points of
-      the eager model. Either a factor per task for the recurrent sequence models, or a check on the test metric (the
-      test split parity) rather than on the outputs.
+41. **What the TensorRT engine check leaves open**: the engine check of `export_model.py` accepts an FP32 or FP16
+    engine within the measured roundings of its reduced precision (`REDUCED_PRECISION_DIFFERENCE_FACTOR` of
+    `tensorrt_check.py`). Left:
     - **Only the batches of the check are built**: the check builds the engine of its batches of 3, and ONNX Runtime
       builds the engine of every larger batch at its first request in Triton, unchecked. Explicit
       `trt_profile_min_shapes`, `trt_profile_opt_shapes` and `trt_profile_max_shapes` in `config.pbtxt` would cover
       the largest batch by construction, at the cost of building the largest engine at every export (M2M 7.2 GiB at
       16 sequences of 50 frames, the sequence models at 512 pixels about 29 GiB estimated). Whether the ONNX Runtime
       backend of Triton 26.01 passes these keys is unchecked.
-    - **The SEL tutorial run holds two `class_thresholds.json`** (in `Evaluation/` and `Checkpoint_Evaluation/`): its
-      export installs the network, then raises in `build_decoding_settings` (`find_class_thresholds_path`), so the
-      decoder and the ensembles are never written.
     - **Report the ONNX Runtime bug upstream**: its TensorRT execution provider (1.20.1 and 1.23.2) left the values of
       a top-k, a graph output beside indices with three consumers, out of its engine, which crashed Triton (signal 11).
       The reproduction is kept outside the repository, in
