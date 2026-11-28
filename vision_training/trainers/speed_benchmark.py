@@ -5,7 +5,9 @@ a task and the inference of its model in PyTorch and in every format served by T
 ONNX Runtime with TensorRT in FP32 and FP16), on one batch of the training loader kept in memory and tiled to any batch
 size, so that neither the loader nor the processor limits the measured speed. The module holds the memory cap keeping
 a margin of the machine free, the tiling of the batch, the timing, the search of the largest batch size that fits, the
-export and opening of every format, and the tables of the console report.
+export and opening of every format, and the console output: the panel announcing the numbered steps, the progress
+lines of every step, and the report (an overview panel, then a training panel and an inference panel, each naming the
+question it answers and what its timings include).
 """
 
 import gc
@@ -13,6 +15,8 @@ import math
 import os
 import statistics
 import subprocess
+import sys
+import tempfile
 import time
 import numpy as np
 import onnxruntime
@@ -21,17 +25,22 @@ import torch
 from contextlib import contextmanager
 from functools import partial
 from pathlib import Path
-from rich.padding import Padding
+from rich import box
+from rich.console import Console, Group, RenderableType
+from rich.panel import Panel
 from rich.rule import Rule
+from rich.table import Table
 from rich.text import Text
 from torch import nn
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, TypedDict
 
-from vision_training.core.contracts import EvaluationTable
 from vision_training.deployment.export_formats import export_onnx, export_torchscript, hide_known_export_warnings
 from vision_training.deployment.export_specifications import create_random_inputs
-from vision_training.evaluation.report_formatting import (HEADER_SEPARATOR, HEADER_STYLE, NOTE_STYLE, REPORT_INDENT,
-                                                          build_table_renderables, print_report)
+from vision_training.evaluation.report_formatting import (HEADER_SEPARATOR, HEADER_STYLE, LEGEND_STYLE,
+                                                          MISSING_VALUE_TEXT, NOTE_STYLE, REPORT_WIDTH,
+                                                          TABLE_HEADER_STYLE, format_percentage,
+                                                          format_percentage_label, print_report)
+from vision_training.trainers.metric_tracking import MetricTracker
 
 # Untimed run before every measurement, of at least this time and this number of iterations, so that the allocator,
 # the choice of the cuDNN algorithms and the TensorRT engine builds are done before the timed iterations
@@ -62,21 +71,51 @@ BYTES_PER_GIGABYTE = 10 ** 9
 CUDA_PROVIDER = "CUDAExecutionProvider"
 TENSORRT_PROVIDER = "TensorrtExecutionProvider"
 
-# Formats of the inference measured by the benchmark, in the order of the report: their name, the precision of their
-# computation and the ONNX Runtime provider running them (None for the PyTorch formats). The PyTorch evaluation is the
-# predict_batch of the test evaluation of the trainer, the inference model the network every export traces
-INFERENCE_FORMATS = [{"name": "PyTorch Evaluation", "precision": "FP32", "provider": None},
-                     {"name": "PyTorch Inference Model", "precision": "FP32", "provider": None},
-                     {"name": "TorchScript", "precision": "FP32", "provider": None},
-                     {"name": "ONNX Runtime CUDA", "precision": "FP32", "provider": CUDA_PROVIDER},
-                     {"name": "ONNX Runtime TensorRT", "precision": "FP32", "provider": TENSORRT_PROVIDER},
-                     {"name": "ONNX Runtime TensorRT", "precision": "FP16", "provider": TENSORRT_PROVIDER}]
+# Groups of the inference formats in the report: the PyTorch passes run by the code of the repository, and the exported
+# files the deployment serves with Triton
+REPOSITORY_GROUP = "Inside this repository (Python, never served)"
+TRITON_GROUP = "Served by Triton"
 
-# Status of a row of the report
-MEASURED_STATUS = "Measured"
-OUT_OF_MEMORY_STATUS = "Out Of Memory"
-NOT_AVAILABLE_STATUS = "Not Available"
-FORMAT_FAILED_STATUS = "Failed"
+# Formats of the inference measured by the benchmark, in the order of the report: their identifier, the name the report
+# and the console give them, their group, the precision of their computation and the ONNX Runtime provider running them
+# (None for the PyTorch formats). The test evaluation is the predict_batch of the trainer, the network before export the
+# inference model every export traces, the reference of the speed-up column of the report
+REFERENCE_FORMAT_NAME = "PyTorch Inference Model"
+INFERENCE_FORMATS = [{"name": "PyTorch Evaluation", "label": "Test evaluation (predict_batch)",
+                      "group": REPOSITORY_GROUP, "precision": "FP32", "provider": None},
+                     {"name": REFERENCE_FORMAT_NAME, "label": "Network before export (reference)",
+                      "group": REPOSITORY_GROUP, "precision": "FP32", "provider": None},
+                     {"name": "TorchScript", "label": "TorchScript file, PyTorch backend", "group": TRITON_GROUP,
+                      "precision": "FP32", "provider": None},
+                     {"name": "ONNX Runtime CUDA", "label": "ONNX file, ONNX Runtime CUDA", "group": TRITON_GROUP,
+                      "precision": "FP32", "provider": CUDA_PROVIDER},
+                     {"name": "ONNX Runtime TensorRT", "label": "ONNX file, TensorRT FP32", "group": TRITON_GROUP,
+                      "precision": "FP32", "provider": TENSORRT_PROVIDER},
+                     {"name": "ONNX Runtime TensorRT", "label": "ONNX file, TensorRT FP16 (half precision)",
+                      "group": TRITON_GROUP, "precision": "FP16", "provider": TENSORRT_PROVIDER}]
+
+# Status of a row of the report, written in its cells and in the progress lines of the console
+MEASURED_STATUS = "done"
+OUT_OF_MEMORY_STATUS = "out of memory"
+NOT_AVAILABLE_STATUS = "not available"
+FORMAT_FAILED_STATUS = "failed"
+
+# Spread of the timing windows (slowest minus fastest, relative to their median) above which a timing is marked
+# unsteady in the report, e.g. while other work shares the GPU
+UNSTEADY_SPREAD = 0.10
+UNSTEADY_MARK = " *"
+
+# Smallest width of a value column of the inference table, that of its longest status ('not available')
+STATUS_COLUMN_WIDTH = len(NOT_AVAILABLE_STATUS)
+
+# Styles of the console output of the benchmark: its panels, the step numbers of the progress lines, the group rows of
+# the inference table and the batch sizes that fit, and the indentation of the progress lines below their step
+PANEL_BORDER_STYLE = "cyan"
+PROGRESS_PANEL_BORDER_STYLE = "blue"
+STEP_STYLE = "bold blue"
+GROUP_STYLE = "italic"
+SUCCESS_STYLE = "green"
+PROGRESS_INDENT = "      "
 
 # Daemon of the CUDA Multi-Process Service, listed by nvidia-smi among the GPU processes without running any work
 MULTI_PROCESS_SERVICE_NAME = "nvidia-cuda-mps-server"
@@ -114,10 +153,11 @@ class TimingMeasurement(TypedDict):
 
 class BenchmarkRow(TypedDict):
     """
-    Row of a table of the report: the configured or largest training batch, or one inference format at one batch size,
-    with its batch size (None for a format that could not be opened), its measurement (None when it could not be
-    measured), its status and the real frames of its batch for the frame throughput of the sequence tasks (None for
-    the image tasks).
+    Row of a table of the report: the configured or largest training batch ('configured', 'largest that fits'), or one
+    inference format at one batch size (the label of the format), with its batch size (None for a format that could not
+    be opened), its measurement (None when it could not be measured), its status, the real frames of its batch for the
+    frame throughput of the sequence tasks (None for the image tasks), and the error of a failed format, written in the
+    notes of the report (None otherwise).
     """
     label: str
     precision: str
@@ -125,6 +165,7 @@ class BenchmarkRow(TypedDict):
     measurement: Optional[TimingMeasurement]
     status: str
     frames_per_batch: Optional[int]
+    failure_reason: Optional[str]
 
 
 def get_device_index(device: torch.device) -> int:
@@ -232,6 +273,35 @@ def release_cached_memory() -> None:
     """
     gc.collect()
     torch.cuda.empty_cache()
+
+
+@contextmanager
+def capture_native_error_output() -> Iterator[Dict[str, bool]]:
+    """
+    Captures what the native libraries write to the error stream (file descriptor 2) during a probe or a timing of the
+    speed benchmark: an out of memory error raised inside a torchvision operator makes libtorch write its whole C++
+    stack trace there, outside Python, in the middle of the progress line of the search. The caller sets
+    'out_of_memory' when the error was the expected lack of memory, whose output is then dropped, the batch size being
+    reported as too large; any other output is written back to the error stream when the block ends.
+
+    Yields:
+        Dict[str, bool]: The outcome of the block, whose 'out_of_memory' the caller sets to True to drop the output.
+    """
+    sys.stderr.flush()
+    saved_descriptor = os.dup(2)
+    outcome = {"out_of_memory": False}
+    with tempfile.TemporaryFile() as captured_file:
+        os.dup2(captured_file.fileno(), 2)
+        try:
+            yield outcome
+        finally:
+            # Error stream given back, the captured output written to it unless it belongs to a lack of memory
+            sys.stderr.flush()
+            os.dup2(saved_descriptor, 2)
+            os.close(saved_descriptor)
+            if not outcome["out_of_memory"]:
+                captured_file.seek(0)
+                os.write(2, captured_file.read())
 
 
 def is_out_of_memory_error(error: Exception) -> bool:
@@ -511,7 +581,7 @@ def open_export_format(inference_format: Dict[str, Any], inference_model: nn.Mod
             (prepared_batch, inference_inputs) and None, or None and the reason why the format cannot be measured.
     """
     # Eager inference model, the network every export traces
-    if inference_format["name"] == "PyTorch Inference Model":
+    if inference_format["name"] == REFERENCE_FORMAT_NAME:
         return partial(run_torch_module, module=inference_model), None
 
     # TorchScript file, loaded on the GPU like the Triton PyTorch backend loads it
@@ -626,100 +696,455 @@ def format_gigabytes(number_bytes: int) -> str:
     return f"{number_bytes / BYTES_PER_GIGABYTE:.1f}"
 
 
-def build_row_cells(row: BenchmarkRow, counts_frames: bool) -> List[Any]:
+def describe_timing() -> str:
     """
-    Writes the measured cells of a row of the report, after its label columns: the milliseconds per batch, the samples
-    (and real frames) per second, the spread of the windows (a rate shown as a percentage) and the peak memory in
-    gigabytes (unmeasured for the ONNX Runtime formats, whose memory is outside PyTorch), None for a row without
-    measurement, written "—".
-
-    Args:
-        row (BenchmarkRow): The row.
-        counts_frames (bool): Whether the frame throughput column exists (sequence tasks).
+    Writes how every cell of the report was timed (measure_iteration_time), for the plan printed when the benchmark
+    starts and for the overview of its report, from the timing constants read when it is called.
 
     Returns:
-        List[Any]: The cells.
+        str: The sentence, e.g. '2 seconds of warm-up, then 5 seconds timed in 5 windows; every cell is the median
+            window'.
     """
-    measurement = row["measurement"]
-    if measurement is None:
-        return [None, None] + ([None] if counts_frames else []) + [None, None, row["status"]]
-    seconds = measurement["seconds_per_iteration"]
-    cells = [f"{1000.0 * seconds:.2f}", f"{row['batch_size'] / seconds:.1f}"]
-    if counts_frames:
-        cells.append(f"{row['frames_per_batch'] / seconds:.1f}")
-    spread = (measurement["slowest_seconds"] - measurement["fastest_seconds"]) / seconds
-    peak_memory = None if measurement["peak_memory_bytes"] is None else \
-        format_gigabytes(number_bytes=measurement["peak_memory_bytes"])
-    return cells + [spread, peak_memory, row["status"]]
+    return (f"{WARM_UP_SECONDS:g} seconds of warm-up, then {MEASURED_SECONDS:g} seconds timed in "
+            f"{NUMBER_TIMING_WINDOWS} windows; every cell is the median window")
 
 
-def build_training_table(rows: List[BenchmarkRow], sample_name: str, counts_frames: bool,
-                         legend: str) -> EvaluationTable:
+def join_with_and(texts: List[str]) -> str:
     """
-    Builds the training table of the report: the configured batch size and the largest batch size found, with the time
-    of a training step, the throughput, the spread of the windows and the peak memory.
+    Joins the parts of a sentence of the console output of the benchmark with commas and a final 'and', such as the
+    batch sizes of a step ('1, 64 and 152') or the operations of a training step.
+
+    Args:
+        texts (List[str]): The parts, at least one.
+
+    Returns:
+        str: The joined parts.
+    """
+    return texts[0] if len(texts) == 1 else f"{', '.join(texts[:-1])} and {texts[-1]}"
+
+
+def pad_format_label(label: str) -> str:
+    """
+    Pads the label of an inference format to the width of the longest one, so that the results of every format start
+    in the same column of the progress lines.
+
+    Args:
+        label (str): The label of the format, from INFERENCE_FORMATS.
+
+    Returns:
+        str: The padded label.
+    """
+    return label.ljust(max(len(inference_format["label"]) for inference_format in INFERENCE_FORMATS) + 3)
+
+
+def print_export_results(exported_files: Dict[str, Dict[str, Any]]) -> None:
+    """
+    Prints the progress lines of the export step of the benchmark: every file written, or the reason why it was not
+    (e.g. no GPU provider of ONNX Runtime, whose formats are then not available).
+
+    Args:
+        exported_files (Dict[str, Dict[str, Any]]): The files written by export_benchmark_formats.
+    """
+    for file_key, file_name in [("torchscript", "TorchScript file"), ("onnx", "ONNX file")]:
+        if exported_files[file_key]["path"] is not None:
+            print_progress_line(text=f"{file_name} written", style=SUCCESS_STYLE)
+        else:
+            print_progress_line(text=f"{file_name} not written: {exported_files[file_key]['error']}", style=NOTE_STYLE)
+
+
+def create_progress_console() -> Console:
+    """
+    Creates the console of the progress lines of the benchmark, writing to the current standard output without
+    highlighting and without wrapping, so that the results of a step can be appended to its line as they come.
+
+    Returns:
+        Console: The console.
+    """
+    return Console(highlight=False, emoji=False, soft_wrap=True)
+
+
+def print_benchmark_plan(introduction_lines: List[str], step_titles: List[str], warning_lines: List[str]) -> None:
+    """
+    Prints the panel opening the speed benchmark, once its memory budget is set: what the benchmark does, the numbered
+    steps that the progress lines then follow, how every cell is timed, and the warnings (other processes on the GPU).
+
+    Args:
+        introduction_lines (List[str]): The lines saying what is measured, on which batch and in which memory.
+        step_titles (List[str]): The steps, in order, numbered as the progress lines number them.
+        warning_lines (List[str]): The warnings, written in the colour of the notes.
+    """
+    content: List[RenderableType] = [Text(text=line) for line in introduction_lines]
+    content += [Text(text=" "), Text(text="Steps", style="bold")]
+    content += [Text(text=f"  {step_number}. {step_title}")
+                for step_number, step_title in enumerate(step_titles, start=1)]
+    content += [Text(text=f"Every timing: {describe_timing()}.", style=LEGEND_STYLE)]
+    content += [Text(text=line, style=NOTE_STYLE) for line in warning_lines]
+    console = Console(width=REPORT_WIDTH, highlight=False, emoji=False)
+    console.print(Panel(renderable=Group(*content), title=Text(text="Speed Benchmark", style="bold"),
+                        title_align="left", border_style=PROGRESS_PANEL_BORDER_STYLE))
+
+
+def print_step_title(step_number: int, number_steps: int, title: str) -> None:
+    """
+    Prints the title line of one step of the benchmark, numbered as in the opening panel, e.g. '[3/5] Timing the
+    inference at batch 1, 64 and 152'.
+
+    Args:
+        step_number (int): The number of the step, from 1.
+        number_steps (int): The number of steps of the benchmark.
+        title (str): The title of the step.
+    """
+    create_progress_console().print(Text.assemble((f"[{step_number}/{number_steps}] ", STEP_STYLE), (title, "bold")))
+
+
+def print_progress_text(text: str, style: str, indent: bool) -> None:
+    """
+    Appends a part to the current progress line of a step (a batch size that fits, a timed batch size), without ending
+    the line, so that the results of the step show as they come.
+
+    Args:
+        text (str): The part.
+        style (str): Its rich style, "" for none.
+        indent (bool): Whether the part opens the line, indented below the title of its step.
+    """
+    create_progress_console().print(Text(text=(PROGRESS_INDENT if indent else "") + text, style=style), end="")
+
+
+def end_progress_line() -> None:
+    """
+    Ends the current progress line of a step.
+    """
+    create_progress_console().print()
+
+
+def print_progress_line(text: str, style: str) -> None:
+    """
+    Prints a whole progress line below the title of its step, e.g. the error of a failed format.
+
+    Args:
+        text (str): The line.
+        style (str): Its rich style, "" for none.
+    """
+    create_progress_console().print(Text(text=PROGRESS_INDENT + text, style=style))
+
+
+def get_status_style(status: str) -> str:
+    """
+    Gives the style of a status in the progress lines and in the cells of the report: green when measured, the colour
+    of the notes otherwise (out of memory, failed, not available).
+
+    Args:
+        status (str): The status of the row.
+
+    Returns:
+        str: The rich style.
+    """
+    return SUCCESS_STYLE if status == MEASURED_STATUS else NOTE_STYLE
+
+
+def measure_spread(measurement: TimingMeasurement) -> float:
+    """
+    Gives the spread of the timing windows of a measurement: the gap between its slowest and fastest windows relative
+    to their median, above UNSTEADY_SPREAD when other work shared the GPU or its clock changed during the timing.
+
+    Args:
+        measurement (TimingMeasurement): The measurement.
+
+    Returns:
+        float: The spread, 0.1 for 10 %.
+    """
+    return (measurement["slowest_seconds"] - measurement["fastest_seconds"]) / measurement["seconds_per_iteration"]
+
+
+def build_timing_text(value_text: str, measurement: TimingMeasurement) -> Text:
+    """
+    Writes a timed value of the report, followed by UNSTEADY_MARK when its timing windows spread more than
+    UNSTEADY_SPREAD, so that an unreliable number is never read as a reliable one.
+
+    Args:
+        value_text (str): The value.
+        measurement (TimingMeasurement): The measurement of the value.
+
+    Returns:
+        Text: The value, marked when unsteady.
+    """
+    text = Text(text=value_text)
+    if measure_spread(measurement=measurement) > UNSTEADY_SPREAD:
+        text.append(text=UNSTEADY_MARK, style=NOTE_STYLE)
+    return text
+
+
+def format_speed(value: float, decimals: int) -> str:
+    """
+    Writes a time or a throughput of the report with its digits grouped by three, as the console summaries of the
+    training write them.
+
+    Args:
+        value (float): The value.
+        decimals (int): The number of decimals.
+
+    Returns:
+        str: The value, e.g. '1 120.8'.
+    """
+    return MetricTracker.format_grouped_number(value=value, decimals=decimals)
+
+
+def describe_steadiness(rows: List[BenchmarkRow]) -> Optional[str]:
+    """
+    Writes the note of a table of the report on the spread of its timing windows: the largest spread when every timing
+    is steady, otherwise what the UNSTEADY_MARK of the unsteady cells means and how many there are.
+
+    Args:
+        rows (List[BenchmarkRow]): The rows of the table.
+
+    Returns:
+        Optional[str]: The note, None when the table has no measurement.
+    """
+    spreads = [measure_spread(measurement=row["measurement"]) for row in rows if row["measurement"] is not None]
+    if not spreads:
+        return None
+    number_unsteady = sum(spread > UNSTEADY_SPREAD for spread in spreads)
+    if number_unsteady == 0:
+        return (f"Timings steady: the timing windows of every cell are within {format_percentage(value=max(spreads))} "
+                f"of each other.")
+    return (f"{UNSTEADY_MARK.strip()} Unsteady timing ({number_unsteady} of {len(spreads)}): its slowest and fastest "
+            f"timing windows differ by more than {format_percentage_label(value=UNSTEADY_SPREAD)} (up to "
+            f"{format_percentage(value=max(spreads))}), e.g. while other work shares the GPU; run again on an idle "
+            f"GPU to trust it.")
+
+
+def build_training_table(rows: List[BenchmarkRow], sample_name: str, counts_frames: bool) -> Table:
+    """
+    Builds the table of the training section of the report: one row per batch size (the configured one and the largest
+    that fits), with the time of a training step, the throughput (and the frame throughput of the sequence tasks) and
+    the peak memory, or the status of a batch size that could not be timed.
 
     Args:
         rows (List[BenchmarkRow]): The rows of the configured and largest batch sizes.
         sample_name (str): The kind of sample of the task, 'Images', 'Sequences' or 'Pairs'.
         counts_frames (bool): Whether a frame throughput column is added (sequence tasks).
-        legend (str): The lines written below the table.
 
     Returns:
-        EvaluationTable: The table.
+        Table: The rich table.
     """
-    columns = ["Batch", "Batch\nSize", "Milliseconds\nPer Iteration", f"{sample_name}\nPer Second"] + \
-        (["Frames\nPer Second"] if counts_frames else []) + ["Window\nSpread", "Peak Memory\n(GB)", "Status"]
-    table_rows = [[row["label"], row["batch_size"]] + build_row_cells(row=row, counts_frames=counts_frames)
-                  for row in rows]
-    return {"title": "Training Step", "columns": columns, "rows": table_rows, "sort_column": None, "per_class": False,
-            "legend": legend, "percent_columns": ["Window\nSpread"]}
+    columns = ["Batch Size", "Milliseconds\nPer Step", f"{sample_name}\nPer Second"] + \
+        (["Frames\nPer Second"] if counts_frames else []) + ["Peak Memory\n(GB)"]
+    table = Table(box=box.SIMPLE_HEAD, show_edge=False, header_style=TABLE_HEADER_STYLE)
+    for column_index, column_name in enumerate(columns):
+        table.add_column(header=Text(text=column_name), justify="left" if column_index == 0 else "right", no_wrap=True)
+
+    # Every batch size with its timing, or its status in the place of the timing
+    for row in rows:
+        label = Text(text=f"{row['batch_size']}  ({row['label']})")
+        measurement = row["measurement"]
+        if measurement is None:
+            table.add_row(label, Text(text=row["status"], style=get_status_style(status=row["status"])),
+                          *[Text(text=MISSING_VALUE_TEXT)] * (len(columns) - 2))
+            continue
+        seconds = measurement["seconds_per_iteration"]
+        milliseconds_text = format_speed(value=1000.0 * seconds, decimals=2)
+        cells = [build_timing_text(value_text=milliseconds_text, measurement=measurement),
+                 Text(text=format_speed(value=row["batch_size"] / seconds, decimals=1))]
+        if counts_frames:
+            cells.append(Text(text=format_speed(value=row["frames_per_batch"] / seconds, decimals=1)))
+        cells.append(Text(text=format_gigabytes(number_bytes=measurement["peak_memory_bytes"])))
+        table.add_row(label, *cells)
+    return table
 
 
-def build_inference_table(rows: List[BenchmarkRow], sample_name: str, counts_frames: bool,
-                          legend: str) -> EvaluationTable:
+def describe_inference_column(batch_size: int, configured_batch_size: int, largest_batch_size: int,
+                              sample_name: str, counts_frames: bool) -> str:
     """
-    Builds the inference table of the report: every format at every inference batch size, with the time of a pass,
-    the throughput, the spread of the windows, the peak memory and the status of the row.
+    Writes the header of one batch size column of the inference table on four lines, so that the columns stay narrow:
+    the batch size, its role (configured, largest that fits, or none), then its unit, the milliseconds per sample at a
+    batch of 1 (the latency of a request alone), the samples per second otherwise (with the frames per second in
+    brackets for the sequence tasks).
+
+    Args:
+        batch_size (int): The batch size of the column.
+        configured_batch_size (int): The batch size of the configuration.
+        largest_batch_size (int): The largest inference batch size that fits.
+        sample_name (str): The kind of sample of the task, 'Images', 'Sequences' or 'Pairs'.
+        counts_frames (bool): Whether the frames per second are written in brackets (sequence tasks).
+
+    Returns:
+        str: The header, on four lines.
+    """
+    roles = (["Configured"] if batch_size == configured_batch_size else []) + \
+        (["Largest"] if batch_size == largest_batch_size else [])
+    if batch_size == 1:
+        return f"Batch 1\n{', '.join(roles)}\nMilliseconds\nPer {sample_name[:-1]}"
+    return f"Batch {batch_size}\n{', '.join(roles)}\n{sample_name}\nPer Second" + (" (Frames)" if counts_frames else "")
+
+
+def build_inference_cell(row: Optional[BenchmarkRow], counts_frames: bool) -> Text:
+    """
+    Writes one cell of the inference table: at a batch of 1 the milliseconds per sample, otherwise the samples per
+    second (and the frames per second in brackets for the sequence tasks), the status of a batch size that could not be
+    timed, or '—' when the format has no row at this batch size.
+
+    Args:
+        row (Optional[BenchmarkRow]): The row of the format at the batch size of the column, None when there is none.
+        counts_frames (bool): Whether the frames per second are added (sequence tasks).
+
+    Returns:
+        Text: The cell.
+    """
+    if row is None:
+        return Text(text=MISSING_VALUE_TEXT)
+    measurement = row["measurement"]
+    if measurement is None:
+        return Text(text=row["status"], style=get_status_style(status=row["status"]))
+    seconds = measurement["seconds_per_iteration"]
+    if row["batch_size"] == 1:
+        return build_timing_text(value_text=format_speed(value=1000.0 * seconds, decimals=2), measurement=measurement)
+    value_text = format_speed(value=row["batch_size"] / seconds, decimals=1)
+    if counts_frames:
+        value_text += f" ({format_speed(value=row['frames_per_batch'] / seconds, decimals=1)})"
+    return build_timing_text(value_text=value_text, measurement=measurement)
+
+
+def compute_speed_ups(rows: List[BenchmarkRow], batch_size: int) -> Dict[str, float]:
+    """
+    Gives the speed-up of every format measured at a batch size over the network before export (REFERENCE_FORMAT_NAME)
+    at the same batch size, the throughput of the format divided by that of the reference.
+
+    Args:
+        rows (List[BenchmarkRow]): The rows of the inference table.
+        batch_size (int): The batch size of the comparison, the configured one when it fits.
+
+    Returns:
+        Dict[str, float]: The speed-up of every measured format by its label, empty when the reference was not
+            measured at this batch size.
+    """
+    reference_label = [inference_format["label"] for inference_format in INFERENCE_FORMATS
+                       if inference_format["name"] == REFERENCE_FORMAT_NAME][0]
+    throughputs = {row["label"]: row["batch_size"] / row["measurement"]["seconds_per_iteration"] for row in rows
+                   if row["batch_size"] == batch_size and row["measurement"] is not None}
+    if reference_label not in throughputs:
+        return {}
+    return {label: throughput / throughputs[reference_label] for label, throughput in throughputs.items()}
+
+
+def build_inference_table(rows: List[BenchmarkRow], configured_batch_size: int, largest_batch_size: int,
+                          sample_name: str, counts_frames: bool) -> Table:
+    """
+    Builds the table of the inference section of the report: one row per format, grouped into the passes of the
+    repository and the files served by Triton, one column per batch size (1, the configured one, the largest that
+    fits), and the speed-up of every format over the network before export at the configured batch size (the largest
+    one when the configured one does not fit). A format that could not be opened gives its status in its first cell.
 
     Args:
         rows (List[BenchmarkRow]): The rows of every format and batch size.
+        configured_batch_size (int): The batch size of the configuration.
+        largest_batch_size (int): The largest inference batch size that fits, 0 when none does.
         sample_name (str): The kind of sample of the task, 'Images', 'Sequences' or 'Pairs'.
-        counts_frames (bool): Whether a frame throughput column is added (sequence tasks).
-        legend (str): The lines written below the table.
+        counts_frames (bool): Whether the frames per second are added (sequence tasks).
 
     Returns:
-        EvaluationTable: The table.
+        Table: The rich table.
     """
-    columns = ["Format", "Precision", "Batch\nSize", "Milliseconds\nPer Batch", f"{sample_name}\nPer Second"] + \
-        (["Frames\nPer Second"] if counts_frames else []) + ["Window\nSpread", "Peak Memory\n(GB)", "Status"]
-    table_rows = [[row["label"], row["precision"], row["batch_size"]] +
-                  build_row_cells(row=row, counts_frames=counts_frames) for row in rows]
-    return {"title": "Inference", "columns": columns, "rows": table_rows, "sort_column": None, "per_class": False,
-            "legend": legend, "percent_columns": ["Window\nSpread"]}
+    batch_sizes = sorted({row["batch_size"] for row in rows if row["batch_size"] is not None})
+    comparison_batch_size = configured_batch_size if configured_batch_size in batch_sizes else max(batch_sizes,
+                                                                                                    default=0)
+    speed_ups = compute_speed_ups(rows=rows, batch_size=comparison_batch_size)
+
+    # Columns of the batch sizes (a single status column when not even one sample fits) and of the speed-up
+    table = Table(box=box.SIMPLE_HEAD, show_edge=False, header_style=TABLE_HEADER_STYLE)
+    table.add_column(header=Text(text="What Runs"), justify="left", vertical="bottom", no_wrap=True)
+    column_headers = [describe_inference_column(batch_size=batch_size, configured_batch_size=configured_batch_size,
+                                                largest_batch_size=largest_batch_size, sample_name=sample_name,
+                                                counts_frames=counts_frames) for batch_size in batch_sizes]
+    column_headers = column_headers or ["Result"]
+    if speed_ups:
+        column_headers.append(f"Speed-Up\nAt Batch\n{comparison_batch_size}")
+    for column_header in column_headers:
+        table.add_column(header=Text(text=column_header), justify="right", vertical="bottom", no_wrap=True,
+                         min_width=STATUS_COLUMN_WIDTH)
+
+    # Every group with a title row, then its formats indented below it
+    for group in dict.fromkeys(inference_format["group"] for inference_format in INFERENCE_FORMATS):
+        group_formats = [inference_format for inference_format in INFERENCE_FORMATS
+                         if inference_format["group"] == group and
+                         any(row["label"] == inference_format["label"] for row in rows)]
+        if not group_formats:
+            continue
+        table.add_row(Text(text=group, style=GROUP_STYLE), *[Text(text="")] * len(column_headers))
+        for inference_format in group_formats:
+            format_rows = {row["batch_size"]: row for row in rows if row["label"] == inference_format["label"]}
+
+            # A format that could not be opened gives its status once, the others a cell per batch size
+            if None in format_rows:
+                status = format_rows[None]["status"]
+                cells = [Text(text=status, style=get_status_style(status=status))] + \
+                    [Text(text=MISSING_VALUE_TEXT)] * (len(column_headers) - 1)
+            else:
+                cells = [build_inference_cell(row=format_rows[batch_size] if batch_size in format_rows else None,
+                                              counts_frames=counts_frames) for batch_size in batch_sizes]
+                if speed_ups:
+                    cells.append(Text(text=f"{speed_ups[inference_format['label']]:.2f} x"
+                                      if inference_format["label"] in speed_ups else MISSING_VALUE_TEXT))
+            table.add_row(Text(text=f"  {inference_format['label']}"), *cells)
+    return table
 
 
-def print_speed_benchmark_report(header: str, information_lines: List[str], warning_lines: List[str],
-                                 tables: List[EvaluationTable]) -> None:
+def build_section_panel(title: str, description: str, table: Table, notes: List[str],
+                        warning_notes: List[str]) -> Panel:
     """
-    Prints the report of the speed benchmark in the layout of the evaluation reports: a header rule, the information
-    lines (device, memory budget, batch, weights), the warnings in the colour of the notes of the reports, then every
-    table with its title and legend.
+    Lays out one section of the report (training or inference) in a panel: the question it answers as its title, what
+    its timings include, its table, then its notes and its warnings (formats not available or failed).
+
+    Args:
+        title (str): The title of the panel, e.g. '1 · Training : how long will the training take?'.
+        description (str): What the timings of the section include and leave out.
+        table (Table): The table of the section.
+        notes (List[str]): The notes written below the table.
+        warning_notes (List[str]): The notes written after them in the colour of the notes.
+
+    Returns:
+        Panel: The panel.
+    """
+    content: List[RenderableType] = [Text(text=description), Text(text=" "), table, Text(text=" ")]
+    content += [Text(text=note, style=LEGEND_STYLE) for note in notes]
+    content += [Text(text=note, style=NOTE_STYLE) for note in warning_notes]
+    return Panel(renderable=Group(*content), title=Text(text=title, style="bold"), title_align="left",
+                 border_style=PANEL_BORDER_STYLE)
+
+
+def build_overview_panel(introduction: str, overview_items: List[Tuple[str, str]], warning_lines: List[str]) -> Panel:
+    """
+    Lays out the overview opening the report in a panel: what the benchmark measures, then a line per setting of the
+    measurement (GPU, memory, batch, weights, timing), and the warnings (other processes on the GPU, initial weights).
+
+    Args:
+        introduction (str): The sentence saying what the benchmark measures.
+        overview_items (List[Tuple[str, str]]): The name and the value of every setting.
+        warning_lines (List[str]): The warnings, written in the colour of the notes.
+
+    Returns:
+        Panel: The panel.
+    """
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(style="bold", no_wrap=True)
+    grid.add_column()
+    for item_name, item_value in overview_items:
+        grid.add_row(Text(text=item_name), Text(text=item_value))
+    content: List[RenderableType] = [Text(text=introduction), Text(text=" "), grid]
+    content += [Text(text=line, style=NOTE_STYLE) for line in warning_lines]
+    return Panel(renderable=Group(*content), title=Text(text="What Was Measured", style="bold"), title_align="left",
+                 border_style=PANEL_BORDER_STYLE)
+
+
+def print_speed_benchmark_report(header: str, panels: List[Panel]) -> None:
+    """
+    Prints the report of the speed benchmark at the width of the evaluation reports: a header rule naming the run, then
+    the overview panel and the panels of the training and inference sections.
 
     Args:
         header (str): The text of the header rule.
-        information_lines (List[str]): The lines written under the header.
-        warning_lines (List[str]): The lines written after them in the colour of the notes, e.g. a missing checkpoint.
-        tables (List[EvaluationTable]): The inference and training tables.
+        panels (List[Panel]): The overview panel, then the section panels.
     """
-    renderables = [Rule(title=Text(text=header, style=HEADER_STYLE), align="left")]
-    content = [Text(text=line) for line in information_lines] + [Text(text=line, style=NOTE_STYLE)
-                                                                  for line in warning_lines]
-    for table in tables:
-        content.append(Text(text=" "))
-        content += build_table_renderables(table=table)
-    renderables += [Padding(renderable=part, pad=(0, 0, 0, REPORT_INDENT)) for part in content]
-    print_report(renderables=renderables)
+    print_report(renderables=[Rule(title=Text(text=header, style=HEADER_STYLE), align="left"), *panels])
 
 
 def join_header_parts(parts: List[str]) -> str:
